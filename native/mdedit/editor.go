@@ -83,6 +83,9 @@ type Editor struct {
 	// docSrc is the source the parser and mask hold; empty when the parser
 	// must be given the whole source again.
 	docSrc string
+	// comments are the %%…%% spans of src: blanked in the mask so the parser
+	// reads none of their markdown, hidden by the view.
+	comments []cmt
 	// pending is the one source edit not yet given to the parser;
 	// pendingMulti says a committed step changed more than one range, which
 	// has to be replayed from the whole source.
@@ -375,6 +378,11 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 // incrementally; false means the whole source has to be read again.
 func (e *Editor) applyPending() bool {
 	p := e.pending
+	// A comment's extent depends on the whole document: an edit that types a
+	// %% or touches one may pair differently, so the mask starts over.
+	if strings.Contains(p.text, "%") || e.touchesComment(p.from, p.to) {
+		return false
+	}
 	next, from, to, repl, ok := editMask(e.mask, e.src, p.from, p.to, e.fm)
 	if !ok {
 		return false
@@ -385,11 +393,24 @@ func (e *Editor) applyPending() bool {
 	return true
 }
 
+// touchesComment reports whether the edit range reached a comment.
+func (e *Editor) touchesComment(from, to int) bool {
+	for _, c := range e.comments {
+		if from <= c.to && to >= c.from {
+			return true
+		}
+	}
+	return false
+}
+
 // parseAll gives the parser the whole source and rebuilds the mask with
 // it. This is the path of opening a document, undo, and edits that cannot
 // be described as one range.
 func (e *Editor) parseAll(fm int) {
-	masked := parserText(maskFrontMatter(e.src, fm))
+	// A comment is a block construct: blank it before the parser reads the
+	// source, so its markdown never becomes structure.
+	e.comments = commentRegions(e.src)
+	masked := parserText(blankComments(maskFrontMatter(e.src, fm), e.comments))
 	e.fm = fm
 	e.mask = []byte(masked)
 	e.doc.Set(masked)

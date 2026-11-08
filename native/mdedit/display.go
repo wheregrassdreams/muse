@@ -281,7 +281,7 @@ func (b *builder) inlines(ins []parser.Inline, from, to int, st istyle) {
 
 func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 	marks := highlights(b.src, ins, i, end)
-	cmts := comments(b.src, ins, i, end)
+	cmts := b.e.comments
 	// outer is whether the text was marked before the highlight it is in.
 	outer := false
 	for i < end {
