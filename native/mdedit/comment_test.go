@@ -21,13 +21,16 @@ func TestCommentsDrawNothing(t *testing.T) {
 	}
 }
 
-func TestBlockCommentHidesItsLines(t *testing.T) {
-	got := shown(t, "%%\n块注释\n%%\n")
-	if len(got) != 1 {
-		t.Fatalf("shows %q", got)
+func TestBlockCommentCollapses(t *testing.T) {
+	// A block comment takes its lines AND the break after it with it, so it
+	// leaves no blank line where it was.
+	got := shown(t, "%%\n块注释\n%%\n后文\n")
+	if len(got) != 1 || got[0] != "后文" {
+		t.Fatalf("a block comment shows %q", got)
 	}
-	if strings.Contains(got[0], "块注释") || strings.Contains(got[0], "%") {
-		t.Fatalf("the comment shows %q", got[0])
+	// An inline comment at the end of a line keeps that line's break.
+	if got := shown(t, "前 %%注释%%\n后\n"); len(got) != 1 || !strings.Contains(got[0], "\n") || !strings.HasPrefix(got[0], "前") {
+		t.Fatalf("an inline comment shows %q", got)
 	}
 }
 

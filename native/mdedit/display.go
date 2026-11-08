@@ -293,10 +293,19 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			st = b.text_(in.Start, in.End, st, marks, cmts, wikiLinks(b.src, in.Start, in.End), &outer)
 		case parser.SoftBreak, parser.LineBreak:
 			// A comment's line breaks are the comment's: hidden with it, so a
-			// `%%` block collapses instead of leaving blank lines behind.
+			// `%%` block collapses instead of leaving blank lines behind. The
+			// break right after a block comment goes too — but not the one
+			// after an inline comment mid-line, which separates two lines.
 			if c, ok := commentAt(cmts, in.Start); ok && !b.revealed(c.from, c.to) {
 				b.pos = in.End
 				break
+			}
+			if in.Start > 0 {
+				if c, ok := commentAt(cmts, in.Start-1); ok && c.to == in.Start &&
+					!b.revealed(c.from, c.to) && (c.from == 0 || b.src[c.from-1] == '\n') {
+					b.pos = in.End
+					break
+				}
 			}
 			// The break stands for the spaces before the next line's text
 			// too, which the parser skips.
