@@ -1,9 +1,11 @@
 // Package texcanvas paints go-tex's layout on a tdewolff/canvas.
 //
 // Adapted from github.com/luo-studio/go-tex/tex/canvasr (MIT), Copyright
-// ©2025 The go-tex Authors; see that project's LICENSE. Muse changes one
-// constant (ptPerUnit) and nothing else: the points-to-canvas-units
-// conversion the original leaves out.
+// ©2025 The go-tex Authors; see that project's LICENSE. Muse changes two
+// things, both reported upstream: ptPerUnit is the points-to-canvas-units
+// conversion the original leaves out (glyphs were drawn at 0.35× their size),
+// and drawRect scales and offsets its rule like drawLine and drawPath do
+// (fraction bars were drawn at the raw layout numbers).
 // Coordinate systems: the layout package uses SVG-style top-left origin
 // with Y growing downward, in em units; canvas uses bottom-left origin
 // with Y growing upward, in millimetres. We pass a Matrix that flips
@@ -138,10 +140,15 @@ func drawGlyph(ctx *canvas.Context, g layout.GlyphPath, opts Options) {
 const ptPerUnit = 72.0 / 25.4
 
 func drawRect(ctx *canvas.Context, r layout.Rect, opts Options) {
-	x := r.X
-	y := r.Y
-	w := r.Width
-	h := r.Height
+	// Muse: a rule is in the layout's units like every glyph: scale it and
+	// move it by the padding, as drawLine and drawPath do. The original
+	// draws it at the raw numbers — a fraction's bar at the wrong place and
+	// size, and no border at all on \boxed.
+	em := opts.FontSize
+	x := r.X*em + opts.Padding
+	y := r.Y*em + opts.Padding
+	w := r.Width * em
+	h := r.Height * em
 	if w <= 0 || h <= 0 {
 		return
 	}
