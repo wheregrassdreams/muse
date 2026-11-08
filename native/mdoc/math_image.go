@@ -42,13 +42,13 @@ var (
 // mathBitmap typesets a TeX expression with go-latex's engine (the same
 // family of MathJax/KaTeX-style layout used by Typora), then inverts it for
 // the dark theme. A cache keeps a formula from being re-rasterised each frame.
-func mathBitmap(expr string, size float64, dark bool) *ui.Bitmap {
-	return mathRendered(expr, size, dark).bmp
+func mathBitmap(expr string, size float64, dark bool, display bool) *ui.Bitmap {
+	return mathRendered(expr, size, dark, display).bmp
 }
 
 // mathRendered is mathBitmap with the formula's baseline.
-func mathRendered(expr string, size float64, dark bool) *mathRender {
-	key := fmt.Sprintf("%s|%.1f|%v", expr, size, dark)
+func mathRendered(expr string, size float64, dark bool, display bool) *mathRender {
+	key := fmt.Sprintf("%s|%.1f|%v|%v", expr, size, dark, display)
 	if v, ok := mathCache.Load(key); ok {
 		return v.(*mathRender)
 	}
@@ -67,7 +67,7 @@ func mathRendered(expr string, size float64, dark bool) *mathRender {
 		}
 	} else {
 		var ts typeset
-		ts, err = typesetMath(expr, size)
+		ts, err = typesetMath(expr, size, display)
 		img, r.baseline = ts.img, float32(ts.baseline)
 	}
 	if err == nil {
@@ -82,7 +82,7 @@ func mathRendered(expr string, size float64, dark bool) *mathRender {
 
 // renderMathImage typesets expr at size (in points), as an image.
 func renderMathImage(expr string, size float64) (image.Image, error) {
-	ts, err := typesetMath(expr, size)
+	ts, err := typesetMath(expr, size, false)
 	if err != nil {
 		return nil, err
 	}
@@ -92,18 +92,33 @@ func renderMathImage(expr string, size float64) (image.Image, error) {
 // typesetMath typesets expr at size (in points): with go-latex, or where it
 // cannot lay out scripts, as on \int_0^1, with Muse's own composition of
 // the base and its scripts.
-func typesetMath(expr string, size float64) (typeset, error) {
+func typesetMath(expr string, size float64, display bool) (typeset, error) {
 	expr = normalizeTeX(expr)
+	if display {
+		// A block of math is displayed, not set in running text: fractions
+		// are their full size and, where the base allows it, the limits of a
+		// big operator go above and below it (see typesetScripts).
+		expr = displayFracs(expr)
+	}
 	ts, err := typesetTeX(expr, size)
 	if err == nil {
 		return ts, nil
 	}
 	if strings.ContainsAny(expr, "^_") {
-		if script, serr := typesetScripts(expr, size); serr == nil {
+		if script, serr := typesetScripts(expr, size, display); serr == nil {
 			return script, nil
 		}
 	}
 	return typeset{}, err
+}
+
+// displayFracs makes the fractions of a displayed formula the size of the
+// text around them: go-latex sets \frac in text style, as it is in a line of
+// prose, and the display one is its \dfrac.
+func displayFracs(expr string) string {
+	expr = strings.ReplaceAll(expr, `\tfrac`, `\dfrac`)
+	// \frac and \dfrac are the same length, so no \dfrac becomes \dfrac.
+	return strings.ReplaceAll(expr, `\frac`, `\dfrac`)
 }
 
 // typesetTeX lays expr out with go-latex and rasterizes what it draws. The
@@ -222,13 +237,13 @@ func drawMathBlock(c *ui.Context, bmp *ui.Bitmap, s rstyle) {
 
 // RenderMath exposes the cached math raster to the native editor.
 func RenderMath(expr string, size float64, dark bool) *ui.Bitmap {
-	return mathBitmap(expr, size, dark)
+	return mathBitmap(expr, size, dark, true)
 }
 
 // RenderMathBaseline is RenderMath with the formula's baseline, in pixels
 // of the bitmap from its top, which the text around an inline formula lines
 // up with.
 func RenderMathBaseline(expr string, size float64, dark bool) (*ui.Bitmap, float32) {
-	r := mathRendered(expr, size, dark)
+	r := mathRendered(expr, size, dark, false)
 	return r.bmp, r.baseline
 }

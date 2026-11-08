@@ -194,7 +194,7 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 	case Image:
 		renderImage(c, b, s)
 	case Math:
-		if bmp := mathBitmap(b.Text, 18, t.Dark); bmp != nil {
+		if bmp := mathBitmap(b.Text, 18, t.Dark, true); bmp != nil {
 			drawMathBlock(c, bmp, s)
 			return
 		}

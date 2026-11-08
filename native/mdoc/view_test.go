@@ -120,17 +120,17 @@ $$\frac{a}{b} + \alpha$$
 }
 
 func TestMathBitmapTypesetsAndCaches(t *testing.T) {
-	bmp := mathBitmap(`\frac{a}{b}`, 18, false)
+	bmp := mathBitmap(`\frac{a}{b}`, 18, false, false)
 	if bmp == nil {
 		t.Fatal("math bitmap is nil")
 	}
 	if w, h := bmp.Size(); w <= 0 || h <= 0 {
 		t.Fatalf("math bitmap size = %dx%d", w, h)
 	}
-	if again := mathBitmap(`\frac{a}{b}`, 18, false); again != bmp {
+	if again := mathBitmap(`\frac{a}{b}`, 18, false, false); again != bmp {
 		t.Fatal("math bitmap was not cached")
 	}
-	if dark := mathBitmap(`\frac{a}{b}`, 18, true); dark == nil {
+	if dark := mathBitmap(`\frac{a}{b}`, 18, true, false); dark == nil {
 		t.Fatal("dark math bitmap is nil")
 	}
 }
@@ -141,14 +141,14 @@ func TestMatrixBitmap(t *testing.T) {
 	if !ok || len(spec.rows) != 2 || len(spec.rows[0]) != 2 {
 		t.Fatalf("matrix parse = %+v", spec)
 	}
-	bmp := mathBitmap(expr, 18, false)
+	bmp := mathBitmap(expr, 18, false, false)
 	if bmp == nil {
 		t.Fatal("matrix bitmap is nil")
 	}
 	if w, h := bmp.Size(); w < 30 || h < 30 {
 		t.Fatalf("matrix bitmap is %dx%d", w, h)
 	}
-	if mathBitmap(expr, 18, true) == nil {
+	if mathBitmap(expr, 18, true, false) == nil {
 		t.Fatal("dark matrix bitmap is nil")
 	}
 }

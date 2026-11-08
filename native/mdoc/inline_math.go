@@ -85,7 +85,7 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 	}
 	for _, sp := range spans {
 		if sp.Math {
-			if bmp := mathBitmap(sp.Text, float64(body), c.Theme().Dark); bmp != nil {
+			if bmp := mathBitmap(sp.Text, float64(body), c.Theme().Dark, false); bmp != nil {
 				w, h := bmp.Size()
 				iw := float32(w) * 72 / mathDPI
 				add(inlineRun{bmp: bmp, w: iw + 3, h: float32(h) * 72 / mathDPI, pad: 1.5})

@@ -52,6 +52,12 @@ state、sequence、flowchart 六个解析器，每个都自己算坐标、自己
 
 所以"丑"不是配色问题，是**几乎所有真公式都没走 TeX**。
 
+**第一刀已落地（display 样式）**：块级公式现在按 display 排——`\frac` 换成
+`\dfrac`（满尺寸，不再缩小）、大算子（∫∑∏⋃⋂…）的上下限放到符号上方和
+下方（行内仍然放在旁边，TeX 就是这样）、分片拼接处补回操作符前的间距。
+`mdoc/display_math_test.go` 用位图尺寸断言这四条（display 比 inline 高、
+更窄、分式更大、操作符吃掉了空间）。
+
 **方案 A（推荐）：用它的 parser，写自己的 visitor。**
 它的 parser 是好的（`latex.ParseExpr` 产出的 AST 有 `Sup`/`Sub`/`Arg`/`OptArg`），
 `tex` 包里也有盒子模型（`HList` / `VList` / `HRule` / `AutoHeightChar` / `SetShift`）。
