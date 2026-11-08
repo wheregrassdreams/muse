@@ -92,3 +92,16 @@ func TestDiagramWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestASubgraphFallsBackToTheSource: the subgraph box is part of the
+// picture. Drawing the graph without it would be a different diagram, so the
+// block shows its source instead — the editor is the place where what it
+// cannot draw is still readable.
+func TestASubgraphFallsBackToTheSource(t *testing.T) {
+	if _, ok := ParseDiagram("graph TD\n  subgraph one\n    A --> B\n  end\n"); ok {
+		t.Fatal("a subgraph drew as a graph without it")
+	}
+	if _, ok := ParseDiagram("graph TD\n  A --> B\n"); !ok {
+		t.Fatal("a plain graph did not draw")
+	}
+}

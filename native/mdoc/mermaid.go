@@ -50,7 +50,13 @@ func parseMermaid(src string) (*mermaidGraph, bool) {
 		if line == "" {
 			continue
 		}
-		for _, skip := range []string{"subgraph", "end", "classdef", "class ", "style ", "click ", "linkstyle"} {
+		// A subgraph is a box around nodes this layout does not draw: the
+		// picture would be the graph without it, which is not the graph.
+		// Reporting that is better than drawing something else.
+		if strings.HasPrefix(low, "subgraph") {
+			return nil, false
+		}
+		for _, skip := range []string{"end", "classdef", "class ", "style ", "click ", "linkstyle"} {
 			if strings.HasPrefix(low, skip) {
 				line = ""
 				break
