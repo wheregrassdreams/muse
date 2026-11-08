@@ -546,7 +546,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	open := e.sourceOpen(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStart && b.reveal <= l.infoEnd
 	fenceShown := open || infoLine
-	if infoLine {
+	if fenceShown {
 		mark := ui.Span{Color: e.lk.marker}
 		fence := strings.TrimLeft(e.src[l.lineStart:l.fenceEnd], " \t>")
 		b.deco(l.infoStart, fence, mark, nil)
@@ -554,7 +554,10 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		if len(l.lines) > 0 {
 			b.spanAtom(l.infoEnd, l.lines[0].off, "\n", plain)
 		}
-		v.reveal = true
+		// Only the caret on the fence itself is the block's editing state;
+		// a block opened by its control keeps its tag and its diagram
+		// control.
+		v.reveal = infoLine
 	}
 	lang := editor.LanguageNamed(l.lang)
 	var state uint64

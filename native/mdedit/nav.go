@@ -1011,7 +1011,9 @@ func (e *Editor) gridBlock(l *leaf) bool {
 	if e.controlsBlock(l) {
 		return true
 	}
-	return e.sourceOK && l.lineStart == e.sourceAt
+	// A block of code has its own control at the same corner — the label
+	// that reads "源码" or "图表" — so it does not get a tag as well.
+	return l.kind != kCode && e.sourceOpen(l)
 }
 
 // sourceChipAt returns the block whose source control is at x, y.
