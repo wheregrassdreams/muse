@@ -83,6 +83,11 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 	v := u.view
 	if v == nil {
+		// A blank line has no text and no view: nothing to draw — but a
+		// selection across it covers the line, and shows as covering it.
+		if a != z && a <= u.start && z >= u.end {
+			p.Fill(ui.Rect{X: ox + u.x, Y: oy + u.y, W: u.w, H: u.h}, e.lk.selection, 2)
+		}
 		return
 	}
 	x, y := ox+u.x, oy+u.y

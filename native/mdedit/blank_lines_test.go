@@ -212,3 +212,19 @@ func TestComposeOnABlankLine(t *testing.T) {
 	h.frame()
 	h.want("a\n中文\nb")
 }
+
+// TestSelectionPaintsAcrossABlankLine: a selection covers the blank lines it
+// spans, not only the text on either side — a blank line has no view to
+// draw text in, so the paint draws the band itself.
+func TestSelectionPaintsAcrossABlankLine(t *testing.T) {
+	h := newHarness(t, "a\n\nb")
+	blank := h.e.leaves[1]
+	x, y := int(h.e.colX)+200, int(blank.y+blank.h/2)
+	before := h.tt.Image().RGBAAt(x, y)
+	h.e.Select(1, 3)
+	h.frame()
+	after := h.tt.Image().RGBAAt(x, y)
+	if before == after {
+		t.Fatalf("the blank line at %.0f is not painted as selected (pixel %v)", blank.y, before)
+	}
+}
