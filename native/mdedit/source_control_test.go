@@ -102,3 +102,26 @@ func TestTheControlGoesWithThePointer(t *testing.T) {
 		t.Fatal("the control stayed after the pointer left the block")
 	}
 }
+
+// TestABlockIsSelectedWhole: a block that draws as one thing is one unit of
+// the source too — a triple click on a table or on a picture of its own
+// takes its whole lines, markers and all, and the break that ends the last
+// of them. Deleting it then takes the block, not half a row.
+func TestABlockIsSelectedWhole(t *testing.T) {
+	for _, src := range []string{
+		"前\n\n| 甲 | 乙 |\n| --- | --- |\n| a | b |\n\n后",
+		"前\n\n![图](a.png)\n\n后",
+	} {
+		h := newHarness(t, src)
+		s, z := h.e.blockRangeAt(len("前\n\n") + 1)
+		if !strings.HasSuffix(src[s:z], "\n") {
+			t.Fatalf("%q: the block's range %d..%d is %q, without its last break", src, s, z, src[s:z])
+		}
+		h.e.Select(s, z)
+		h.frame()
+		h.key(0, ui.KeyBackspace)
+		if got := h.e.Source(); got != "前\n\n\n后" {
+			t.Fatalf("%q: deleting the block left %q", src, got)
+		}
+	}
+}

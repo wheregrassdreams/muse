@@ -890,6 +890,18 @@ func (e *Editor) wordRangeAt(off int) (int, int) {
 
 // blockRangeAt returns the source range of the leaf (or cell) at off.
 func (e *Editor) blockRangeAt(off int) (int, int) {
+	// A block that draws as one thing — a table, a fence, a picture of its
+	// own — is one unit of the source too: the whole of its lines, markers
+	// and all, and the break that ends the last of them. Its content's edges
+	// would leave the pipe of a table's last row behind, and a block is not
+	// half deleted.
+	if l := e.leafAt(off); l != nil && e.wholeBlock(l) {
+		z := blockEnd(e.src, l)
+		if z < len(e.src) {
+			z++
+		}
+		return l.lineStart, z
+	}
 	us := e.units()
 	i := e.unitIndex(us, off)
 	if i < 0 {
@@ -899,6 +911,23 @@ func (e *Editor) blockRangeAt(off int) (int, int) {
 	s, _ := e.edgeStop(u, false)
 	z, _ := e.edgeStop(u, true)
 	return s, z
+}
+
+// wholeBlock reports whether a leaf draws as one thing the caret does not
+// stand inside of: a table, a fence of code or math, a block of HTML, a
+// rule, a picture in a paragraph of its own.
+func (e *Editor) wholeBlock(l *leaf) bool {
+	switch l.kind {
+	case kTable, kCode, kMath, kHTML, kRule:
+		return true
+	}
+	if v := l.view; v != nil {
+		// A paragraph that is one picture: the picture is the block.
+		if n := len(v.disp.pieces); n == 1 && v.disp.pieces[0].obj != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // isMac reports whether the keys are macOS's.
