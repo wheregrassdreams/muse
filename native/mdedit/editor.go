@@ -415,9 +415,11 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 // incrementally; false means the whole source has to be read again.
 func (e *Editor) applyPending() bool {
 	p := e.pending
-	// A comment's extent depends on the whole document: an edit that types a
-	// %% or touches one may pair differently, so the mask starts over.
-	if strings.Contains(p.text, "%") || e.touchesComment(p.from, p.to) {
+	// Which bytes a comment covers depends on the whole document: its
+	// markers, the `\` that escapes one, the fences that hide them. When
+	// the edit reaches any of that, the source is read again and the
+	// comments are found again.
+	if e.touchesComment(p.from, p.to) || !commentsStay(e.docSrc, e.src, p.from, p.to, len(p.text)) {
 		return false
 	}
 	// The comments move with the edit before the lines are masked again:
@@ -430,6 +432,34 @@ func (e *Editor) applyPending() bool {
 	e.mask = next
 	e.doc.Edit(from, to, repl)
 	e.docSrc = e.src
+	return true
+}
+
+// commentsStay reports whether an edit leaves the comments of the source as
+// they were, moved by it at most. A comment is written with `%`, escaped
+// with a `\`, and hidden inside a fence of ` or ~: an edit that keeps away
+// from all of them can neither make a comment nor unmake one, nor change
+// which fences hide the ones after it.
+func commentsStay(oldSrc, newSrc string, from, to, newLen int) bool {
+	marker := func(b byte) bool {
+		return b == '%' || b == '\\' || b == '`' || b == '~'
+	}
+	for i := from; i < to && i < len(oldSrc); i++ {
+		if marker(oldSrc[i]) {
+			return false
+		}
+	}
+	for i := from; i < from+newLen && i < len(newSrc); i++ {
+		if marker(newSrc[i]) {
+			return false
+		}
+	}
+	if from > 0 && marker(oldSrc[from-1]) {
+		return false
+	}
+	if to < len(oldSrc) && marker(oldSrc[to]) {
+		return false
+	}
 	return true
 }
 

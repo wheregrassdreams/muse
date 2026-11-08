@@ -75,7 +75,9 @@ func maskLines(src string, from, to int, cmts []cmt) string {
 				b[i] = ' '
 			}
 		}
-		if cf+2 <= ct && opensContent(b, cf) && hasTextOnLine(b, ct) {
+		// Only a comment that starts in the range gets the no-break space:
+		// one that started above it was masked, or not, with its own line.
+		if c.from >= from && cf+2 <= ct && opensContent(b, cf) && hasTextOnLine(b, ct) {
 			b[cf], b[cf+1] = 0xC2, 0xA0
 		}
 	}
@@ -85,28 +87,15 @@ func maskLines(src string, from, to int, cmts []cmt) string {
 // blankComments returns src with every comment's bytes replaced by spaces,
 // its line breaks kept: what the parser reads. The length is unchanged, so
 // every offset the parser reports still addresses the real source.
+//
+// This is maskLines over the whole source, and maskLines is how the lines
+// an edit gives the parser again are masked: one rule for the whole source
+// and for the part of it an edit rewrites.
 func blankComments(src string, cmts []cmt) string {
 	if len(cmts) == 0 {
 		return src
 	}
-	b := []byte(src)
-	for _, c := range cmts {
-		for i := c.from; i < c.to && i < len(b); i++ {
-			if b[i] != '\n' && b[i] != '\r' {
-				b[i] = ' '
-			}
-		}
-		// A comment that opens a line and has text after it must not turn
-		// that text into an indented block of code: four spaces of
-		// indentation are a block of code to the parser, and a comment of
-		// that many bytes would make one of every line it opens. Its first
-		// byte becomes a no-break space instead, which indents nothing —
-		// and it is covered by the comment, so the view never shows it.
-		if c.from+2 <= c.to && opensContent(b, c.from) && hasTextOnLine(b, c.to) {
-			b[c.from], b[c.from+1] = 0xC2, 0xA0
-		}
-	}
-	return string(b)
+	return maskLines(src, 0, len(src), cmts)
 }
 
 // opensContent reports whether the comment at at opens the content of its
