@@ -45,6 +45,11 @@ const (
 	// kPhantom is the empty paragraph the caret sits in before it holds
 	// any text (see phantom).
 	kPhantom
+	// kBlank is a blank line of the source: a line, as every other leaf is,
+	// with no text of its own. The caret stands on it, Enter opens another
+	// below it and Backspace takes it away, because a blank line is a line
+	// of the document and not the space between two blocks.
+	kBlank
 )
 
 // contKind is what a container around a leaf is.
@@ -145,7 +150,13 @@ type leaf struct {
 }
 
 // isText reports whether the leaf is edited as text with inline syntax.
-func (l *leaf) isText() bool { return l.kind == kPara || l.kind == kHeading || l.kind == kPhantom }
+func (l *leaf) isText() bool {
+	return l.kind == kPara || l.kind == kHeading || l.kind == kPhantom || l.kind == kBlank
+}
+
+// isLine reports whether the leaf is a line of its own with no text the
+// caret walks through: the phantom paragraph, or a blank line.
+func (l *leaf) isLine() bool { return l.kind == kPhantom || l.kind == kBlank }
 
 // innerItem returns the innermost list item around the leaf, if any.
 func (l *leaf) innerItem() (cont, bool) {
@@ -941,6 +952,57 @@ func rawLeaf(a *leafArena, src string, start, end int, front bool) *leaf {
 	last := l.lines[len(l.lines)-1]
 	l.end = last.off + len(last.text)
 	return l
+}
+
+// addBlankLeaves puts a leaf on every blank line of the source, so the caret
+// can stand on it: a blank line is a line of the document, not the space
+// between two blocks.
+//
+// The lines before the first block and after the last one are lines too. The
+// line at the very end of a source that ends with a break is left out: the
+// phantom paragraph stands there when the caret is below the last block.
+func addBlankLeaves(a *leafArena, src string, leaves []*leaf) []*leaf {
+	if len(leaves) == 0 {
+		return leaves
+	}
+	out := make([]*leaf, 0, len(leaves)+8)
+	out = addBlanksBetween(a, src, out, 0, leaves[0].start, false)
+	for i, l := range leaves {
+		out = append(out, l)
+		to, plain := len(src), len(l.conts) == 0
+		if i+1 < len(leaves) {
+			to = leaves[i+1].start
+			plain = plain && len(leaves[i+1].conts) == 0
+		}
+		if !plain {
+			// Blank lines inside a container belong to the container's
+			// blocks, which the parse gives the room they take.
+			continue
+		}
+		out = addBlanksBetween(a, src, out, l.end, to, true)
+	}
+	return out
+}
+
+// addBlanksBetween appends a leaf for every blank line of src in [from, to).
+// With skipFirst the line at from is left out: it is the tail of the leaf
+// above, which the break ending that leaf's line starts.
+func addBlanksBetween(a *leafArena, src string, out []*leaf, from, to int, skipFirst bool) []*leaf {
+	to = min(to, len(src))
+	for p := from; p < to; {
+		e := min(lineEndAt(src, p), to)
+		if (p > from || !skipFirst) && strings.TrimSpace(src[p:e]) == "" {
+			bl := a.get()
+			bl.kind, bl.id, bl.lineStart = kBlank, -1, p
+			bl.start, bl.end, bl.syntaxStart = p, p, p
+			out = append(out, bl)
+		}
+		if e >= to {
+			break
+		}
+		p = e + 1
+	}
+	return out
 }
 
 // appendRaw adds the non-blank lines of src between from and to, which no

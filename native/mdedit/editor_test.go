@@ -249,8 +249,12 @@ func TestBackspaceHeadingToParagraph(t *testing.T) {
 }
 
 func TestBackspaceJoinsParagraphs(t *testing.T) {
+	// The caret at the start of a paragraph takes the break before it, one
+	// at a time: the blank line between them goes first.
 	h := newHarness(t, "one\n\ntwo")
 	h.caretAt(5)
+	h.key(0, ui.KeyBackspace)
+	h.want("one\ntwo")
 	h.key(0, ui.KeyBackspace)
 	h.want("onetwo")
 }
@@ -296,23 +300,37 @@ func TestArrowsWalkThroughMarkers(t *testing.T) {
 }
 
 func TestArrowsCrossBlocks(t *testing.T) {
+	// Right leaves the line for the next line of the document — the blank
+	// one — and the paragraph comes after it.
 	h := newHarness(t, "# One\n\ntwo")
 	h.caretAt(5)
 	h.key(0, ui.KeyRight)
+	if h.e.caret != 6 {
+		t.Fatalf("caret = %d, want the blank line at 6", h.e.caret)
+	}
+	h.key(0, ui.KeyRight)
 	if h.e.caret != 7 {
 		t.Fatalf("caret = %d, want 7", h.e.caret)
+	}
+	h.key(0, ui.KeyLeft)
+	if h.e.caret != 6 {
+		t.Fatalf("caret = %d, want the blank line at 6", h.e.caret)
 	}
 	h.key(0, ui.KeyLeft)
 	if h.e.caret != 5 {
 		t.Fatalf("caret = %d, want 5", h.e.caret)
 	}
 	h.key(0, ui.KeyDown)
+	if h.e.caret != 6 {
+		t.Fatalf("down: caret = %d, want the blank line at 6", h.e.caret)
+	}
+	h.key(0, ui.KeyDown)
 	if h.e.caret < 7 {
 		t.Fatalf("down: caret = %d", h.e.caret)
 	}
 	h.key(0, ui.KeyUp)
-	if h.e.caret > 5 {
-		t.Fatalf("up: caret = %d", h.e.caret)
+	if h.e.caret != 6 {
+		t.Fatalf("up: caret = %d, want the blank line at 6", h.e.caret)
 	}
 }
 

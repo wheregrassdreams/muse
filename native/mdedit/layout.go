@@ -409,7 +409,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		st.muted, st.strike = true, true
 	}
 	switch {
-	case l.pending || l.kind == kPhantom || l.id < 0:
+	case l.pending || l.isLine() || l.id < 0:
 		b.textRun(l.start, l.end, st)
 		b.finish(l.end)
 	default:
@@ -754,6 +754,10 @@ func (e *Editor) margins(l *leaf) (top, bottom float32) {
 		return s * 0.6, s * 0.6
 	case kRaw:
 		return s * 0.6, s * 0.6
+	case kPhantom, kBlank:
+		// A line of its own: the line is the space, and it has no margins
+		// of its own to add to the lines around it.
+		return 0, 0
 	}
 	return s * 0.7, s * 0.7
 }
@@ -804,6 +808,20 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		ind := e.indentOf(l.conts)
 		l.x = x + ind
 		l.w = max(width-ind, 60)
+		if l.kind == kBlank {
+			// A blank line is one line, whatever its own paragraph would
+			// shape to: no margins, nothing to shape, no text to draw — but
+			// for the text the input method composes on it, which is drawn
+			// in the line's own view while it is being composed.
+			l.h, l.view = s*e.lk.lh, nil
+			if e.composing && e.caret == l.start {
+				l.view = e.view(l, l.w, false, parser.AlignNone)
+			}
+			l.y = y
+			y += l.h
+			prev, prevBottom = l, 0
+			continue
+		}
 		top, bottom := e.margins(l)
 		tight := prev != nil && tightAfter(prev, l)
 		if prev == nil {
@@ -812,6 +830,10 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			top = float32(e.newlinesBetween(0, l.start)) * e.lk.size * e.lk.lh
 		} else if tight {
 			top = s * 0.2
+		} else if prev.kind == kBlank {
+			// The blank line above is the gap: a block right below it starts
+			// on the next line, not on its own margin of its own.
+			top = 0
 		} else if n := e.blankLines(prev.end, l.start); n > 0 {
 			// Blank lines are lines: a paragraph break is one blank line, and
 			// every Enter on an empty line leaves one more. They take the
@@ -855,16 +877,15 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		}
 		gap := max(top, prevBottom)
 		if l.kind == kPhantom && prev != nil {
-			// The phantom is a paragraph the source does not hold: its line is
-			// its own height, so only the blank lines before it take room. At
-			// the end of the document it has no line of its own yet, so the
-			// break that would start it counts too — which is what makes every
-			// Enter on it add a line the user sees.
-			n := e.newlinesBetween(prev.end, l.start)
-			if l.start < len(e.src) {
-				n = max(n-1, 0)
+			// The phantom is a paragraph the source does not hold: it takes
+			// the line the caret would write it on. Below a block's last line
+			// that line starts at the next break, one line down; at the end of
+			// a source that ends with a break it is the last line, and the
+			// blank lines above it have their own leaves already.
+			gap = 0
+			if lineStartAt(e.src, l.start) > prev.end {
+				gap = e.lk.size * e.lk.lh
 			}
-			gap = float32(n) * e.lk.size * e.lk.lh
 		}
 		y += gap
 		l.y = y
@@ -894,7 +915,7 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			var next *leaf
 			for k := at + 1; k < len(e.leaves); k++ {
 				l := e.leaves[k]
-				if l.kind == kPhantom || l.kind == kRule {
+				if l.isLine() || l.kind == kRule {
 					continue
 				}
 				if l.kind == kPara {

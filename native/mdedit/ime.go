@@ -1,6 +1,7 @@
 package mdedit
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -16,10 +17,19 @@ var _ ui.TextInputClient = (*Editor)(nil)
 
 // u16 indexes the source by UTF-16 units every so many bytes, for the
 // conversions input methods ask for.
+//
+// An edit moves the index rather than building it again: everything before
+// the edit keeps its offsets, everything after it moves by the bytes and
+// the units of the text. Reading the whole source per keystroke was the one
+// whole-document operation left in the typing path.
 type u16Index struct {
 	rev   uint64
 	bytes []int
 	units []int
+	// The entries of an edit, and the index being built, kept between
+	// edits: none of them may be the array the index itself reads.
+	midB, midU []int
+	nb, nu     []int
 }
 
 const u16Every = 2048
@@ -29,6 +39,13 @@ func (e *Editor) u16() *u16Index {
 	if ix.rev == e.rev && ix.bytes != nil {
 		return ix
 	}
+	e.rebuildU16()
+	return ix
+}
+
+// rebuildU16 reads the whole source into the index.
+func (e *Editor) rebuildU16() {
+	ix := &e.u16ix
 	ix.rev = e.rev
 	ix.bytes = ix.bytes[:0]
 	ix.units = ix.units[:0]
@@ -48,8 +65,67 @@ func (e *Editor) u16() *u16Index {
 	}
 	ix.bytes = append(ix.bytes, len(e.src))
 	ix.units = append(ix.units, u)
-	return ix
 }
+
+// noteEdit moves the index with an edit of the source: from and to bound
+// what it replaced, old and new the text of it. src is the source as it is
+// after the edit.
+func (e *Editor) noteEdit(from, to int, old, new, src string) {
+	ix := &e.u16ix
+	if ix.bytes == nil || ix.rev+1 != e.rev || from < 0 || to < from || to > len(src) {
+		// No index, or one built for another source: the next reader reads
+		// the source again.
+		ix.bytes = nil
+		return
+	}
+	ix.rev = e.rev
+	deltaB, deltaU := len(new)-(to-from), ui.UTF16Len(new)-ui.UTF16Len(old)
+	lo := searchBytes(ix.bytes, from)
+	hi := searchBytes(ix.bytes, to)
+	// The entries of the replaced text, from the one before the edit, so
+	// that reading a unit stays a walk over a few bytes: the tail moved,
+	// and the gap the edit left may be wider than one entry.
+	end := to + deltaB
+	last, u := 0, 0
+	if lo > 0 {
+		last = ix.bytes[lo-1]
+		u = ix.units[lo-1] + ui.UTF16Len(src[ix.bytes[lo-1]:from])
+	}
+	ix.midB, ix.midU = ix.midB[:0], ix.midU[:0]
+	for at := from; at < end; {
+		if last < 0 || at-last >= u16Every {
+			ix.midB = append(ix.midB, at)
+			ix.midU = append(ix.midU, u)
+			last = at
+		}
+		n := min(at+u16Every, end)
+		u += ui.UTF16Len(src[at:n])
+		at = n
+	}
+	// The tail keeps its spacing, moved by the edit.
+	for k := hi; k < len(ix.bytes); k++ {
+		ix.bytes[k] += deltaB
+		ix.units[k] += deltaU
+	}
+	if lo == 0 {
+		// The edit took the first entry: the index starts at the start of
+		// the source, whatever the edit did there.
+		ix.nb = append(ix.nb[:0], 0)
+		ix.nu = append(ix.nu[:0], 0)
+	} else {
+		ix.nb = append(ix.nb[:0], ix.bytes[:lo]...)
+		ix.nu = append(ix.nu[:0], ix.units[:lo]...)
+	}
+	ix.nb = append(ix.nb, ix.midB...)
+	ix.nb = append(ix.nb, ix.bytes[hi:]...)
+	ix.nu = append(ix.nu, ix.midU...)
+	ix.nu = append(ix.nu, ix.units[hi:]...)
+	ix.bytes, ix.nb = ix.nb, ix.bytes[:0]
+	ix.units, ix.nu = ix.nu, ix.units[:0]
+}
+
+// searchBytes returns the index of the first entry at or after at.
+func searchBytes(b []int, at int) int { return sort.SearchInts(b, at) }
 
 // unitsOf returns the UTF-16 offset of byte b of the source.
 func (e *Editor) unitsOf(b int) int {

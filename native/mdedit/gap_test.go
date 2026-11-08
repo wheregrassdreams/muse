@@ -56,6 +56,10 @@ func TestArrowStopsOnBlankLines(t *testing.T) {
 		t.Fatalf("Down from the paragraph lands at %d, want the first blank line (2)", h.e.caret)
 	}
 	h.key(0, ui.KeyDown)
+	if h.e.caret != 3 {
+		t.Fatalf("the next Down lands at %d, want the second blank line (3)", h.e.caret)
+	}
+	h.key(0, ui.KeyDown)
 	if h.e.caret != 4 {
 		t.Fatalf("the next Down lands at %d, want the paragraph (4)", h.e.caret)
 	}

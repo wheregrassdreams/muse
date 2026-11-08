@@ -39,6 +39,11 @@ func shown(t *testing.T, src string) []string {
 	var out []string
 	for _, u := range e.units() {
 		if u.isText() && u.view != nil {
+			// A blank line's leaf shows nothing: it is a caret position, not
+			// text.
+			if u.kind == kPhantom {
+				continue
+			}
 			out = append(out, styledText(e, u.view.disp))
 		}
 	}
@@ -207,7 +212,7 @@ func TestTabIndentedCodeInContainers(t *testing.T) {
 
 func TestPendingMarkersShowAsText(t *testing.T) {
 	e := shownEditor(t, "段落\n\n-\n\n>\n\n1.")
-	for _, l := range e.leaves[1:] {
+	for _, l := range blocks(e)[1:] {
 		if !l.pending || len(l.conts) != 0 || len(l.firstOf) != 0 || l.x != e.leaves[0].x {
 			t.Errorf("leaf at %d: pending %v, conts %v, x %.1f", l.start, l.pending, l.conts, l.x)
 		}
@@ -270,7 +275,7 @@ func TestHTMLColorsAndImages(t *testing.T) {
 	if !red || !blue {
 		t.Errorf("colors: red %v, blue %v", red, blue)
 	}
-	block := e.leaves[1].view.block
+	block := blocks(e)[1].view.block
 	if block == nil || block.w != 100 || block.h != 50 {
 		t.Fatalf("zoomed image = %+v, want 100×50", block)
 	}

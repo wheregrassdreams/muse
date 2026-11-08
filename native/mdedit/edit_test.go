@@ -33,7 +33,7 @@ func TestInlineMathRevealsAtCaret(t *testing.T) {
 func TestImageRevealsSource(t *testing.T) {
 	h := newHarness(t, "前文\n\n![图](missing.png)\n\n后文")
 	h.caretAt(0)
-	img := h.e.leaves[1]
+	img := blocks(h.e)[1]
 	if strings.Contains(img.view.disp.text, "![") {
 		t.Fatalf("image source shows away from the caret: %q", img.view.disp.text)
 	}
@@ -90,8 +90,13 @@ func TestBackspaceInsideQuoteLiftsParagraph(t *testing.T) {
 }
 
 func TestDeleteJoinsNextParagraph(t *testing.T) {
+	// Delete takes one break at a time, as it does in the source: the first
+	// leaves the two paragraphs on either side of one break, the second
+	// joins them.
 	h := newHarness(t, "one\n\ntwo")
 	h.caretAt(3)
+	h.key(0, ui.KeyDelete)
+	h.want("one\ntwo")
 	h.key(0, ui.KeyDelete)
 	h.want("onetwo")
 }

@@ -38,28 +38,33 @@ func (e *Editor) units() []*leaf {
 }
 
 // unitIndex returns the index in units of the one holding the caret at
-// off, or -1. The phantom owns its offset: a leaf may end or begin at it
-// too, but the caret there is the phantom's.
+// off, or -1. A line of its own owns its offset: a leaf may end or begin
+// there too, but the caret there is the line's.
 func (e *Editor) unitIndex(us []*leaf, off int) int {
-	if e.phantom != nil {
-		for i, u := range us {
-			if u.kind == kPhantom && off == u.start {
-				return i
-			}
-		}
-	}
+	// One pass over the units: a line of its own may come after the leaf
+	// that ends where it starts, and it wins when it does.
+	line, cover := -1, -1
 	for i, u := range us {
-		if u.kind == kPhantom {
+		if u.isLine() {
+			if line < 0 && off == u.start {
+				line = i
+			}
+			continue
+		}
+		if cover >= 0 {
 			continue
 		}
 		if off >= leafLo(u) && off <= u.end {
 			if u.kind == kCode && u.fenced && off > u.infoEnd && off < u.start {
 				continue
 			}
-			return i
+			cover = i
 		}
 	}
-	return -1
+	if line >= 0 {
+		return line
+	}
+	return cover
 }
 
 // tableOf returns the table leaf a cell is in.
@@ -105,7 +110,7 @@ func (e *Editor) revealFor(l *leaf, off int) int {
 // stopOK reports whether the caret can be at off, in the display of its
 // unit as it would show with the caret there.
 func (e *Editor) stopOK(u *leaf, off int) bool {
-	if u.kind == kPhantom {
+	if u.isLine() {
 		return off == u.start
 	}
 	v := e.unitView(u, off)
@@ -202,7 +207,7 @@ func (e *Editor) edgeStop(l *leaf, end bool) (int, bool) {
 		}
 		return e.edgeStop(cells[0], false)
 	}
-	if l.kind == kPhantom {
+	if l.isLine() {
 		return l.start, true
 	}
 	off := l.start
@@ -247,8 +252,8 @@ func (e *Editor) step(off, dir int, word bool) int {
 		// From the start of the code to its fence's info string.
 		return u.infoEnd
 	}
-	if u.kind == kPhantom {
-		// Out of the phantom: the edge of the neighbour it faces. That
+	if u.isLine() {
+		// Out of a line of its own: the edge of the neighbour it faces. That
 		// edge may be the phantom's own offset — the same source shown
 		// on the neighbour's line — so the phantom goes either way.
 		// With no neighbour the caret stays where it is.
@@ -519,38 +524,7 @@ func (e *Editor) vertical(dir int, extend bool) {
 		}
 		return
 	}
-	// Blank lines between the blocks are lines the caret stops on: a down
-	// move from the block above lands on the first of them, an up move on
-	// the last.
-	if at, ok := e.blankStop(li, dir); ok {
-		e.setPhantom(&phantom{at: at})
-		return
-	}
 	e.enterLeaf(li+dir, dir, extend)
-}
-
-// blankStop returns the offset of the blank line a vertical move from leaf li
-// in direction dir stops on, when the blocks are apart by more than the
-// paragraph break.
-func (e *Editor) blankStop(li, dir int) (int, bool) {
-	l := e.leaves[li]
-	lj := li + dir
-	if lj < 0 || lj >= len(e.leaves) {
-		return 0, false
-	}
-	n := e.leaves[lj]
-	if dir > 0 {
-		if strings.Count(e.src[l.end:n.start], "\n") < 3 {
-			return 0, false
-		}
-		return l.end + 1, true
-	}
-	prev := n
-	cnt := strings.Count(e.src[prev.end:l.start], "\n")
-	if cnt < 3 {
-		return 0, false
-	}
-	return prev.end + cnt - 1, true
 }
 
 // enterLeaf moves the caret into leaf li from above (dir > 0) or below, at
@@ -584,7 +558,7 @@ func (e *Editor) enterLeaf(li, dir int, extend bool) {
 		e.setCaretKeepGoal(e.hitUnit(best, v, e.goalX, y), extend)
 		return
 	}
-	if l.kind == kPhantom {
+	if l.isLine() {
 		e.setCaretKeepGoal(l.start, extend)
 		return
 	}
@@ -643,7 +617,7 @@ func (e *Editor) setCaretKeepGoal(off int, extend bool) {
 
 // hitUnit returns the offset at x, y (element coordinates) in a unit.
 func (e *Editor) hitUnit(u *leaf, v *leafView, x, y float32) int {
-	if u.kind == kPhantom {
+	if u.isLine() {
 		return u.start
 	}
 	if v.layout == nil {
@@ -732,7 +706,7 @@ func (e *Editor) gapPhantomAt(y float32) (int, bool) {
 	e.layoutIfNeeded()
 	var prev, next *leaf
 	for _, l := range e.leaves {
-		if l.kind == kPhantom || l.view == nil {
+		if l.isLine() || l.view == nil {
 			continue
 		}
 		if y >= l.y && y <= l.y+l.h {

@@ -290,6 +290,7 @@ func (e *Editor) SetSource(src string) {
 	e.src = src
 	e.doc = parser.New(exts)
 	e.rev++
+	e.u16ix.rev = 0
 	e.mask, e.docSrc = nil, ""
 	e.pending, e.pendingMulti = nil, false
 	e.anchor, e.caret = 0, 0
@@ -348,6 +349,7 @@ func (e *Editor) sync() {
 	old := e.leaves
 	e.arenaCur ^= 1
 	e.leaves = buildLeaves(e.src, e.doc, e.fm, &e.arena[e.arenaCur])
+	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
 	// A comment covers its lines whole: the parser reads blanks there, which
 	// used to become raw leaves showing the comment's own text. With the
 	// comment blanked, its lines are a gap the caret reaches through the
@@ -474,7 +476,7 @@ func insertPhantom(leaves []*leaf, p *phantom) []*leaf {
 	})
 	if !p.before {
 		// After every leaf ending at or before it.
-		for i < len(leaves) && leaves[i].end <= p.at && leaves[i].lineStart <= p.at && leaves[i].kind != kPhantom {
+		for i < len(leaves) && leaves[i].end <= p.at && leaves[i].lineStart <= p.at && !leaves[i].isLine() {
 			i++
 		}
 	}
@@ -497,25 +499,31 @@ func leafLo(l *leaf) int {
 // phantom when it is in it, else the leaf whose content holds off, else
 // -1.
 func (e *Editor) leafIndex(off int) int {
-	if e.phantom != nil {
-		for i, l := range e.leaves {
-			if l.kind == kPhantom && off == l.start {
-				return i
-			}
-		}
-	}
+	// A line of its own owns its offset: a blank line, or the phantom
+	// paragraph the caret opens below a block. It may come after the leaf
+	// that ends where it starts, so it is found before that leaf is taken.
+	line, cover := -1, -1
 	for i, l := range e.leaves {
-		if l.kind == kPhantom {
+		if l.isLine() {
+			if line < 0 && off == l.start {
+				line = i
+			}
+			continue
+		}
+		if cover >= 0 {
 			continue
 		}
 		if off >= leafLo(l) && off <= l.end {
 			if l.kind == kCode && l.fenced && off > l.infoEnd && off < l.start {
 				continue
 			}
-			return i
+			cover = i
 		}
 	}
-	return -1
+	if line >= 0 {
+		return line
+	}
+	return cover
 }
 
 // leafAt returns the leaf the caret at off is in, or nil.

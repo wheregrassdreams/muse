@@ -59,6 +59,9 @@ func (e *Editor) replace(from, to int, text string) {
 	}
 	e.src = e.src[:from] + text + e.src[to:]
 	e.rev++
+	// The input method's offsets move with the edit, not from a reading of
+	// the whole source.
+	e.noteEdit(from, to, old, text, e.src)
 	// Keep the parser's edit. A step that changes more than one range
 	// cannot be given to the parser as one edit, so it will be parsed from
 	// the whole source when the step commits.
@@ -208,6 +211,7 @@ func (e *Editor) Redo() bool {
 // restore puts the selection and the phantom back as a step had them.
 func (e *Editor) restore(sel [2]int, ph *phantom) {
 	e.rev++
+	e.u16ix.rev = 0
 	e.phantom = ph
 	e.parsed = 0
 	// Undo and redo replaced the source as a whole: any edit kept for the

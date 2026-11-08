@@ -18,12 +18,26 @@ func proseSource(n int) string {
 	return b.String()
 }
 
+// paragraphLeaf returns the leaf of "Paragraph n", the blank lines between
+// paragraphs shifting the indexes.
+func paragraphLeaf(t *testing.T, e *Editor, n int) *leaf {
+	t.Helper()
+	want := fmt.Sprintf("Paragraph %d:", n)
+	for _, l := range e.leaves {
+		if l.kind == kPara && strings.HasPrefix(e.src[l.start:], want) {
+			return l
+		}
+	}
+	t.Fatalf("no paragraph %d", n)
+	return nil
+}
+
 // shapedLeaves returns how many leaves have a view: those the layout has
 // shaped at some point.
 func shapedLeaves(e *Editor) int {
 	n := 0
 	for _, l := range e.leaves {
-		if l.kind != kPhantom && l.view != nil {
+		if !l.isLine() && l.view != nil {
 			n++
 		}
 	}
@@ -76,6 +90,9 @@ func TestVirtualLayoutHeightChange(t *testing.T) {
 	var target *leaf
 	low := h.e.viewBottom
 	for _, l := range h.e.leaves {
+		if l.kind != kPara {
+			continue
+		}
 		if l.y > low+40 && l.y < low+500 {
 			target = l
 			break
@@ -109,8 +126,13 @@ func TestVirtualLayoutScroll(t *testing.T) {
 	h.e.SetSource(proseSource(1200))
 	h.frame()
 
-	const at = 700
-	target := h.e.leaves[at]
+	target := paragraphLeaf(t, h.e, 700)
+	at := 0
+	for i, l := range h.e.leaves {
+		if l == target {
+			at = i
+		}
+	}
 	if target.view != nil {
 		t.Fatalf("leaf %d is shaped before scrolling to it", at)
 	}
@@ -130,8 +152,14 @@ func TestVirtualLayoutScroll(t *testing.T) {
 	}
 	// The leaves just below it are on screen too, and the layout shapes a
 	// screen above and below for the scroll that follows.
-	if l := h.e.leaves[at+3]; l.view == nil {
-		t.Fatal("the leaf just below the target is not shaped, though it is on screen")
+	below := h.e.leaves[at+1 : min(at+4, len(h.e.leaves))]
+	for _, l := range below {
+		if l.kind != kPara {
+			continue
+		}
+		if l.view == nil {
+			t.Fatalf("the leaf at y=%.0f just below the target is not shaped, though it is on screen", l.y)
+		}
 	}
 	if l := h.e.leaves[at/2]; l.view != nil {
 		t.Fatalf("leaf %d is shaped, though it is far above the viewport", at/2)
@@ -153,7 +181,7 @@ func TestVirtualLayoutTyping(t *testing.T) {
 	h := newHarness(t, "")
 	h.e.SetSource(proseSource(1200))
 	h.frame()
-	target := h.e.leaves[700]
+	target := paragraphLeaf(t, h.e, 700)
 	h.e.ScrollToOffset(target.start)
 	for i := 0; i < 3; i++ {
 		h.frame()
@@ -290,10 +318,14 @@ func TestVirtualLayoutTable(t *testing.T) {
 // viewport is.
 func TestSmallDocumentIsLaidOutWhole(t *testing.T) {
 	h := newHarness(t, proseSource(20))
-	if n, total := len(h.e.leaves), 20; n != total {
-		t.Fatalf("%d leaves, want %d", n, total)
+	// Twenty paragraphs, and the blank lines between them.
+	if n := len(blocks(h.e)); n != 20 {
+		t.Fatalf("%d blocks, want 20", n)
 	}
-	if n := shapedLeaves(h.e); n != len(h.e.leaves) {
-		t.Fatalf("%d of %d leaves shaped, want them all", n, len(h.e.leaves))
+	if n, want := len(h.e.leaves), 2*20; n != want {
+		t.Fatalf("%d leaves, want %d", n, want)
+	}
+	if n, want := shapedLeaves(h.e), len(blocks(h.e)); n != want {
+		t.Fatalf("%d of %d blocks shaped, want them all", n, want)
 	}
 }

@@ -35,7 +35,7 @@ func (e *Editor) leafOf(u *leaf) *leaf {
 // stay in the leaf's containers: its first line's prefix with list markers
 // blanked, "> " kept.
 func (e *Editor) contPrefix(l *leaf) string {
-	if l.kind == kPhantom {
+	if l.isLine() {
 		return phantomPrefix(l.conts)
 	}
 	end := min(max(l.syntaxStart, l.lineStart), len(e.src))
@@ -471,7 +471,14 @@ func (e *Editor) backspaceAtStart(u *leaf) {
 		e.replace(prev.lineStart, l.lineStart, "")
 		c := e.caret
 		e.commit(c, c)
-	case kPhantom:
+	case kBlank, kPhantom:
+		// A blank line: Backspace takes the line break above it, so the
+		// document loses the line and nothing else.
+		if at := e.caret; at > 0 {
+			e.begin(stepEdit)
+			e.replace(at-1, at, "")
+			e.commit(at-1, at-1)
+		}
 	default:
 		e.setCaret(e.step(e.caret, -1, false), false)
 	}
@@ -549,6 +556,14 @@ func (e *Editor) deleteForward(word bool) {
 			e.begin(stepEdit)
 			e.replace(l.end, next.start, "")
 			e.commit(l.end, l.end)
+		case kBlank, kPhantom:
+			// A blank line below: Delete takes the line break that starts
+			// it, one line at a time, as Backspace does above.
+			if l.end < len(e.src) {
+				e.begin(stepEdit)
+				e.replace(l.end, l.end+1, "")
+				e.commit(l.end, l.end)
+			}
 		case kRule:
 			e.begin(stepEdit)
 			end := blockEnd(e.src, next)
@@ -649,6 +664,12 @@ func (e *Editor) enter(shift bool) {
 		ins := "\n" + cont + indent
 		e.replace(off, off, ins)
 		e.commit(off+len(ins), off+len(ins))
+		return
+	case kBlank, kPhantom:
+		// A blank line: Enter opens another right here, one line down.
+		e.begin(stepEdit)
+		e.replace(off, off, "\n")
+		e.commit(off+1, off+1)
 		return
 	case kRule:
 		e.setPhantom(&phantom{at: blockEnd(e.src, l), pre: "\n\n" + blankPrefixTo(cont), conts: l.conts})
