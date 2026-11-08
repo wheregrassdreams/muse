@@ -1850,6 +1850,9 @@ func (a *App) openLink(href string) {
 	switch {
 	case href == "":
 		return
+	case strings.HasPrefix(href, "wiki:"):
+		a.openWiki(strings.TrimPrefix(href, "wiki:"))
+		return
 	case strings.HasPrefix(href, "#"):
 		slug := strings.TrimPrefix(href, "#")
 		for _, h := range a.headings {
@@ -1875,6 +1878,52 @@ func (a *App) openLink(href string) {
 		return
 	}
 	go openExternal(p)
+}
+
+// openWiki opens a `[[wiki link]]` by its target (see resolveWiki).
+func (a *App) openWiki(target string) {
+	if p := resolveWiki(a.root, a.docDir(), a.fileRows(), target); p != "" {
+		a.requestOpen(p)
+	}
+}
+
+// resolveWiki returns the file a `[[wiki link]]` opens, or "" when none
+// does: a path under the workspace root, else a path beside the open
+// document, else a note of the workspace by its name — the shortest
+// matching path, the way Obsidian resolves a bare title. A `#heading` or
+// `^block` anchor is not resolved yet.
+func resolveWiki(root, docDir string, files []fileRow, target string) string {
+	target = strings.TrimSpace(target)
+	if i := strings.IndexAny(target, "#^"); i >= 0 {
+		target = strings.TrimSpace(target[:i])
+	}
+	if target == "" {
+		return ""
+	}
+	if !strings.HasSuffix(strings.ToLower(target), ".md") {
+		target += ".md"
+	}
+	rel := filepath.FromSlash(target)
+	for _, base := range []string{root, docDir} {
+		if base == "" {
+			continue
+		}
+		p := filepath.Join(base, rel)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && isEditableFile(p) {
+			return p
+		}
+	}
+	want := strings.ToLower(filepath.Base(rel))
+	best := ""
+	for _, r := range files {
+		if r.dir || strings.ToLower(filepath.Base(r.path)) != want {
+			continue
+		}
+		if best == "" || len(r.path) < len(best) {
+			best = r.path
+		}
+	}
+	return best
 }
 
 // headingSlug is the anchor of a heading, as GitHub makes it.

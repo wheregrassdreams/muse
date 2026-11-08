@@ -289,7 +289,7 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 		next := max(in.Next, i+1)
 		switch in.Kind {
 		case parser.Text:
-			st = b.text_(in.Start, in.End, st, marks, &outer)
+			st = b.text_(in.Start, in.End, st, marks, wikiLinks(b.src, in.Start, in.End), &outer)
 		case parser.SoftBreak, parser.LineBreak:
 			// The break stands for the spaces before the next line's text
 			// too, which the parser skips.
@@ -340,16 +340,35 @@ func children(ins []parser.Inline, i int, from int) (int, int) {
 // text_ adds a Text inline's source, with its escapes and character
 // references as the characters they stand for, unless the caret is at
 // them, and its ==s of highlight among marks hidden, unless the caret is
-// in what they mark. It returns the style after it, marked after an ==
-// that opens; outer keeps whether it was marked before.
-func (b *builder) text_(s, e int, st istyle, marks []hlMark, outer *bool) istyle {
+// in what they mark. Its [[wiki links]] draw their label, with the
+// brackets hidden unless the caret is at them. It returns the style after
+// it, marked after an == that opens; outer keeps whether it was marked
+// before.
+func (b *builder) text_(s, e int, st istyle, marks []hlMark, wikis []wikiLink, outer *bool) istyle {
 	src := b.src
 	run := s
 	m := 0
 	for m < len(marks) && marks[m].at < s {
 		m++
 	}
+	w := 0
+	for w < len(wikis) && wikis[w].to <= s {
+		w++
+	}
 	for p := s; p < e; {
+		if w < len(wikis) && wikis[w].from <= p {
+			wk := wikis[w]
+			if wk.from < p {
+				w++
+				continue
+			}
+			b.textRun(run, p, st)
+			b.wiki(wk, st)
+			p = wk.to
+			run = p
+			w++
+			continue
+		}
 		if m < len(marks) && marks[m].at == p {
 			b.textRun(run, p, st)
 			if mk := marks[m]; b.revealed(mk.from, mk.to) {
@@ -396,6 +415,21 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, outer *bool) istyle
 	}
 	b.textRun(run, e, st)
 	return st
+}
+
+// wiki draws a wiki link's label in the link color. Its brackets (and the
+// `|` before a label) show only while the caret is in the link, like the
+// markers of every other construct, so the source can be edited in place.
+func (b *builder) wiki(w wikiLink, st istyle) {
+	inner := st
+	inner.link = true
+	if b.revealed(w.from, w.to) {
+		b.marker(w.from, w.labelFrom, st)
+		b.textRun(w.labelFrom, w.labelTo, inner)
+		b.marker(w.labelTo, w.to, st)
+		return
+	}
+	b.textRun(w.labelFrom, w.labelTo, inner)
 }
 
 // wrapped adds emphasis, strong emphasis or strikethrough: its markers

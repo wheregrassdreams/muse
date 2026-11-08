@@ -687,15 +687,24 @@ func (e *Editor) codeLabelAt(x, y float32) *leaf {
 	return nil
 }
 
-// linkAt returns the destination of the link at off.
+// linkAt returns what a click at off opens: a link's destination, or a
+// `[[wiki link]]`'s target as `wiki:target` (the app resolves it, as the
+// editor knows nothing of the workspace).
 func (e *Editor) linkAt(off int) string {
 	u := e.unitAt(off)
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return ""
 	}
 	for _, in := range e.doc.Inlines(u.id) {
-		if (in.Kind == parser.Link || in.Kind == parser.Image) && in.Start <= off && off <= in.End {
-			return in.Dest
+		switch in.Kind {
+		case parser.Link, parser.Image:
+			if in.Start <= off && off <= in.End {
+				return in.Dest
+			}
+		case parser.Text:
+			if target, ok := wikiAt(e.src, in.Start, in.End, off); ok {
+				return "wiki:" + target
+			}
 		}
 	}
 	return ""
