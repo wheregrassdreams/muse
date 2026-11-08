@@ -79,7 +79,7 @@ func TestEnterAtTheEndAddsAVisibleLine(t *testing.T) {
 	second := leafYs(h.e)
 	h.key(0, ui.KeyEnter)
 	third := leafYs(h.e)
-	if h.e.Source() != "a\n\n" {
+	if h.e.Source() != "a\n\n\n" {
 		t.Fatalf("source %q", h.e.Source())
 	}
 	last := func(ys []float32) float32 { return ys[len(ys)-1] }
@@ -317,14 +317,11 @@ func TestDeletePeelsOneQuotationBlankLine(t *testing.T) {
 func TestEnterOnAQuotationBlankLine(t *testing.T) {
 	h := newHarness(t, "> a\n>\n> b")
 	h.caretAt(5)
+	// An empty line of a quotation is how the quotation ends: Enter takes
+	// its marker, and the line after it is plain.
 	h.key(0, ui.KeyEnter)
-	for _, line := range strings.Split(h.e.Source(), "\n") {
-		if !strings.HasPrefix(line, ">") {
-			t.Fatalf("the quotation is broken: %q", h.e.Source())
-		}
-	}
-	if n := len(strings.Split(h.e.Source(), "\n")); n != 4 {
-		t.Fatalf("%d lines, want the line Enter opened: %q", n, h.e.Source())
+	if got := h.e.Source(); got != "> a\n\n> b" {
+		t.Fatalf("Enter on the empty line leaves %q, want the quotation ended", got)
 	}
 }
 

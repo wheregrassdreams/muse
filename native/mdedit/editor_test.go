@@ -152,7 +152,7 @@ func TestTypeInEmptyDocument(t *testing.T) {
 	h.want("# Hello")
 	h.key(0, ui.KeyEnter)
 	h.typ("world")
-	h.want("# Hello\n\nworld")
+	h.want("# Hello\nworld")
 	h.shot("typed")
 }
 
@@ -169,22 +169,28 @@ func TestEnterSplitsParagraph(t *testing.T) {
 	h := newHarness(t, "hello world")
 	h.caretAt(5)
 	h.key(0, ui.KeyEnter)
-	h.want("hello\n\nworld")
+	h.want("hello\nworld")
 	if !strings.HasPrefix(h.e.Source()[h.e.caret:], "world") {
 		t.Fatalf("caret at %d", h.e.caret)
 	}
 }
 
-func TestEnterAtEndMakesPhantom(t *testing.T) {
+func TestEnterAtTheEndOpensALine(t *testing.T) {
+	// Enter is one line break, as it is in the file: the caret goes to the
+	// line it opened, and typing writes it there.
 	h := newHarness(t, "one\n\ntwo\n")
 	h.caretAt(3)
 	h.key(0, ui.KeyEnter)
-	h.want("one\n\ntwo\n")
-	if h.e.phantom == nil {
-		t.Fatal("no empty paragraph after Enter at the end")
+	h.want("one\n\n\ntwo\n")
+	if h.e.phantom != nil {
+		t.Fatal("Enter at the end left a phantom paragraph")
+	}
+	if l := h.e.leafAt(h.e.caret); l == nil || l.kind != kBlank {
+		t.Fatalf("the caret is not on the line Enter opened: %+v", l)
 	}
 	h.typ("x")
-	h.want("one\n\nx\n\ntwo\n")
+	// The caret is on the line Enter opened, right below "one".
+	h.want("one\nx\n\ntwo\n")
 }
 
 func TestRepeatedEnterKeepsBlankLines(t *testing.T) {
@@ -193,32 +199,32 @@ func TestRepeatedEnterKeepsBlankLines(t *testing.T) {
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyEnter)
-	h.want("one\n\n\n\ntwo\n")
-	if h.e.phantom == nil {
-		t.Fatal("left the empty paragraph")
-	}
+	h.want("one\n\n\n\n\ntwo\n")
 	h.typ("x")
-	h.want("one\n\n\n\nx\n\ntwo\n")
-	// The text comes back first, then each blank line on its own.
+	h.want("one\n\n\nx\n\ntwo\n")
+	// The text comes back first, then each line Enter opened.
 	h.key(ui.Cmd, ui.KeyZ)
-	h.want("one\n\n\n\ntwo\n")
-	if h.e.phantom == nil || h.e.caret != 5 {
-		t.Fatalf("undo of the text: caret %d, phantom %+v", h.e.caret, h.e.phantom)
+	h.want("one\n\n\n\n\ntwo\n")
+	if h.e.caret != 6 {
+		t.Fatalf("undo of the text: caret %d", h.e.caret)
 	}
 	h.key(ui.Cmd, ui.KeyZ)
-	h.want("one\n\n\ntwo\n")
-	if h.e.phantom == nil || h.e.caret != 4 {
-		t.Fatalf("undo of a blank line: caret %d, phantom %+v", h.e.caret, h.e.phantom)
+	h.want("one\n\n\n\ntwo\n")
+	if h.e.caret != 5 {
+		t.Fatalf("undo of a line Enter opened: caret %d", h.e.caret)
 	}
 }
 
 func TestRepeatedEnterAboveAParagraph(t *testing.T) {
+	// Two Enters at the start of the first line leave two empty lines above
+	// it, and the caret on the second.
 	h := newHarness(t, "one\n")
 	h.caretAt(0)
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyEnter)
+	h.want("\n\none\n")
 	h.typ("x")
-	h.want("x\n\n\none\n")
+	h.want("\nx\none\n")
 }
 
 func TestListEnter(t *testing.T) {
@@ -418,11 +424,12 @@ func TestQuoteEnterExits(t *testing.T) {
 	h.caretAt(len("> quoted"))
 	h.key(0, ui.KeyEnter)
 	h.typ("more")
-	h.want("> quoted\n>\n> more")
+	h.want("> quoted\n> more")
+	// A second Enter on the empty line of the quotation leaves it.
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyEnter)
 	h.typ("out")
-	h.want("> quoted\n>\n> more\n\nout")
+	h.want("> quoted\n> more\n\nout")
 }
 
 func TestHeadingShortcuts(t *testing.T) {

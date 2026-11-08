@@ -135,7 +135,7 @@ func TestCJKFriendlyLeavesTheSourceAlone(t *testing.T) {
 	if code == nil || len(code.lines) != 1 || code.lines[0].text != "**注意：**中文" {
 		t.Fatalf("code lines = %+v", code)
 	}
-	last := e.leaves[len(e.leaves)-1]
+	last := blocks(e)[len(blocks(e))-1]
 	if got := styledText(e, last.view.disp); got != "«code:**注意：**中文» [obj]" {
 		t.Fatalf("last paragraph shows %q", got)
 	}

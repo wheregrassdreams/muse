@@ -67,7 +67,7 @@ func TestVirtualLayoutFirstFrame(t *testing.T) {
 	if ed.leaves[0].view == nil {
 		t.Fatal("the first leaf is not shaped, though it is at the top of the document")
 	}
-	if l := ed.leaves[len(ed.leaves)-1]; l.view != nil {
+	if l := blocks(ed)[len(blocks(ed))-1]; l.view != nil {
 		t.Fatalf("the last leaf is shaped, though it is far below the viewport: %q", l.view.disp.text)
 	}
 }
@@ -322,7 +322,7 @@ func TestSmallDocumentIsLaidOutWhole(t *testing.T) {
 	if n := len(blocks(h.e)); n != 20 {
 		t.Fatalf("%d blocks, want 20", n)
 	}
-	if n, want := len(h.e.leaves), 2*20; n != want {
+	if n, want := len(h.e.leaves), 2*20+1; n != want {
 		t.Fatalf("%d leaves, want %d", n, want)
 	}
 	if n, want := shapedLeaves(h.e), len(blocks(h.e)); n != want {

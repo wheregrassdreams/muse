@@ -326,7 +326,7 @@ func (e *Editor) tidyEmpty() {
 		e.begin(stepEdit)
 		e.replace(0, z+1, "")
 		e.mergeLastStep()
-		e.setPhantom(&phantom{at: 0, post: "\n\n", before: true})
+		e.setPhantom(&phantom{at: 0, post: "\n", before: true})
 	case z == len(e.src):
 		e.begin(stepEdit)
 		e.replace(a-1, len(e.src), "\n")
@@ -602,10 +602,10 @@ func (e *Editor) enter(shift bool) {
 		if len(p.conts) > 0 {
 			np := *p
 			np.conts = p.conts[:len(p.conts)-1]
-			np.pre = "\n\n" + phantomPrefix(np.conts)
+			np.pre = "\n" + phantomPrefix(np.conts)
 			if np.before {
 				np.pre = ""
-				np.post = "\n\n"
+				np.post = "\n"
 			}
 			e.setPhantom(&np)
 			return
@@ -668,15 +668,30 @@ func (e *Editor) enter(shift bool) {
 		e.commit(off+len(ins), off+len(ins))
 		return
 	case kBlank, kPhantom:
-		// A blank line: Enter opens another right here, one line down, in
-		// the same containers — a line of a quotation stays one.
-		ins := "\n" + cont
+		// A blank line: Enter opens another one below it — except in a
+		// quotation, where an empty line is how the quotation ends: its
+		// markers go, and the caret stays on the line.
+		if len(l.conts) > 0 {
+			at := l.lineStart
+			e.begin(stepEdit)
+			e.replace(at, l.start, "")
+			if at == len(e.src) {
+				// The line ended the document: the empty line after it is
+				// the one the caret leaves the quotation onto.
+				e.replace(at, at, "\n")
+				e.commit(at+1, at+1)
+				return
+			}
+			e.commit(at, at)
+			return
+		}
 		e.begin(stepEdit)
-		e.replace(off, off, ins)
-		e.commit(off+len(ins), off+len(ins))
+		e.replace(off, off, "\n")
+		e.commit(off+1, off+1)
 		return
 	case kRule:
-		e.setPhantom(&phantom{at: blockEnd(e.src, l), pre: "\n\n" + blankPrefixTo(cont), conts: l.conts})
+		// A rule has no line to type on: Enter opens one below it.
+		e.setPhantom(&phantom{at: blockEnd(e.src, l), pre: "\n" + cont, conts: l.conts})
 		return
 	}
 	// Text: a paragraph, a heading, an item.
@@ -686,14 +701,9 @@ func (e *Editor) enter(shift bool) {
 		e.commit(off+1+len(cont), off+1+len(cont))
 		return
 	}
-	if shift && l.kind != kHeading {
-		// A line break within the paragraph.
-		e.begin(stepEdit)
-		ins := "\n" + cont
-		e.replace(off, off, ins)
-		e.commit(off+len(ins), off+len(ins))
-		return
-	}
+	// Shift+Enter is the same as Enter: the break the source takes is the
+	// break the key makes, whatever the modifiers say (see docs/editor-model.md).
+	_ = shift
 	if l.kind == kPara && e.tableShortcut(l) {
 		return
 	}
@@ -703,15 +713,24 @@ func (e *Editor) enter(shift bool) {
 	}
 	first, _ := e.edgeStop(l, false)
 	last, _ := e.edgeStop(l, true)
-	blank := blankPrefixTo(cont)
 	switch {
 	case off >= last:
-		// A new paragraph below, empty until typed in.
-		e.setPhantom(&phantom{at: blockEnd(e.src, l), pre: "\n" + blank + "\n" + cont, conts: l.conts})
+		// A new line below, inside the leaf's containers: Enter in the
+		// source is one line break, and the markers of the containers come
+		// with it, as they do in the file.
+		at := blockEnd(e.src, l)
+		ins := "\n" + cont
+		e.begin(stepEdit)
+		e.replace(at, at, ins)
+		e.commit(at+len(ins), at+len(ins))
 	case off <= first && strings.TrimSpace(e.src[l.start:l.end]) != "":
-		// A new paragraph above.
+		// A new line above: the break goes in before the leaf's own line,
+		// and the caret stays on the empty line it leaves.
 		at := l.syntaxStart
-		e.setPhantom(&phantom{at: at, post: "\n" + blank + "\n" + cont, conts: l.conts, before: true})
+		ins := "\n" + cont
+		e.begin(stepEdit)
+		e.replace(at, at, ins)
+		e.commit(at, at)
 	default:
 		// Spaces at the break go with it.
 		from, to := off, off
@@ -722,14 +741,11 @@ func (e *Editor) enter(shift bool) {
 			to++
 		}
 		e.begin(stepEdit)
-		ins := "\n" + blank + "\n" + cont
+		ins := "\n" + cont
 		e.replace(from, to, ins)
 		e.commit(from+len(ins), from+len(ins))
 	}
 }
-
-// blankPrefixTo returns the blank line's prefix of a continuation prefix.
-func blankPrefixTo(cont string) string { return blankPrefix(cont) }
 
 // lineContentStart returns where the content of the line holding off
 // starts in a leaf of lines.

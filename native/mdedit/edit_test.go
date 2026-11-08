@@ -160,7 +160,7 @@ func TestClickBelowCodeAtEndMakesParagraph(t *testing.T) {
 	h.tt.ClickAt(h.e.colX+20, last.y+last.h+60)
 	h.frame()
 	h.typ("after")
-	h.want("```\ncode\n```\n\nafter")
+	h.want("```\ncode\n```\nafter")
 }
 
 func TestSelectionAcrossBlocksDeletes(t *testing.T) {
@@ -178,7 +178,7 @@ func TestHeadingEnterAtStartInsertsAbove(t *testing.T) {
 	h.caretAt(2)
 	h.key(0, ui.KeyEnter)
 	h.typ("intro")
-	h.want("intro\n\n# Title")
+	h.want("intro\n# Title")
 }
 
 func TestEnterAtEndPutsCaretOnTheNewLine(t *testing.T) {
@@ -199,12 +199,16 @@ func TestEnterAtEndPutsCaretOnTheNewLine(t *testing.T) {
 			}
 			h.caretAt(tc.off)
 			h.key(0, ui.KeyEnter)
-			if h.e.phantom == nil {
-				t.Fatal("no phantom after Enter at the end")
+			// The line Enter opened is a line of the source, not a phantom.
+			if h.e.phantom != nil {
+				t.Fatal("Enter at the end left a phantom paragraph")
+			}
+			if l := h.e.leafAt(h.e.caret); l == nil || l.kind != kBlank {
+				t.Fatalf("the caret is not on the line Enter opened: %+v", l)
 			}
 			r, ok := h.e.caretRect(h.e.caret)
 			if !ok {
-				t.Fatal("no caret in the phantom")
+				t.Fatal("no caret on the new line")
 			}
 			if r.Y <= before.Y {
 				t.Fatalf("caret at %.2f did not move below the line at %.2f", r.Y, before.Y)
@@ -213,28 +217,31 @@ func TestEnterAtEndPutsCaretOnTheNewLine(t *testing.T) {
 	}
 }
 
-func TestArrowsLeavePhantom(t *testing.T) {
+func TestArrowsLeaveTheLineEnterOpened(t *testing.T) {
 	h := newHarness(t, "Hello world")
 	h.caretAt(11)
 	h.key(0, ui.KeyEnter)
-	h.key(0, ui.KeyLeft)
-	if h.e.phantom != nil {
-		t.Fatal("Left kept the phantom")
+	if got := h.e.Source(); got != "Hello world\n" {
+		t.Fatalf("Enter at the end leaves %q", got)
 	}
+	if h.e.caret != 12 {
+		t.Fatalf("caret = %d, want the line Enter opened (12)", h.e.caret)
+	}
+	h.key(0, ui.KeyLeft)
 	if h.e.caret != 11 {
-		t.Fatalf("caret = %d, want 11", h.e.caret)
+		t.Fatalf("Left = %d, want the end of the text (11)", h.e.caret)
 	}
 	if r, _ := h.e.caretRect(h.e.caret); r.Y > h.e.leaves[0].y+h.e.leaves[0].h {
 		t.Fatalf("caret at %.2f is not on the line above", r.Y)
 	}
 
-	// Right at the end of the document stays in the phantom.
+	// Right at the end of the document stays on the last line.
 	h = newHarness(t, "Hello world")
 	h.caretAt(11)
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyRight)
-	if h.e.phantom == nil {
-		t.Fatal("Right dropped the phantom at the end")
+	if h.e.caret != 12 {
+		t.Fatalf("Right = %d, want to stay on the last line (12)", h.e.caret)
 	}
 
 	// Up enters the line above.
@@ -242,30 +249,28 @@ func TestArrowsLeavePhantom(t *testing.T) {
 	h.caretAt(11)
 	h.key(0, ui.KeyEnter)
 	h.key(0, ui.KeyUp)
-	if h.e.phantom != nil {
-		t.Fatal("Up kept the phantom")
+	if h.e.caret > 11 {
+		t.Fatalf("Up = %d, want the line above", h.e.caret)
 	}
 	if r, _ := h.e.caretRect(h.e.caret); r.Y > h.e.leaves[0].y+h.e.leaves[0].h {
 		t.Fatalf("caret at %.2f is not on the line above", r.Y)
 	}
 }
 
+// TestClickKeepsThePhantomOnlyOnItsLine: the phantom is a line the source
+// does not hold, and a click at the line above it means that line.
 func TestClickKeepsThePhantomOnlyOnItsLine(t *testing.T) {
-	h := newHarness(t, "Hello world")
-	h.caretAt(11)
-	h.key(0, ui.KeyEnter)
-	para := h.e.leaves[0]
-	h.e.setCaretAtPoint(11, para.y+para.h/2, false)
-	if h.e.phantom != nil {
-		t.Fatal("a click at the line's end kept the phantom")
-	}
-	h = newHarness(t, "Hello world")
-	h.caretAt(11)
-	h.key(0, ui.KeyEnter)
-	ph := h.e.leaves[1]
-	h.e.setCaretAtPoint(11, ph.y+1, false)
+	h := newHarness(t, "```\ncode\n```")
+	last := h.e.leaves[len(h.e.leaves)-1]
+	h.tt.ClickAt(h.e.colX+20, last.y+last.h+60)
+	h.frame()
 	if h.e.phantom == nil {
-		t.Fatal("a click on the phantom's line dropped it")
+		t.Fatal("a click below the code block opened no line")
+	}
+	ph := h.e.phantom.at
+	h.e.setCaretAtPoint(last.end, last.y+last.h/2, false)
+	if h.e.phantom != nil {
+		t.Fatalf("a click on the code's line kept the phantom at %d", ph)
 	}
 }
 
@@ -306,4 +311,43 @@ func TestReplaceAllKeepsUndo(t *testing.T) {
 	h.e.Undo()
 	h.frame()
 	h.want("one two")
+}
+
+// TestEnterIsOneLineEverywhere: Enter writes one line break in the source,
+// whatever the block is — a paragraph, a heading, a quotation, an item —
+// and the containers continue on the line it opens. Shift+Enter writes the
+// same break; typing after either does not move the line.
+func TestEnterIsOneLineEverywhere(t *testing.T) {
+	for _, c := range []struct{ src, want string }{
+		{"para", "para\nnext"},
+		{"# head", "# head\nnext"},
+		{"> quote", "> quote\n> next"},
+		{"- item", "- item\n- next"},
+		{"1. item", "1. item\n2. next"},
+	} {
+		h := newHarness(t, c.src)
+		h.caretAt(len(c.src))
+		h.key(0, ui.KeyEnter)
+		h.typ("next")
+		if got := h.e.Source(); got != c.want {
+			t.Errorf("%q + Enter + next = %q, want %q", c.src, got, c.want)
+		}
+	}
+	h := newHarness(t, "para")
+	h.caretAt(4)
+	h.key(ui.Shift, ui.KeyEnter)
+	h.typ("next")
+	if got := h.e.Source(); got != "para\nnext" {
+		t.Errorf("Shift+Enter writes %q, want the same break as Enter", got)
+	}
+	// The caret is on the line Enter opened, so typing does not move it.
+	h2 := newHarness(t, "a")
+	h2.caretAt(1)
+	h2.key(0, ui.KeyEnter)
+	before, _ := h2.e.caretRect(h2.e.caret)
+	h2.typ("x")
+	after, _ := h2.e.caretRect(h2.e.caret)
+	if after.Y != before.Y {
+		t.Errorf("the line moved %.1f px when typing: the caret was not on it", after.Y-before.Y)
+	}
 }

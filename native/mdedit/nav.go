@@ -599,10 +599,14 @@ func (e *Editor) phantomAtEdge(li, dir int) bool {
 		return false
 	}
 	if dir > 0 {
+		if strings.HasSuffix(e.src, "\n") {
+			// The source already ends with a line to type on.
+			return false
+		}
 		end := blockEnd(e.src, l)
-		e.setPhantom(&phantom{at: end, pre: "\n\n"})
+		e.setPhantom(&phantom{at: end, pre: "\n"})
 	} else {
-		e.setPhantom(&phantom{at: l.lineStart, post: "\n\n", before: true})
+		e.setPhantom(&phantom{at: l.lineStart, post: "\n", before: true})
 	}
 	return true
 }

@@ -104,7 +104,7 @@ func TestE2ESaveUntitledViaDialog(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	tt.Type("正文")
 	tt.Frame()
-	if a.source != "# E2E 已验证\n\n正文" {
+	if a.source != "# E2E 已验证\n正文" {
 		t.Fatalf("source = %q", a.source)
 	}
 
@@ -118,7 +118,7 @@ func TestE2ESaveUntitledViaDialog(t *testing.T) {
 	tt.Frame()
 
 	b := []byte(waitFileContains(t, target, "E2E 已验证"))
-	if !strings.Contains(string(b), "# E2E 已验证\n\n正文") {
+	if !strings.Contains(string(b), "# E2E 已验证\n正文") {
 		t.Fatalf("saved doc missing typed text; got:\n%s", b)
 	}
 	deadline := time.Now().Add(2 * time.Second)

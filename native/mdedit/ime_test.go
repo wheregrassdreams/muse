@@ -15,8 +15,8 @@ func TestComposeOnNewLineStaysOnNewLine(t *testing.T) {
 	h := newHarness(t, "# 123qweq we")
 	h.caretAt(len("# 123qweq we"))
 	h.key(0, ui.KeyEnter)
-	if h.e.phantom == nil {
-		t.Fatal("Enter at the end of the heading did not open a paragraph")
+	if l := h.e.leafAt(h.e.caret); l == nil || l.kind != kBlank {
+		t.Fatalf("Enter at the end of the heading did not open a line: %+v", l)
 	}
 	h.e.SetMarkedText(nil, "q.we", ui.TextInputRange{Start: 4, End: 4})
 	h.frame()
@@ -25,8 +25,8 @@ func TestComposeOnNewLineStaysOnNewLine(t *testing.T) {
 		t.Fatalf("leaves = %d, want the heading and the paragraph after it", len(h.e.leaves))
 	}
 	head, line := h.e.leaves[0], h.e.leaves[1]
-	if head.kind != kHeading || line.kind != kPhantom {
-		t.Fatalf("leaves = %d, %d; want a heading and its new paragraph", head.kind, line.kind)
+	if head.kind != kHeading || line.kind != kBlank {
+		t.Fatalf("leaves = %d, %d; want a heading and the line below it", head.kind, line.kind)
 	}
 	if head.view == nil || line.view == nil {
 		t.Fatal("the heading or the new paragraph has no view")
@@ -56,6 +56,6 @@ func TestComposeOnNewLineStaysOnNewLine(t *testing.T) {
 	// The commit goes into the paragraph, after the heading's own line.
 	h.e.ReplaceText(nil, "q.we")
 	h.frame()
-	h.want("# 123qweq we\n\nq.we")
+	h.want("# 123qweq we\nq.we")
 	h.shot("compose-new-line-committed")
 }

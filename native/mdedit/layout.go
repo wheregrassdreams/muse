@@ -878,15 +878,10 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		}
 		gap := max(top, prevBottom)
 		if l.kind == kPhantom && prev != nil {
-			// The phantom is a paragraph the source does not hold: it takes
-			// the line the caret would write it on. Below a block's last line
-			// that line starts at the next break, one line down; at the end of
-			// a source that ends with a break it is the last line, and the
-			// blank lines above it have their own leaves already.
-			gap = 0
-			if lineStartAt(e.src, l.start) > prev.end {
-				gap = e.lk.size * e.lk.lh
-			}
+			// The phantom is the line the caret opens where the source has
+			// none — below a block that has no line to type on. It takes the
+			// line below the block: one line, its own.
+			gap = e.lk.size * e.lk.lh
 		}
 		y += gap
 		l.y = y

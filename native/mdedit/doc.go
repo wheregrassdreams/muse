@@ -975,6 +975,14 @@ func addBlankLeaves(a *leafArena, src string, leaves []*leaf) []*leaf {
 		}
 		out = addBlanks(a, src, out, l.end, to, true, l, next)
 	}
+	// A source that ends with a break has one more line, empty: Enter at the
+	// end of the document leaves the caret on it, and typing there writes it.
+	if n := len(src); n > 0 && src[n-1] == '\n' && (len(out) == 0 || out[len(out)-1].end < n) {
+		bl := a.get()
+		bl.kind, bl.id, bl.lineStart = kBlank, -1, n
+		bl.start, bl.end, bl.syntaxStart = n, n, n
+		out = append(out, bl)
+	}
 	return out
 }
 
@@ -1076,10 +1084,17 @@ func appendRaw(a *leafArena, out []*leaf, src string, from, to int) []*leaf {
 		return out
 	}
 	to = min(to, len(src))
-	// Trim blank lines on both sides.
+	// Trim blank lines on both sides: an empty line, or one that holds
+	// nothing but the markers of the containers it is in — a `>` line the
+	// parse left out because the quotation ended there. Those are blank
+	// lines, and addBlankLeaves gives them their leaves.
 	for from < to {
-		e := lineEndAt(src, from)
-		if strings.TrimSpace(src[from:min(e, to)]) != "" {
+		e := min(lineEndAt(src, from), to)
+		if _, _, ok := blankLine(src, from, e); !ok {
+			break
+		}
+		if e >= to {
+			from = to
 			break
 		}
 		from = e + 1
@@ -1089,7 +1104,11 @@ func appendRaw(a *leafArena, out []*leaf, src string, from, to int) []*leaf {
 	}
 	for to > from {
 		s := lineStartAt(src, to-1)
-		if strings.TrimSpace(src[s:to]) != "" {
+		if _, _, ok := blankLine(src, s, to); !ok {
+			break
+		}
+		if s == 0 {
+			to = 0
 			break
 		}
 		to = s - 1
