@@ -6,7 +6,6 @@ func TestWikiLinkShowsItsLabel(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
 		{"见 [[项目笔记]] 吧\n", "见 «a:项目笔记» 吧"},
 		{"[[项目笔记|别名]]\n", "«a:别名»"},
-		{"![[图.png]]\n", "«a:图.png»"},
 		// Half-typed and empty links stay as written.
 		{"半截 [[笔记\n", "半截 [[笔记"},
 		{"[[]] 空\n", "[[]] 空"},

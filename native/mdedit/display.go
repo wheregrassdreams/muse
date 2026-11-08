@@ -444,6 +444,14 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis [
 func (b *builder) wiki(w wikiLink, st istyle) {
 	inner := st
 	inner.link = true
+	// An embed of a picture is the picture, as Obsidian draws it. A note
+	// embed transcludes later; for now it reads as its label.
+	if w.embed && !b.revealed(w.from, w.to) && isImageName(w.target) {
+		if obj := b.e.imageObject(w.target, "", b.width, b.alone); obj != nil {
+			b.atom(w.from, w.to, "", st, obj)
+			return
+		}
+	}
 	if b.revealed(w.from, w.to) {
 		b.marker(w.from, w.labelFrom, st)
 		b.textRun(w.labelFrom, w.labelTo, inner)
