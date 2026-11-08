@@ -31,13 +31,13 @@ func benchmarkSource(size int) string {
 // benchmarkProse returns the offset just inside a line of prose near the
 // middle of src, where a keystroke does not change the block structure
 // around it and both halves of the document are already parsed.
-func benchmarkProse(b *testing.B, src string) int {
+func benchmarkProse(tb testing.TB, src string) int {
 	mid := len(src) / 2
 	i := strings.Index(src[mid:], "一段")
 	if i < 0 {
 		i = strings.LastIndex(src[:mid], "一段")
 		if i < 0 {
-			b.Fatal("the benchmark source has no prose")
+			tb.Fatal("the benchmark source has no prose")
 		}
 		mid = i
 	} else {
