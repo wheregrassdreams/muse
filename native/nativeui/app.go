@@ -1252,7 +1252,7 @@ func (a *App) save() {
 		a.invalidate()
 		return
 	}
-	if err := os.WriteFile(a.path, []byte(a.diskSource()), 0o644); err != nil {
+	if err := writeFileAtomic(a.path, []byte(a.diskSource())); err != nil {
 		a.notice(fmt.Sprintf("保存失败：%v", err))
 	} else {
 		a.dirty = false
@@ -1308,7 +1308,7 @@ func (a *App) confirmDiscardOffUI() bool {
 		errorDialog("无法保存", "请选择文本文件扩展名。")
 		return false
 	}
-	if err := os.WriteFile(savePath, []byte(source), 0o644); err != nil {
+	if err := writeFileAtomic(savePath, []byte(source)); err != nil {
 		errorDialog("保存失败", err.Error())
 		return false
 	}
@@ -1350,7 +1350,7 @@ func (a *App) saveAs() {
 			a.finish(nil)
 			return
 		}
-		if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		if err := writeFileAtomic(path, []byte(source)); err != nil {
 			errorDialog("保存失败", err.Error())
 			a.finish(nil)
 			return
