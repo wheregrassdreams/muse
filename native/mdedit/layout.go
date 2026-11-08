@@ -610,7 +610,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	_, th := v.layout.Size()
 	v.h = th + 2*padY
 	if !open && !caretIn && isMermaid(l) {
-		if d, ok := mdoc.ParseDiagram(e.codeText(l)); ok {
+		if d, ok := mdoc.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
 			v.diagram = &d
 			v.h = d.Height(width) + 2*padY
 		}

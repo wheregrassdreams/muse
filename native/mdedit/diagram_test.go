@@ -7,7 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// wideDiagram is a Mermaid graph wider than the editor's column.
+// wideDiagram is a Mermaid graph wider than the editor's column: pele lays a
+// row of seven boxes out at more than the width of the page.
 const wideDiagram = "```mermaid\ngraph LR\n" +
 	"A[开始] --> B[解析]\n" +
 	"B --> C[布局]\n" +
@@ -15,6 +16,7 @@ const wideDiagram = "```mermaid\ngraph LR\n" +
 	"D --> E[校验]\n" +
 	"E --> F[保存]\n" +
 	"F --> G[完成]\n" +
+	"G --> H[再校验一遍这块的画法]\n" +
 	"```"
 
 // diagramHarness returns a harness showing wideDiagram, and its leaf, with

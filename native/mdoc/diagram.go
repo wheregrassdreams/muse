@@ -20,6 +20,16 @@ func (d Diagram) Height(width float32) float32 { return d.height() }
 // Draw paints the diagram in r, in the colors of t.
 func (d Diagram) Draw(p *ui.Painter, r ui.Rect, t *ui.Theme) { d.draw(p, r, t) }
 
+// ParseDiagramThemed reads a Mermaid diagram and draws it in the colors and
+// the text widths of the page it is in. sketch draws every Mermaid kind pele
+// draws; the older parsers here are the fallback for what it refuses.
+func ParseDiagramThemed(code string, opts SketchOptions) (Diagram, bool) {
+	if d, ok := ParseSketchDiagram(code, opts); ok {
+		return d, true
+	}
+	return ParseDiagram(code)
+}
+
 // ParseDiagram reads a Mermaid diagram, in the order the renderer tries
 // its kinds, and reports false for one it cannot draw.
 func ParseDiagram(code string) (Diagram, bool) {

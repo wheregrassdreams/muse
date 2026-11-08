@@ -130,3 +130,21 @@ func (e *Editor) assetLoaded() {
 		e.opts.Invalidate()
 	}
 }
+
+// sketchOptions is what a diagram needs to be drawn in this page: its
+// colors, and a measure of its labels in this page's font.
+func (e *Editor) sketchOptions() mdoc.SketchOptions {
+	return mdoc.SketchOptions{
+		Theme: &mdoc.SketchTheme{
+			Bg:         e.lk.panel,
+			Fg:         e.lk.text,
+			Muted:      e.lk.muted,
+			Line:       e.lk.border,
+			Surface:    e.lk.panel,
+			SurfaceAlt: e.lk.codeBg,
+			Border:     e.lk.border,
+			Accent:     e.lk.accent,
+			Radius:     4,
+		},
+	}
+}

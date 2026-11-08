@@ -97,3 +97,5 @@ rsc.io/pdf v0.1.1 h1:k1MczvYDUvJBe93bYd7wrZLLUEcLZAuF824/I4e5Xr4=
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
 star-tex.org/x/tex v0.7.1 h1:4qGAByRyY0WQsOjtcHlxz+FgrYxz8fzxIds2Gjepp5U=
 star-tex.org/x/tex v0.7.1/go.mod h1:Y3y0U7sZTltTh/CDZIx0oAtMjG7eMaTuTtvDZGdyhJo=
+tuios.dev/sketch v0.4.0 h1:VSTqnwZCU9PKCwh01uUCSUqMEMcSwR/V9+j+YINwBXg=
+tuios.dev/sketch v0.4.0/go.mod h1:h553QTAks0AADC1LjCMrSFkqKjqeG0c+xrllTM13zLQ=
