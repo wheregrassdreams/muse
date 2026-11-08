@@ -472,11 +472,12 @@ func (e *Editor) backspaceAtStart(u *leaf) {
 		c := e.caret
 		e.commit(c, c)
 	case kBlank, kPhantom:
-		// A blank line: Backspace takes the line break above it, so the
-		// document loses the line and nothing else.
-		if at := e.caret; at > 0 {
+		// A blank line: Backspace takes the line break above it and the
+		// markers the line itself carries, so the document loses the line
+		// and nothing else.
+		if at := l.lineStart; at > 0 {
 			e.begin(stepEdit)
-			e.replace(at-1, at, "")
+			e.replace(at-1, l.start, "")
 			e.commit(at-1, at-1)
 		}
 	default:
@@ -558,10 +559,11 @@ func (e *Editor) deleteForward(word bool) {
 			e.commit(l.end, l.end)
 		case kBlank, kPhantom:
 			// A blank line below: Delete takes the line break that starts
-			// it, one line at a time, as Backspace does above.
-			if l.end < len(e.src) {
+			// it, and the markers it carries, one line at a time, as
+			// Backspace does above.
+			if next.start > l.end {
 				e.begin(stepEdit)
-				e.replace(l.end, l.end+1, "")
+				e.replace(l.end, next.start, "")
 				e.commit(l.end, l.end)
 			}
 		case kRule:
@@ -666,10 +668,12 @@ func (e *Editor) enter(shift bool) {
 		e.commit(off+len(ins), off+len(ins))
 		return
 	case kBlank, kPhantom:
-		// A blank line: Enter opens another right here, one line down.
+		// A blank line: Enter opens another right here, one line down, in
+		// the same containers — a line of a quotation stays one.
+		ins := "\n" + cont
 		e.begin(stepEdit)
-		e.replace(off, off, "\n")
-		e.commit(off+1, off+1)
+		e.replace(off, off, ins)
+		e.commit(off+len(ins), off+len(ins))
 		return
 	case kRule:
 		e.setPhantom(&phantom{at: blockEnd(e.src, l), pre: "\n\n" + blankPrefixTo(cont), conts: l.conts})

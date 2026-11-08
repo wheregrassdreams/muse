@@ -228,3 +228,172 @@ func TestSelectionPaintsAcrossABlankLine(t *testing.T) {
 		t.Fatalf("the blank line at %.0f is not painted as selected (pixel %v)", blank.y, before)
 	}
 }
+
+// TestQuotationBlankLineTakesText: the empty line of a quotation carries
+// its `>`, and the caret belongs after it — typing there keeps the line in
+// the quotation instead of putting the text before the marker.
+func TestQuotationBlankLineTakesText(t *testing.T) {
+	h := newHarness(t, "> a\n>\n> b")
+	blank := h.e.leaves[1]
+	if blank.kind != kBlank || blank.start != 5 || len(blank.conts) != 1 {
+		t.Fatalf("leaf 1 is kind %d at %d with %d containers, want the `>` line at 5",
+			blank.kind, blank.start, len(blank.conts))
+	}
+	h.tt.ClickAt(h.e.colX+20, blank.y+blank.h/2)
+	h.frame()
+	if h.e.caret != 5 {
+		t.Fatalf("the click put the caret at %d, want 5", h.e.caret)
+	}
+	h.typ("x")
+	h.want("> a\n>x\n> b")
+	for _, line := range strings.Split(h.e.Source(), "\n") {
+		if !strings.HasPrefix(line, ">") {
+			t.Fatalf("the quotation is broken: %q", h.e.Source())
+		}
+	}
+}
+
+// TestQuotationBlankLinesTakeArrows: every empty line of a quotation is a
+// line the arrows stop on.
+func TestQuotationBlankLinesTakeArrows(t *testing.T) {
+	h := newHarness(t, "> a\n>\n>\n> b")
+	h.caretAt(3)
+	h.key(0, ui.KeyDown)
+	if h.e.caret != 5 {
+		t.Fatalf("the first Down lands at %d, want the first empty line (5)", h.e.caret)
+	}
+	h.key(0, ui.KeyDown)
+	if h.e.caret != 7 {
+		t.Fatalf("the second Down lands at %d, want the second empty line (7)", h.e.caret)
+	}
+	h.key(0, ui.KeyDown)
+	if h.e.caret < 10 {
+		t.Fatalf("the third Down lands at %d, want the paragraph at 10 or after", h.e.caret)
+	}
+}
+
+// TestClickOnEachQuotationBlankLine: a click lands on the line it is on,
+// not one line off, however many empty lines the quotation has.
+func TestClickOnEachQuotationBlankLine(t *testing.T) {
+	h := newHarness(t, "> a\n>\n>\n> b")
+	first := h.e.leaves[0]
+	for _, c := range []struct {
+		dy   float32
+		want int
+	}{{42, 5}, {70, 7}, {98, 10}} {
+		h.tt.ClickAt(h.e.colX+20, first.y+c.dy)
+		h.frame()
+		if h.e.caret != c.want {
+			t.Fatalf("a click %.0f below the first line put the caret at %d, want %d",
+				c.dy, h.e.caret, c.want)
+		}
+	}
+}
+
+// TestBackspacePeelsOneQuotationBlankLine: Backspace on an empty line of a
+// quotation takes the line — its break and its marker — and nothing else.
+func TestBackspacePeelsOneQuotationBlankLine(t *testing.T) {
+	h := newHarness(t, "> a\n>\n>\n> b")
+	h.caretAt(7)
+	h.key(0, ui.KeyBackspace)
+	h.want("> a\n>\n> b")
+	h.key(0, ui.KeyBackspace)
+	h.want("> a\n> b")
+}
+
+// TestDeletePeelsOneQuotationBlankLine: Delete at the end of a quotation's
+// line takes the empty line below it, one line at a time.
+func TestDeletePeelsOneQuotationBlankLine(t *testing.T) {
+	h := newHarness(t, "> a\n>\n>\n> b")
+	h.caretAt(3)
+	h.key(0, ui.KeyDelete)
+	h.want("> a\n>\n> b")
+	h.key(0, ui.KeyDelete)
+	h.want("> a\n> b")
+}
+
+// TestEnterOnAQuotationBlankLine: Enter on an empty line of a quotation
+// opens another line of it, marker and all.
+func TestEnterOnAQuotationBlankLine(t *testing.T) {
+	h := newHarness(t, "> a\n>\n> b")
+	h.caretAt(5)
+	h.key(0, ui.KeyEnter)
+	for _, line := range strings.Split(h.e.Source(), "\n") {
+		if !strings.HasPrefix(line, ">") {
+			t.Fatalf("the quotation is broken: %q", h.e.Source())
+		}
+	}
+	if n := len(strings.Split(h.e.Source(), "\n")); n != 4 {
+		t.Fatalf("%d lines, want the line Enter opened: %q", n, h.e.Source())
+	}
+}
+
+// TestNestedQuotationBlankLine: a `> >` line is inside both quotations,
+// and sits at the indent of the text above and below it.
+func TestNestedQuotationBlankLine(t *testing.T) {
+	h := newHarness(t, "> > a\n> >\n> > b")
+	blank, above := h.e.leaves[1], h.e.leaves[0]
+	if len(blank.conts) != 2 {
+		t.Fatalf("the empty line is in %d containers, want 2", len(blank.conts))
+	}
+	if blank.x != above.x {
+		t.Fatalf("the empty line starts at %.1f, want the text's %.1f", blank.x, above.x)
+	}
+	h.caretAt(blank.start)
+	h.typ("x")
+	h.want("> > a\n> >x\n> > b")
+}
+
+// TestBlankLineInACallout: the empty line between two paragraphs of a
+// callout is the callout's, and typing there stays in it.
+func TestBlankLineInACallout(t *testing.T) {
+	h := newHarness(t, "> [!NOTE]\n> 一\n>\n> 二")
+	var blank *leaf
+	for _, l := range h.e.leaves {
+		if l.kind == kBlank {
+			blank = l
+		}
+	}
+	if blank == nil || len(blank.conts) != 1 {
+		t.Fatalf("no empty line of the callout: %+v", blank)
+	}
+	h.tt.ClickAt(h.e.colX+40, blank.y+blank.h/2)
+	h.frame()
+	h.typ("x")
+	h.want("> [!NOTE]\n> 一\n>x\n> 二")
+}
+
+// TestBlankLineInAListItemIsTheDocument's: an empty line inside a list item
+// carries no marker, so it is a line at the start of the column, and typing
+// there writes there.
+func TestBlankLineInAListItemIsTheDocuments(t *testing.T) {
+	h := newHarness(t, "- a\n\n  more")
+	blank := blocks(h.e)[0]
+	_ = blank
+	var b *leaf
+	for _, l := range h.e.leaves {
+		if l.kind == kBlank {
+			b = l
+		}
+	}
+	if b == nil || len(b.conts) != 0 || b.start != 4 {
+		t.Fatalf("the empty line is %+v, want a line of its own at 4", b)
+	}
+	h.caretAt(4)
+	h.typ("x")
+	h.want("- a\nx\n  more")
+}
+
+// TestQuotationInAnItemKeepsItsBlankLine: a quotation inside a list item is
+// still a quotation, and its empty `>` line sits at the item's column.
+func TestQuotationInAnItemKeepsItsBlankLine(t *testing.T) {
+	h := newHarness(t, "- > a\n  >\n  > b")
+	blank, above := h.e.leaves[1], h.e.leaves[0]
+	if len(blank.conts) != 2 || blank.x != above.x {
+		t.Fatalf("the empty line is in %d containers at x=%.1f, want the item's column %.1f",
+			len(blank.conts), blank.x, above.x)
+	}
+	h.caretAt(blank.start)
+	h.typ("x")
+	h.want("- > a\n  >x\n  > b")
+}

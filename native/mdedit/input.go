@@ -380,16 +380,21 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 			return true
 		}
 	}
-	// A blank line between blocks has no block of its own: the caret sits in
-	// a phantom paragraph there, so the line can be typed in.
-	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 {
+	// A comment's lines are blank in the parse, and the comment shows once
+	// the caret is in it: a click there puts the caret in the comment
+	// itself, not on a blank line beside it.
+	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && len(e.comments) > 0 {
 		if at, ok := e.gapPhantomAt(y); ok {
-			// Inside a comment, the parse shows it whole once the caret is in
-			// it: the caret alone is what is needed, not a phantom paragraph.
 			if _, in := commentAt(e.comments, at); in {
 				e.setCaret(at, false)
 				return true
 			}
+		}
+	}
+	// A gap no line of the document covers takes the caret as a phantom
+	// paragraph, so that the line can be typed in.
+	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && !e.onALine(y) {
+		if at, ok := e.gapPhantomAt(y); ok {
 			e.setPhantom(&phantom{at: at})
 			return true
 		}

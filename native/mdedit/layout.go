@@ -765,7 +765,8 @@ func (e *Editor) margins(l *leaf) (top, bottom float32) {
 // tightAfter reports whether a leaf follows the one before it closely: an
 // item of a tight list, or the content of an item after its first leaf.
 func tightAfter(prev, l *leaf) bool {
-	if prev == nil {
+	if prev == nil || prev.isLine() {
+		// A blank line is not an item of a list, whatever item it sits in.
 		return false
 	}
 	if it, ok := l.innerItem(); ok && it.tight {

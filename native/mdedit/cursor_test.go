@@ -20,7 +20,7 @@ func TestCursorOverTasksAndLinks(t *testing.T) {
 		t.Fatalf("cursor over the check box = %v, want pointer", got)
 	}
 
-	para := h.e.leaves[1]
+	para := blocks(h.e)[1]
 	lx, ly := h.e.colX+20, para.y+10
 	if h.e.linkAt(h.e.hitTest(lx, ly)) == "" {
 		t.Fatal("the test's pointer is not on the link")

@@ -1,50 +1,37 @@
 package mdedit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// blankY returns the y of the k-th blank line between the first two leaves.
-func blankY(t *testing.T, e *Editor, k int) float32 {
-	t.Helper()
-	e.layoutIfNeeded()
-	first := e.leaves[0]
-	return first.y + first.h + e.lk.size*e.lk.lh*(float32(k)+0.5)
-}
-
-func TestGapPhantomFindsTheBlankLine(t *testing.T) {
-	h := newHarness(t, "a\n\n\nb")
-	if at, ok := h.e.gapPhantomAt(blankY(t, h.e, 0)); !ok || at != 2 {
-		t.Fatalf("first blank line: at=%d ok=%v", at, ok)
+// TestCommentLinesAreReachableByClick: the lines of a comment are blank in
+// the parse and no leaf covers them, so a click there has to find the
+// comment itself — it shows once the caret is in it, and only then.
+func TestCommentLinesAreReachableByClick(t *testing.T) {
+	const src = "before\n\n%% hidden note %%\n\nafter"
+	// The line right below the paragraph is the blank line between them.
+	h := newHarness(t, src)
+	if h.tt.ClickAt(h.e.colX+40, h.e.leaves[0].y+42); true {
+		h.frame()
+		if h.e.caret != 7 {
+			t.Fatalf("the blank line above the comment takes the caret at %d, want 7", h.e.caret)
+		}
 	}
-	if at, ok := h.e.gapPhantomAt(blankY(t, h.e, 1)); !ok || at != 3 {
-		t.Fatalf("second blank line: at=%d ok=%v", at, ok)
-	}
-	// The middle of a paragraph is not a gap.
-	first := h.e.leaves[0]
-	if _, ok := h.e.gapPhantomAt(first.y + first.h/2); ok {
-		t.Fatal("a paragraph's middle reads as a gap")
-	}
-	// The single blank line between two paragraphs is a line to sit on too.
-	h2 := newHarness(t, "a\n\nb")
-	if at, ok := h2.e.gapPhantomAt(blankY(t, h2.e, 0)); !ok || at != 2 {
-		t.Fatalf("the paragraph break: at=%d ok=%v", at, ok)
-	}
-}
-
-func TestTypingInAGap(t *testing.T) {
-	h := newHarness(t, "a\n\n\nb")
-	at, ok := h.e.gapPhantomAt(blankY(t, h.e, 0))
-	if !ok {
-		t.Fatal("no gap")
-	}
-	h.e.setPhantom(&phantom{at: at})
+	// The comment's own line takes the caret into the comment.
+	h = newHarness(t, src)
+	h.tt.ClickAt(h.e.colX+40, h.e.leaves[0].y+70)
 	h.frame()
+	if _, in := commentAt(h.e.comments, h.e.caret); !in {
+		t.Fatalf("the click on the comment's line put the caret at %d, outside the comment", h.e.caret)
+	}
+	// And it can be typed in, as any other line.
+	h.caretAt(h.e.comments[0].from + 3)
 	h.typ("x")
-	if got := h.e.Source(); got != "a\nx\n\nb" {
-		t.Fatalf("typing in a blank line gives %q", got)
+	if got := h.e.Source(); !strings.Contains(got, "%% xhidden note %%") {
+		t.Fatalf("typing in the comment gives %q", got)
 	}
 }
 

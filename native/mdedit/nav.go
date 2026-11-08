@@ -694,14 +694,21 @@ func (e *Editor) leafAtPoint(y float32) *leaf {
 	return e.leaves[li]
 }
 
+// onALine reports whether y falls on a leaf the document holds — its text,
+// or one of its blank lines — rather than in the space between two of them.
+func (e *Editor) onALine(y float32) bool {
+	l := e.leafAtPoint(y)
+	return l != nil && y >= l.y && y <= l.y+l.h
+}
+
 // setCaretAtPoint moves the caret to the offset a pointer at y hit. The
 // phantom stays only when the point is on the phantom's own line: the leaf
 // before it ends at the phantom's offset too, and a click at that line's
 // end means that leaf, not an empty paragraph below.
-// gapPhantomAt returns the offset of the blank line at y, when y falls
-// between two leaves: a blank line is spacing in the parse, not a block,
-// so the only way the caret can sit there is the phantom paragraph — which
-// is what makes clicking an empty line put the caret on it.
+// gapPhantomAt returns the offset of the line at y when no leaf covers it:
+// the lines of a comment, which the parse reads as blank and which the
+// editor shows once the caret is in them. Every other line of the document
+// is a leaf — a block or a blank line — and is hit through the leaves.
 func (e *Editor) gapPhantomAt(y float32) (int, bool) {
 	e.layoutIfNeeded()
 	var prev, next *leaf

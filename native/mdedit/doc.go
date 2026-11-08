@@ -966,35 +966,36 @@ func addBlankLeaves(a *leafArena, src string, leaves []*leaf) []*leaf {
 		return leaves
 	}
 	out := make([]*leaf, 0, len(leaves)+8)
-	out = addBlanksBetween(a, src, out, 0, leaves[0].start, false)
+	out = addBlanks(a, src, out, 0, leaves[0].start, false, nil, leaves[0])
 	for i, l := range leaves {
 		out = append(out, l)
-		to, plain := len(src), len(l.conts) == 0
+		to, next := len(src), (*leaf)(nil)
 		if i+1 < len(leaves) {
-			to = leaves[i+1].start
-			plain = plain && len(leaves[i+1].conts) == 0
+			to, next = leaves[i+1].start, leaves[i+1]
 		}
-		if !plain {
-			// Blank lines inside a container belong to the container's
-			// blocks, which the parse gives the room they take.
-			continue
-		}
-		out = addBlanksBetween(a, src, out, l.end, to, true)
+		out = addBlanks(a, src, out, l.end, to, true, l, next)
 	}
 	return out
 }
 
-// addBlanksBetween appends a leaf for every blank line of src in [from, to).
-// With skipFirst the line at from is left out: it is the tail of the leaf
-// above, which the break ending that leaf's line starts.
-func addBlanksBetween(a *leafArena, src string, out []*leaf, from, to int, skipFirst bool) []*leaf {
+// addBlanks appends a leaf for every blank line of src in [from, to). With
+// skipFirst the line at from is left out: it is the tail of the leaf above,
+// which the break ending that leaf's line starts.
+func addBlanks(a *leafArena, src string, out []*leaf, from, to int, skipFirst bool, prev, next *leaf) []*leaf {
 	to = min(to, len(src))
 	for p := from; p < to; {
-		e := min(lineEndAt(src, p), to)
-		if (p > from || !skipFirst) && strings.TrimSpace(src[p:e]) == "" {
+		// Whole lines only: a leaf after the gap may start in the middle of
+		// a line — after a quotation's marker — and that line is its own,
+		// not a blank line of the gap.
+		e := lineEndAt(src, p)
+		if e > to {
+			break
+		}
+		if start, depth, ok := blankLine(src, p, e); ok && (p > from || !skipFirst) {
 			bl := a.get()
 			bl.kind, bl.id, bl.lineStart = kBlank, -1, p
-			bl.start, bl.end, bl.syntaxStart = p, p, p
+			bl.start, bl.end, bl.syntaxStart = start, start, start
+			bl.conts = quoteChain(prev, next, depth)
 			out = append(out, bl)
 		}
 		if e >= to {
@@ -1003,6 +1004,69 @@ func addBlanksBetween(a *leafArena, src string, out []*leaf, from, to int, skipF
 		p = e + 1
 	}
 	return out
+}
+
+// blankLine reads the line at p, ending at e, as a blank line: it holds
+// nothing but the quotation markers it is inside, and the caret belongs
+// after them. depth is how many `>` it carries, and start where its content
+// would go — the line's own start when it carries none.
+func blankLine(src string, p, e int) (start, depth int, ok bool) {
+	i := p
+	for {
+		j := i
+		for j < e && (src[j] == ' ' || src[j] == '\t') {
+			j++
+		}
+		if j < e && src[j] == '>' {
+			j++
+			if j < e && src[j] == ' ' {
+				j++
+			}
+			depth, i = depth+1, j
+			continue
+		}
+		i = j
+		break
+	}
+	for k := i; k < e; k++ {
+		if src[k] != ' ' && src[k] != '\t' {
+			return 0, 0, false
+		}
+	}
+	if depth == 0 {
+		return p, 0, true
+	}
+	return i, depth, true
+}
+
+// quoteChain returns the quotation containers a blank line carrying depth
+// markers is inside: the quotations of the block the parse gives the lines
+// around it, since a `>` line belongs to the quotation above and below it.
+func quoteChain(prev, next *leaf, depth int) []cont {
+	if depth == 0 {
+		return nil
+	}
+	var short []cont
+	for _, l := range []*leaf{next, prev} {
+		if l == nil {
+			continue
+		}
+		// A quotation may sit inside an item or a footnote: the chain up to
+		// the depth-th quotation is the line's, item and all.
+		n := 0
+		for i, c := range l.conts {
+			if c.kind != cQuote {
+				continue
+			}
+			if n++; n == depth {
+				return l.conts[:i+1]
+			}
+		}
+		if len(l.conts) > len(short) {
+			short = l.conts
+		}
+	}
+	return short
 }
 
 // appendRaw adds the non-blank lines of src between from and to, which no
