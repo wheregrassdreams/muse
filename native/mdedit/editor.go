@@ -86,12 +86,11 @@ type Editor struct {
 	// comments are the %%…%% spans of src: blanked in the mask so the parser
 	// reads none of their markdown, hidden by the view.
 	comments []cmt
-	// unmasked is the comment the caret was in when the mask was built: it
-	// is left whole, so the caret can see and edit its source. remask says
-	// the caret moved into or out of a comment since, which rebuilds it.
-	unmasked   cmt
-	unmaskedOK bool
-	remask     bool
+	// leafComment is the comment the leaves were built for: a comment's own
+	// leaves are dropped from the layout unless the caret is in it, and the
+	// caret moving in or out rebuilds the leaves (never the parse).
+	leafComment   cmt
+	leafCommentOK bool
 	// pending is the one source edit not yet given to the parser;
 	// pendingMulti says a committed step changed more than one range, which
 	// has to be replayed from the whole source.
@@ -314,10 +313,10 @@ func (e *Editor) SetSource(src string) {
 // sync parses the source again when it changed, and makes the leaves.
 func (e *Editor) sync() {
 	if e.parsed == e.rev && e.leaves != nil {
-		// The caret may have moved into or out of a comment: the one it is
-		// in is parsed whole, so that its source can be seen and edited.
-		if f, ok := commentAt(e.comments, e.caret); ok != e.unmaskedOK || (ok && f != e.unmasked) {
-			e.remask = true
+		// The caret may have moved into or out of a comment: the leaves are
+		// built for the comment it is in (its own show, the others do not),
+		// so that a caret moving there rebuilds leaves, not the parse.
+		if f, ok := commentAt(e.comments, e.caret); ok != e.leafCommentOK || (ok && f != e.leafComment) {
 			e.rev++
 		} else {
 			return
@@ -336,14 +335,13 @@ func (e *Editor) sync() {
 		return
 	}
 	fm := frontMatterEnd(e.src)
-	if e.docSrc != e.src || e.remask {
+	if e.docSrc != e.src {
 		// One edit can go straight to the parser; anything else, including
-		// a change that may have added or removed front matter or a comment
-		// the caret moved into, rebuilds the masked source and gives it whole.
-		if e.remask || e.pending == nil || e.pendingMulti || fm != e.fm || !e.applyPending() {
+		// a change that may have added or removed front matter, rebuilds
+		// the masked source and gives it whole.
+		if e.pending == nil || e.pendingMulti || fm != e.fm || !e.applyPending() {
 			e.parseAll(fm)
 		}
-		e.remask = false
 	}
 	e.fm = fm
 	e.pending, e.pendingMulti = nil, false
@@ -356,6 +354,7 @@ func (e *Editor) sync() {
 	// phantom — and the comment shows when the caret is in it.
 	if len(e.comments) > 0 {
 		kept := e.leaves[:0]
+		e.leafComment, e.leafCommentOK = commentAt(e.comments, e.caret)
 		for _, l := range e.leaves {
 			if e.insideComment(l.start, l.end) {
 				continue
@@ -422,10 +421,11 @@ func (e *Editor) applyPending() bool {
 }
 
 // insideComment reports whether a source range lies wholly in a comment the
-// mask blanks — the caret's own comment is parsed whole, so its leaves stay.
+// caret is not in: that comment's leaves are dropped, so it takes no room
+// and its source shows only while the caret is in it.
 func (e *Editor) insideComment(start, end int) bool {
 	for _, c := range e.comments {
-		if e.unmaskedOK && c == e.unmasked {
+		if e.leafCommentOK && c == e.leafComment {
 			continue
 		}
 		if c.from <= start && end <= c.to {
@@ -450,20 +450,9 @@ func (e *Editor) touchesComment(from, to int) bool {
 // be described as one range.
 func (e *Editor) parseAll(fm int) {
 	// A comment is a block construct: blank it before the parser reads the
-	// source, so its markdown never becomes structure. The one the caret is
-	// in is left whole — that is how its source shows for editing.
+	// source, so its markdown never becomes structure.
 	e.comments = commentRegions(e.src)
-	e.unmasked, e.unmaskedOK = commentAt(e.comments, e.caret)
-	blanked := e.comments
-	if e.unmaskedOK {
-		blanked = make([]cmt, 0, len(e.comments))
-		for _, c := range e.comments {
-			if c != e.unmasked {
-				blanked = append(blanked, c)
-			}
-		}
-	}
-	masked := parserText(blankComments(maskFrontMatter(e.src, fm), blanked))
+	masked := parserText(blankComments(maskFrontMatter(e.src, fm), e.comments))
 	e.fm = fm
 	e.mask = []byte(masked)
 	e.doc.Set(masked)
