@@ -427,7 +427,29 @@ func (e *Editor) applyPending() bool {
 	e.mask = next
 	e.doc.Edit(from, to, repl)
 	e.docSrc = e.src
+	// The comments an edit did not reach move with it: the parse that reads
+	// the source again is the one that can pair them differently, and this
+	// is not it.
+	e.shiftComments(p.from, p.to, len(p.text))
 	return true
+}
+
+// shiftComments moves the comments an edit left alone: a comment after the
+// edited range moves by the length the source changed. One the edit reached
+// is the parse's business — applyPending gives the whole source back when
+// it did.
+func (e *Editor) shiftComments(from, to, newLen int) {
+	d := newLen - (to - from)
+	if d == 0 {
+		return
+	}
+	for i := range e.comments {
+		c := &e.comments[i]
+		if c.from >= to {
+			c.from += d
+			c.to += d
+		}
+	}
 }
 
 // insideComment reports whether a source range lies wholly in a comment the
