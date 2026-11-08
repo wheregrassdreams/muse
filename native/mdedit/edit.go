@@ -453,6 +453,16 @@ func (e *Editor) backspaceAtStart(u *leaf) {
 		if prev.pending {
 			break
 		}
+		// One blank line at a time: the spaces between blocks are their
+		// blank lines, and Backspace takes the last break only. Deleting the
+		// whole gap would eat every blank line the user put there in one
+		// press — invisible when blank lines took no room, wrong now.
+		if n := strings.Count(e.src[prev.end:l.start], "\n"); n > 2 && l.lineStart > 0 {
+			e.begin(stepEdit)
+			e.replace(l.lineStart-1, l.lineStart, "")
+			e.commit(l.lineStart-1, l.lineStart-1)
+			return
+		}
 		e.begin(stepEdit)
 		e.replace(prev.end, l.start, "")
 		e.commit(prev.end, prev.end)

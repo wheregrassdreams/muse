@@ -64,3 +64,28 @@ func TestEnterAtTheEndAddsAVisibleLine(t *testing.T) {
 		t.Fatalf("the third Enter moved %v, want a line", d)
 	}
 }
+
+func TestBackspacePeelsOneBlankLine(t *testing.T) {
+	h := newHarness(t, "a\n\n\nb")
+	h.caretAt(4)
+	h.key(0, ui.KeyBackspace)
+	if got := h.e.Source(); got != "a\n\nb" {
+		t.Fatalf("one Backspace leaves %q, want one blank line gone", got)
+	}
+	// The last blank line joins the paragraphs, as it always has.
+	h.key(0, ui.KeyBackspace)
+	if got := h.e.Source(); got != "ab" {
+		t.Fatalf("the next Backspace leaves %q", got)
+	}
+}
+
+func TestLeadingBlankLinesTakeRoom(t *testing.T) {
+	one := leafYs(newHarness(t, "\n正文").e)
+	two := leafYs(newHarness(t, "\n\n正文").e)
+	if len(one) == 0 || len(two) == 0 {
+		t.Fatalf("no leaves: %v %v", one, two)
+	}
+	if d := two[0] - one[0]; d < 20 {
+		t.Fatalf("a leading blank line moves the text by %v, want a line", d)
+	}
+}

@@ -807,7 +807,9 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		top, bottom := e.margins(l)
 		tight := prev != nil && tightAfter(prev, l)
 		if prev == nil {
-			top = 0
+			// Blank lines before the first block are lines too — pressing
+			// Enter on the first line must show the line it adds.
+			top = float32(e.newlinesBetween(0, l.start)) * e.lk.size * e.lk.lh
 		} else if tight {
 			top = s * 0.2
 		} else if n := e.blankLines(prev.end, l.start); n > 0 {
