@@ -191,9 +191,17 @@ type Editor struct {
 	// railScales are the ticks' widths, animated toward their distances
 	// from the highlighted tick, and railCardY the preview's center,
 	// animated the same way; railCardOn says whether it shows.
-	railLeaves  []*leaf
-	railNext    []*leaf
-	railRev     uint64
+	railLeaves []*leaf
+	railNext   []*leaf
+	railRev    uint64
+	// hoverBlock is the start of the block the pointer is on, or -1: a
+	// block shows its source control there (see sourceChip).
+	hoverBlock int
+	// sourceAt is the block the source control was last used on, while it
+	// shows its Markdown source instead of the block it draws, and sourceOK
+	// says it does. The caret leaving the block stops it.
+	sourceAt    int
+	sourceOK    bool
 	railHover   int
 	railActive  int
 	railRect    ui.Rect
@@ -250,7 +258,8 @@ type phantom struct {
 // New returns an editor of src.
 func New(src string, opts Options) *Editor {
 	e := &Editor{opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
-		railHover: -1, railActive: -1}
+		railHover: -1, railActive: -1,
+		hoverBlock: -1}
 	// The window's theme comes with the first frame; until then, the light
 	// one, so that a document opened before it lays out.
 	e.setLook(ui.LightTheme())
@@ -340,6 +349,22 @@ func (e *Editor) sync() {
 	e.arenaCur ^= 1
 	e.leaves = buildLeaves(e.src, e.p.doc, e.p.fm, &e.arena[e.arenaCur])
 	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
+	// The block shown as its source is a block of lines, not the block it
+	// draws: a table stops being cells and becomes the Markdown it is
+	// written as. It stays open while the caret is in it.
+	if e.sourceOK {
+		if l := e.leafAt(e.caret); l == nil || l.lineStart != e.sourceAt {
+			e.sourceOK = false
+		}
+	}
+	if e.sourceOK {
+		if i := e.blockAt(e.sourceAt); i >= 0 && e.leaves[i].kind == kTable {
+			l := e.leaves[i]
+			e.leaves[i] = rawLeaf(&e.arena[e.arenaCur], e.src, l.lineStart, blockEnd(e.src, l), false)
+		} else {
+			e.sourceOK = false
+		}
+	}
 	// A comment covers its lines whole: the parser reads blanks there, which
 	// used to become raw leaves showing the comment's own text. With the
 	// comment blanked, its lines are a gap the caret reaches through the
@@ -453,6 +478,17 @@ func touchesComment(cmts []cmt, from, to int) bool {
 
 // parserText returns whole lines of the source as the parser reads them.
 func parserText(lines string) string { return mdoc.CJKFriendly(bracketMath(lines)) }
+
+// blockAt returns the index of the leaf whose first line starts at lineStart,
+// or -1: the block a source control was used on, found again by its line.
+func (e *Editor) blockAt(lineStart int) int {
+	for i, l := range e.leaves {
+		if l.lineStart == lineStart {
+			return i
+		}
+	}
+	return -1
+}
 
 // lineAt returns the line leaf that starts at off, if the source holds one
 // there: a blank line, or the phantom paragraph another pass put there.

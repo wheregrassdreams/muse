@@ -350,6 +350,12 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		e.toggleDiagramSource(l)
 		return true
 	}
+	if l := e.sourceChipAt(x, y); l != nil {
+		// The control at a block's corner: show it as the Markdown it is
+		// written as, or draw it again.
+		e.toggleSource(l)
+		return true
+	}
 	if l := e.codeLabelAt(x, y); l != nil {
 		e.setCaret(l.infoEnd, false)
 		return true
@@ -512,6 +518,28 @@ func (e *Editor) autoScroll() bool {
 // over its scroll bar, an I-beam over the text.
 func (e *Editor) hover(x, y float32) {
 	e.pointerX, e.pointerY = x, y
+	// The pointer on the source control of the block it is on keeps that
+	// block: the control rides above the block, where the pointer is on
+	// nothing else.
+	if l := e.sourceChipAt(x, y); l != nil {
+		if e.hoverBlock != l.lineStart {
+			e.hoverBlock = l.lineStart
+			e.invalidate()
+		}
+		if e.cursor != ui.CursorPointer {
+			e.cursor = ui.CursorPointer
+			e.invalidate()
+		}
+		return
+	}
+	block := -1
+	if l := e.leafAtPoint(y); l != nil && e.gridBlock(l) {
+		block = l.lineStart
+	}
+	if block != e.hoverBlock {
+		e.hoverBlock = block
+		e.invalidate()
+	}
 	cursor := ui.CursorText
 	if _, _, _, _, ok := e.diagramBarAt(x, y); ok {
 		cursor = ui.CursorDefault

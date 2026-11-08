@@ -945,3 +945,64 @@ func trimPrefixChars(s string) string {
 	}
 	return s
 }
+
+// sourceChip returns the box of a block's source control: the little button
+// at its top right corner that shows the block as the Markdown it is written
+// as. It rides above the block's first line, as a block's tools do.
+func (e *Editor) sourceChip(l *leaf) ui.Rect {
+	h := e.lk.size * 1.5
+	w := h * 1.7
+	x := l.x + l.w - w - 2
+	y := l.y + 3
+	if e.gridBlock(l) {
+		// A table's own box starts with its header row: the control goes
+		// above it, where it covers nothing.
+		y = l.y - h + 2
+	}
+	return ui.Rect{X: x, Y: y, W: w, H: h}
+}
+
+// gridBlock reports whether a block draws as a grid, or as the source of
+// one: the blocks that have a source control.
+func (e *Editor) gridBlock(l *leaf) bool {
+	if l.kind == kTable {
+		return true
+	}
+	return e.sourceOK && l.lineStart == e.sourceAt
+}
+
+// sourceChipAt returns the block whose source control is at x, y.
+func (e *Editor) sourceChipAt(x, y float32) *leaf {
+	for _, l := range e.leaves {
+		if !e.gridBlock(l) || !e.showsChip(l) {
+			continue
+		}
+		if e.sourceChip(l).Contains(x, y) {
+			return l
+		}
+	}
+	return nil
+}
+
+// showsChip reports whether a block shows its source control: while the
+// pointer is on the block, or while the block shows its source.
+func (e *Editor) showsChip(l *leaf) bool {
+	if e.sourceOK && l.lineStart == e.sourceAt {
+		return true
+	}
+	return e.hoverBlock == l.lineStart
+}
+
+// toggleSource shows a block as its source, or hides it again, and puts the
+// caret in it: the block is what the caret then edits.
+func (e *Editor) toggleSource(l *leaf) {
+	if e.sourceOK && e.sourceAt == l.lineStart {
+		e.sourceOK = false
+	} else {
+		e.sourceOK, e.sourceAt = true, l.lineStart
+	}
+	e.setCaret(l.start, false)
+	e.rev++
+	e.parsed = 0
+	e.invalidate()
+}

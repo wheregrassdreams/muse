@@ -70,6 +70,12 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 			e.paintUnit(p, l, ox, oy, a, z)
 		}
 	}
+	for _, l := range e.leaves {
+		if !e.gridBlock(l) || !e.showsChip(l) {
+			continue
+		}
+		e.paintSourceChip(p, l, ox, oy)
+	}
 	if e.src == "" && e.opts.Placeholder != "" && e.compose == "" {
 		// The placeholder of an empty note stands on the first line of the
 		// document, where the note begins — not wherever the caret's line
@@ -298,6 +304,19 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 	p.Clip(r, 6, func() {
 		p.RichText(r.X+max((r.W-w)/2, 8), r.Y+(r.H-h)/2, r.W-16, sp)
 	})
+}
+
+// paintSourceChip draws a block's source control: the little `</>` button
+// that shows the block as the Markdown it is written as.
+func (e *Editor) paintSourceChip(p *ui.Painter, l *leaf, ox, oy float32) {
+	r := e.sourceChip(l)
+	r.X += ox
+	r.Y += oy
+	p.Fill(r, e.lk.panel, 5)
+	p.Stroke(r, e.lk.border.Alpha(1), 5, 1)
+	sp := ui.Span{Text: "</>", Size: e.lk.size * 0.72, Color: e.lk.muted}
+	w, h := p.MeasureText(r.W-4, sp)
+	p.RichText(r.X+(r.W-w)/2, r.Y+(r.H-h)/2, r.W-4, sp)
 }
 
 // paintMarkers draws the markers of the items a leaf opens: bullets,
