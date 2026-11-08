@@ -357,7 +357,11 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		return true
 	}
 	if l := e.codeLabelAt(x, y); l != nil {
-		e.setCaret(l.infoEnd, false)
+		// The label at a code block's corner is its source control, as a
+		// table's and a picture's tag is: it shows the fence and the lines,
+		// and the caret stays where it was. The fence's own line is text
+		// once it shows, and clicking it edits the language.
+		e.toggleSource(l)
 		return true
 	}
 	// A diagram is an object of its own: dragging it pans it, and a press

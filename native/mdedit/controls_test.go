@@ -36,6 +36,7 @@ func TestBlockControlsLeaveTheCaretAndTheViewAlone(t *testing.T) {
 		on, off func(h *harness) bool
 	}{
 		{"task-box", pressTaskBox, hasChecked, hasUnchecked},
+		{"code-label", pressCodeLabel, codeShowsSource, codeHidesSource},
 		{"diagram-source", pressDiagram, diagramShowsSource, diagramDrawn},
 		{"table-tag", pressTableTag, tableShowsSource, tableDraws},
 		{"picture-tag", pressPictureTag, pictureShowsSource, pictureDraws},
@@ -80,6 +81,26 @@ func pressTaskBox(h *harness) bool {
 		}
 	}
 	return false
+}
+
+func pressCodeLabel(h *harness) bool {
+	l := blockOfKind(h, kCode)
+	if l == nil {
+		return false
+	}
+	h.tt.ClickAt(l.x+l.w-h.e.lk.size*1.2, l.y+4-h.e.scroll.Y)
+	return true
+}
+
+// codeShowsSource: the block shows its fence and its lines.
+func codeShowsSource(h *harness) bool {
+	l := blockOfKind(h, kCode)
+	return l != nil && l.view != nil && strings.Contains(l.view.disp.text, "```")
+}
+
+func codeHidesSource(h *harness) bool {
+	l := blockOfKind(h, kCode)
+	return l != nil && l.view != nil && !strings.Contains(l.view.disp.text, "```")
 }
 
 func pressDiagram(h *harness) bool {
