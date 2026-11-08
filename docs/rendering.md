@@ -107,6 +107,15 @@ KaTeX 字体度量与内嵌 KaTeX TTF，输出 PNG。于是：
 - 已知待办：**按设备像素比光栅化**。现在固定 192 DPI，在 2× 屏上接近 1:1，在 1× 屏上
   细笔画会略淡（KaTeX 的笔画比原来的 Computer Modern 细）
 
+### 上游已知问题（我们报的）
+
+- [#6 canvasr: PNG glyphs render at 0.35× the laid-out size](https://github.com/Luo-Studio/go-tex/issues/6)
+  修法 `ptPerUnit = 72/25.4`，已落在 `native/mdoc/texcanvas/`
+- [#7 canvasr: drawRect does not apply FontSize/Padding](https://github.com/Luo-Studio/go-tex/issues/7)
+  （`\boxed`/`\colorbox`/`\rule`/数组分隔线；分数线是 `Line`，不受影响），同样已落
+
+升级到修复后的版本时，把 `native/mdoc/texcanvas/` 整层删掉，回到上游的 `tex/canvasr`。
+
 **方案 A（历史，保留作参考）：用它的 parser，写自己的 visitor。**
 它的 parser 是好的（`latex.ParseExpr` 产出的 AST 有 `Sup`/`Sub`/`Arg`/`OptArg`），
 `tex` 包里也有盒子模型（`HList` / `VList` / `HRule` / `AutoHeightChar` / `SetShift`）。

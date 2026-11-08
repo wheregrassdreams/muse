@@ -111,9 +111,9 @@ func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 	if !a.panelOpen {
 		t.Fatal("clicking the active rail icon collapsed the panel")
 	}
-	// The header icon is the only rail-side collapse.
+	// The one sidebar toggle folds the panel away.
 	tt.Advance(time.Second)
-	if err := tt.Click("收起侧栏"); err != nil {
+	if err := tt.Click("侧栏"); err != nil {
 		t.Fatalf("collapse: %v", err)
 	}
 	tt.Frame()

@@ -286,6 +286,7 @@ func (a *App) View(c *ui.Context) {
 		a.canvas(c)
 	})
 
+	a.sidebarToggle(c)
 	a.windowControls(c)
 	a.settingsDialog(c)
 	a.renameDialog(c)
@@ -386,6 +387,39 @@ func (a *App) canvas(c *ui.Context) {
 			a.editorContent(c)
 		})
 	})
+}
+
+// sidebarToggle is the one control that folds the sidebar away and brings it
+// back. It does not move: it sits at the content's left edge, over the panel
+// header while the panel is open, and the editor header slides under it and
+// keeps room for it when the panel is folded — so folding the panel reads as
+// the button staying put and the page coming to it, not as a second button
+// appearing.
+func (a *App) sidebarToggle(c *ui.Context) {
+	x := railWidth + 6
+	// The window's own buttons come first on macOS: the control starts after
+	// the traffic lights, above everything the panel and the editor draw.
+	if bar := c.TitleBar(); bar.Left > x {
+		x = bar.Left + 6
+	}
+	btn := ui.ButtonBase(c).Key("sidebar-toggle").Absolute().Left(x).
+		Top(topLineCenter - 13).Width(26).Height(26).Radius(6).Padding(0).
+		Justify(ui.Center).AlignItems(ui.Center).Label("侧栏").Tooltip("显示或隐藏侧栏")
+	if btn.Hovered() {
+		btn.Background(c.Theme().SurfaceHover)
+	}
+	btn.OnClick(func() {
+		if a.panelOpen {
+			a.collapsePanel()
+		} else {
+			a.showPanel(a.panel)
+		}
+	})
+	icon := iconPanelLeftOpen
+	if a.panelOpen {
+		icon = iconPanelLeftClose
+	}
+	btn.Children(func() { ui.Icon(c, icon).Size(16, 16).TextColor(iconTint(c.Theme())) })
 }
 
 // rail is the 56px icon-only column. Its background is the window color; the active
@@ -602,10 +636,15 @@ func (a *App) panelHeader(c *ui.Context) {
 	if extra := bar.Left - railWidth + 8; extra > left {
 		left = extra
 	}
+	// The fold control is the app's one sidebar toggle, drawn over this
+	// header's left: the header leaves it the room and holds nothing else.
+	if left < 34 {
+		left = 34
+	}
 	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, 12, 0, left).Gap(4).DragWindow().
 		AlignItems(ui.Center).Children(func() {
 		ui.Spacer(c)
-		a.smallIcon(c, iconPanelLeftClose, "收起侧栏", a.collapsePanel)
+		ui.Spacer(c)
 	})
 }
 
@@ -1020,14 +1059,10 @@ func (a *App) editorHeader(c *ui.Context) {
 	}
 	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
 		DragWindow().AlignItems(ui.Center).Children(func() {
-		// The panel's reopen slot: with the sidebar folded away this is what
-		// is left at the window's top left, the way the reference keeps its
-		// toggle there.
-		if !a.panelOpen {
-			a.smallIcon(c, iconPanelLeftOpen, "打开侧栏", func() { a.showPanel(a.panel) })
-		} else {
-			ui.Box(c).Width(2).Shrink(0)
-		}
+		// Room for the app's sidebar toggle, which stays at the content's
+		// left edge whether the panel is open or folded: folding the panel
+		// brings this header over to it, and the header keeps the seat.
+		ui.Box(c).Width(30).Shrink(0)
 		tint := iconTint(t)
 		if a.canNav(-1) {
 			a.smallIcon(c, iconChevronLeft, "后退", func() { a.nav(-1) })

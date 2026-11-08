@@ -92,25 +92,55 @@ func TestModulesShareOnePanelWidth(t *testing.T) {
 	}
 }
 
-func TestCollapsedPanelReopensFromTheHeader(t *testing.T) {
+// countTexts is how many elements show s: a control that appears twice is
+// the bug this counts.
+func countTexts(tt *ui.Tester, s string) int {
+	n := 0
+	for _, text := range tt.Texts() {
+		if text == s {
+			n++
+		}
+	}
+	return n
+}
+
+// TestTheSidebarToggleKeepsItsSeat: folding the panel does not move the
+// control that folds it, and does not add another one. The toggle holds the
+// content's left edge while the panel is open, and the editor header keeps its
+// room when the panel is folded, so the page comes to the button.
+func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	if _, ok := tt.Find("打开侧栏"); ok {
-		t.Fatal("the reopen icon shows while the panel is open")
+	open, ok := tt.Find("侧栏")
+	if !ok {
+		t.Fatal("no sidebar toggle")
+	}
+	if open.X < railWidth || open.X > railWidth+16 {
+		t.Fatalf("the toggle sits at %.1f, want the content's left edge at %.0f", open.X, railWidth+6)
+	}
+	if n := countTexts(tt, "侧栏"); n != 1 {
+		t.Fatalf("%d sidebar toggles, want one", n)
 	}
 	a.collapsePanel()
 	tt.Frame()
 	tt.Frame()
-	if _, ok := tt.Find("打开侧栏"); !ok {
-		t.Fatal("no reopen icon while the panel is folded")
+	folded, ok := tt.Find("侧栏")
+	if !ok {
+		t.Fatal("the toggle went away with the panel")
 	}
-	if err := tt.Click("打开侧栏"); err != nil {
-		t.Fatalf("click reopen: %v", err)
+	if folded.X != open.X {
+		t.Fatalf("the toggle moved from %.1f to %.1f when the panel folded", open.X, folded.X)
+	}
+	if n := countTexts(tt, "侧栏"); n != 1 {
+		t.Fatalf("%d sidebar toggles while folded, want one", n)
+	}
+	if err := tt.Click("侧栏"); err != nil {
+		t.Fatalf("click the toggle: %v", err)
 	}
 	if !a.panelOpen {
-		t.Fatal("the reopen icon did not bring the panel back")
+		t.Fatal("the toggle did not bring the panel back")
 	}
 }
 
@@ -123,7 +153,7 @@ func TestTopBarControlsShareOneLine(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	for _, s := range []string{"文件", "收起侧栏", "未命名", "信息", "更多"} {
+	for _, s := range []string{"文件", "侧栏", "未命名", "信息", "更多"} {
 		r, ok := tt.Find(s)
 		if !ok {
 			t.Fatalf("%q is not on screen", s)
