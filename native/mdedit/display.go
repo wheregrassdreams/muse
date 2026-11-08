@@ -281,6 +281,7 @@ func (b *builder) inlines(ins []parser.Inline, from, to int, st istyle) {
 
 func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 	marks := highlights(b.src, ins, i, end)
+	cmts := comments(b.src, ins, i, end)
 	// outer is whether the text was marked before the highlight it is in.
 	outer := false
 	for i < end {
@@ -289,7 +290,7 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 		next := max(in.Next, i+1)
 		switch in.Kind {
 		case parser.Text:
-			st = b.text_(in.Start, in.End, st, marks, wikiLinks(b.src, in.Start, in.End), &outer)
+			st = b.text_(in.Start, in.End, st, marks, cmts, wikiLinks(b.src, in.Start, in.End), &outer)
 		case parser.SoftBreak, parser.LineBreak:
 			// The break stands for the spaces before the next line's text
 			// too, which the parser skips.
@@ -340,11 +341,11 @@ func children(ins []parser.Inline, i int, from int) (int, int) {
 // text_ adds a Text inline's source, with its escapes and character
 // references as the characters they stand for, unless the caret is at
 // them, and its ==s of highlight among marks hidden, unless the caret is
-// in what they mark. Its [[wiki links]] draw their label, with the
-// brackets hidden unless the caret is at them. It returns the style after
-// it, marked after an == that opens; outer keeps whether it was marked
-// before.
-func (b *builder) text_(s, e int, st istyle, marks []hlMark, wikis []wikiLink, outer *bool) istyle {
+// in what they mark. Its %%comments%% draw nothing, and its [[wiki links]]
+// draw their label, with the delimiters hidden unless the caret is at
+// them. It returns the style after it, marked after an == that opens;
+// outer keeps whether it was marked before.
+func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis []wikiLink, outer *bool) istyle {
 	src := b.src
 	run := s
 	m := 0
@@ -356,6 +357,15 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, wikis []wikiLink, o
 		w++
 	}
 	for p := s; p < e; {
+		if c, ok := commentAt(cmts, p); ok {
+			b.textRun(run, p, st)
+			if b.revealed(c.from, c.to) {
+				b.marker(c.from, c.to, st)
+			}
+			p = min(c.to, e)
+			run = p
+			continue
+		}
 		if w < len(wikis) && wikis[w].from <= p {
 			wk := wikis[w]
 			if wk.from < p {
