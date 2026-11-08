@@ -115,14 +115,15 @@ func TestCollapsedPanelReopensFromTheHeader(t *testing.T) {
 }
 
 // TestTopBarControlsShareOneLine reads the top bar off the layout: the rail's
-// module buttons, the panel header's close and the editor header's title and
-// status all centre on the same height, the one the window buttons sit on.
+// module buttons, the panel header's close and the editor header's path and
+// its two tools all centre on the same height, the one the window buttons sit
+// on.
 func TestTopBarControlsShareOneLine(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	for _, s := range []string{"文件", "收起侧栏", "未命名", "0 字 · 1 行"} {
+	for _, s := range []string{"文件", "收起侧栏", "未命名", "信息", "更多"} {
 		r, ok := tt.Find(s)
 		if !ok {
 			t.Fatalf("%q is not on screen", s)

@@ -121,6 +121,10 @@ type App struct {
 
 	// appearance
 	themeMode int // 0 pure white, 1 near black
+	// navHist 是打开过的文档，navAt 是当前停在的位置：编辑器的后退/前进
+	// 在这里走，和浏览器一样，新的打开会截断后面的记录。
+	navHist []string
+	navAt   int
 	// flat 是"Anytype 那种扁平"：编辑器不再是一张浮起的卡片，没有描边、
 	// 没有圆角、没有投影，和窗口同色，页面直接铺满。关掉就是现在的卡片。
 	flat bool
@@ -606,14 +610,22 @@ func (a *App) panelHeader(c *ui.Context) {
 }
 
 func (a *App) smallIcon(c *ui.Context, icon *ui.SVG, label string, fn func()) {
-	t := c.Theme()
+	a.smallIconTint(c, icon, label, fn, iconTint(c.Theme()))
+}
+
+// smallIconTint is smallIcon in a color of the caller's: a step that cannot be
+// taken is the same icon, faint, and does nothing.
+func (a *App) smallIconTint(c *ui.Context, icon *ui.SVG, label string, fn func(), tint ui.Color) ui.Element {
 	b := ui.ButtonBase(c).Width(26).Height(26).Radius(6).Padding(0).
 		Justify(ui.Center).AlignItems(ui.Center).Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.SurfaceHover)
+	if b.Hovered() && fn != nil {
+		b.Background(c.Theme().SurfaceHover)
 	}
-	b.OnClick(fn)
-	b.Children(func() { ui.Icon(c, icon).Size(16, 16).TextColor(iconTint(t)) })
+	if fn != nil {
+		b.OnClick(fn)
+	}
+	b.Children(func() { ui.Icon(c, icon).Size(16, 16).TextColor(tint) })
+	return b
 }
 
 // filesView draws the workspace tree. Directories open lazily; the list builds
@@ -1006,36 +1018,67 @@ func (a *App) editorHeader(c *ui.Context) {
 	if controlsAtRight {
 		padRight += windowButtonsRoom
 	}
-	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, padRight, 0, 8).Gap(8).
-		DragWindow().
-		AlignItems(ui.Center).Children(func() {
-		// The panel's reopen slot: the icon that brings the panel back
-		// keeps this room at the header's left whether it shows or not,
-		// so the title never slides when the panel folds away.
+	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
+		DragWindow().AlignItems(ui.Center).Children(func() {
+		// The panel's reopen slot: with the sidebar folded away this is what
+		// is left at the window's top left, the way the reference keeps its
+		// toggle there.
 		if !a.panelOpen {
 			a.smallIcon(c, iconPanelLeftOpen, "打开侧栏", func() { a.showPanel(a.panel) })
 		} else {
-			ui.Box(c).Width(26).Shrink(0)
+			ui.Box(c).Width(2).Shrink(0)
 		}
-		ui.Text(c, a.displayName()).FontSize(13).FontWeight(600).SingleLine().Ellipsis("…")
-		if a.dirty {
-			ui.Box(c).Size(6, 6).Radius(3).Background(t.Accent)
+		tint := iconTint(t)
+		if a.canNav(-1) {
+			a.smallIcon(c, iconChevronLeft, "后退", func() { a.nav(-1) })
+		} else {
+			a.smallIconTint(c, iconChevronLeft, "后退", nil, tint.Alpha(0.35))
 		}
-		if a.path != "" {
-			ui.Row(c).Gap(4).Padding(2, 6).Radius(6).Background(t.Surface).Children(func() {
-				ui.Icon(c, iconFolder).Size(11, 11).TextColor(iconTint(t))
-				ui.Text(c, a.location()).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			})
+		if a.canNav(1) {
+			a.smallIcon(c, iconChevron, "前进", func() { a.nav(1) })
+		} else {
+			a.smallIconTint(c, iconChevron, "前进", nil, tint.Alpha(0.35))
 		}
-		ui.Spacer(c)
-		chars, _, lines := countText(a.source)
+		// The path sits in the middle of what is left, its end kept: the file
+		// name is the part that says which document this is.
+		ui.Row(c).Grow(1).MinWidth(0).Justify(ui.Center).Padding(8, 0).Children(func() {
+			vw, _ := c.Size()
+			avail := vw - railWidth - a.panelW - 220
+			ui.Text(c, a.tailPath(c, a.docPath(), 12.5, avail)).
+				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
+		})
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
-		ui.Textf(c, "%d 字 · %d 行", chars, lines).FontSize(11).TextColor(t.TextMuted)
 		if a.dirty {
 			a.smallIcon(c, iconSave, "保存", func() { a.save() })
 		}
+		info := a.smallIconTint(c, iconInfo, "信息", nil, tint)
+		info.Menu(func(m *ui.Menu) {
+			chars, _, lines := countText(a.source)
+			m.Item("路径：" + a.docPath())
+			m.Item(fmt.Sprintf("%d 字 · %d 行", chars, lines))
+			if st, err := os.Stat(a.path); err == nil {
+				m.Item("修改于 " + st.ModTime().Format("2006-01-02 15:04"))
+			}
+			m.Separator()
+			if m.Item("在访达中显示").Chosen() && a.path != "" {
+				mygo.Shell.ShowItemInFolder(a.path)
+			}
+		})
+		more := a.smallIconTint(c, iconMore, "更多", nil, tint)
+		more.Menu(func(m *ui.Menu) {
+			if m.Item("保存").Chosen() {
+				a.save()
+			}
+			if m.Item("复制路径").Chosen() && a.path != "" {
+				clipboardWrite(a.path)
+				a.notice("已复制路径")
+			}
+			if m.Item("设为工作区").Chosen() && a.path != "" {
+				a.setWorkspace(filepath.Dir(a.path))
+			}
+		})
 	})
 }
 
@@ -1247,6 +1290,7 @@ func (a *App) requestOpen(path string) {
 }
 
 func (a *App) applyOpen(path, data string) {
+	a.pushNav(path)
 	a.path = path
 	a.selectedPath = path
 	a.loadDoc(data)
@@ -2026,6 +2070,74 @@ func countText(s string) (chars, words, lines int) {
 	}
 	words = len(strings.Fields(s))
 	return
+}
+
+// pushNav records a document in the editor's own history, cutting whatever
+// was ahead of it: a new document is a new branch.
+func (a *App) pushNav(path string) {
+	if a.navAt >= 0 && a.navAt < len(a.navHist) && a.navHist[a.navAt] == path {
+		return
+	}
+	a.navHist = append(a.navHist[:min(a.navAt+1, len(a.navHist))], path)
+	a.navAt = len(a.navHist) - 1
+}
+
+// canNav reports whether there is a document delta steps back (-1) or forward
+// (+1) from where the editor is.
+func (a *App) canNav(delta int) bool {
+	i := a.navAt + delta
+	return i >= 0 && i < len(a.navHist)
+}
+
+// nav moves the editor through its history.
+func (a *App) nav(delta int) {
+	if !a.canNav(delta) {
+		return
+	}
+	a.navAt += delta
+	a.openPathNow(a.navHist[a.navAt])
+}
+
+// docPath is the document's path as the header reads it: from the workspace's
+// own name down, so that the line names where in the vault it lives.
+func (a *App) docPath() string {
+	if a.path == "" {
+		return "未命名"
+	}
+	if a.root == "" {
+		return a.path
+	}
+	if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.Join(filepath.Base(a.root), rel)
+	}
+	return a.path
+}
+
+// tailPath cuts a path from its front until it fits width, keeping the end:
+// the file's own name is what tells one document from another.
+func (a *App) tailPath(c *ui.Context, path string, size, width float32) string {
+	measure := func(s string) float32 {
+		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: size})
+		return w
+	}
+	if width <= 0 || measure(path) <= width {
+		return path
+	}
+	parts := strings.Split(path, "/")
+	for i := 1; i < len(parts); i++ {
+		if cut := "…/" + strings.Join(parts[i:], "/"); measure(cut) <= width {
+			return cut
+		}
+	}
+	// The last segment alone is still too long: cut it, keeping its end.
+	last := parts[len(parts)-1]
+	r := []rune(last)
+	for i := 1; i < len(r); i++ {
+		if cut := "…" + string(r[i:]); measure(cut) <= width {
+			return cut
+		}
+	}
+	return "…"
 }
 
 func (a *App) displayName() string {

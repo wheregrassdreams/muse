@@ -49,6 +49,9 @@ var (
 	iconWindowRestore  = lucide(`<rect width="10" height="10" x="9" y="9" rx="1.5"/>` +
 		`<path d="M6 15H5.5A1.5 1.5 0 0 1 4 13.5v-8A1.5 1.5 0 0 1 5.5 4h8A1.5 1.5 0 0 1 15 5.5V6"/>`)
 	iconChevron        = lucide(`<path d="m9 18 6-6-6-6"/>`)
+	iconChevronLeft    = lucide(`<path d="m15 18-6-6 6-6"/>`)
+	iconInfo           = lucide(`<circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`)
+	iconMore           = lucide(`<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>`)
 	iconChevronDown    = lucide(`<path d="m6 9 6 6 6-6"/>`)
 	iconPanelLeftClose = lucide(`<rect width="18" height="18" x="3" y="3" rx="2"/>` +
 		`<path d="M9 3v18"/><path d="m16 15-3-3 3-3"/>`)
