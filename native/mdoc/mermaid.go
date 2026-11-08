@@ -430,7 +430,17 @@ func (g *mermaidGraph) drawEdge(p *ui.Painter, e mermaidEdge, t *ui.Theme) {
 	} else {
 		x1, y1, x2, y2 = a.X+a.W/2, a.Y+a.H, b.X+b.W/2, b.Y
 	}
-	p.Line(x1, y1, x2, y2, 1.4, color)
+	// A top-down edge that has to move sideways goes across a bus between
+	// the two ranks instead of cutting the diagonal: the bus is where the
+	// label sits, and the label covers the line it rides.
+	bus := g.busY(a, b)
+	if bus > 0 && !g.horizontal() && x1 != x2 {
+		p.Line(x1, y1, x1, bus, 1.4, color)
+		p.Line(x1, bus, x2, bus, 1.4, color)
+		p.Line(x2, bus, x2, y2, 1.4, color)
+	} else {
+		p.Line(x1, y1, x2, y2, 1.4, color)
+	}
 	// Arrowhead.
 	if g.horizontal() {
 		p.Line(x2, y2, x2-6, y2-4, 1.4, color)
@@ -445,8 +455,33 @@ func (g *mermaidGraph) drawEdge(p *ui.Painter, e mermaidEdge, t *ui.Theme) {
 	if e.label != "" {
 		sp := ui.Span{Text: e.label, Size: 10.5, Color: t.TextMuted}
 		tw, th := p.MeasureText(0, sp)
-		p.RichText((x1+x2)/2-tw/2, (y1+y2)/2-th/2-4, 0, sp)
+		lx, ly := (x1+x2)/2-tw/2, (y1+y2)/2-th/2-4
+		if bus > 0 && !g.horizontal() {
+			// On the bus, past the corner: the plate covers the line.
+			ly = bus - th/2
+			if x2 > x1 {
+				lx = x1 + (x2-x1)*0.5 - tw/2
+			}
+		}
+		p.Fill(ui.Rect{X: lx - 3, Y: ly - 1, W: tw + 6, H: th + 2}, t.Background, 3)
+		p.RichText(lx, ly, 0, sp)
 	}
+}
+
+// busY returns the y of the line an edge crosses sideways at, for a graph
+// that runs top-down: the middle of the room between the two ranks, or 0
+// when the edge does not need one.
+func (g *mermaidGraph) busY(a, b ui.Rect) float32 {
+	if g.horizontal() {
+		return 0
+	}
+	if g.dir == "BT" {
+		return (a.Y - (b.Y + b.H)) / 2
+	}
+	if b.Y < a.Y {
+		return 0 // a back edge has its own route
+	}
+	return a.Y + a.H + (b.Y-(a.Y+a.H))/2
 }
 
 func maxF(a, b float32) float32 {
