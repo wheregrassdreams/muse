@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"unicode/utf8"
 )
 
 // shownAway shows src with the caret past the end, so a comment at the start
@@ -144,5 +145,32 @@ func TestCommentRevealsWhileTheCaretIsInIt(t *testing.T) {
 	h.caretAt(len(h.e.Source()))
 	if h.shows("注") {
 		t.Fatal("the comment still shows after the caret left")
+	}
+}
+
+// TestACommentThatOpensALineIsNoCodeBlock: a comment's bytes are spaces to
+// the parser, and four of them at the start of a line read as a block of
+// code — which split the line in the middle of a character and left the
+// bytes that follow in another leaf. The comment opens the line, so the
+// line is a paragraph and its text is whole.
+func TestACommentThatOpensALineIsNoCodeBlock(t *testing.T) {
+	for _, src := range []string{
+		"%%注释%% 正文",
+		"  %%注释%% 正文",
+		"- %%注释%% 一项",
+		"> %%注释%% 引用",
+		"## %%注释%% 标题",
+	} {
+		e := shownEditor(t, src)
+		for _, l := range e.leaves {
+			if l.kind == kCode {
+				t.Fatalf("%q parsed as a block of code: leaf %d..%d", src, l.start, l.end)
+			}
+		}
+		for _, l := range e.leaves {
+			if l.view != nil && !utf8.ValidString(l.view.disp.text) {
+				t.Fatalf("%q shows broken text: %q", src, l.view.disp.text)
+			}
+		}
 	}
 }

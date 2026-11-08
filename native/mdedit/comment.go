@@ -69,8 +69,52 @@ func blankComments(src string, cmts []cmt) string {
 				b[i] = ' '
 			}
 		}
+		// A comment that opens a line and has text after it must not turn
+		// that text into an indented block of code: four spaces of
+		// indentation are a block of code to the parser, and a comment of
+		// that many bytes would make one of every line it opens. Its first
+		// byte becomes a no-break space instead, which indents nothing —
+		// and it is covered by the comment, so the view never shows it.
+		if c.from+2 <= c.to && opensContent(b, c.from) && hasTextOnLine(b, c.to) {
+			b[c.from], b[c.from+1] = 0xC2, 0xA0
+		}
 	}
 	return string(b)
+}
+
+// opensContent reports whether the comment at at opens the content of its
+// block: only the markers of the blocks around it — a quotation's `>`, an
+// item's bullet or number, a task's box, a footnote's label — and spaces
+// stand before it on the line. A comment there must not leave a run of
+// spaces as wide as itself, since four spaces of indentation are a block of
+// code to the parser; one in the middle of the text cannot, and keeps its
+// spaces.
+func opensContent(b []byte, at int) bool {
+	for i := at - 1; i >= 0; i-- {
+		switch ch := b[i]; {
+		case ch == '\n':
+			return true
+		case ch == ' ' || ch == '\t':
+		case ch == '>' || ch == '#' || ch == '-' || ch == '*' || ch == '+' ||
+			ch == '.' || ch == ')' || ch == '[' || ch == ']' || ch == '^' ||
+			ch == ':' || ch == '!' || ch == '|' || ch == '~':
+		case ch >= '0' && ch <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// hasTextOnLine reports whether anything but spaces and tabs stands
+// between at and the end of its line.
+func hasTextOnLine(b []byte, at int) bool {
+	for i := at; i < len(b) && b[i] != '\n'; i++ {
+		if b[i] != ' ' && b[i] != '\t' && b[i] != '\r' {
+			return true
+		}
+	}
+	return false
 }
 
 // commentAt returns the comment holding p, if any.
