@@ -18,9 +18,14 @@ import (
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
-// exts is the Markdown the editor reads: GitHub's flavor, footnotes and
-// math, with $…$ as inline math, as Typora writes it.
-const exts = parser.Default | parser.ExtDollarMath
+// exts is the Markdown the editor reads: GitHub's flavor, footnotes, math,
+// alerts (`> [!NOTE]`, which Obsidian's callouts grow from) and mentions,
+// with $…$ as inline math, as Typora writes it.
+//
+// GitHub's references are left out: `#123` parses as a reference to an
+// issue, which would take a numeric Obsidian tag (`#2024`) away from the
+// editor's own tag pass.
+const exts = (parser.Default &^ parser.ExtReferences) | parser.ExtDollarMath
 
 // leafKind is what a leaf of the document is: the units the editor lays
 // out one after another.
