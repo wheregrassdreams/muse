@@ -375,6 +375,9 @@ func (e *Editor) backspace(word bool) {
 		} else {
 			e.setCaret(e.normalize(at, -1), false)
 		}
+		// The document may be nothing at all now, and its one line is the
+		// phantom's: Backspace on an empty note keeps it.
+		e.tidyEmpty()
 		return
 	}
 	off := e.caret
@@ -479,6 +482,7 @@ func (e *Editor) backspaceAtStart(u *leaf) {
 			e.begin(stepEdit)
 			e.replace(at-1, l.start, "")
 			e.commit(at-1, at-1)
+			e.tidyEmpty()
 		}
 	default:
 		e.setCaret(e.step(e.caret, -1, false), false)
@@ -535,6 +539,7 @@ func (e *Editor) deleteForward(word bool) {
 		at := e.phantom.at
 		e.dropPhantom()
 		e.setCaret(e.normalize(at, 1), false)
+		e.tidyEmpty()
 		return
 	}
 	off := e.caret
@@ -565,6 +570,7 @@ func (e *Editor) deleteForward(word bool) {
 				e.begin(stepEdit)
 				e.replace(l.end, next.start, "")
 				e.commit(l.end, l.end)
+				e.tidyEmpty()
 			}
 		case kRule:
 			e.begin(stepEdit)

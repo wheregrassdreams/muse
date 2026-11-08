@@ -394,3 +394,79 @@ func TestQuotationInAnItemKeepsItsBlankLine(t *testing.T) {
 	h.typ("x")
 	h.want("- > a\n  >x\n  > b")
 }
+
+// TestEmptyDocumentStaysAddressable: Enter on an empty note opens lines of
+// the source, and Backspace takes them away again; the note is never left
+// with no line for the caret, and a click on it always finds one.
+func TestEmptyDocumentStaysAddressable(t *testing.T) {
+	h := newHarness(t, "")
+	if len(h.e.leaves) != 1 || h.e.leaves[0].kind != kPhantom {
+		t.Fatalf("an empty note has %d leaves, want its one phantom", len(h.e.leaves))
+	}
+	for i := 1; i <= 3; i++ {
+		h.key(0, ui.KeyEnter)
+		if got, want := h.e.Source(), strings.Repeat("\n", i); got != want {
+			t.Fatalf("Enter %d: source %q, want %q", i, got, want)
+		}
+		if h.e.phantom != nil {
+			t.Fatalf("Enter %d kept a phantom line the source holds", i)
+		}
+		if n := len(h.e.leaves); n != i+1 {
+			t.Fatalf("Enter %d: %d leaves, want %d lines", i, n, i+1)
+		}
+	}
+	for i := 2; i >= 0; i-- {
+		h.key(0, ui.KeyBackspace)
+		if got, want := h.e.Source(), strings.Repeat("\n", i); got != want {
+			t.Fatalf("Backspace to %d: source %q, want %q", i, got, want)
+		}
+	}
+	// Nothing is left: the note's one line is the phantom's, and a click
+	// finds it rather than nothing at all.
+	if len(h.e.leaves) != 1 || h.e.leaves[0].kind != kPhantom {
+		t.Fatalf("an emptied note has %d leaves, want its phantom back", len(h.e.leaves))
+	}
+	h.tt.ClickAt(h.e.colX+200, 200)
+	h.frame()
+	if h.e.caret != 0 {
+		t.Fatalf("the click put the caret at %d", h.e.caret)
+	}
+	h.typ("hi")
+	h.want("hi")
+}
+
+// TestANewlineIsContent: a note of line breaks is not an empty note — it
+// has its lines to put the caret on, and it shows no placeholder.
+func TestANewlineIsContent(t *testing.T) {
+	// inkOnFirstLine reports whether anything is painted where the first
+	// line of the document is, away from the caret's own column.
+	inkOnFirstLine := func(h *harness) bool {
+		img := h.tt.Image()
+		bg := img.RGBAAt(700, 420)
+		y0 := int(h.e.padTop)
+		y1 := y0 + int(h.e.lk.size*h.e.lk.lh)
+		for y := y0; y < y1; y++ {
+			for x := int(h.e.colX) + 14; x < int(h.e.colX)+140; x++ {
+				if img.RGBAAt(x, y) != bg {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	empty := newHarness(t, "")
+	if !inkOnFirstLine(empty) {
+		t.Fatal("the empty note painted no placeholder at its first line")
+	}
+	lines := newHarness(t, "\n\n")
+	if n := len(lines.e.leaves); n != 3 {
+		t.Fatalf("%d leaves, want the three lines of the note", n)
+	}
+	if lines.e.phantom != nil {
+		t.Fatal("a note of line breaks got a phantom line")
+	}
+	if inkOnFirstLine(lines) {
+		t.Fatal("a note of line breaks painted a placeholder at its first line")
+	}
+}

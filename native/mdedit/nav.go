@@ -657,6 +657,9 @@ func (e *Editor) hitTest(x, y float32) int {
 		return 0
 	}
 	l := e.leafAtPoint(y)
+	if l == nil {
+		return 0
+	}
 	if l.kind == kTable {
 		var best *leaf
 		bestD := float32(1 << 30)
@@ -682,6 +685,9 @@ func (e *Editor) hitTest(x, y float32) int {
 // leafAtPoint returns the leaf the point's y is on: the last one starting
 // above it, or the nearer of two when the point falls between them.
 func (e *Editor) leafAtPoint(y float32) *leaf {
+	if len(e.leaves) == 0 {
+		return nil
+	}
 	li := 0
 	for k, l := range e.leaves {
 		if y >= l.y {
@@ -747,7 +753,7 @@ func (e *Editor) gapPhantomAt(y float32) (int, bool) {
 }
 
 func (e *Editor) setCaretAtPoint(off int, y float32, extend bool) {
-	if e.phantom != nil && off == e.phantom.at && e.leafAtPoint(y).kind != kPhantom {
+	if l := e.leafAtPoint(y); e.phantom != nil && off == e.phantom.at && l != nil && l.kind != kPhantom {
 		e.dropPhantom()
 	}
 	e.setCaret(off, extend)

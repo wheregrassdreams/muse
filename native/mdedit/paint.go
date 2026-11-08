@@ -70,10 +70,16 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 			e.paintUnit(p, l, ox, oy, a, z)
 		}
 	}
-	if len(e.leaves) == 1 && e.leaves[0].kind == kPhantom && e.opts.Placeholder != "" && e.compose == "" {
-		l := e.leaves[0]
+	if e.src == "" && e.opts.Placeholder != "" && e.compose == "" {
+		// The placeholder of an empty note stands on the first line of the
+		// document, where the note begins — not wherever the caret's line
+		// is: it marks the empty note, and it does not move.
+		x, w := e.colX, e.colW
+		if len(e.leaves) > 0 {
+			x, w = e.leaves[0].x, e.leaves[0].w
+		}
 		sp := ui.Span{Text: e.opts.Placeholder, Color: e.lk.muted.Alpha(0.6), Size: e.lk.size}
-		p.RichText(ox+l.x, oy+l.y+l.h/2-e.lk.size*0.7, l.w, sp)
+		p.RichText(ox+x, oy+e.padTop+e.lk.size*e.lk.lh/2-e.lk.size*0.7, w, sp)
 	}
 	e.paintCaret(p, ox, oy)
 }

@@ -303,8 +303,10 @@ func (e *Editor) SetSource(src string) {
 	e.railHover = -1
 	e.railCardOn = false
 	e.sync()
-	if strings.TrimSpace(src) == "" {
-		e.phantom = &phantom{at: len(src)}
+	if src == "" {
+		// The empty document is the one line the source does not hold: a
+		// line break is content, and gives the document its lines.
+		e.phantom = &phantom{at: 0}
 		e.sync()
 	}
 	e.caret = e.firstStop()
@@ -366,7 +368,13 @@ func (e *Editor) sync() {
 		e.leaves = kept
 	}
 	if p := e.phantom; p != nil {
-		e.leaves = insertPhantom(e.leaves, p)
+		// A line of the source at the phantom's offset is that line: the
+		// phantom was the line while the source held none.
+		if lineAt(e.leaves, p.at) != nil {
+			e.phantom = nil
+		} else {
+			e.leaves = insertPhantom(e.leaves, p)
+		}
 	}
 	carryViews(e.leafSrc, e.src, old, e.leaves)
 	e.leafSrc = e.src
@@ -463,6 +471,17 @@ func (e *Editor) parseAll(fm int) {
 
 // parserText returns whole lines of the source as the parser reads them.
 func parserText(lines string) string { return mdoc.CJKFriendly(bracketMath(lines)) }
+
+// lineAt returns the line leaf that starts at off, if the source holds one
+// there: a blank line, or the phantom paragraph another pass put there.
+func lineAt(leaves []*leaf, off int) *leaf {
+	for _, l := range leaves {
+		if l.isLine() && l.start == off {
+			return l
+		}
+	}
+	return nil
+}
 
 // insertPhantom puts the phantom's leaf among the leaves, by its offset.
 func insertPhantom(leaves []*leaf, p *phantom) []*leaf {

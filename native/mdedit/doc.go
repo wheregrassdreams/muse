@@ -963,6 +963,24 @@ func rawLeaf(a *leafArena, src string, start, end int, front bool) *leaf {
 // phantom paragraph stands there when the caret is below the last block.
 func addBlankLeaves(a *leafArena, src string, leaves []*leaf) []*leaf {
 	if len(leaves) == 0 {
+		if src == "" {
+			// The empty document has no line: the phantom is its one.
+			return leaves
+		}
+		// A document no block holds is lines of its own: nothing at all, or
+		// line breaks, which are content as much as a word is — a note of
+		// three empty lines has three lines to put the caret on.
+		for p := 0; p <= len(src); {
+			bl := a.get()
+			bl.kind, bl.id, bl.lineStart = kBlank, -1, p
+			bl.start, bl.end, bl.syntaxStart = p, p, p
+			leaves = append(leaves, bl)
+			if e := lineEndAt(src, p); e >= len(src) {
+				break
+			} else {
+				p = e + 1
+			}
+		}
 		return leaves
 	}
 	out := make([]*leaf, 0, len(leaves)+8)
