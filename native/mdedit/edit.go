@@ -600,6 +600,12 @@ func (e *Editor) enter(shift bool) {
 	off := e.caret
 	u := e.unitAt(off)
 	if u == nil {
+		// Between blocks — a blank line of its own, or an empty note — no
+		// leaf holds the caret, and Enter was a no-op there: the gutter grew
+		// while the text did not. Seat the phantom paragraph every other
+		// empty paragraph is, and let it take the line.
+		e.setPhantom(&phantom{at: off})
+		e.enter(shift)
 		return
 	}
 	if e.isCell(u) {

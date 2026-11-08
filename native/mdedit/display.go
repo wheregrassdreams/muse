@@ -292,6 +292,12 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 		case parser.Text:
 			st = b.text_(in.Start, in.End, st, marks, cmts, wikiLinks(b.src, in.Start, in.End), &outer)
 		case parser.SoftBreak, parser.LineBreak:
+			// A comment's line breaks are the comment's: hidden with it, so a
+			// `%%` block collapses instead of leaving blank lines behind.
+			if c, ok := commentAt(cmts, in.Start); ok && !b.revealed(c.from, c.to) {
+				b.pos = in.End
+				break
+			}
 			// The break stands for the spaces before the next line's text
 			// too, which the parser skips.
 			end := in.End
@@ -358,11 +364,14 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis [
 	}
 	for p := s; p < e; {
 		if c, ok := commentAt(cmts, p); ok {
+			// Only this inline's slice of the comment: a block comment spans
+			// several Text inlines, and each draws its own part.
+			from, to := max(c.from, s), min(c.to, e)
 			b.textRun(run, p, st)
 			if b.revealed(c.from, c.to) {
-				b.marker(c.from, c.to, st)
+				b.marker(from, to, st)
 			}
-			p = min(c.to, e)
+			p = to
 			run = p
 			continue
 		}

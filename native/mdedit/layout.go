@@ -416,6 +416,12 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		ins := e.doc.Inlines(l.id)
 		b.alone = aloneImage(ins, e.src)
 		b.starts, b.cell = e.lineStarts(l.id), l.table != nil
+		// A heading's `#`s are chrome, hidden like every other block marker —
+		// but the caret on the line shows them, as Obsidian's live preview
+		// does, so the level can be edited in place.
+		if l.kind == kHeading && !l.pending && at >= l.lineStart && at <= l.end {
+			b.marker(l.lineStart, l.start, st)
+		}
 		b.inlines(ins, l.start, l.end, st)
 	}
 	b.ensure(l.start)
