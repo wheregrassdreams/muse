@@ -125,3 +125,43 @@ func TestABlockIsSelectedWhole(t *testing.T) {
 		}
 	}
 }
+
+// TestAPictureHasASourceControlToo: a picture of its own has the same
+// control at its corner: it shows the tag it is written as, and draws the
+// picture under it, until the control puts it back.
+func TestAPictureHasASourceControlToo(t *testing.T) {
+	h := newHarness(t, "前\n\n![图](a.png)\n\n后")
+	var pic *leaf
+	for _, l := range h.e.leaves {
+		if h.e.pictureBlock(l) {
+			pic = l
+		}
+	}
+	if pic == nil {
+		t.Fatal("no picture block")
+	}
+	disp := func() string {
+		for _, l := range h.e.leaves {
+			if l.start == pic.start && l.view != nil {
+				return l.view.disp.text
+			}
+		}
+		return ""
+	}
+	if got := disp(); got != "￼" {
+		t.Fatalf("the picture draws %q, want the object alone", got)
+	}
+	chip := h.e.sourceChip(pic)
+	h.tt.Move(h.e.colX+40, pic.y+20)
+	h.frame()
+	h.tt.ClickAt(chip.X+6, chip.Y+4)
+	h.frame()
+	if got := disp(); !strings.Contains(got, "![图](a.png)") {
+		t.Fatalf("the control showed %q, want the tag", got)
+	}
+	h.tt.ClickAt(chip.X+6, chip.Y+4)
+	h.frame()
+	if got := disp(); got != "￼" {
+		t.Fatalf("the control put back %q, want the picture again", got)
+	}
+}

@@ -75,10 +75,26 @@ func maskLines(src string, from, to int, cmts []cmt) string {
 				b[i] = ' '
 			}
 		}
-		// Only a comment that starts in the range gets the no-break space:
-		// one that started above it was masked, or not, with its own line.
-		if c.from >= from && cf+2 <= ct && opensContent(b, cf) && hasTextOnLine(b, ct) {
-			b[cf], b[cf+1] = 0xC2, 0xA0
+		// A comment's bytes are spaces, and four spaces are a block of code
+		// to the parser: on every line the comment covers, the run of spaces
+		// before what follows must not be one. Its first byte on such a line
+		// becomes a no-break space — no indentation, and covered by the
+		// comment, so the view never shows it. A line the comment covers
+		// whole and nothing follows on stays a blank line, as a comment of
+		// its own is.
+		for p := max(c.from, from); p < min(c.to, to); p = lineEndAt(src, p) + 1 {
+			start := max(p, lineStartAt(src, p))
+			end := min(c.to, lineEndAt(src, p))
+			sf, ef := start-from, end-from
+			if sf < 0 || ef > len(b) || ef < sf {
+				continue
+			}
+			if !opensContent(b, sf) || !hasTextOnLine(b, ef) {
+				continue
+			}
+			if sf+2 <= ef {
+				b[sf], b[sf+1] = 0xC2, 0xA0
+			}
 		}
 	}
 	return string(b)

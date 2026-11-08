@@ -113,6 +113,11 @@ func (b *builder) objectOpen(s, e int) bool {
 	if b.e == nil {
 		return false
 	}
+	if b.e.sourceOK && b.e.sourceAt == b.base {
+		// The block's source control was used on it: it shows the Markdown
+		// it is written as until the caret leaves the block.
+		return true
+	}
 	if a, z := b.e.anchor, b.e.caret; a != z {
 		if a > z {
 			a, z = z, a

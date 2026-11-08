@@ -358,12 +358,20 @@ func (e *Editor) sync() {
 		}
 	}
 	if e.sourceOK {
-		if i := e.blockAt(e.sourceAt); i >= 0 && e.leaves[i].kind == kTable {
+		i := e.blockAt(e.sourceAt)
+		switch {
+		case i < 0:
+			e.sourceOK = false
+		case e.leaves[i].kind == kTable:
+			// A table draws as a grid, not as the lines it is written in: it
+			// becomes a block of lines to show its source at all.
 			l := e.leaves[i]
 			e.leaves[i] = rawLeaf(&e.arena[e.arenaCur], e.src, l.lineStart, blockEnd(e.src, l), false)
-		} else {
+		case !e.pictureBlock(e.leaves[i]):
 			e.sourceOK = false
 		}
+		// A picture opens its source in place: the display shows the tag
+		// where it drew the picture (see builder.objectOpen).
 	}
 	// A comment covers its lines whole: the parser reads blanks there, which
 	// used to become raw leaves showing the comment's own text. With the

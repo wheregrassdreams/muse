@@ -47,7 +47,7 @@ func renderCorpus(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	files, _ := filepath.Glob("../**/*.md")
-	files = append(files, "../testdata/all-syntax.md")
+	files = append(files, "../testdata/all-syntax.md", "../testdata/playground.md")
 	for _, f := range files {
 		if b, err := os.ReadFile(f); err == nil && len(b) < 200<<10 {
 			out[filepath.Base(f)] = string(b)
@@ -109,7 +109,8 @@ func checkDisplay(t *testing.T, name string, e *Editor) {
 			continue
 		}
 		if !utf8.ValidString(v.disp.text) {
-			t.Fatalf("%s: the display is not text: %q", name, v.disp.text)
+			t.Fatalf("%s: leaf %d..%d (line %d, kind %d) shows what is not text: %q\n  source: %q",
+				name, l.start, l.end, l.lineStart, l.kind, v.disp.text, e.src[l.start:min(l.end+8, len(e.src))])
 		}
 		for _, p := range v.disp.pieces {
 			if !utf8.ValidString(p.text) {

@@ -261,7 +261,20 @@ const (
 	fFront
 	fQuote
 	fNatural
+	// fSource is a block showing its source: its view is not the view it
+	// draws, so it is not the view to keep across frames.
+	fSource
 )
+
+// leafFlags returns the flags of a leaf's view key, the editor's own above
+// the leaf's.
+func (e *Editor) leafFlags(l *leaf, header bool) uint8 {
+	f := leafFlags(l, header)
+	if e.sourceOK && e.sourceAt == l.lineStart {
+		f |= fSource
+	}
+	return f
+}
 
 // leafFlags returns the flags of a leaf's key.
 func leafFlags(l *leaf, header bool) uint8 {
@@ -314,7 +327,7 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	k := viewKey{
 		kind:   l.kind,
 		level:  l.level,
-		flags:  leafFlags(l, header),
+		flags:  e.leafFlags(l, header),
 		width:  width,
 		reveal: reveal,
 		look:   e.lk.key(),

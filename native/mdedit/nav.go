@@ -921,13 +921,21 @@ func (e *Editor) wholeBlock(l *leaf) bool {
 	case kTable, kCode, kMath, kHTML, kRule:
 		return true
 	}
-	if v := l.view; v != nil {
-		// A paragraph that is one picture: the picture is the block.
-		if n := len(v.disp.pieces); n == 1 && v.disp.pieces[0].obj != nil {
-			return true
-		}
+	return e.pictureBlock(l)
+}
+
+// pictureBlock reports whether a leaf is one picture and nothing else: its
+// source is the picture's, and the display it makes is the object's place
+// alone.
+func (e *Editor) pictureBlock(l *leaf) bool {
+	if l.kind != kPara {
+		return false
 	}
-	return false
+	if l.id >= 0 && e.p.doc != nil {
+		return aloneImage(e.p.doc.Inlines(l.id), e.src)
+	}
+	v := l.view
+	return v != nil && len(v.disp.pieces) == 1 && v.disp.pieces[0].obj != nil
 }
 
 // isMac reports whether the keys are macOS's.
@@ -991,10 +999,16 @@ func (e *Editor) sourceChip(l *leaf) ui.Rect {
 	return ui.Rect{X: x, Y: y, W: w, H: h}
 }
 
-// gridBlock reports whether a block draws as a grid, or as the source of
-// one: the blocks that have a source control.
+// controlsBlock reports whether a block has a source control: a table, or
+// a picture of its own — the blocks that draw as one thing.
+func (e *Editor) controlsBlock(l *leaf) bool {
+	return l.kind == kTable || e.pictureBlock(l)
+}
+
+// gridBlock reports whether the source control of a block rides above it:
+// it does for a table's header row and for a picture's box.
 func (e *Editor) gridBlock(l *leaf) bool {
-	if l.kind == kTable {
+	if e.controlsBlock(l) {
 		return true
 	}
 	return e.sourceOK && l.lineStart == e.sourceAt
