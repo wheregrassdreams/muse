@@ -4,8 +4,10 @@
 // ©2025 The go-tex Authors; see that project's LICENSE. Muse changes two
 // things, both reported upstream: ptPerUnit is the points-to-canvas-units
 // conversion the original leaves out (glyphs were drawn at 0.35× their size),
-// and drawRect scales and offsets its rule like drawLine and drawPath do
-// (fraction bars were drawn at the raw layout numbers).
+// and drawRect scales and offsets its rule like drawLine and drawPath do —
+// without it \boxed, \colorbox, \rule and array separators are painted at
+// the origin, sub-pixel. (A fraction's bar is a Line, not a Rect, and was
+// never affected.)
 // Coordinate systems: the layout package uses SVG-style top-left origin
 // with Y growing downward, in em units; canvas uses bottom-left origin
 // with Y growing upward, in millimetres. We pass a Matrix that flips

@@ -120,8 +120,11 @@ type App struct {
 	cmdSel     int
 
 	// appearance
-	themeMode int  // 0 pure white, 1 near black
-	dark      bool // derived from themeMode for the view
+	themeMode int // 0 pure white, 1 near black
+	// flat 是"Anytype 那种扁平"：编辑器不再是一张浮起的卡片，没有描边、
+	// 没有圆角、没有投影，和窗口同色，页面直接铺满。关掉就是现在的卡片。
+	flat bool
+	dark bool // derived from themeMode for the view
 	// themeApplied 是已经交给系统的主题；系统画的材料与标题栏跟随它，
 	// 与页面所画的主题保持一致。-1 表示还没交过。
 	themeApplied int
@@ -357,6 +360,14 @@ func (a *App) syncAppearance() {
 func (a *App) canvas(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c).Grow(1).FillHeight().MinWidth(0).Padding(canvasPadding, canvasPadding, canvasPadding, a.canvasLeft(c)).Children(func() {
+		if a.flat {
+			// Flat: the page is the window, one sheet, no card around it.
+			card := ui.Column(c).Fill().Clip().Background(a.windowBG())
+			card.Children(func() {
+				a.editorContent(c)
+			})
+			return
+		}
 		card := ui.Column(c).Fill().Radius(14).Clip().Background(t.Background)
 		if t.Dark {
 			card.Border(1, ui.RGBA(236, 236, 240, 0.12)).
@@ -524,9 +535,10 @@ func (a *App) contextPanel(c *ui.Context) {
 // click puts back at the module's width, and a drag released past the fold
 // collapses.
 func (a *App) panelResizeHandle(c *ui.Context) {
-	h := ui.Box(c).Key("panel-resize").Absolute().Left(a.panelWidth - 8).
+	h := ui.Box(c).Key("panel-resize").Absolute().Left(a.panelWidth - 12).
 		Top(canvasPadding + cardBorder + editorHeaderH).
-		Bottom(0).Width(8).Cursor(ui.CursorResizeEW).Label("调整面板宽度")
+		Bottom(0).Width(12).Cursor(ui.CursorResizeEW).Label("调整面板宽度").
+		Column().AlignItems(ui.Center)
 	if dx, _, ok := h.Dragged(); ok {
 		if a.panelDrag == 0 {
 			a.panelDrag = a.panelWidth
@@ -546,6 +558,35 @@ func (a *App) panelResizeHandle(c *ui.Context) {
 		a.panelWidth = a.panelTargetWidth()
 		a.invalidate()
 	}
+	h.Children(func() {
+		ui.Box(c).Grow(1)
+		a.panelGrip(c, h)
+		ui.Box(c).Grow(1)
+	})
+}
+
+// panelGrip is the grip on the panel's edge: a short rounded bar on the
+// hairline, there while the pointer is on the edge and, brighter and longer,
+// while it is dragged. It is a child of the edge box, so it is part of what a
+// drag grabs and never takes the pointer away from it.
+func (a *App) panelGrip(c *ui.Context, edge ui.Element) {
+	if !edge.Hovered() && a.panelDrag == 0 {
+		return
+	}
+	t := c.Theme()
+	drag := a.panelDrag != 0
+	height := float32(40)
+	if drag {
+		height = 56
+	}
+	col, op := t.TextMuted, float32(0.5)
+	switch {
+	case drag && a.panelNarrow:
+		col, op = t.Accent, 0.95
+	case drag:
+		col, op = t.Text, 0.85
+	}
+	ui.Box(c).Width(3).Height(height).Radius(1.5).Background(col.Alpha(op))
 }
 
 // panelHeader is the line over the context panel: the module names show on

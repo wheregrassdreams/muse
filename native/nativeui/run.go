@@ -196,6 +196,7 @@ func (a *App) installMenu() {
 				{Label: "AI 助手", Click: click(func() { a.togglePanel(panelAI) })},
 				mygo.Separator(),
 				{Label: "切换主题", Accelerator: "CmdOrCtrl+Shift+T", Click: click(func() { a.themeMode = 1 - a.themeMode })},
+				{Label: "扁平风格", Accelerator: "CmdOrCtrl+Shift+F", Click: click(func() { a.flat = !a.flat; a.invalidate() })},
 				mygo.Separator(),
 				{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: click(a.openSettings)},
 			},
