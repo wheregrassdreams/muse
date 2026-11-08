@@ -620,25 +620,11 @@ func (e *Editor) diagramToggleAt(x, y float32) *leaf {
 	return nil
 }
 
-// toggleDiagramSource shows a Mermaid block's source, the caret at its
-// first line, or takes the source away and brings the diagram back.
+// toggleDiagramSource shows a Mermaid block's source, or brings its diagram
+// back. It is the same control a table and a picture have, over the same
+// state: the block shows its source, the caret stays where it was.
 func (e *Editor) toggleDiagramSource(l *leaf) {
-	if l.view != nil && l.view.diagram != nil {
-		e.setCaret(l.start, false)
-		e.Focus()
-		return
-	}
-	// The caret leaves the block for the first stop after it; at the
-	// document's end, the end itself, past the closing fence.
-	off := len(e.src)
-	for _, n := range e.leaves {
-		if n != l && leafLo(n) > l.end {
-			off = leafLo(n)
-			break
-		}
-	}
-	e.setCaret(off, false)
-	e.Focus()
+	e.toggleSource(l)
 }
 
 // dragDiagramPan pans the diagram whose body is being dragged to x.

@@ -1036,15 +1036,23 @@ func (e *Editor) showsChip(l *leaf) bool {
 	return e.hoverBlock == l.lineStart
 }
 
-// toggleSource shows a block as its source, or hides it again, and puts the
-// caret in it: the block is what the caret then edits.
+// sourceOpen reports whether a block is showing its source: its control was
+// used on it, and the caret is still in it (see Editor.sync).
+func (e *Editor) sourceOpen(l *leaf) bool {
+	return e.sourceOK && l.lineStart == e.sourceAt
+}
+
+// toggleSource shows a block as its source, or hides it again. It does not
+// touch the caret: a control on a block is not the text, and using it twice
+// leaves everything as it was found.
 func (e *Editor) toggleSource(l *leaf) {
-	if e.sourceOK && e.sourceAt == l.lineStart {
-		e.sourceOK = false
-	} else {
-		e.sourceOK, e.sourceAt = true, l.lineStart
-	}
-	e.setCaret(l.start, false)
+	e.actCaretStill(func() {
+		if e.sourceOpen(l) {
+			e.sourceOK = false
+		} else {
+			e.sourceOK, e.sourceAt = true, l.lineStart
+		}
+	})
 	e.rev++
 	e.parsed = 0
 	e.invalidate()

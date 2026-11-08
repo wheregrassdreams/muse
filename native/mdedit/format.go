@@ -485,9 +485,11 @@ func (e *Editor) toggleTaskAt(it cont) {
 		mark = " "
 	}
 	anchor, caret := e.anchor, e.caret
-	e.begin(stepEdit)
-	e.replace(at+1, at+2, mark)
-	e.commit(anchor, caret)
+	e.actCaretStill(func() {
+		e.begin(stepEdit)
+		e.replace(at+1, at+2, mark)
+		e.commit(anchor, caret)
+	})
 }
 
 // ---------------------------------------------------------------------------

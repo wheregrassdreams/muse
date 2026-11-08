@@ -281,6 +281,15 @@ func (e *Editor) SetOptions(opts Options) {
 // Options returns the editor's options.
 func (e *Editor) Options() Options { return e.opts }
 
+// actCaretStill runs an action that is not the text — a control on a block,
+// a box of a task — without asking the view to follow the caret: the person
+// is looking at what they clicked, not at where the caret was left.
+func (e *Editor) actCaretStill(f func()) {
+	want, goal, hasGoal := e.wantReveal, e.goalX, e.hasGoal
+	f()
+	e.wantReveal, e.goalX, e.hasGoal = want, goal, hasGoal
+}
+
 // Source returns the Markdown being edited.
 func (e *Editor) Source() string { return e.src }
 
@@ -351,12 +360,8 @@ func (e *Editor) sync() {
 	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
 	// The block shown as its source is a block of lines, not the block it
 	// draws: a table stops being cells and becomes the Markdown it is
-	// written as. It stays open while the caret is in it.
-	if e.sourceOK {
-		if l := e.leafAt(e.caret); l == nil || l.lineStart != e.sourceAt {
-			e.sourceOK = false
-		}
-	}
+	// written as. Its control opened it and closes it, like a fold: the
+	// caret going elsewhere is not the control.
 	if e.sourceOK {
 		i := e.blockAt(e.sourceAt)
 		switch {
@@ -367,6 +372,9 @@ func (e *Editor) sync() {
 			// becomes a block of lines to show its source at all.
 			l := e.leaves[i]
 			e.leaves[i] = rawLeaf(&e.arena[e.arenaCur], e.src, l.lineStart, blockEnd(e.src, l), false)
+		case e.leaves[i].kind == kCode:
+			// A block of code shows its source in place, fence and all: its
+			// view asks sourceOpen (see codeView).
 		case !e.pictureBlock(e.leaves[i]):
 			e.sourceOK = false
 		}

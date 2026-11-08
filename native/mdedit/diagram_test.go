@@ -173,17 +173,23 @@ func TestDiagramToggleSource(t *testing.T) {
 		t.Fatalf("the pointer over the source control is %v, want a hand", h.e.cursor)
 	}
 
+	caret := h.e.caret
 	h.tt.ClickAt(x, y)
 	h.frame()
-	if h.e.leafAt(h.e.caret) != l {
-		t.Fatal("the source control did not put the caret in the block")
+	if h.e.caret != caret {
+		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.caret)
 	}
-	if l.view == nil || l.view.diagram != nil {
+	// The leaves are built again when the block changes what it shows.
+	l = blockOfKind(h, kCode)
+	if l == nil || l.view == nil || l.view.diagram != nil {
 		t.Fatal("the block still draws its diagram after showing the source")
 	}
+	if !strings.Contains(l.view.disp.text, "```") {
+		t.Fatalf("the source shows %q, without its fence", l.view.disp.text)
+	}
 
-	// With the source showing, the same control brings the diagram back
-	// and takes the caret out of the block.
+	// With the source showing, the same control brings the diagram back,
+	// and the caret is still where it was.
 	x = l.x + l.w - size*0.6 - 1
 	y = l.y + size*0.7
 	if got := h.e.diagramToggleAt(x, y); got != l {
@@ -193,13 +199,23 @@ func TestDiagramToggleSource(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		h.frame()
 	}
-	if h.e.leafAt(h.e.caret) == l {
-		t.Fatal("the diagram control left the caret in the block's source")
+	if h.e.caret != caret {
+		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.caret)
 	}
-	l = h.e.leaves[0]
-	if l.view == nil || l.view.diagram == nil {
+	l = blockOfKind(h, kCode)
+	if l == nil || l.view == nil || l.view.diagram == nil {
 		t.Fatal("the diagram did not come back")
 	}
+}
+
+// blockOfKind returns the first leaf of a kind, in the layout as it stands.
+func blockOfKind(h *harness, k leafKind) *leaf {
+	for _, l := range h.e.leaves {
+		if l.kind == k {
+			return l
+		}
+	}
+	return nil
 }
 
 // TestDiagramKeepsItsScroll proves the sideways scroll belongs to the

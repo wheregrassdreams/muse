@@ -539,7 +539,13 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		v.label = ""
 	}
 	plain := ui.Span{Color: e.lk.text}
+	// The block's source shows: its control was used on it, or the caret is
+	// on its fence's info string. Then the fence closes the block on screen
+	// as it does in the file — a source that stops at the last line of code
+	// is half a fence.
+	open := e.sourceOpen(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStart && b.reveal <= l.infoEnd
+	fenceShown := open || infoLine
 	if infoLine {
 		mark := ui.Span{Color: e.lk.marker}
 		fence := strings.TrimLeft(e.src[l.lineStart:l.fenceEnd], " \t>")
@@ -583,6 +589,16 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		}
 		b.codeRun(ln.off+at, ln.off+len(ln.text), plain)
 	}
+	if fenceShown && l.fenced {
+		// The closing fence is chrome, not text: the caret cannot stand in
+		// it, so it maps to the end of the block (a pDeco piece).
+		if at := lineEndAt(e.src, l.end) + 1; at <= len(e.src) {
+			if end := blockEnd(e.src, l); end > at {
+				b.add(piece{kind: pDeco, s0: l.end - b.base, s1: l.end - b.base,
+					text: "\n" + strings.TrimRight(e.src[at:end], "\r"), span: ui.Span{Color: e.lk.marker}})
+			}
+		}
+	}
 	b.finish(l.end)
 	b.ensure(l.start)
 	v.disp = b.display()
@@ -590,7 +606,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	v.font = f
 	_, th := v.layout.Size()
 	v.h = th + 2*padY
-	if !caretIn && isMermaid(l) {
+	if !open && !caretIn && isMermaid(l) {
 		if d, ok := mdoc.ParseDiagram(e.codeText(l)); ok {
 			v.diagram = &d
 			v.h = d.Height(width) + 2*padY
