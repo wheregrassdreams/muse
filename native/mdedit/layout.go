@@ -810,6 +810,12 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			top = 0
 		} else if tight {
 			top = s * 0.2
+		} else if n := e.blankLines(prev.end, l.start); n > 0 {
+			// Blank lines are lines: a paragraph break is one blank line, and
+			// every Enter on an empty line leaves one more. They take the
+			// height of the line they are, so the document's lines and its
+			// look agree — pressing Enter there now shows the new line.
+			top = max(top, float32(n)*e.lk.size*e.lk.lh)
 		}
 		// The height this leaf is expected to take, until it is shaped:
 		// the one it had where it was last laid out, or an estimate.
@@ -845,7 +851,20 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		if tight {
 			prevBottom = 0
 		}
-		y += max(top, prevBottom)
+		gap := max(top, prevBottom)
+		if l.kind == kPhantom && prev != nil {
+			// The phantom is a paragraph the source does not hold: its line is
+			// its own height, so only the blank lines before it take room. At
+			// the end of the document it has no line of its own yet, so the
+			// break that would start it counts too — which is what makes every
+			// Enter on it add a line the user sees.
+			n := e.newlinesBetween(prev.end, l.start)
+			if l.start < len(e.src) {
+				n = max(n-1, 0)
+			}
+			gap = float32(n) * e.lk.size * e.lk.lh
+		}
+		y += gap
 		l.y = y
 		if l.kind == kTable && show {
 			e.layoutTable(l)
@@ -1055,4 +1074,22 @@ func (e *Editor) pruneViews() {
 			delete(e.views, k)
 		}
 	}
+}
+
+// blankLines counts the empty lines between two leaves: the source between
+// them, less the line break that ends the first one. A leaf right below
+// another, as a list's items are, has none.
+func (e *Editor) blankLines(from, to int) int {
+	if n := e.newlinesBetween(from, to); n > 0 {
+		return n - 1
+	}
+	return 0
+}
+
+// newlinesBetween counts the line breaks in the source between two leaves.
+func (e *Editor) newlinesBetween(from, to int) int {
+	if from >= to || to > len(e.src) {
+		return 0
+	}
+	return strings.Count(e.src[from:to], "\n")
 }
