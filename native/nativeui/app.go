@@ -244,6 +244,7 @@ func New() *App {
 	a := &App{
 		panel:        panelFiles,
 		panelOpen:    true,
+		flat:         true,
 		panelWidth:   panelDefaultWidth,
 		panelW:       panelDefaultWidth,
 		themeApplied: -1,
@@ -281,7 +282,6 @@ func (a *App) View(c *ui.Context) {
 		row.Background(a.windowBG())
 	}
 	row.Children(func() {
-		a.rail(c)
 		a.contextPanel(c)
 		a.canvas(c)
 	})
@@ -364,9 +364,15 @@ func (a *App) syncAppearance() {
 // nothing, so the window color — or the acrylic material — shows behind them.
 func (a *App) canvas(c *ui.Context) {
 	t := c.Theme()
-	ui.Row(c).Grow(1).FillHeight().MinWidth(0).Padding(canvasPadding, canvasPadding, canvasPadding, a.canvasLeft(c)).Children(func() {
+	padRight, padBottom := canvasPadding, canvasPadding
+	if a.flat {
+		// Flat: the page is the window, one sheet with no card around it, and
+		// its first line starts at the window's top so that the controls on
+		// it centre on the traffic lights'.
+		padRight, padBottom = 0, 0
+	}
+	ui.Row(c).Grow(1).FillHeight().MinWidth(0).Padding(padRight, padBottom, padBottom, a.canvasLeft(c)).Children(func() {
 		if a.flat {
-			// Flat: the page is the window, one sheet, no card around it.
 			card := ui.Column(c).Fill().Clip().Background(a.windowBG())
 			card.Children(func() {
 				a.editorContent(c)
@@ -396,14 +402,14 @@ func (a *App) canvas(c *ui.Context) {
 // the button staying put and the page coming to it, not as a second button
 // appearing.
 func (a *App) sidebarToggle(c *ui.Context) {
-	x := railWidth + 6
+	x := float32(6)
 	// The window's own buttons come first on macOS: the control starts after
 	// the traffic lights, above everything the panel and the editor draw.
-	if bar := c.TitleBar(); bar.Left > x {
+	if bar := c.TitleBar(); bar.Left+6 > x {
 		x = bar.Left + 6
 	}
 	btn := ui.ButtonBase(c).Key("sidebar-toggle").Absolute().Left(x).
-		Top(topLineCenter - 13).Width(26).Height(26).Radius(6).Padding(0).
+		Top(a.topLine(c) - 13).Width(26).Height(26).Radius(6).Padding(0).
 		Justify(ui.Center).AlignItems(ui.Center).Label("侧栏").Tooltip("显示或隐藏侧栏")
 	if btn.Hovered() {
 		btn.Background(c.Theme().SurfaceHover)
@@ -548,19 +554,27 @@ func (a *App) contextPanel(c *ui.Context) {
 		openness = 1
 	}
 	panel.Children(func() {
+		top := float32(canvasPadding + cardBorder)
+		if a.flat {
+			top = 0
+		}
 		ui.Column(c).Width(a.panelWidth).FillHeight().Opacity(openness).
-			Padding(canvasPadding+cardBorder, 0, 0, 0).Children(func() {
-			a.panelHeader(c)
-			switch a.panel {
-			case panelFiles:
-				a.filesView(c)
-			case panelOutline:
-				a.outlineView(c)
-			case panelAI:
-				a.aiView(c)
-			case panelSearch:
-				a.searchView(c)
-			}
+			Padding(top, 0, 0, 0).Children(func() {
+			a.sidebarHeader(c)
+			a.sidebarModules(c)
+			ui.Column(c).Grow(1).FillWidth().MinHeight(0).Children(func() {
+				switch a.panel {
+				case panelFiles:
+					a.filesView(c)
+				case panelOutline:
+					a.outlineView(c)
+				case panelAI:
+					a.aiView(c)
+				case panelSearch:
+					a.searchView(c)
+				}
+			})
+			a.sidebarFooter(c)
 			// The edge goes in last, so it hits above the content.
 			if a.panelW > a.panelWidth-0.5 {
 				a.panelResizeHandle(c)
@@ -630,22 +644,138 @@ func (a *App) panelGrip(c *ui.Context, edge ui.Element) {
 // panelHeader is the line over the context panel: the module names show on
 // the rail, so the line holds only the way to fold the panel away, and the
 // room to drag the window.
-func (a *App) panelHeader(c *ui.Context) {
+// sidebarHeader is the sidebar's own first line, as the reference has it: a
+// tile for the space, its name and the way to another one, a search, and the
+// button that starts something new.
+func (a *App) sidebarHeader(c *ui.Context) {
+	t := c.Theme()
 	bar := c.TitleBar()
-	left := float32(12)
-	if extra := bar.Left - railWidth + 8; extra > left {
-		left = extra
+	left := float32(34) // room for the app's sidebar toggle over this line
+	if bar.Left+34 > left {
+		left = bar.Left + 34
 	}
-	// The fold control is the app's one sidebar toggle, drawn over this
-	// header's left: the header leaves it the room and holds nothing else.
-	if left < 34 {
-		left = 34
-	}
-	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, 12, 0, left).Gap(4).DragWindow().
-		AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, 8, 0, left).Gap(6).
+		DragWindow().AlignItems(ui.Center).Children(func() {
+		// The space: a tile with its first letter, its name, and a chevron.
+		name := a.spaceName()
+		ui.Box(c).Size(20, 20).Radius(6).Background(t.Surface).
+			Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, firstRune(name)).FontSize(11).FontWeight(700).TextColor(t.Text)
+		})
+		space := ui.ButtonBase(c).Height(26).Radius(6).Padding(0, 4).
+			Justify(ui.Center).AlignItems(ui.Center).Label(name).Tooltip("切换工作区")
+		if space.Hovered() {
+			space.Background(t.SurfaceHover)
+		}
+		space.Menu(func(m *ui.Menu) {
+			if m.Item("打开文件夹…").Chosen() {
+				a.openFolderDialog()
+			}
+			if m.Item("打开文件…").Chosen() {
+				a.openFileDialog()
+			}
+			m.Separator()
+			for _, v := range []struct {
+				label string
+				view  panelView
+			}{{"文件", panelFiles}, {"大纲", panelOutline}, {"搜索", panelSearch}, {"AI 助手", panelAI}} {
+				if m.Item(v.label).Chosen() {
+					a.showPanel(v.view)
+				}
+			}
+		})
+		space.Children(func() {
+			ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine().Ellipsis("…")
+				ui.Icon(c, iconChevronDown).Size(12, 12).TextColor(t.TextMuted)
+			})
+		})
 		ui.Spacer(c)
-		ui.Spacer(c)
+		a.smallIcon(c, iconSearch, "搜索", func() { a.showPanel(panelSearch) })
+		// The compose button of the reference: one rounded surface, a pen,
+		// and the menu of what can be started.
+		newBtn := ui.ButtonBase(c).Height(26).Radius(8).Padding(0, 8).
+			Justify(ui.Center).AlignItems(ui.Center).Label("新建").Tooltip("新建")
+		newBtn.Background(t.Surface)
+		if newBtn.Hovered() {
+			newBtn.Background(t.SurfaceHover)
+		}
+		newBtn.Menu(func(m *ui.Menu) {
+			if m.Item("新建文档").Chosen() {
+				a.newDoc()
+			}
+			if m.Item("新建文件夹").Chosen() {
+				a.newFolderIn(a.createTarget())
+			}
+		})
+		newBtn.Children(func() {
+			ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconEdit).Size(13, 13).TextColor(iconTint(t))
+				ui.Icon(c, iconChevronDown).Size(11, 11).TextColor(t.TextMuted)
+			})
+		})
 	})
+}
+
+// sidebarModules is what the rail used to hold: one quiet row of the views
+// this sidebar can show, the active one raised.
+func (a *App) sidebarModules(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c).Shrink(0).Padding(0, 8, 6, 8).Gap(2).Children(func() {
+		for _, v := range []struct {
+			icon  *ui.SVG
+			label string
+			view  panelView
+		}{
+			{iconFiles, "文件", panelFiles},
+			{iconOutline, "大纲", panelOutline},
+			{iconSearch, "搜索", panelSearch},
+			{iconAI, "AI 助手", panelAI},
+		} {
+			v := v
+			b := ui.ButtonBase(c).Width(26).Height(24).Radius(6).Padding(0).
+				Justify(ui.Center).AlignItems(ui.Center).Label(v.label).Tooltip(v.label)
+			if a.panelOpen && a.panel == v.view {
+				b.Background(t.Surface)
+			} else if b.Hovered() {
+				b.Background(t.SurfaceHover)
+			}
+			b.OnClick(func() { a.showPanel(v.view) })
+			b.Children(func() { ui.Icon(c, v.icon).Size(14, 14).TextColor(iconTint(t)) })
+		}
+	})
+}
+
+// sidebarFooter holds the settings of the app itself, at the sidebar's foot.
+func (a *App) sidebarFooter(c *ui.Context) {
+	themeIcon, themeLabel := iconMoon, "切换到深色"
+	if a.dark {
+		themeIcon, themeLabel = iconSun, "切换到浅色"
+	}
+	ui.Row(c).Shrink(0).Padding(0, 8, 10, 8).Gap(2).Children(func() {
+		a.smallIcon(c, themeIcon, themeLabel, func() { a.themeMode = 1 - a.themeMode })
+		a.smallIcon(c, iconSettings, "设置", a.openSettings)
+	})
+}
+
+// spaceName is the name of the place the editor is in: the workspace's folder,
+// or the document's own.
+func (a *App) spaceName() string {
+	switch {
+	case a.root != "":
+		return filepath.Base(a.root)
+	case a.path != "":
+		return filepath.Base(filepath.Dir(a.path))
+	}
+	return "未命名"
+}
+
+// firstRune is the first character of s, for a space's tile.
+func firstRune(s string) string {
+	for _, r := range s {
+		return string(r)
+	}
+	return "·"
 }
 
 func (a *App) smallIcon(c *ui.Context, icon *ui.SVG, label string, fn func()) {
@@ -1057,7 +1187,7 @@ func (a *App) editorHeader(c *ui.Context) {
 	if controlsAtRight {
 		padRight += windowButtonsRoom
 	}
-	ui.Row(c).Height(editorHeaderH).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
+	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
 		DragWindow().AlignItems(ui.Center).Children(func() {
 		// Room for the app's sidebar toggle, which stays at the content's
 		// left edge whether the panel is open or folded: folding the panel
@@ -2253,6 +2383,27 @@ func (a *App) togglePanel(v panelView) {
 // traffic lights' inset once the panel is gone (the panel normally gives
 // them room). It follows the animated panel width so the card slides with
 // the panel instead of jumping when panelOpen flips.
+// headerH is the height of the first line of either pane. In a window whose
+// title bar the view draws under the traffic lights, that line is as tall as
+// they are, so its controls centre on them instead of a few pixels below.
+func (a *App) headerH(c *ui.Context) float32 {
+	h := float32(editorHeaderH)
+	if a.flat {
+		if bar := c.TitleBar(); bar.Height > 0 {
+			h = max(h, bar.Height)
+		}
+	}
+	return h
+}
+
+// topLine is where the controls of the first line centre.
+func (a *App) topLine(c *ui.Context) float32 {
+	if a.flat {
+		return a.headerH(c) / 2
+	}
+	return canvasPadding + cardBorder + editorHeaderH/2
+}
+
 func (a *App) canvasLeft(c *ui.Context) float32 {
 	left := canvasPadding
 	if a.panelWidth <= 0 {

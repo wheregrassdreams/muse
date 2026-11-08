@@ -61,29 +61,27 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 	}
 }
 
-func TestRailButtonsInsetFromWindowEdge(t *testing.T) {
+// TestSidebarModulesInsetFromWindowEdge: the views this sidebar can show sit
+// on a quiet row of its own, inset from the window's edge, with the settings
+// of the app at the sidebar's foot.
+func TestSidebarModulesInsetFromWindowEdge(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	modules := []string{"文件", "大纲", "搜索", "AI 助手"}
-	prevBottom := float32(-1)
-	for i, label := range append(modules, "设置") {
+	for _, label := range []string{"文件", "大纲", "搜索", "AI 助手"} {
 		r, ok := tt.Find(label)
 		if !ok {
-			t.Fatalf("rail button %q missing", label)
+			t.Fatalf("module %q missing", label)
 		}
-		if r.X < railInset-0.5 {
-			t.Fatalf("%q starts at x=%.1f, want at least %.1f", label, r.X, railInset)
+		if r.X < 7 {
+			t.Fatalf("%q starts at x=%.1f, want it inset from the window's edge", label, r.X)
 		}
-		if right := r.X + r.W; right > railWidth-railInset+0.5 {
-			t.Fatalf("%q ends at x=%.1f, want at most %.1f", label, right, railWidth-railInset)
+		if right := r.X + r.W; right > a.panelWidth {
+			t.Fatalf("%q ends at x=%.1f, past the sidebar's width %.0f", label, right, a.panelWidth)
 		}
-		if i < len(modules) {
-			if prevBottom >= 0 && r.Y-prevBottom < 3.5 {
-				t.Fatalf("%q sits %.1fpx below the icon above, want a 4px gap", label, r.Y-prevBottom)
-			}
-			prevBottom = r.Y + r.H
-		}
+	}
+	if _, ok := tt.Find("设置"); !ok {
+		t.Fatal("no settings control at the sidebar's foot")
 	}
 }
 
@@ -121,12 +119,12 @@ func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 		t.Fatal("the header icon did not collapse the panel")
 	}
 	tt.Advance(time.Second)
-	if err := tt.Click("文件"); err != nil {
-		t.Fatalf("reopen files: %v", err)
+	if err := tt.Click("侧栏"); err != nil {
+		t.Fatalf("reopen through the sidebar toggle: %v", err)
 	}
 	tt.Frame()
-	if !a.panelOpen || a.panel != panelFiles {
-		t.Fatalf("reopen: panel = %v, open = %v", a.panel, a.panelOpen)
+	if !a.panelOpen {
+		t.Fatal("the sidebar toggle did not reopen the panel")
 	}
 }
 

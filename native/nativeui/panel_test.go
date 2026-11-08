@@ -117,8 +117,8 @@ func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 	if !ok {
 		t.Fatal("no sidebar toggle")
 	}
-	if open.X < railWidth || open.X > railWidth+16 {
-		t.Fatalf("the toggle sits at %.1f, want the content's left edge at %.0f", open.X, railWidth+6)
+	if open.X < 2 || open.X > 16 {
+		t.Fatalf("the toggle sits at %.1f, want the window's left edge at 6", open.X)
 	}
 	if n := countTexts(tt, "侧栏"); n != 1 {
 		t.Fatalf("%d sidebar toggles, want one", n)
@@ -153,16 +153,16 @@ func TestTopBarControlsShareOneLine(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	for _, s := range []string{"文件", "侧栏", "未命名", "信息", "更多"} {
+	// The tester draws no title bar, so the first line is the header's own
+	// height: with a title bar it is that bar's.
+	line := float32(editorHeaderH / 2)
+	for _, s := range []string{"侧栏", "未命名", "信息", "更多"} {
 		r, ok := tt.Find(s)
 		if !ok {
 			t.Fatalf("%q is not on screen", s)
 		}
-		if s == "文件" && r.X >= railWidth {
-			continue // the panel's title shares the word; the rail's button is meant
-		}
-		if d := r.Y + r.H/2 - topLineCenter; d < -0.5 || d > 0.5 {
-			t.Errorf("%q centres at %.2f, want the top line at %.1f", s, r.Y+r.H/2, topLineCenter)
+		if d := r.Y + r.H/2 - line; d < -0.5 || d > 0.5 {
+			t.Errorf("%q centres at %.2f, want the top line at %.1f", s, r.Y+r.H/2, line)
 		}
 	}
 }
