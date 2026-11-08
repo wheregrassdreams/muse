@@ -92,7 +92,39 @@ Muse 用的是**块叶模型去逼近连续缓冲区**。差别落在“寻址�
 2. **段末的 phantom**（只在上面说的位置出现）在布局上占一行，位置直接取上一块之下的一行。
 3. **引用里的空行按 Enter 会结束引用**：删掉标记（文档末尾还会补一个空行，否则下一行会被解析成引用的懒续行）。这是“离开容器”的唯一手段，和列表项上再按一次 Enter 退出列表同一个意思。
 
-## 6. 性能边界
+## 6. 参考系：哪些有先例，哪些是自研的
+
+这一节是给"以后改模型的人"看的：每条设计对应哪个理论或实现，**有先例的照抄它的不变量**，自研的写清它依赖的前提。判据不是"谁更优雅"，而是"能不能指着某个实现说：它也是这么做的，而且它踩过的坑我们不用再踩"。
+
+### 6.1 有理论、有成熟实现（照抄不变量）
+
+| 设计 | 先例 | 该抄的不变量 |
+|---|---|---|
+| 源码是唯一真实状态，光标是字节偏移，显示是投影 | **projective vs projectional editing**（文本为真 vs AST 为真）；[CodeMirror 6](https://codemirror.net/docs/ref/) 的不可变 state；VS Code 的 [piece tree](https://stackoverflow.com/questions/46785220/which-data-structure-used-in-visual-studio-code) | 编辑只能经由"一次源码替换"发生；显示是从源码算出来的，不反向成为状态 |
+| 行内的"隐藏标记、光标进入才展开" | Neovim 的 `conceallevel` / `concealcursor`（[render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim) 就是这套）；Emacs 的 `invisible` text property；CM6 的 `Decoration.replace` | 只展开光标所在的那一个构造；展开与否不改变编辑语义 |
+| 对象替换符 + 给它的盒子 | Unicode **U+FFFC** OBJECT REPLACEMENT CHARACTER（[码表](https://www.unicode.org/charts/PDF/UFFF0.pdf)）；Cocoa 的 `NSTextAttachment` | 对象在文本里占一个字符的位置，盒子由排版给它，不走"插入一张图"的旁路 |
+| phantom：光标需要一个源码里没有的位置 | ProseMirror 的 **GapCursor**（[README](https://app.unpkg.com/prosemirror-gapcursor@1.4.0/files/src/README.md)）与 `trailingNode` | **一旦某个节点能容纳光标，gap 必须让位**——这条我们第一版没抄，于是出现"占位提示跟着光标走""空笔记退格后点一下崩" |
+| 增量解析 + "派生状态必须等于重算" | 增量解析（Wagner & Graham；tree-sitter 的 incremental reparse）；**differential testing / oracle 测试**（McKeeman 1998，[论文](https://www.hpl.hp.com/hpjournal/ddj/vol10num1/vol10num1art9.pdf)）；rust-analyzer 的 salsa（memo + 依赖失效） | 快路径必须与整篇重算逐字段相等；所有权集中在一处（`parserSource`） |
+| UTF-16 偏移换算 | 平台文本单位就是 UTF-16（Cocoa `NSRange`、Win32）；字形簇按 UAX #29 | 编辑落在字形簇边界上；换算索引增量维护 + 对拍 |
+| 按键/帧预算 | RAIL 模型、输入延迟预算；Zed / Helix 的帧时间实践 | 按键路径不许出现整篇文档的操作；测量用 CPU 时间（墙钟会被别的进程污染） |
+
+### 6.2 移植（block 模型这一层）
+
+叶子模型（块、单元、行）来自 **ProseMirror 的 document model**（schema / `atom` / `NodeSelection` / transaction），Typora 的块模型也是同一类。我们借的是它的形状，不是它的 schema：Markdown 的块种类由解析器决定，编辑器不定义 schema。
+
+### 6.3 自研（写清前提，别当成定论）
+
+1. **空行成叶**。没有先例：块编辑器把空行当块间距，CM6 不需要建模（每个偏移都是位置）。我们的做法是把 CM6 的性质"每个偏移都是位置"**翻译**成块模型——设计问题因此变成"位置集合是否覆盖用户能寻址的东西"，答案是"行"。前提：编辑器要保留原始 Markdown 的编辑语义（用户按 Enter 就是加一行）。代价：容器前缀、行高、和 phantom 的关系都没有参考实现，前两轮 bug 全在这里。
+2. **注释的等长 mask**（把 `%%…%%` 换成空格再喂解析器）。这是**适配层，不是设计**：mygo 的 `parser` 只暴露 `Extensions` 位标志，没有注册自定义 inline/block 解析器的入口（见 `ui/markdown/parser/document.go`），所以 `%%` 无法作为解析器扩展表达。前提就是"parser 不可扩展"——如果哪天它支持了（或我们自己加一条 inline 规则），这一层整层删掉，只留 decoration。
+3. **单位 = 单元格**（表格）与"表格整体也可整体选中"。Obsidian 的表格同样是按单元格编辑、用一个 source 按钮看原文；我们没有它的实现细节可抄，所以按"单元格是光标可达的最小单位"来定。
+
+### 6.4 用这条判据看历史 bug
+
+- "一个 Enter 两个换行"：不是实现错，是**底座错**（Typora 的段落语义）。Obsidian 文档写明 Enter 只写一个换行（[Basic formatting syntax](https://obsidian.md/help/syntax)），改了底座之后这类 bug 没有立足点。
+- "占位提示跟着光标"、"空笔记退格后点击崩"：GapCursor 的让位不变量缺席。
+- "注释被编辑后露出 markdown"：同一套屏蔽规则有两份实现（违反 6.1 最后一条"所有权集中"）。
+
+## 7. 性能边界
 
 按键路径（一次按键 = 编辑 + 解析 + 排版 + 一帧）里不允许出现整篇文档的操作。`TestTypingFrameBudget` 是这条线的闸门：1MB 文档、按键中位数 < 8.3ms（120fps），CI 上放宽到 16ms。
 
