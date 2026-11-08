@@ -87,8 +87,8 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 		if sp.Math {
 			if bmp := mathBitmap(sp.Text, float64(body), c.Theme().Dark, false); bmp != nil {
 				w, h := bmp.Size()
-				iw := float32(w) * 72 / mathDPI
-				add(inlineRun{bmp: bmp, w: iw + 3, h: float32(h) * 72 / mathDPI, pad: 1.5})
+				iw := float32(w) * 72 / MathDPI
+				add(inlineRun{bmp: bmp, w: iw + 3, h: float32(h) * 72 / MathDPI, pad: 1.5})
 				continue
 			}
 			sp.Text = texToUnicode(sp.Text)

@@ -7,8 +7,8 @@ import (
 )
 
 // mathScale turns the pixels of a typeset formula into DIPs: mdoc
-// rasterizes at 192 DPI, twice the density of a DIP.
-const mathScale = 72.0 / 192.0
+// rasterizes at twice the density of a DIP.
+const mathScale = mdoc.MathScale
 
 // mathObject returns the typeset formula of tex at the size of the text
 // around it, as an inline object, or nil when it cannot be typeset.

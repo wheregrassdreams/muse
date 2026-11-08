@@ -64,7 +64,20 @@ state、sequence、flowchart 六个解析器，每个都自己算坐标、自己
 `mdoc/display_math_test.go` 用位图尺寸断言这四条（display 比 inline 高、
 更窄、分式更大、操作符吃掉了空间）。
 
-**方案 A（推荐）：用它的 parser，写自己的 visitor。**
+**已换引擎（2026-11）**：数学改为 [go-tex](https://pkg.go.dev/github.com/luo-studio/go-tex)（RaTeX 的 Go 移植，
+KaTeX 兼容）。它有自己的 lexer / 宏展开 / parser / **TeX 盒子布局（含 D/S/SS 数学样式）** /
+KaTeX 字体度量与内嵌 KaTeX TTF，输出 PNG。于是：
+
+- `a^2`、`\int_0^1`、`\sum_{i=1}^n`、`\left( \frac{a}{b} \right)^2`、`\begin{pmatrix}` 全部真排
+- display / inline 由 `mathstyle` 决定（块级满尺寸分式、上下限在符号上下）
+- **删掉了我们自己的三套补丁**：`script_layout.go`（拼接上下标）、`math.go` 里的矩阵渲染
+  （`parseMatrix`）、`displayFracs` 伪装
+- `mdoc/math_image.go` 只剩：解析 → 布局 → `render.PNGTo` → 解码 →（深色反相）→ 缓存
+- 依赖代价：二进制 +6MB（内嵌 KaTeX 字体），MIT 许可，纯 Go 无 cgo
+- 已知待办：**按设备像素比光栅化**。现在固定 192 DPI，在 2× 屏上接近 1:1，在 1× 屏上
+  细笔画会略淡（KaTeX 的笔画比原来的 Computer Modern 细）
+
+**方案 A（历史，保留作参考）：用它的 parser，写自己的 visitor。**
 它的 parser 是好的（`latex.ParseExpr` 产出的 AST 有 `Sup`/`Sub`/`Arg`/`OptArg`），
 `tex` 包里也有盒子模型（`HList` / `VList` / `HRule` / `AutoHeightChar` / `SetShift`）。
 缺的只是"把 AST 摆成盒子"这一步。分四刀：

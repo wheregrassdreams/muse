@@ -15,18 +15,28 @@ func metrics(expr string, display bool) (int, int) {
 // limits of \int and \sum sit beside the sign; a displayed formula puts them
 // above and below it, which is what makes it a formula on a line of its own.
 func TestADisplayedFormulaSetsTheLimitsOfABigOperator(t *testing.T) {
-	for _, expr := range []string{`\sum_{i=1}^{n} i`, `\int_0^1 x^2 \, dx`} {
-		iw, ih := metrics(expr, false)
-		dw, dh := metrics(expr, true)
-		if iw == 0 || dw == 0 {
-			t.Fatalf("%s drew nothing", expr)
-		}
-		if dh <= ih {
-			t.Fatalf("%s: displayed height %d is not more than inline %d", expr, dh, ih)
-		}
-		if dw >= iw {
-			t.Fatalf("%s: displayed width %d is not less than inline %d", expr, dw, iw)
-		}
+	// The limits of a sum stack in display style, so it is narrower and much
+	// taller.
+	iw, ih := metrics(`\sum_{i=1}^{n}`, false)
+	dw, dh := metrics(`\sum_{i=1}^{n}`, true)
+	if iw == 0 || dw == 0 {
+		t.Fatal("the sum drew nothing")
+	}
+	if dh <= ih {
+		t.Fatalf("displayed sum height %d is not more than inline %d", dh, ih)
+	}
+	if dw >= iw {
+		t.Fatalf("displayed sum width %d is not less than inline %d: the limits did not stack", dw, iw)
+	}
+	// The integral sign itself grows in display style, so only its height is
+	// the same kind of sign here.
+	iw, ih = metrics(`\int_0^1 x`, false)
+	dw, dh = metrics(`\int_0^1 x`, true)
+	if dh <= ih {
+		t.Fatalf("displayed integral height %d is not more than inline %d", dh, ih)
+	}
+	if dw == iw {
+		t.Fatalf("displayed integral is the inline one: %dx%d", dw, dh)
 	}
 }
 

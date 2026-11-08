@@ -10,9 +10,8 @@ func TestScriptComposition(t *testing.T) {
 		`x^2 + y`,
 		`\frac{a}{b}^2`,
 	} {
-		img, err := renderMathImage(expr, 18)
-		if err != nil || img == nil {
-			t.Fatalf("render %q: img=%v err=%v", expr, img, err)
+		if bmp := mathBitmap(expr, 18, false, false); bmp == nil {
+			t.Fatalf("render %q: nothing drawn", expr)
 		}
 	}
 }

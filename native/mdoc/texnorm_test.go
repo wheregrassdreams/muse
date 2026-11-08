@@ -19,9 +19,8 @@ func TestNormalizeTeX(t *testing.T) {
 
 func TestWrapperCommandsRender(t *testing.T) {
 	for _, e := range []string{`\text{if } x>0`, `\left( x \right)`, `\mathbb{R}`, `\mathrm{abc}`} {
-		img, err := renderMathImage(e, 18)
-		if img == nil {
-			t.Fatalf("render %q: %v", e, err)
+		if bmp := mathBitmap(e, 18, false, false); bmp == nil {
+			t.Fatalf("render %q: nothing drawn", e)
 		}
 	}
 }

@@ -137,10 +137,6 @@ func TestMathBitmapTypesetsAndCaches(t *testing.T) {
 
 func TestMatrixBitmap(t *testing.T) {
 	expr := `\begin{pmatrix} a & b \\ c & d \end{pmatrix}`
-	spec, ok := parseMatrix(expr)
-	if !ok || len(spec.rows) != 2 || len(spec.rows[0]) != 2 {
-		t.Fatalf("matrix parse = %+v", spec)
-	}
 	bmp := mathBitmap(expr, 18, false, false)
 	if bmp == nil {
 		t.Fatal("matrix bitmap is nil")

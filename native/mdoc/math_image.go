@@ -1,34 +1,30 @@
 package mdoc
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
-	"math"
-	"strings"
+	"image/png"
 	"sync"
 
-	"git.sr.ht/~sbinet/gg"
 	"github.com/egoist/mygo/ui"
-	"github.com/go-latex/latex/drawtex"
-	"github.com/go-latex/latex/font/ttf"
-	"github.com/go-latex/latex/mtex"
-	"github.com/go-latex/latex/tex"
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
+	"github.com/luo-studio/go-tex/tex/layout"
+	"github.com/luo-studio/go-tex/tex/mathstyle"
+	texparser "github.com/luo-studio/go-tex/tex/parser"
+	"github.com/luo-studio/go-tex/tex/render"
 )
 
-// mathDPI is the rasterisation density; the bitmap is displayed at 72/DPI of
-// its pixel size, so formulas stay sharp without being giant.
-const mathDPI = 192.0
+// MathDPI is the density formulas are rasterised at: twice a DIP. A bitmap
+// is drawn at MathScale of its pixel size, so a formula of the same size as
+// the text around it is the same height as that text.
+const MathDPI = 192.0
 
-// typeset is a formula rasterized: its pixels, and its baseline in pixels
-// from their top, which text around an inline formula lines up with.
-type typeset struct {
-	img      *image.RGBA
-	baseline int
-}
+// MathScale turns the pixels of a formula into DIPs.
+const MathScale = 72.0 / MathDPI
 
+// mathRender is a formula rasterized: its bitmap, and its baseline in pixels
+// from the top, which text around an inline formula lines up with.
 type mathRender struct {
 	bmp      *ui.Bitmap
 	baseline float32
@@ -39,8 +35,7 @@ var (
 	mathMu    sync.Mutex
 )
 
-// mathBitmap typesets a TeX expression with go-latex's engine (the same
-// family of MathJax/KaTeX-style layout used by Typora), then inverts it for
+// mathBitmap typesets a TeX expression and rasterises it, inverting it for
 // the dark theme. A cache keeps a formula from being re-rasterised each frame.
 func mathBitmap(expr string, size float64, dark bool, display bool) *ui.Bitmap {
 	return mathRendered(expr, size, dark, display).bmp
@@ -58,141 +53,67 @@ func mathRendered(expr string, size float64, dark bool, display bool) *mathRende
 		return v.(*mathRender)
 	}
 	r := &mathRender{}
-	var img image.Image
-	var err error
-	if m, ok := parseMatrix(expr); ok {
-		img, err = m.render(size)
-		if err == nil {
-			r.baseline = float32(img.Bounds().Dy())/2 + float32(size*mathDPI/72)*0.3
-		}
-	} else {
-		var ts typeset
-		ts, err = typesetMath(expr, size, display)
-		img, r.baseline = ts.img, float32(ts.baseline)
-	}
-	if err == nil {
+	if img, baseline, ok := typesetMath(expr, size, display); ok {
 		if dark {
 			img = invertImage(img)
 		}
 		r.bmp = ui.NewBitmap(img)
+		r.baseline = baseline
 	}
 	mathCache.Store(key, r)
 	return r
 }
 
-// renderMathImage typesets expr at size (in points), as an image.
-func renderMathImage(expr string, size float64) (image.Image, error) {
-	ts, err := typesetMath(expr, size, false)
-	if err != nil {
-		return nil, err
+// typesetMath lays a formula out with go-tex — a port of KaTeX, with KaTeX's
+// own font metrics and glyphs — and rasterises it at MathDPI. display asks
+// for the style of a formula on a line of its own: fractions at full size and
+// the limits of a big operator above and below it.
+//
+// The expression is read as it is; a formula KaTeX's parser will not take is
+// read again with the older normalisation, which is our own approximation
+// (it drops \left and \right, for one) and is only a fallback.
+func typesetMath(expr string, size float64, display bool) (image.Image, float32, bool) {
+	nodes, ok := parseTeX(expr)
+	if !ok {
+		if n := normalizeTeX(expr); n != expr {
+			nodes, ok = parseTeX(n)
+		}
 	}
-	return ts.img, nil
-}
-
-// typesetMath typesets expr at size (in points): with go-latex, or where it
-// cannot lay out scripts, as on \int_0^1, with Muse's own composition of
-// the base and its scripts.
-func typesetMath(expr string, size float64, display bool) (typeset, error) {
-	expr = normalizeTeX(expr)
+	if !ok {
+		return nil, 0, false
+	}
+	opts := layout.DefaultOptions()
 	if display {
-		// A block of math is displayed, not set in running text: fractions
-		// are their full size and, where the base allows it, the limits of a
-		// big operator go above and below it (see typesetScripts).
-		expr = displayFracs(expr)
+		opts.Style = mathstyle.Display
+	} else {
+		opts.Style = mathstyle.Text
 	}
-	ts, err := typesetTeX(expr, size)
-	if err == nil {
-		return ts, nil
-	}
-	if strings.ContainsAny(expr, "^_") {
-		if script, serr := typesetScripts(expr, size, display); serr == nil {
-			return script, nil
-		}
-	}
-	return typeset{}, err
-}
-
-// displayFracs makes the fractions of a displayed formula the size of the
-// text around them: go-latex sets \frac in text style, as it is in a line of
-// prose, and the display one is its \dfrac.
-func displayFracs(expr string) string {
-	expr = strings.ReplaceAll(expr, `\tfrac`, `\dfrac`)
-	// \frac and \dfrac are the same length, so no \dfrac becomes \dfrac.
-	return strings.ReplaceAll(expr, `\frac`, `\dfrac`)
-}
-
-// typesetTeX lays expr out with go-latex and rasterizes what it draws. The
-// image is as large as the ink of every glyph and rule, rather than the
-// box go-latex reports, which leaves out parts that hang below it.
-func typesetTeX(expr string, size float64) (ts typeset, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("math panic: %v", r)
-		}
-	}()
-	canvas := drawtex.New()
-	box, err := mtex.Parse("$"+expr+"$", size, 72, ttf.New(canvas))
+	// The style has to be in the layout, not in the parser: it changes the
+	// sizes and the placement of the whole box tree.
+	box := layout.Layout(nodes, opts)
+	var buf bytes.Buffer
+	err := render.PNGTo(&buf, layout.ToDisplayList(box),
+		render.WithFontSize(size),
+		render.WithPadding(0),
+		render.WithScale(MathDPI/72),
+		render.WithStrokeWidth(1))
 	if err != nil {
-		return typeset{}, err
+		return nil, 0, false
 	}
-	tree, ok := box.(tex.Tree)
-	if !ok {
-		return typeset{}, fmt.Errorf("math: %q laid out no tree", expr)
+	img, err := png.Decode(&buf)
+	if err != nil {
+		return nil, 0, false
 	}
-	var sh tex.Ship
-	sh.Call(0, 0, tree)
+	return img, float32(box.Height * size * MathDPI / 72), true
+}
 
-	// The ink, in points, with the box's own extent as the least of it.
-	h := box.Height()
-	minX, minY := 0.0, 0.0
-	maxX, maxY := box.Width(), h+math.Max(box.Depth(), 0)
-	for _, op := range canvas.Ops() {
-		switch op := op.(type) {
-		case drawtex.GlyphOp:
-			m := op.Glyph.Metrics
-			minX, maxX = math.Min(minX, op.X+m.XMin), math.Max(maxX, op.X+m.XMax)
-			minY, maxY = math.Min(minY, op.Y-m.YMax), math.Max(maxY, op.Y-m.YMin)
-		case drawtex.RectOp:
-			minX, maxX = math.Min(minX, math.Min(op.X1, op.X2)), math.Max(maxX, math.Max(op.X1, op.X2))
-			minY, maxY = math.Min(minY, math.Min(op.Y1, op.Y2)), math.Max(maxY, math.Max(op.Y1, op.Y2))
-		}
+// parseTeX parses a formula, reporting whether the parser took it.
+func parseTeX(expr string) ([]texparser.Node, bool) {
+	nodes, err := texparser.Parse(expr)
+	if err != nil {
+		return nil, false
 	}
-	const pad = 1.0
-	s := mathDPI / 72
-	w := int(math.Ceil((maxX - minX + 2*pad) * s))
-	hpx := int(math.Ceil((maxY - minY + 2*pad) * s))
-	if w <= 0 || hpx <= 0 {
-		return typeset{}, fmt.Errorf("math: %q is empty", expr)
-	}
-	ctx := gg.NewContext(w, hpx)
-	ctx.SetColor(color.Black)
-	dx, dy := pad-minX, pad-minY
-	for _, op := range canvas.Ops() {
-		switch op := op.(type) {
-		case drawtex.GlyphOp:
-			face, err := opentype.NewFace(op.Glyph.Font, &opentype.FaceOptions{
-				DPI:     mathDPI,
-				Size:    op.Glyph.Size,
-				Hinting: font.HintingNone,
-			})
-			if err != nil {
-				return typeset{}, err
-			}
-			ctx.SetFontFace(face)
-			ctx.DrawString(op.Glyph.Symbol, (op.X+dx)*s, (op.Y+dy)*s)
-			face.Close()
-		case drawtex.RectOp:
-			x0, x1 := math.Min(op.X1, op.X2), math.Max(op.X1, op.X2)
-			y0, y1 := math.Min(op.Y1, op.Y2), math.Max(op.Y1, op.Y2)
-			ctx.DrawRectangle((x0+dx)*s, (y0+dy)*s, (x1-x0)*s, math.Max(y1-y0, 0.5)*s)
-			ctx.Fill()
-		}
-	}
-	img, ok := ctx.Image().(*image.RGBA)
-	if !ok {
-		return typeset{}, fmt.Errorf("math: unexpected image %T", ctx.Image())
-	}
-	return typeset{img: img, baseline: int(math.Round((h + dy) * s))}, nil
+	return nodes, true
 }
 
 func invertImage(src image.Image) image.Image {
@@ -220,8 +141,8 @@ func invertImage(src image.Image) image.Image {
 // typeset.
 func drawMathBlock(c *ui.Context, bmp *ui.Bitmap, s rstyle) {
 	w, h := bmp.Size()
-	fw := float32(w) * 72 / mathDPI * 1.4
-	fh := float32(h) * 72 / mathDPI * 1.4
+	fw := float32(w) * 72 / MathDPI * 1.4
+	fh := float32(h) * 72 / MathDPI * 1.4
 	maxW := float32(800)
 	if s.o.ContentWidth > 0 {
 		maxW = s.o.ContentWidth

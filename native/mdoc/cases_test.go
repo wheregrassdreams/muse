@@ -8,12 +8,12 @@ func TestCasesAndAligned(t *testing.T) {
 		`\begin{aligned} a &= b + c \\ d &= e \end{aligned}`,
 		`\begin{array}{cc} 1 & 2 \\ 3 & 4 \end{array}`,
 	} {
-		spec, ok := parseMatrix(expr)
-		if !ok || len(spec.rows) != 2 {
-			t.Fatalf("parse %q = %+v", expr, spec)
-		}
-		if bmp := mathBitmap(expr, 18, false, false); bmp == nil {
+		bmp := mathBitmap(expr, 18, false, true)
+		if bmp == nil {
 			t.Fatalf("bitmap for %q is nil", expr)
+		}
+		if _, h := bmp.Size(); h < 40 {
+			t.Fatalf("%q is %d high: the two rows are not both drawn", expr, h)
 		}
 	}
 }
