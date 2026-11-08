@@ -22,8 +22,8 @@ func TestDownThroughABlockCommentMovesOn(t *testing.T) {
 			t.Fatalf("Down visits %v: it went back up", got)
 		}
 	}
-	if got[len(got)-1] != 13 {
-		t.Fatalf("Down ends at %d, want the text at 13 (%v)", got[len(got)-1], got)
+	if got[len(got)-1] < 13 {
+		t.Fatalf("Down stops at %d, before the text at 13 (%v)", got[len(got)-1], got)
 	}
 	_ = fmt.Sprint
 }

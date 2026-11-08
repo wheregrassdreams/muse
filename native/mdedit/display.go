@@ -288,6 +288,15 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 		in := &ins[i]
 		b.gap(in.Start, st)
 		next := max(in.Next, i+1)
+		// The comment the caret is in is parsed whole (see parseAll): its
+		// source draws as syntax, dimmed, the way a revealed construct does —
+		// so `**bold**` inside it stays the four bytes it is.
+		if c, ok := commentAt(cmts, in.Start); ok && b.revealed(c.from, c.to) {
+			b.marker(in.Start, in.End, st)
+			b.pos = max(b.pos, in.End)
+			i = next
+			continue
+		}
 		switch in.Kind {
 		case parser.Text:
 			st = b.text_(in.Start, in.End, st, marks, cmts, wikiLinks(b.src, in.Start, in.End), &outer)

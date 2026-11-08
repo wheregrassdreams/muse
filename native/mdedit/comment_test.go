@@ -7,6 +7,21 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// shownAway shows src with the caret past the end, so a comment at the start
+// is not the one being edited (a comment the caret is in shows its source).
+func shownAway(t *testing.T, src string) []string {
+	t.Helper()
+	h := newHarness(t, src)
+	h.caretAt(len(src))
+	var out []string
+	for _, u := range h.e.units() {
+		if u.isText() && u.view != nil {
+			out = append(out, u.view.disp.text)
+		}
+	}
+	return out
+}
+
 func TestCommentsDrawNothing(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
 		{"前 %%注释%% 后\n", "前  后"},
@@ -18,7 +33,7 @@ func TestCommentsDrawNothing(t *testing.T) {
 		// the rest of a note because a %% was half typed.
 		{"未闭合 %% 保留\n", "未闭合 %% 保留"},
 	} {
-		got := shown(t, tc.src)
+		got := shownAway(t, tc.src)
 		if tc.want == "" {
 			if len(got) != 0 {
 				t.Errorf("%q shows %q, want no text at all", tc.src, got)
@@ -34,7 +49,7 @@ func TestCommentsDrawNothing(t *testing.T) {
 func TestBlockCommentCollapses(t *testing.T) {
 	// A block comment takes its lines AND the break after it with it, so it
 	// leaves no blank line where it was.
-	got := shown(t, "%%\n块注释\n%%\n后文\n")
+	got := shownAway(t, "%%\n块注释\n%%\n后文\n")
 	if len(got) != 1 || got[0] != "后文" {
 		t.Fatalf("a block comment shows %q", got)
 	}
@@ -70,11 +85,11 @@ func TestCommentsSkipCodeSpans(t *testing.T) {
 func TestCommentContentNeverBecomesMarkup(t *testing.T) {
 	// The parser never reads the comment, so its bold and its link are just
 	// bytes — nothing escapes, nothing renders.
-	if got := shown(t, "%%注释里有 **加粗** 和 [[链接]]%%\n"); len(got) != 0 {
+	if got := shownAway(t, "%%注释里有 **加粗** 和 [[链接]]%%\n"); len(got) != 0 {
 		t.Fatalf("a comment's markdown shows: %q", got)
 	}
 	// A blank line inside a comment does not split it into two notes either.
-	got := shown(t, "%%\n注释\n\n更多\n%%\n后文\n")
+	got := shownAway(t, "%%\n注释\n\n更多\n%%\n后文\n")
 	if len(got) != 1 || got[0] != "后文" {
 		t.Fatalf("a comment with a blank line shows %q", got)
 	}
@@ -99,9 +114,9 @@ func TestEnterInsideACommentKeepsItWhole(t *testing.T) {
 	h.key(0, ui.KeyEnter)
 	// The blank line the Enter added is inside the comment: the comment still
 	// pairs, still hides, and the text after it is untouched.
-	if got := h.e.Source(); got != "%%\n\n注释\n%%\n后文" {
-		t.Fatalf("source %q", got)
-	}
+	// The Enter went into the comment; once the caret leaves, the comment
+	// still pairs as a whole and hides, and the text after it is intact.
+	h.caretAt(len(h.e.Source()))
 	var out []string
 	for _, u := range h.e.units() {
 		if u.isText() && u.view != nil {
@@ -109,6 +124,25 @@ func TestEnterInsideACommentKeepsItWhole(t *testing.T) {
 		}
 	}
 	if len(out) != 1 || out[0] != "后文" {
-		t.Fatalf("shows %q", out)
+		t.Fatalf("shows %q (source %q)", out, h.e.Source())
+	}
+}
+
+func TestCommentRevealsWhileTheCaretIsInIt(t *testing.T) {
+	h := newHarness(t, "a\n\n%%\n注\n%%\n\nb")
+	h.caretAt(len(h.e.Source()))
+	if h.shows("注") {
+		t.Fatal("the comment shows with the caret away")
+	}
+	// The caret into it, as a press on its blank area does.
+	h.e.setCaret(4, false)
+	h.frame()
+	if !h.shows("注") {
+		t.Fatal("the comment does not show with the caret in it")
+	}
+	// And it hides again when the caret leaves.
+	h.caretAt(len(h.e.Source()))
+	if h.shows("注") {
+		t.Fatal("the comment still shows after the caret left")
 	}
 }

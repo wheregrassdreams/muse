@@ -1,6 +1,10 @@
 package mdedit
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // blankY returns the y of the k-th blank line between the first two leaves.
 func blankY(t *testing.T, e *Editor, k int) float32 {
@@ -41,5 +45,22 @@ func TestTypingInAGap(t *testing.T) {
 	h.typ("x")
 	if got := h.e.Source(); got != "a\nx\n\nb" {
 		t.Fatalf("typing in a blank line gives %q", got)
+	}
+}
+
+func TestArrowStopsOnBlankLines(t *testing.T) {
+	h := newHarness(t, "a\n\n\nb")
+	h.caretAt(0)
+	h.key(0, ui.KeyDown)
+	if h.e.caret != 2 {
+		t.Fatalf("Down from the paragraph lands at %d, want the first blank line (2)", h.e.caret)
+	}
+	h.key(0, ui.KeyDown)
+	if h.e.caret != 4 {
+		t.Fatalf("the next Down lands at %d, want the paragraph (4)", h.e.caret)
+	}
+	h.key(0, ui.KeyUp)
+	if h.e.caret != 3 {
+		t.Fatalf("Up lands at %d, want the last blank line (3)", h.e.caret)
 	}
 }

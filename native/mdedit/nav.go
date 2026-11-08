@@ -519,7 +519,38 @@ func (e *Editor) vertical(dir int, extend bool) {
 		}
 		return
 	}
+	// Blank lines between the blocks are lines the caret stops on: a down
+	// move from the block above lands on the first of them, an up move on
+	// the last.
+	if at, ok := e.blankStop(li, dir); ok {
+		e.setPhantom(&phantom{at: at})
+		return
+	}
 	e.enterLeaf(li+dir, dir, extend)
+}
+
+// blankStop returns the offset of the blank line a vertical move from leaf li
+// in direction dir stops on, when the blocks are apart by more than the
+// paragraph break.
+func (e *Editor) blankStop(li, dir int) (int, bool) {
+	l := e.leaves[li]
+	lj := li + dir
+	if lj < 0 || lj >= len(e.leaves) {
+		return 0, false
+	}
+	n := e.leaves[lj]
+	if dir > 0 {
+		if strings.Count(e.src[l.end:n.start], "\n") < 3 {
+			return 0, false
+		}
+		return l.end + 1, true
+	}
+	prev := n
+	cnt := strings.Count(e.src[prev.end:l.start], "\n")
+	if cnt < 3 {
+		return 0, false
+	}
+	return prev.end + cnt - 1, true
 }
 
 // enterLeaf moves the caret into leaf li from above (dir > 0) or below, at

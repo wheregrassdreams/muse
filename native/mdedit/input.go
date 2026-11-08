@@ -384,6 +384,12 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	// a phantom paragraph there, so the line can be typed in.
 	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 {
 		if at, ok := e.gapPhantomAt(y); ok {
+			// Inside a comment, the parse shows it whole once the caret is in
+			// it: the caret alone is what is needed, not a phantom paragraph.
+			if _, in := commentAt(e.comments, at); in {
+				e.setCaret(at, false)
+				return true
+			}
 			e.setPhantom(&phantom{at: at})
 			return true
 		}
