@@ -54,9 +54,9 @@ type object struct {
 
 // istyle is the inline style a run of text is in.
 type istyle struct {
-	bold, italic, strike, code, mono, link, under, mark, sup, sub, kbd bool
-	marker                                                             bool
-	muted                                                              bool
+	bold, italic, strike, code, mono, link, tag, under, mark, sup, sub, kbd bool
+	marker                                                                  bool
+	muted                                                                   bool
 	// color and bg are the text's and its background's, as HTML sets
 	// them; zero for the look's.
 	color, bg ui.Color
@@ -396,6 +396,17 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis [
 			continue
 		}
 		c := src[p]
+		if c == '#' {
+			if te := tagAt(src, p, s, e); te > 0 {
+				b.textRun(run, p, st)
+				ts := st
+				ts.tag = true
+				b.textRun(p, te, ts)
+				p = te
+				run = p
+				continue
+			}
+		}
 		if c == '\\' && p+1 < e && isASCIIPunct(src[p+1]) {
 			b.textRun(run, p, st)
 			if b.revealed(p, p+2) {

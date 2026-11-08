@@ -110,6 +110,12 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.link {
 		s.Color = lk.accent
 	}
+	if st.tag {
+		// A tag reads as a tag, not as a link: the accent on a soft pill.
+		s.Color = lk.accent
+		s.Background = lk.accent.Alpha(0.12)
+		s.Radius = max(3, size/5)
+	}
 	if st.mark {
 		s.Background = lk.markBg
 	}
