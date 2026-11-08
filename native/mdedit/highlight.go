@@ -88,7 +88,7 @@ func (e *Editor) ToggleHighlight() {
 	e.layoutIfNeeded()
 	a, z := e.selection()
 	if u := e.unitAt(e.caret); u != nil && u.id >= 0 && u.isText() {
-		ins := e.doc.Inlines(u.id)
+		ins := e.p.doc.Inlines(u.id)
 		best := hlMark{from: -1}
 		for _, m := range allHighlights(e.src, ins, 0, len(ins)) {
 			if m.open && m.from <= a && z <= m.to && (best.from < 0 || m.to-m.from < best.to-best.from) {

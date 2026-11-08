@@ -24,7 +24,7 @@ func (e *Editor) inlineAround(kind parser.InlineKind, a, z int) (parser.Inline, 
 	}
 	var best parser.Inline
 	found := false
-	for _, in := range e.doc.Inlines(u.id) {
+	for _, in := range e.p.doc.Inlines(u.id) {
 		if in.Kind == kind && in.Start <= a && z <= in.End {
 			if !found || in.End-in.Start < best.End-best.Start {
 				best, found = in, true

@@ -299,7 +299,7 @@ func (b *builder) inlines(ins []parser.Inline, from, to int, st istyle) {
 
 func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 	marks := highlights(b.src, ins, i, end)
-	cmts := b.e.comments
+	cmts := b.e.p.comments
 	// outer is whether the text was marked before the highlight it is in.
 	outer := false
 	for i < end {
@@ -909,7 +909,7 @@ func utf16ByteOffset(s string, u int) int {
 // the characters mdoc.CJKFriendly swapped taken back: a Text inline that
 // is the parsed source as it is reads the editor's source instead.
 func (e *Editor) plainText(ins []parser.Inline) string {
-	parsed := e.doc.Source()
+	parsed := e.p.doc.Source()
 	marks := allHighlights(e.src, ins, 0, len(ins))
 	var b strings.Builder
 	for k := range ins {

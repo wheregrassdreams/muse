@@ -228,10 +228,10 @@ func (e *Editor) railPreviewText(i int) {
 		return
 	}
 	l := e.railLeaves[i]
-	e.railText = strings.TrimSpace(e.plainText(e.doc.Inlines(l.id)))
+	e.railText = strings.TrimSpace(e.plainText(e.p.doc.Inlines(l.id)))
 	e.railDesc = ""
 	if i < len(e.railNext) && e.railNext[i] != nil && e.railNext[i].id >= 0 {
-		e.railDesc = railExcerpt(e.plainText(e.doc.Inlines(e.railNext[i].id)))
+		e.railDesc = railExcerpt(e.plainText(e.p.doc.Inlines(e.railNext[i].id)))
 	}
 	e.railTextIdx, e.railTextRev = i, e.rev
 }

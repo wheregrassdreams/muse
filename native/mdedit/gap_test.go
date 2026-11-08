@@ -24,11 +24,11 @@ func TestCommentLinesAreReachableByClick(t *testing.T) {
 	h = newHarness(t, src)
 	h.tt.ClickAt(h.e.colX+40, h.e.leaves[0].y+70)
 	h.frame()
-	if _, in := commentAt(h.e.comments, h.e.caret); !in {
+	if _, in := commentAt(h.e.p.comments, h.e.caret); !in {
 		t.Fatalf("the click on the comment's line put the caret at %d, outside the comment", h.e.caret)
 	}
 	// And it can be typed in, as any other line.
-	h.caretAt(h.e.comments[0].from + 3)
+	h.caretAt(h.e.p.comments[0].from + 3)
 	h.typ("x")
 	if got := h.e.Source(); !strings.Contains(got, "%% xhidden note %%") {
 		t.Fatalf("typing in the comment gives %q", got)

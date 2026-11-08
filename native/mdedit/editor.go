@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
 
 	"muse/mdoc"
 )
@@ -64,9 +63,12 @@ type Editor struct {
 	opts Options
 
 	src    string
-	doc    *parser.Document
-	fm     int
 	leaves []*leaf
+	// p is what the parser reads, and what the editor derives from the
+	// source for it: the document, the masked source it holds, the comments
+	// that mask hides, where the front matter ends. Only p.set and p.edit
+	// write it (see parsed.go); everything else reads it.
+	p parserSource
 	// arena holds the leaves of the parse before and the one being built:
 	// a leaf the edit did not change keeps its view, so the leaves of the
 	// parse before have to stay whole while the next is built.
@@ -75,17 +77,6 @@ type Editor struct {
 	// leafSrc is the source the leaves were built from, which an edit has
 	// usually moved on from by the time they are compared with the next.
 	leafSrc string
-	// mask is the source as the parser reads it: as long as src, with
-	// front matter blanked and the characters beside CJK punctuation
-	// swapped where emphasis needs it. Each edit advances it in place, so
-	// the whole document is not copied again for every key.
-	mask []byte
-	// docSrc is the source the parser and mask hold; empty when the parser
-	// must be given the whole source again.
-	docSrc string
-	// comments are the %%…%% spans of src: blanked in the mask so the parser
-	// reads none of their markdown, hidden by the view.
-	comments []cmt
 	// leafComment is the comment the leaves were built for: a comment's own
 	// leaves are dropped from the layout unless the caret is in it, and the
 	// caret moving in or out rebuilds the leaves (never the parse).
@@ -272,7 +263,7 @@ func (e *Editor) SetOptions(opts Options) {
 	if opts.Code != e.opts.Code {
 		e.rev++
 		e.parsed = 0
-		e.mask, e.docSrc = nil, ""
+		e.p.clear()
 		e.pending, e.pendingMulti = nil, false
 	}
 	e.opts = opts
@@ -288,10 +279,9 @@ func (e *Editor) Source() string { return e.src }
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
 	e.src = src
-	e.doc = parser.New(exts)
+	e.p.clear()
 	e.rev++
 	e.u16ix.rev = 0
-	e.mask, e.docSrc = nil, ""
 	e.pending, e.pendingMulti = nil, false
 	e.anchor, e.caret = 0, 0
 	e.phantom = nil
@@ -319,46 +309,44 @@ func (e *Editor) sync() {
 		// The caret may have moved into or out of a comment: the leaves are
 		// built for the comment it is in (its own show, the others do not),
 		// so that a caret moving there rebuilds leaves, not the parse.
-		if f, ok := commentAt(e.comments, e.caret); ok != e.leafCommentOK || (ok && f != e.leafComment) {
+		if f, ok := commentAt(e.p.comments, e.caret); ok != e.leafCommentOK || (ok && f != e.leafComment) {
 			e.rev++
 		} else {
 			return
 		}
 	}
 	if e.opts.Code != "" {
-		e.fm = 0
 		e.arenaCur ^= 1
 		a := &e.arena[e.arenaCur]
 		a.reset()
 		e.leaves = []*leaf{codeDocLeaf(a, e.src, e.opts.Code)}
 		e.leafSrc = e.src
 		e.parsed = e.rev
-		e.mask, e.docSrc = nil, ""
+		e.p.clear()
 		e.pending, e.pendingMulti = nil, false
 		return
 	}
-	fm := frontMatterEnd(e.src)
-	if e.docSrc != e.src {
-		// One edit can go straight to the parser; anything else, including
-		// a change that may have added or removed front matter, rebuilds
-		// the masked source and gives it whole.
-		if e.pending == nil || e.pendingMulti || fm != e.fm || !e.applyPending() {
-			e.parseAll(fm)
+	// The parser's input is made here and nowhere else: one edit it can
+	// follow, or the whole source again. The choice is the same for every
+	// field of it, so a fast path cannot leave one of them behind.
+	if e.p.src != e.src {
+		fm := frontMatterEnd(e.src)
+		if e.pending == nil || e.pendingMulti || fm != e.p.fm || !e.p.edit(e.src, e.pending) {
+			e.p.set(e.src, fm)
 		}
 	}
-	e.fm = fm
 	e.pending, e.pendingMulti = nil, false
 	old := e.leaves
 	e.arenaCur ^= 1
-	e.leaves = buildLeaves(e.src, e.doc, e.fm, &e.arena[e.arenaCur])
+	e.leaves = buildLeaves(e.src, e.p.doc, e.p.fm, &e.arena[e.arenaCur])
 	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
 	// A comment covers its lines whole: the parser reads blanks there, which
 	// used to become raw leaves showing the comment's own text. With the
 	// comment blanked, its lines are a gap the caret reaches through the
 	// phantom — and the comment shows when the caret is in it.
-	if len(e.comments) > 0 {
+	if len(e.p.comments) > 0 {
 		kept := e.leaves[:0]
-		e.leafComment, e.leafCommentOK = commentAt(e.comments, e.caret)
+		e.leafComment, e.leafCommentOK = commentAt(e.p.comments, e.caret)
 		for _, l := range e.leaves {
 			if e.insideComment(l.start, l.end) {
 				continue
@@ -410,31 +398,6 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 	}
 }
 
-// applyPending gives the parser the one edit since the last parse, and
-// advances the mask with it. It reports whether the edit was applied
-// incrementally; false means the whole source has to be read again.
-func (e *Editor) applyPending() bool {
-	p := e.pending
-	// Which bytes a comment covers depends on the whole document: its
-	// markers, the `\` that escapes one, the fences that hide them. When
-	// the edit reaches any of that, the source is read again and the
-	// comments are found again.
-	if e.touchesComment(p.from, p.to) || !commentsStay(e.docSrc, e.src, p.from, p.to, len(p.text)) {
-		return false
-	}
-	// The comments move with the edit before the lines are masked again:
-	// the edit does not reach one, so each keeps its place relative to it.
-	e.shiftComments(p.from, p.to, len(p.text))
-	next, from, to, repl, ok := editMask(e.mask, e.src, p.from, p.to, e.fm, e.comments)
-	if !ok {
-		return false
-	}
-	e.mask = next
-	e.doc.Edit(from, to, repl)
-	e.docSrc = e.src
-	return true
-}
-
 // commentsStay reports whether an edit leaves the comments of the source as
 // they were, moved by it at most. A comment is written with `%`, escaped
 // with a `\`, and hidden inside a fence of ` or ~: an edit that keeps away
@@ -463,29 +426,11 @@ func commentsStay(oldSrc, newSrc string, from, to, newLen int) bool {
 	return true
 }
 
-// shiftComments moves the comments an edit left alone: a comment after the
-// edited range moves by the length the source changed. One the edit reached
-// is the parse's business — applyPending gives the whole source back when
-// it did.
-func (e *Editor) shiftComments(from, to, newLen int) {
-	d := newLen - (to - from)
-	if d == 0 {
-		return
-	}
-	for i := range e.comments {
-		c := &e.comments[i]
-		if c.from >= to {
-			c.from += d
-			c.to += d
-		}
-	}
-}
-
 // insideComment reports whether a source range lies wholly in a comment the
 // caret is not in: that comment's leaves are dropped, so it takes no room
 // and its source shows only while the caret is in it.
 func (e *Editor) insideComment(start, end int) bool {
-	for _, c := range e.comments {
+	for _, c := range e.p.comments {
 		if e.leafCommentOK && c == e.leafComment {
 			continue
 		}
@@ -497,27 +442,13 @@ func (e *Editor) insideComment(start, end int) bool {
 }
 
 // touchesComment reports whether the edit range reached a comment.
-func (e *Editor) touchesComment(from, to int) bool {
-	for _, c := range e.comments {
+func touchesComment(cmts []cmt, from, to int) bool {
+	for _, c := range cmts {
 		if from <= c.to && to >= c.from {
 			return true
 		}
 	}
 	return false
-}
-
-// parseAll gives the parser the whole source and rebuilds the mask with
-// it. This is the path of opening a document, undo, and edits that cannot
-// be described as one range.
-func (e *Editor) parseAll(fm int) {
-	// A comment is a block construct: blank it before the parser reads the
-	// source, so its markdown never becomes structure.
-	e.comments = commentRegions(e.src)
-	masked := parserText(blankComments(maskFrontMatter(e.src, fm), e.comments))
-	e.fm = fm
-	e.mask = []byte(masked)
-	e.doc.Set(masked)
-	e.docSrc = e.src
 }
 
 // parserText returns whole lines of the source as the parser reads them.
@@ -776,7 +707,7 @@ func (e *Editor) Headings() []Heading {
 		if l.kind != kHeading || l.pending {
 			continue
 		}
-		text := strings.TrimSpace(e.plainText(e.doc.Inlines(l.id)))
+		text := strings.TrimSpace(e.plainText(e.p.doc.Inlines(l.id)))
 		out = append(out, Heading{Level: l.level, Text: text, Offset: l.start})
 	}
 	return out

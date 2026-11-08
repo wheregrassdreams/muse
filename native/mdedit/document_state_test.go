@@ -95,15 +95,15 @@ func checkSound(t *testing.T, name string, step int, e *Editor) {
 	// What the parser reads, the comments and the parse itself are derived
 	// from the source: the fast path an edit takes has to keep them equal to
 	// what reading the whole source again gives.
-	if e.docSrc != e.src {
+	if e.p.src != e.src {
 		t.Fatalf("%s step %d: the parser holds another source", name, step)
 	}
-	if got, want := e.comments, commentRegions(e.src); !slices.Equal(got, want) {
+	if got, want := e.p.comments, commentRegions(e.src); !slices.Equal(got, want) {
 		t.Fatalf("%s step %d: comments %v, want %v", name, step, got, want)
 	}
-	wantMask := parserText(blankComments(maskFrontMatter(e.src, e.fm), e.comments))
-	if string(e.mask) != wantMask {
-		t.Fatalf("%s step %d: the parser's source is %q, want %q", name, step, e.mask, wantMask)
+	wantMask := parserText(blankComments(maskFrontMatter(e.src, e.p.fm), e.p.comments))
+	if string(e.p.mask) != wantMask {
+		t.Fatalf("%s step %d: the parser's source is %q, want %q", name, step, e.p.mask, wantMask)
 	}
 	prev := -1
 	seen := map[int]bool{}

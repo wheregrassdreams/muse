@@ -105,7 +105,7 @@ func TestEditorEscapedBracketsAreNotMath(t *testing.T) {
 			continue
 		}
 		e := shownEditor(t, ex.Markdown)
-		if doc := e.doc.HTML(); strings.Contains(doc, `class="math`) {
+		if doc := e.p.doc.HTML(); strings.Contains(doc, `class="math`) {
 			t.Errorf("example %d parsed as math:\n%s", ex.Example, doc)
 		}
 		got := normalizeSpace(displayPlainText(e))

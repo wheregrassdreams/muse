@@ -1127,19 +1127,19 @@ func (e *Editor) indentCode(l *leaf, shift bool) {
 // itemRange returns the source range of the item a leaf is in, from the
 // start of its first line to the end of its last.
 func (e *Editor) itemRange(it cont) (int, int) {
-	b := e.doc.Block(it.id)
+	b := e.p.doc.Block(it.id)
 	end := lineEndAt(e.src, b.End)
-	for c := it.id + 1; c < b.Next && c < e.doc.Len(); c++ {
-		end = max(end, lineEndAt(e.src, e.doc.Block(c).End))
+	for c := it.id + 1; c < b.Next && c < e.p.doc.Len(); c++ {
+		end = max(end, lineEndAt(e.src, e.p.doc.Block(c).End))
 	}
 	return lineStartAt(e.src, it.start), end
 }
 
 // itemSiblings returns the items of the list an item is in.
 func (e *Editor) itemSiblings(it cont) []int {
-	parent := e.doc.Block(it.id).Parent
+	parent := e.p.doc.Block(it.id).Parent
 	var out []int
-	for c := range e.doc.Children(parent) {
+	for c := range e.p.doc.Children(parent) {
 		out = append(out, c)
 	}
 	return out
@@ -1158,7 +1158,7 @@ func (e *Editor) indentItem(l *leaf) {
 	if k <= 0 {
 		return
 	}
-	prev := e.doc.Block(sibs[k-1])
+	prev := e.p.doc.Block(sibs[k-1])
 	// The item before's content column, past its marker.
 	w := markerWidth(e.src, prev.Start)
 	pad := strings.Repeat(" ", w)

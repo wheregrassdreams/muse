@@ -55,7 +55,7 @@ func TestToggleHighlightWrapsAndUnwraps(t *testing.T) {
 
 func TestHighlightIsNotInThePlainText(t *testing.T) {
 	e := shownEditor(t, "前 ==重点== 后\n")
-	if got := e.plainText(e.doc.Inlines(e.leaves[0].id)); got != "前 重点 后" {
+	if got := e.plainText(e.p.doc.Inlines(e.leaves[0].id)); got != "前 重点 后" {
 		t.Fatalf("plain text %q", got)
 	}
 }

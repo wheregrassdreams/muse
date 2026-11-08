@@ -311,8 +311,8 @@ func TestParserSourceFollowsEdits(t *testing.T) {
 			h.e.Replace(at, at, pieces[rng.IntN(len(pieces))])
 		}
 		h.e.sync()
-		if want := parserText(maskFrontMatter(h.e.src, h.e.fm)); h.e.doc.Source() != want {
-			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.src, h.e.doc.Source(), want)
+		if want := parserText(maskFrontMatter(h.e.src, h.e.p.fm)); h.e.p.doc.Source() != want {
+			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.src, h.e.p.doc.Source(), want)
 		} else if want != h.e.src {
 			swapped++
 		}

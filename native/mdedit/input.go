@@ -383,9 +383,9 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	// A comment's lines are blank in the parse, and the comment shows once
 	// the caret is in it: a click there puts the caret in the comment
 	// itself, not on a blank line beside it.
-	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && len(e.comments) > 0 {
+	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && len(e.p.comments) > 0 {
 		if at, ok := e.gapPhantomAt(y); ok {
-			if _, in := commentAt(e.comments, at); in {
+			if _, in := commentAt(e.p.comments, at); in {
 				e.setCaret(at, false)
 				return true
 			}
@@ -714,7 +714,7 @@ func (e *Editor) linkAt(off int) string {
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return ""
 	}
-	for _, in := range e.doc.Inlines(u.id) {
+	for _, in := range e.p.doc.Inlines(u.id) {
 		switch in.Kind {
 		case parser.Link, parser.Image:
 			if in.Start <= off && off <= in.End {

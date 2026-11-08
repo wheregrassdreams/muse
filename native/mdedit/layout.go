@@ -413,7 +413,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		b.textRun(l.start, l.end, st)
 		b.finish(l.end)
 	default:
-		ins := e.doc.Inlines(l.id)
+		ins := e.p.doc.Inlines(l.id)
 		b.alone = aloneImage(ins, e.src)
 		b.starts, b.cell = e.lineStarts(l.id), l.table != nil
 		// A heading's `#`s are chrome, hidden like every other block marker —
@@ -465,13 +465,13 @@ func shapeDisplay(d *display, f ui.Font, shape ui.TextShape) (*ui.TextLayout, bo
 // lineStarts returns the offsets of the lines of block id's text, when it
 // has more than one.
 func (e *Editor) lineStarts(id int) []int {
-	n := e.doc.LineCount(id)
+	n := e.p.doc.LineCount(id)
 	if n < 2 {
 		return nil
 	}
 	out := make([]int, n)
 	for k := range out {
-		_, out[k] = e.doc.Line(id, k)
+		_, out[k] = e.p.doc.Line(id, k)
 	}
 	return out
 }
