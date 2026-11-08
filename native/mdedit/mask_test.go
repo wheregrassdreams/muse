@@ -119,7 +119,11 @@ func TestEditMaskMatchesFullMask(t *testing.T) {
 			// editMask may rewrite its input in place, so keep a copy for
 			// reconstructing what the parser was given.
 			before := append([]byte(nil), oldMask...)
-			next, mFrom, mTo, repl, ok := editMask(oldMask, newSrc, c.from, c.to, frontMatterEnd(c.old))
+			// The comments of the new source: they stand where the edit and
+			// the old ones leave them (the cases that reach a comment give
+			// the whole source back).
+			cmts := shiftCmts(commentRegions(c.old), c.from, c.to, len(c.text))
+			next, mFrom, mTo, repl, ok := editMask(oldMask, newSrc, c.from, c.to, frontMatterEnd(c.old), cmts)
 			if ok != c.ok {
 				t.Fatalf("ok = %v, want %v", ok, c.ok)
 			}
@@ -158,4 +162,19 @@ func editRange(t *testing.T, s, name string, from, to int) (int, int) {
 		return i, i
 	}
 	return from, to
+}
+
+// shiftCmts returns the comment regions of a source an edit left alone,
+// moved by its length: what applyPending holds once it takes the edit.
+func shiftCmts(cmts []cmt, from, to, newLen int) []cmt {
+	d := newLen - (to - from)
+	out := make([]cmt, len(cmts))
+	for i, c := range cmts {
+		if c.from >= to {
+			c.from += d
+			c.to += d
+		}
+		out[i] = c
+	}
+	return out
 }

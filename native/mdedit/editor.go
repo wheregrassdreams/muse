@@ -420,17 +420,16 @@ func (e *Editor) applyPending() bool {
 	if strings.Contains(p.text, "%") || e.touchesComment(p.from, p.to) {
 		return false
 	}
-	next, from, to, repl, ok := editMask(e.mask, e.src, p.from, p.to, e.fm)
+	// The comments move with the edit before the lines are masked again:
+	// the edit does not reach one, so each keeps its place relative to it.
+	e.shiftComments(p.from, p.to, len(p.text))
+	next, from, to, repl, ok := editMask(e.mask, e.src, p.from, p.to, e.fm, e.comments)
 	if !ok {
 		return false
 	}
 	e.mask = next
 	e.doc.Edit(from, to, repl)
 	e.docSrc = e.src
-	// The comments an edit did not reach move with it: the parse that reads
-	// the source again is the one that can pair them differently, and this
-	// is not it.
-	e.shiftComments(p.from, p.to, len(p.text))
 	return true
 }
 

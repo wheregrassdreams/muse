@@ -16,7 +16,7 @@ import (
 // replacement text, and whether the edit could be applied this way. ok is
 // false when an edit can change the front matter, because front matter is
 // blanked in the mask and a change to it is not line-independent.
-func editMask(mask []byte, src string, from, to, fm int) (next []byte, mFrom, mTo int, repl string, ok bool) {
+func editMask(mask []byte, src string, from, to, fm int, cmts []cmt) (next []byte, mFrom, mTo int, repl string, ok bool) {
 	if from < 0 || from > to || to > len(mask) || len(src) < len(mask)-(to-from) {
 		return nil, 0, 0, "", false
 	}
@@ -43,7 +43,10 @@ func editMask(mask []byte, src string, from, to, fm int) (next []byte, mFrom, mT
 	}
 	nls := lineStartAt(src, from)
 	nle := lineEndAt(src, end)
-	repl = parserText(src[nls:nle])
+	// The lines the parser reads again are masked again: a comment's bytes
+	// are spaces to it, and the no-break space that keeps a comment opening
+	// a line from indenting what follows is part of the mask too.
+	repl = parserText(maskLines(src, nls, nle, cmts))
 	next = slices.Replace(mask, ls, le, []byte(repl)...)
 	return next, ls, le, repl, true
 }

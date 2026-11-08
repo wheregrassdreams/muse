@@ -174,3 +174,31 @@ func TestACommentThatOpensALineIsNoCodeBlock(t *testing.T) {
 		}
 	}
 }
+
+// TestEditingOnACommentLineKeepsItHidden: an edit gives the parser the
+// lines it touches again, and those lines are masked again — a comment's
+// bytes are spaces to it, whatever a keystroke did on the same line. A
+// comment's markdown must not become structure, and a comment opening a
+// line must not turn what follows it into a block of code.
+func TestEditingOnACommentLineKeepsItHidden(t *testing.T) {
+	h := newHarness(t, "正文 %%**不是粗体**%% 后")
+	h.caretAt(len(h.e.Source()))
+	h.typ("x")
+	if h.shows("不是粗体") || h.shows("**") {
+		t.Fatalf("the comment came out of hiding after an edit: %q", h.e.leaves[0].view.disp.text)
+	}
+	for _, pc := range h.e.leaves[0].view.disp.pieces {
+		if pc.span.Weight >= 600 {
+			t.Fatalf("the comment became bold after an edit: %q", pc.text)
+		}
+	}
+
+	h2 := newHarness(t, "%%注释%% 正文")
+	h2.caretAt(len(h2.e.Source()))
+	h2.typ("x")
+	for _, l := range h2.e.leaves {
+		if l.kind == kCode {
+			t.Fatalf("a comment opening a line became a block of code after an edit: %d..%d", l.start, l.end)
+		}
+	}
+}

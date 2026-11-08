@@ -55,6 +55,33 @@ func commentRegions(src string) []cmt {
 	return out
 }
 
+// maskLines returns the bytes of src in [from, to) as the parser reads
+// them: the part every comment has in the range blanked, its line breaks
+// kept, and the no-break space that keeps a comment opening a line from
+// indenting what follows it. The range must start and end at a line.
+func maskLines(src string, from, to int, cmts []cmt) string {
+	to = min(to, len(src))
+	if from < 0 || to <= from {
+		return ""
+	}
+	b := []byte(src[from:to])
+	for _, c := range cmts {
+		if c.to <= from || c.from >= to {
+			continue
+		}
+		cf, ct := max(c.from-from, 0), min(c.to-from, len(b))
+		for i := cf; i < ct; i++ {
+			if b[i] != '\n' && b[i] != '\r' {
+				b[i] = ' '
+			}
+		}
+		if cf+2 <= ct && opensContent(b, cf) && hasTextOnLine(b, ct) {
+			b[cf], b[cf+1] = 0xC2, 0xA0
+		}
+	}
+	return string(b)
+}
+
 // blankComments returns src with every comment's bytes replaced by spaces,
 // its line breaks kept: what the parser reads. The length is unchanged, so
 // every offset the parser reports still addresses the real source.
