@@ -1,18 +1,19 @@
 package mdoc
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"image/color"
-	"image/png"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/luo-studio/go-tex/tex/layout"
 	"github.com/luo-studio/go-tex/tex/mathstyle"
 	texparser "github.com/luo-studio/go-tex/tex/parser"
-	"github.com/luo-studio/go-tex/tex/render"
+	"github.com/tdewolff/canvas"
+	"github.com/tdewolff/canvas/renderers/rasterizer"
+
+	"muse/mdoc/texcanvas"
 )
 
 // MathDPI is the density formulas are rasterised at: twice a DIP. A bitmap
@@ -91,20 +92,13 @@ func typesetMath(expr string, size float64, display bool) (image.Image, float32,
 	// The style has to be in the layout, not in the parser: it changes the
 	// sizes and the placement of the whole box tree.
 	box := layout.Layout(nodes, opts)
-	var buf bytes.Buffer
-	err := render.PNGTo(&buf, layout.ToDisplayList(box),
-		render.WithFontSize(size),
-		render.WithPadding(0),
-		render.WithScale(MathDPI/72),
-		render.WithStrokeWidth(1))
-	if err != nil {
+	px := size * MathDPI / 72
+	c := texcanvas.Render(layout.ToDisplayList(box), texcanvas.Options{FontSize: px, StrokeWidth: 1.5})
+	img := rasterizer.Draw(c, canvas.DPMM(1), canvas.DefaultColorSpace)
+	if img == nil {
 		return nil, 0, false
 	}
-	img, err := png.Decode(&buf)
-	if err != nil {
-		return nil, 0, false
-	}
-	return img, float32(box.Height * size * MathDPI / 72), true
+	return img, float32(box.Height * px), true
 }
 
 // parseTeX parses a formula, reporting whether the parser took it.

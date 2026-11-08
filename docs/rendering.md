@@ -74,6 +74,10 @@ KaTeX 字体度量与内嵌 KaTeX TTF，输出 PNG。于是：
   （`parseMatrix`）、`displayFracs` 伪装
 - `mdoc/math_image.go` 只剩：解析 → 布局 → `render.PNGTo` → 解码 →（深色反相）→ 缓存
 - 依赖代价：二进制 +6MB（内嵌 KaTeX 字体），MIT 许可，纯 Go 无 cgo
+- **一个上游 bug 与我们的补丁**：`tex/canvasr` 里 `ptPerUnit = 1`，但 canvas 的单位是毫米、
+  `Face` 收的是点，于是每个字形只有布局 em 的 72/25.4（0.35）——公式成了"角落里一个小点"。
+  我们把 `canvasr` 那 250 行抄进 `native/mdoc/texcanvas/`（MIT，保留版权声明），
+  只把那个常数改成 `72/25.4`，其余一行未动
 - 已知待办：**按设备像素比光栅化**。现在固定 192 DPI，在 2× 屏上接近 1:1，在 1× 屏上
   细笔画会略淡（KaTeX 的笔画比原来的 Computer Modern 细）
 
