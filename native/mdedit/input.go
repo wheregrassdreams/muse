@@ -414,6 +414,15 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		e.dragUnit, e.dragFrom = 1, [2]int{a, z}
 	default:
 		extend := ev.Mods&ui.Shift != 0
+		if a, z, ok := e.objectAt(off); ok && !extend {
+			// An object is one unit: a click takes it whole, and the
+			// selection is what opens its source (docs/editor-model.md).
+			// Typing or Backspace then replace it, as they would a letter.
+			e.dropPhantom()
+			e.anchor, e.caret = a, z
+			e.dragUnit, e.dragFrom = 0, [2]int{a, z}
+			break
+		}
 		e.setCaretAtPoint(off, y, extend)
 		e.dragUnit, e.dragFrom = 0, [2]int{e.anchor, e.anchor}
 	}

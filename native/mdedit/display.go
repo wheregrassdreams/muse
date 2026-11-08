@@ -105,6 +105,23 @@ type htmlTag struct {
 
 func (b *builder) revealed(s, e int) bool { return b.reveal >= s && b.reveal <= e }
 
+// objectOpen reports whether an object shows its source: the caret is inside
+// it, or the selection covers it. A caret at either side of it does not open
+// it — an object is one unit, and the arrows pass it by without taking it
+// apart. Clicking it selects it, which does open it.
+func (b *builder) objectOpen(s, e int) bool {
+	if b.e == nil {
+		return false
+	}
+	if a, z := b.e.anchor, b.e.caret; a != z {
+		if a > z {
+			a, z = z, a
+		}
+		return a < e && z > s
+	}
+	return b.reveal > s && b.reveal < e
+}
+
 // add appends a piece, inserting the composition where it falls.
 func (b *builder) add(p piece) {
 	if b.compose != "" && !b.composed && p.kind == pText && b.composeAt > p.s0+b.base && b.composeAt < p.s1+b.base {
@@ -491,7 +508,7 @@ func (b *builder) wiki(w wikiLink, st istyle) {
 	inner.link = true
 	// An embed of a picture is the picture, as Obsidian draws it. A note
 	// embed transcludes later; for now it reads as its label.
-	if w.embed && !b.revealed(w.from, w.to) && isImageName(w.target) {
+	if w.embed && !b.objectOpen(w.from, w.to) && isImageName(w.target) {
 		if obj := b.e.imageObject(w.target, "", b.width, b.alone); obj != nil {
 			b.atom(w.from, w.to, "", st, obj)
 			return
@@ -613,7 +630,7 @@ func (b *builder) math(in *parser.Inline, st istyle) {
 		n = 2
 	}
 	cs, ce := min(in.Start+n, in.End), max(in.End-n, in.Start+n)
-	if b.revealed(in.Start, in.End) {
+	if b.objectOpen(in.Start, in.End) {
 		inner := st
 		inner.code = true
 		b.marker(in.Start, cs, st)
@@ -634,7 +651,7 @@ func (b *builder) math(in *parser.Inline, st istyle) {
 func (b *builder) image(ins []parser.Inline, i int, st istyle) {
 	in := &ins[i]
 	obj := b.e.imageObject(in.Dest, b.e.plainText(ins[i+1:max(in.Next, i+1)]), b.width, b.alone)
-	if !b.revealed(in.Start, in.End) {
+	if !b.objectOpen(in.Start, in.End) {
 		b.atom(in.Start, in.End, "", st, obj)
 		return
 	}

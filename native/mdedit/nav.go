@@ -265,24 +265,16 @@ func (e *Editor) step(off, dir int, word bool) int {
 		}
 		return off
 	}
-	v := e.unitView(u, off)
-	if v.layout != nil && !v.empty {
-		if d, ok := v.disp.srcToDisp(off - u.lineStart); ok {
-			nd := d
-			if word {
-				nd = wordStep(v.disp.text, d, dir)
-			} else if dir < 0 {
-				nd = v.layout.PreviousBoundary(d)
-			} else {
-				nd = v.layout.NextBoundary(d)
-			}
-			if nd != d {
-				c := v.disp.dispToSrc(nd, dir > 0) + u.lineStart
-				if dir > 0 && c > off || dir < 0 && c < off {
-					return e.normalize(c, dir)
-				}
-			}
+	if word {
+		if s, ok := e.wordStepIn(u, off, dir); ok {
+			return s
 		}
+	} else if s, ok := e.stopStepIn(u, off, dir); ok {
+		// One stop at a time, in the source's own offsets: an object is one
+		// unit, and the positions on either side of it are two — the display
+		// puts them in the same column, so moving in the display would step
+		// over both (see docs/editor-model.md, atomic objects).
+		return s
 	}
 	for j := i + dir; j >= 0 && j < len(us); j += dir {
 		if s, ok := e.edgeStop(us[j], dir < 0); ok {
@@ -290,6 +282,65 @@ func (e *Editor) step(off, dir int, word bool) int {
 		}
 	}
 	return off
+}
+
+// stopStepIn returns the next stop of a unit from off, in direction dir:
+// the caret's positions of the display, which leave out the inside of an
+// object.
+func (e *Editor) stopStepIn(u *leaf, off, dir int) (int, bool) {
+	stops := e.unitView(u, off).disp.stops()
+	best := -1
+	for _, s := range stops {
+		at := s + u.lineStart
+		if dir > 0 && at > off && (best < 0 || at < best) {
+			best = at
+		}
+		if dir < 0 && at < off && (best < 0 || at > best) {
+			best = at
+		}
+	}
+	if best < 0 {
+		return 0, false
+	}
+	if !e.stopOK(u, best) {
+		return 0, false
+	}
+	return e.normalize(best, dir), true
+}
+
+// wordStepIn returns the offset a word move takes from off within a unit.
+func (e *Editor) wordStepIn(u *leaf, off, dir int) (int, bool) {
+	v := e.unitView(u, off)
+	if v.layout == nil || v.empty {
+		return 0, false
+	}
+	d, ok := v.disp.srcToDisp(off - u.lineStart)
+	if !ok {
+		return 0, false
+	}
+	nd := wordStep(v.disp.text, d, dir)
+	if nd == d {
+		return 0, false
+	}
+	c := v.disp.dispToSrc(nd, dir > 0) + u.lineStart
+	if dir > 0 && c <= off || dir < 0 && c >= off {
+		return 0, false
+	}
+	return e.normalize(c, dir), true
+}
+
+// nearestStop returns the stop at or before rel, or the first one after it.
+func nearestStop(stops []int, rel int) (int, bool) {
+	if len(stops) == 0 {
+		return 0, false
+	}
+	best := stops[0]
+	for _, s := range stops {
+		if s <= rel {
+			best = s
+		}
+	}
+	return best, true
 }
 
 // wordStep returns the display offset of the next word's end (dir > 0) or
@@ -408,7 +459,14 @@ func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 	}
 	d, ok := v.disp.srcToDisp(off - u.lineStart)
 	if !ok {
-		return ui.Rect{}, false
+		// An offset the display has no place for — the inside of an object,
+		// which is one unit — draws the caret at the nearest place it does,
+		// so that the caret is never invisible.
+		at, sok := nearestStop(v.disp.stops(), off-u.lineStart)
+		if !sok {
+			return ui.Rect{}, false
+		}
+		d, _ = v.disp.srcToDisp(at)
 	}
 	if v.empty {
 		d = 0
@@ -702,6 +760,29 @@ func (e *Editor) leafAtPoint(y float32) *leaf {
 		}
 	}
 	return e.leaves[li]
+}
+
+// objectAt returns the source range of the object the pointer at x hit: the
+// picture, formula or embed whose edge is at off. An object that shows its
+// source is not one — its text is what the pointer is on.
+func (e *Editor) objectAt(off int) (int, int, bool) {
+	l := e.leafAt(off)
+	if l == nil || l.view == nil {
+		return 0, 0, false
+	}
+	rel := off - l.lineStart
+	for _, p := range l.view.disp.pieces {
+		if p.kind != pAtom || p.obj == nil || p.s1 <= p.s0 {
+			continue
+		}
+		// A pointer on the object's box lands on one of its two edges: the
+		// whole range is the object, and the two offsets are where the
+		// caret can stand beside it.
+		if p.s0 == rel || p.s1 == rel {
+			return l.lineStart + p.s0, l.lineStart + p.s1, true
+		}
+	}
+	return 0, 0, false
 }
 
 // onALine reports whether y falls on a leaf the document holds — its text,
