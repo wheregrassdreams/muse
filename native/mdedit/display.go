@@ -233,23 +233,41 @@ func (b *builder) lineContent(nl, limit int) int {
 	return min(at, limit)
 }
 
+// objectRune is the character a layout gives its box to: the object
+// replacement character, one per object (see ui.Span.ObjectWidth).
+const objectRune = "\uFFFC"
+
+// box gives sp the box of an object, and reports whether the layout will
+// draw it. An object with no box draws nothing, and must not leave the
+// replacement character in the text: with no box the shaper draws that
+// character as a glyph, and a font that has none draws a box of its own —
+// the empty square that stood where a picture with no size was.
+func (b *builder) box(sp *ui.Span, obj *object) bool {
+	if obj == nil || obj.w <= 0 || obj.h <= 0 {
+		return false
+	}
+	b.hasObjects = true
+	sp.ObjectWidth, sp.ObjectHeight, sp.ObjectDescent = obj.w, obj.h, obj.descent
+	return true
+}
+
 // atom adds display text standing for the source from s to e as a whole.
 func (b *builder) atom(s, e int, text string, st istyle, obj *object) {
 	sp := b.span(st)
-	if obj != nil {
-		b.hasObjects = true
-		sp.ObjectWidth, sp.ObjectHeight, sp.ObjectDescent = obj.w, obj.h, obj.descent
-		text = "￼"
+	if b.box(&sp, obj) {
+		text = objectRune
+	} else {
+		obj = nil
 	}
 	b.add(piece{kind: pAtom, s0: s - b.base, s1: e - b.base, text: text, span: sp, obj: obj})
 }
 
 // deco adds display text standing for no source, at s.
 func (b *builder) deco(s int, text string, sp ui.Span, obj *object) {
-	if obj != nil {
-		b.hasObjects = true
-		sp.ObjectWidth, sp.ObjectHeight, sp.ObjectDescent = obj.w, obj.h, obj.descent
-		text = "￼"
+	if b.box(&sp, obj) {
+		text = objectRune
+	} else {
+		obj = nil
 	}
 	b.add(piece{kind: pDeco, s0: s - b.base, s1: s - b.base, text: text, span: sp, obj: obj})
 }
