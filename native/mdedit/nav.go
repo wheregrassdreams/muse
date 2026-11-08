@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"runtime"
+	"strings"
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
@@ -692,6 +693,43 @@ func (e *Editor) leafAtPoint(y float32) *leaf {
 // phantom stays only when the point is on the phantom's own line: the leaf
 // before it ends at the phantom's offset too, and a click at that line's
 // end means that leaf, not an empty paragraph below.
+// gapPhantomAt returns the offset of the blank line at y, when y falls
+// between two leaves: a blank line is spacing in the parse, not a block,
+// so the only way the caret can sit there is the phantom paragraph — which
+// is what makes clicking an empty line put the caret on it.
+func (e *Editor) gapPhantomAt(y float32) (int, bool) {
+	e.layoutIfNeeded()
+	var prev, next *leaf
+	for _, l := range e.leaves {
+		if l.kind == kPhantom || l.view == nil {
+			continue
+		}
+		if y >= l.y && y <= l.y+l.h {
+			return 0, false
+		}
+		if l.y+l.h < y {
+			prev = l
+		} else if next == nil && l.y > y {
+			next = l
+		}
+	}
+	if prev == nil || next == nil || next.start <= prev.end {
+		return 0, false
+	}
+	n := strings.Count(e.src[prev.end:next.start], "\n")
+	if n < 2 {
+		return 0, false
+	}
+	lineH := e.lk.size * e.lk.lh
+	k := int((y - (prev.y + prev.h)) / lineH)
+	k = max(0, min(k, n-2))
+	at := prev.end + 1 + k
+	if at >= next.start {
+		return 0, false
+	}
+	return at, true
+}
+
 func (e *Editor) setCaretAtPoint(off int, y float32, extend bool) {
 	if e.phantom != nil && off == e.phantom.at && e.leafAtPoint(y).kind != kPhantom {
 		e.dropPhantom()

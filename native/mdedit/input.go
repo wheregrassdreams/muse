@@ -380,6 +380,14 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 			return true
 		}
 	}
+	// A blank line between blocks has no block of its own: the caret sits in
+	// a phantom paragraph there, so the line can be typed in.
+	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 {
+		if at, ok := e.gapPhantomAt(y); ok {
+			e.setPhantom(&phantom{at: at})
+			return true
+		}
+	}
 	e.dragging = true
 	e.hasGoal = false
 	switch {
