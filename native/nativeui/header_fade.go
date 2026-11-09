@@ -30,29 +30,28 @@ import (
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
 const headerFadeReach = 22
 
-// The fade's blurs, in DIPs: the coarse one under the header, the fine one
-// at its foot. Two DIPs is about where a blur stops being one — the copy is
-// nearly the document, so it can be laid over it and taken away again
-// without a seam.
-const (
-	headerFadeBlur = 10
-	headerFadeSeam = 2
-)
+// headerFadeBlur is the blur of the strip's copy, in DIPs: enough that text
+// under the header reads as light rather than as letters, and small enough
+// that laying the copy over the document and taking it away again leaves no
+// edge where it goes.
+const headerFadeBlur = 4
 
-// headerFadeVeil is how much of the page's color the header is: the rest
-// is the document, blurred, showing through as a wash.
-const headerFadeVeil = 0.8
+// headerFadeVeil is how much of the page's color the header is. It is none:
+// the strip is transparent, a blur and nothing else. A veil of the page's
+// color is invisible over the page and a slab everywhere else — over a
+// callout's blue it is a white band with an edge, which is the opposite of
+// what a fade is for. The blur alone has to make the header's own text and
+// icons read, so it is the blur that the header's legibility depends on.
+const headerFadeVeil = 0
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
 const headerFadeRamp = 48
 
-// fadeLayers are the fade's copies, coarse first: each covers the strip
-// from its top until Hold, as a share of the strip's fade, and opens up by
-// End.
-var fadeLayers = [2]struct{ blur, hold, end float32 }{
-	{headerFadeBlur, 0.5, 0.78},
-	{headerFadeSeam, 0.84, 1},
+// fadeLayers are the fade's copies: each covers the strip from its top
+// until Hold, as a share of the strip's fade, and opens up by End.
+var fadeLayers = []struct{ blur, hold, end float32 }{
+	{headerFadeBlur, 0.35, 1},
 }
 
 // headerBlurShader lays one blurred copy of the strip's backdrop over it,
@@ -157,6 +156,9 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 			Float(blurEndU, l.end).
 			Float(blurCoverU, cover)
 		headerBlurShader.Draw(p, r, shader.Options{Values: a.blurValues, BackdropBlur: l.blur})
+	}
+	if headerFadeVeil <= 0 {
+		return
 	}
 	a.veilValues.
 		Float(veilBandU, band).

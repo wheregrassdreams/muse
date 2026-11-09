@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -104,8 +105,8 @@ func absf(v float32) float32 {
 }
 
 // TestHeaderFadeScrollsUnderTheHeader is the fade's point: a line the
-// document scrolls under the header comes out lighter and smoother than
-// the same line sharp, and the document is untouched where the fade ends.
+// document scrolls under the header comes out out of focus, and the
+// document is untouched where the fade ends.
 func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 	a, tt, ed := fadeApp(t, 1300)
 	on := tt.Image()
@@ -117,14 +118,9 @@ func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 	off := tt.Image()
 	fadeShot(t, off, "header-fade-off")
 
-	// A row inside the header's own height is the page's color both ways:
-	// the header covers the document there.
-	if b := bandOf(on, ed, 10); b.min < 200 {
-		t.Fatalf("the header shows the document at its top: %+v", b)
-	}
-	// Rows the document scrolls under the veil are lighter and smoother
-	// than sharp: the blur and the page's color both do that. The row is
-	// one that is a line of text sharp, inside the fade.
+	// Rows the document scrolls under the header are smoother than sharp:
+	// the strip lays a blurred copy of them over them. The row is one that
+	// is a line of text sharp, inside the fade.
 	y := firstTextRow(off, ed, int(editorHeaderH)+4, int(editorHeaderH+headerFadeReach)-6)
 	if y < 0 {
 		t.Fatal("no line of text under the header to look at")
@@ -132,9 +128,6 @@ func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 	faded, sharp := bandOf(on, ed, y), bandOf(off, ed, y)
 	if faded.rough > sharp.rough/8 {
 		t.Fatalf("not blurred at y=%d: %+v against %+v", y, faded, sharp)
-	}
-	if faded.mean < sharp.mean+20 {
-		t.Fatalf("not veiled at y=%d: %+v against %+v", y, faded, sharp)
 	}
 	// Past the fade the two frames are the same frame: the strip ends, and
 	// nothing of it shows where the document is sharp again.
@@ -203,8 +196,8 @@ func TestHeaderFadeKeepsTheDocument(t *testing.T) {
 	}
 }
 
-// TestHeaderFadeDark is the same strip in the dark theme: the veil is the
-// page's color there too.
+// TestHeaderFadeDark is the same strip in the dark theme: a line under the
+// header is out of focus, and the document is untouched where the fade ends.
 func TestHeaderFadeDark(t *testing.T) {
 	a := New()
 	a.themeMode = 1
@@ -219,13 +212,62 @@ func TestHeaderFadeDark(t *testing.T) {
 	if !ok {
 		t.Fatal("no editor")
 	}
-	img := tt.Image()
-	fadeShot(t, img, "header-fade-dark")
-	if b := bandOf(img, ed, int(editorHeaderH)-6); b.mean > 60 {
-		t.Fatalf("the dark veil is not dark: %+v", b)
+	on := tt.Image()
+	fadeShot(t, on, "header-fade-dark")
+
+	a.headerFade = false
+	tt.Frame()
+	tt.Frame()
+	off := tt.Image()
+
+	y := firstTextRow(off, ed, int(editorHeaderH)+4, int(editorHeaderH+headerFadeReach)-6)
+	if y < 0 {
+		t.Fatal("no line of text under the header to look at")
 	}
-	if b := bandOf(img, ed, int(editorHeaderH+headerFadeReach)+10); b.min > 200 {
-		t.Fatalf("the document is not dark below the fade: %+v", b)
+	if faded, sharp := bandOf(on, ed, y), bandOf(off, ed, y); faded.rough > sharp.rough/8 {
+		t.Fatalf("not blurred at y=%d: %+v against %+v", y, faded, sharp)
+	}
+	below := int(editorHeaderH+headerFadeReach) + 10
+	if p, q := bandOf(on, ed, below), bandOf(off, ed, below); p != q {
+		t.Fatalf("the strip shows below the fade at y=%d: %+v against %+v", below, p, q)
+	}
+}
+
+// TestHeaderFadeIsTransparent is why the strip carries no color: over a
+// callout's blue a veil of the page's color is a white band with an edge,
+// which is the opposite of what a fade is for. The color under the header
+// stays the document's own.
+func TestHeaderFadeIsTransparent(t *testing.T) {
+	body := strings.Repeat("> callout 的一行内容，用来把整页铺满蓝色。\n>\n", 100)
+	a := New()
+	a.ed.SetSource("> [!NOTE] 提示\n>\n" + body)
+	tt := ui.NewTester(a.View, 1000, 700)
+	tt.Frame()
+	tt.Frame()
+	a.ed.ScrollToOffset(len(body) / 2)
+	tt.Frame()
+	tt.Frame()
+	ed, ok := tt.Find("文档")
+	if !ok {
+		t.Fatal("no editor")
+	}
+	if a.ed.ScrollY() <= 0 {
+		t.Fatal("not scrolled")
+	}
+	img := tt.Image()
+	fadeShot(t, img, "header-fade-callout")
+	// The middle of the band, a row across the callout: its blue is the
+	// median, as the text's own pixels are few. A veil of the page's color
+	// would take nearly all of it.
+	var blue []int
+	y := int(editorHeaderH) + 6
+	for x := int(ed.X) + 8; x < int(ed.X+ed.W)-8; x++ {
+		c := img.RGBAAt(x, y)
+		blue = append(blue, int(c.B)-int(c.R))
+	}
+	sort.Ints(blue)
+	if med := blue[len(blue)/2]; med < 10 {
+		t.Fatalf("the callout's color is washed out under the header: median blue %d", med)
 	}
 }
 
