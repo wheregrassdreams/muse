@@ -33,9 +33,11 @@ const headerFadeReach = 22
 // The fade's two blurs, in DIPs: the coarse one under the header, and the
 // fine one that takes over from it and hands the document back. Two DIPs is
 // about where a blur stops being one — the copy is nearly the document, so
-// it can be laid over it and taken away again without an edge.
+// it can be laid over it and taken away again without an edge. The two are a
+// step and a half apart (three to two): a mix of two blurs reads as the
+// sharper of them, so a step much larger than that is a step the eye catches.
 const (
-	headerFadeBlur = 4
+	headerFadeBlur = 3
 	headerFadeSeam = 2
 )
 
@@ -60,7 +62,7 @@ const headerFadeRamp = 48
 //	veil    ████████████▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░
 //
 // The coarse copy hands over high up — a tenth to four tenths — where the
-// veil is still nearly all of its three tenths, so the change from 4 DIPs of
+// veil is still nearly all of its three tenths, so the change from 3 DIPs of
 // blur to 2 happens under the color rather than in the open. The fine copy
 // then holds most of the way down and goes with the veil, so the strip's foot
 // is the only place either of them is faded and uncovered.
