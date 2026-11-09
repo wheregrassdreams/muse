@@ -54,6 +54,15 @@ const headerFadeVeil = 0.2
 // is as strong as it gets, in DIPs.
 const headerFadeRamp = 48
 
+// headerFadeSolid is the share of the header's height that stays under the
+// widest blur: the fade's ladder starts half way down the header, so the
+// top of the window is blurred whole and the rest of the way is spread over
+// the header's lower half and the fade, rather than crammed into the fade
+// alone. At 1 the header is one flat blur; at 0 the blur grows all the way
+// from the window's top, as macOS's scroll edge does, and the header's own
+// text sits over what is only half blurred.
+const headerFadeSolid = 1
+
 // headerFadeDecay is how fast a copy leaves once it starts to: the fall is
 // exponential, not an S — the first half of the way takes most of the copy
 // with it, and what is left trails off. A cross-fade between two blurs has
@@ -196,7 +205,7 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 	for _, l := range fadeLayers {
 		a.blurValues.
 			Float(blurBandU, band).
-			Float(blurSolidU, h).
+			Float(blurSolidU, h*headerFadeSolid).
 			Float(blurHoldU, l.hold).
 			Float(blurEndU, l.end).
 			Float(blurCoverU, cover).
@@ -208,7 +217,7 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 	}
 	a.veilValues.
 		Float(veilBandU, band).
-		Float(veilSolidU, h).
+		Float(veilSolidU, h*headerFadeSolid).
 		Vec3(veilTintU, float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255).
 		Float(veilHoldU, headerFadeVeil).
 		Float(veilFromU, fadeVeilHold).

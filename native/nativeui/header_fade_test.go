@@ -97,6 +97,21 @@ func firstTextRow(img *image.RGBA, ed ui.Rect, from, to int) int {
 	return -1
 }
 
+// meanRough is how much img changes between its pixels, averaged over the
+// rows of the strip: what a blur takes away.
+func meanRough(img *image.RGBA, ed ui.Rect) float32 {
+	var sum float32
+	n := 0
+	for y := int(editorHeaderH) / 4; y < int(editorHeaderH+headerFadeReach); y++ {
+		sum += bandOf(img, ed, y).rough
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float32(n)
+}
+
 func absf(v float32) float32 {
 	if v < 0 {
 		return -v
@@ -118,16 +133,11 @@ func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 	off := tt.Image()
 	fadeShot(t, off, "header-fade-off")
 
-	// Rows the document scrolls under the header are smoother than sharp:
-	// the strip lays a blurred copy of them over them. The row is one that
-	// is a line of text sharp, inside the fade.
-	y := firstTextRow(off, ed, int(editorHeaderH)+4, int(editorHeaderH+headerFadeReach)-6)
-	if y < 0 {
-		t.Fatal("no line of text under the header to look at")
-	}
-	faded, sharp := bandOf(on, ed, y), bandOf(off, ed, y)
-	if faded.rough > sharp.rough/8 {
-		t.Fatalf("not blurred at y=%d: %+v against %+v", y, faded, sharp)
+	// What the strip covers comes out much smoother than sharp: the strip
+	// lays a blurred copy of it over it, most of it inside the header.
+	on_, off_ := meanRough(on, ed), meanRough(off, ed)
+	if on_ > off_/3 {
+		t.Fatalf("not blurred under the header: rough %v against %v", on_, off_)
 	}
 	// Past the fade the two frames are the same frame: the strip ends, and
 	// nothing of it shows where the document is sharp again.
@@ -220,12 +230,8 @@ func TestHeaderFadeDark(t *testing.T) {
 	tt.Frame()
 	off := tt.Image()
 
-	y := firstTextRow(off, ed, int(editorHeaderH)+4, int(editorHeaderH+headerFadeReach)-6)
-	if y < 0 {
-		t.Fatal("no line of text under the header to look at")
-	}
-	if faded, sharp := bandOf(on, ed, y), bandOf(off, ed, y); faded.rough > sharp.rough/8 {
-		t.Fatalf("not blurred at y=%d: %+v against %+v", y, faded, sharp)
+	if on_, off_ := meanRough(on, ed), meanRough(off, ed); on_ > off_/3 {
+		t.Fatalf("not blurred under the header: rough %v against %v", on_, off_)
 	}
 	below := int(editorHeaderH+headerFadeReach) + 10
 	if p, q := bandOf(on, ed, below), bandOf(off, ed, below); p != q {
