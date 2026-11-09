@@ -30,11 +30,14 @@ import (
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
 const headerFadeReach = 22
 
-// headerFadeBlur is the blur of the strip's copy, in DIPs: enough that text
-// under the header reads as light rather than as letters, and small enough
-// that laying the copy over the document and taking it away again leaves no
-// edge where it goes.
-const headerFadeBlur = 4
+// The fade's two blurs, in DIPs: the coarse one under the header, and the
+// fine one that takes over from it and hands the document back. Two DIPs is
+// about where a blur stops being one — the copy is nearly the document, so
+// it can be laid over it and taken away again without an edge.
+const (
+	headerFadeBlur = 5
+	headerFadeSeam = 2
+)
 
 // headerFadeVeil is how much of the page's color the header is. A little:
 // enough to take the edge off the copy as it goes, not enough to paint the
@@ -48,10 +51,34 @@ const headerFadeVeil = 0.3
 // is as strong as it gets, in DIPs.
 const headerFadeRamp = 48
 
+// The fade's layout, as shares of headerFadeReach below the header, where
+// 0 is the header's bottom and 1 the strip's:
+//
+//	0 ── 0.30 ────── 0.60 ────── 0.80 ────── 1
+//	coarse  ███████████▓▓▓▓▓▓░░░░░░░░░░░░░░░░
+//	fine    ████████████████████████████▓▓▓▓░
+//	veil    ████████████▓▓▓▓░░░░░░░░░░░░░░░░░
+//
+// The coarse copy holds for the first third and hands over to the fine one
+// over the next: a cross-fade between 5 and 2 DIPs, two and a half times
+// apart, which reads as one blur getting softer. The veil is gone by the
+// time the coarse copy is, so the last hand-over — the fine copy, all but
+// the document, opened up over it — carries no tint at all: a tint there
+// would draw the eye to the very line it is meant to hide. The fine copy
+// then holds a fifth of the way before it goes, so the eye sees a slightly
+// soft image before it sees the document.
+const (
+	fadeCoarseHold = 0.30
+	fadeCoarseEnd  = 0.60
+	fadeSeamHold   = 0.80
+	fadeVeilGone   = 0.60
+)
+
 // fadeLayers are the fade's copies: each covers the strip from its top
 // until Hold, as a share of the strip's fade, and opens up by End.
 var fadeLayers = []struct{ blur, hold, end float32 }{
-	{headerFadeBlur, 0.35, 1},
+	{headerFadeBlur, fadeCoarseHold, fadeCoarseEnd},
+	{headerFadeSeam, fadeSeamHold, 1},
 }
 
 // headerBlurShader lays one blurred copy of the strip's backdrop over it,
@@ -86,11 +113,12 @@ var Band float
 var Solid float
 var Tint vec3
 var Hold float
+var Gone float
 var Cover float
 
 func Fragment(dst vec4, pos vec2) vec4 {
 	t := clamp((pos.y-Solid)/max(Band-Solid, 1.0), 0.0, 1.0)
-	a := Hold * (1.0 - smoothstep(0.0, 1.0, t)) * Cover
+	a := Hold * (1.0 - smoothstep(0.0, Gone, t)) * Cover
 	return vec4(Tint*a, a)
 }
 `)
@@ -105,6 +133,7 @@ var (
 	veilSolidU = headerVeilShader.Uniform("Solid")
 	veilTintU  = headerVeilShader.Uniform("Tint")
 	veilHoldU  = headerVeilShader.Uniform("Hold")
+	veilGoneU  = headerVeilShader.Uniform("Gone")
 	veilCoverU = headerVeilShader.Uniform("Cover")
 )
 
@@ -165,6 +194,7 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 		Float(veilSolidU, h).
 		Vec3(veilTintU, float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255).
 		Float(veilHoldU, headerFadeVeil).
+		Float(veilGoneU, fadeVeilGone).
 		Float(veilCoverU, cover)
 	headerVeilShader.Draw(p, r, shader.Options{Values: a.veilValues})
 }
