@@ -109,7 +109,7 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 		e.colW = max(min(maxW, e.elemW-2*padX), 120)
 		e.colX = max((e.elemW-e.colW)/2, 0)
 	}
-	e.padTop = e.lk.size * 2.2
+	e.padTop = e.lk.size*2.2 + max(e.opts.TopInset, 0)
 	e.padBottom = max(e.viewH*0.35, e.lk.size*4)
 	e.layoutIfNeeded()
 	e.pruneViews()
@@ -194,9 +194,10 @@ func (e *Editor) scrollIntoView() {
 		return
 	}
 	margin := min(e.lk.size*3, e.viewH/4)
+	topMargin := max(margin, e.opts.TopInset+8)
 	switch {
-	case r.Y < e.scroll.Y+margin:
-		e.scroll.Y = max(r.Y-margin, 0)
+	case r.Y < e.scroll.Y+topMargin:
+		e.scroll.Y = max(r.Y-topMargin, 0)
 	case r.Y+r.H > e.scroll.Y+e.viewH-margin:
 		e.scroll.Y = r.Y + r.H - e.viewH + margin
 	}

@@ -26,6 +26,8 @@ type Options struct {
 	// beside it.
 	MaxWidth float32
 	PadX     float32
+	// TopInset reserves space for an overlaid header, in DIPs.
+	TopInset float32
 	// BaseDir resolves the relative paths of images.
 	BaseDir string
 	// Placeholder shows in an empty document.
@@ -733,6 +735,10 @@ func (e *Editor) ScrollToOffset(off int) {
 	e.scrollTo, e.hasScrollTo, e.scrollCenter = off, true, false
 	e.invalidate()
 }
+
+// ScrollY returns how far the document is scrolled, in DIPs: 0 when its
+// first line is at the top of the view, as the header's fade ramps in from.
+func (e *Editor) ScrollY() float32 { return e.scroll.Y }
 
 // scrollToOffsetCentered scrolls off to the middle of the view, as the
 // rail's ticks do.

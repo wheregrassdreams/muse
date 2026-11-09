@@ -91,6 +91,7 @@ native/
 │   ├── app.go        App 状态、View、侧栏、画布、编辑器头部、面板
 │   ├── run.go        菜单、快捷键、窗口、单实例
 │   ├── frame.go      窗口按钮与标题栏的房间
+│   ├── header_fade.go  顶部模糊：一遍着色器 + 渐变罩色（见 §7.1）
 │   └── *.go          AI 面板、文件 IO、设置、命令面板、对话框
 ├── services/         原生 AI HTTP 客户端
 ├── doc/              文件类型注册表
@@ -187,6 +188,35 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 - **编辑器头部**：左 = 后退/前进（不可用时淡色、无动作，历史在 `navHist/navAt`）；
   中 = **文件路径**（`docPath()`，截断**保留尾部**，用真实文本度量 `tailPath`）；
   右 = 信息 ⓘ（路径/字数行数/修改时间/在访达中显示）与 更多 ⋯（保存/复制路径/设为工作区）。
+- **顶部模糊（可选，默认开）**：扁平时头部**浮在文档上**，正文滚到它下面时渐进模糊、
+  淡出，而不是在头部边缘被切断。实现在 `nativeui/header_fade.go`，设置 → 外观 →
+  "顶部模糊"（视图菜单也有），`App.headerFade`。细则见 §7.1。
+
+### 7.1 顶部模糊：一遍着色器，不重画文档
+
+- **几何**：编辑器让出 `Options.TopInset = headerH`（`mdedit` 里进 `padTop`，
+  `scrollIntoView` 的 `topMargin` 也抬到它之上），头部与一条
+  `headerH + headerFadeReach(60)` 高的 pass-through 条带**绝对定位**在内容列里，
+  于是正文能真正滚到头部下面。
+- **着色器**（`ui/shader`，Kage）：读 `backdropSample` —— 框架把这条带下面的**已画像素**
+  拷成纹理（`Options.BackdropBlur: 8` 先做一次基底模糊，否则十几个采样点在锐利文字上会有
+  颗粒感），再用 12 个黄金角采样把半径**从顶部 20 DIP 渐变到 0**，条带末尾用
+  `smoothstep` 把 alpha 收掉。半径逐像素变化，这是"渐进模糊"而不是"整体模糊+淡出"：
+  后者会把锐字和糊字叠在一起，看起来像"变浅的字"。
+- **罩色**不是着色器画的，而是条带上一条 6 段 `FillGradient`（页面色，头顶 86%，
+  在 `headerH*0.9` 处开始按 smoothstep 收）。**别把罩色同时写进着色器**——两处叠加会
+  把整条带洗成白色（踩过）。
+- **静止时零成本**：`cover = ScrollY()/48`，文档在顶部时 `cover = 0`，条带不画、也不读
+  backdrop —— 首行在静止时是锐的（`TestHeaderFadeStartsAtTheTopOfTheDocument`）。
+- **为什么不用多层**：试过 1/2/3 层不同模糊强度的条带（更像 iOS 渐进模糊），每层都要
+  一次 backdrop 读回（Metal 每个 backdrop batch 要 `endEncoding` 重开编码器）。实测
+  全屏滚动 120Hz：3 层 p90 7.4ms（掉帧），1 层 2.4ms，单遍着色器 2.7ms。**backdrop
+  读回是固定开销，模糊半径本身几乎免费**，所以层数要按"读回次数"算，不按像素算。
+- **实测**（2×retina、2444×1502 窗口、每帧整屏滚动这种最坏情况，`MYGO_FRAME_STATS=all`）：
+  关 med 1.5 / p90 2.4；开 med 1.8 / p90 2.7–4.6。打字只重画条带那 104 DIP 和一行，
+  比这个更轻。量法见 §2（临时往 `View` 里塞 `ScrollToOffset` + `c.After(8ms)`）。
+- `p.Preferences().ReduceTransparency` 时**不读 backdrop**，只画不透明的渐变罩色。
+
 
 菜单与快捷键在 `nativeui/run.go`；主题色在 `app.go:applyTheme`（目前是**硬编码**的深/浅两套）。
 
@@ -205,6 +235,7 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 | `mdedit/parser_source_test.go` | 读本包源码：只有 `parsed.go` 能写解析输入 |
 | `mdoc/display_math_test.go` | display/inline 的尺寸关系、分式尺寸、操作符间距 |
 | `nativeui/panel_test.go` | 侧栏开关只有一个且位置不变、顶栏同一行 |
+| `nativeui/header_fade_test.go` | 顶部模糊：滚动后文字变淡变糊、条带外与原样逐像素相同、静止时不画、关掉是不透明条、开关不动文档、深色与"降低透明度" |
 | `nativeui/app_test.go` | 侧栏模块行、模块切换、主题跟随 |
 
 ---

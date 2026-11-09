@@ -33,7 +33,7 @@ func TestTypingFrameBudget(t *testing.T) {
 		t.Skip("a timing gate: run it alone with MUSE_PERF=1")
 	}
 	src := benchmarkSource(1 << 20)
-	e := New(src, Options{FontSize: 16})
+	e := New(src, Options{FontSize: 16, TopInset: 44})
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			e.View(c).Grow(1)

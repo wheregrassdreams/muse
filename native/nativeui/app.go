@@ -21,6 +21,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/egoist/mygo/ui/shader"
 
 	"muse/mdedit"
 	"muse/mdoc"
@@ -129,7 +130,13 @@ type App struct {
 	// flat 是"Anytype 那种扁平"：编辑器不再是一张浮起的卡片，没有描边、
 	// 没有圆角、没有投影，和窗口同色，页面直接铺满。关掉就是现在的卡片。
 	flat bool
-	dark bool // derived from themeMode for the view
+	// headerFade 让扁平风格下的头部浮在文档上：页面滚到它下面时模糊、
+	// 淡出，而不是被头部的边缘切断（见 header_fade.go）。关掉就退回一
+	// 块不透明的头部底色。
+	headerFade bool
+	// fadeValues 是淡出着色器的 uniforms，只建一次，每帧改值。
+	fadeValues *shader.Values
+	dark       bool // derived from themeMode for the view
 	// themeApplied 是已经交给系统的主题；系统画的材料与标题栏跟随它，
 	// 与页面所画的主题保持一致。-1 表示还没交过。
 	themeApplied int
@@ -252,6 +259,7 @@ func New() *App {
 		panel:         panelFiles,
 		panelOpen:     true,
 		flat:          true,
+		headerFade:    true,
 		panelWidth:    panelDefaultWidth,
 		panelW:        panelDefaultWidth,
 		themeApplied:  -1,
@@ -1170,9 +1178,21 @@ func hitSnippet(src string, s, e int) string {
 
 func (a *App) editorContent(c *ui.Context) {
 	ui.Column(c).Fill().Children(func() {
-		a.editorHeader(c)
-		a.ed.SetOptions(a.editorOptions())
+		opts := a.editorOptions()
+		if !a.flat {
+			a.editorHeader(c)
+			a.ed.SetOptions(opts)
+			a.ed.View(c).Grow(1)
+			return
+		}
+		// Flat: the header floats over the document. The editor reserves
+		// the header's height so its first line starts below it, and what
+		// scrolls up passes under the veil instead of being cut at an edge.
+		opts.TopInset = a.headerH(c)
+		a.ed.SetOptions(opts)
 		a.ed.View(c).Grow(1)
+		a.headerVeil(c)
+		a.editorHeader(c)
 	})
 }
 
@@ -1186,8 +1206,14 @@ func (a *App) editorHeader(c *ui.Context) {
 	if controlsAtRight {
 		padRight += windowButtonsRoom
 	}
-	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
-		DragWindow().AlignItems(ui.Center).Children(func() {
+	header := ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, padRight, 0, 6).Gap(2).
+		DragWindow().AlignItems(ui.Center)
+	if a.flat {
+		// Over the document, which scrolls under it: placed by its own
+		// column, in window DIPs, instead of taking a row of it.
+		header.Absolute().Top(0).Left(0).Right(0)
+	}
+	header.Children(func() {
 		// Room for the app's sidebar toggle, which stays at the content's
 		// left edge whether the panel is open or folded: folding the panel
 		// brings this header over to it, and the header keeps the seat.
@@ -1940,6 +1966,23 @@ func settingsRow(c *ui.Context, label, detail string, control func()) {
 	})
 }
 
+// settingsRowToggle is settingsRow for a switch: its label turns it too, so
+// the left of the row is as much the switch as the switch is.
+func settingsRowToggle(c *ui.Context, label, detail string, on *bool) {
+	t := c.Theme()
+	ui.Row(c).FillWidth().Padding(11, 0).Gap(16).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(3).OnClick(func() { *on = !*on }).Children(func() {
+			ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
+			if detail != "" {
+				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
+			}
+		})
+		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Switch(c, on).Label(label)
+		})
+	})
+}
+
 func (a *App) appearanceSettings(c *ui.Context) {
 	t := c.Theme()
 	settingsGroup(c, "", func() {
@@ -1947,6 +1990,8 @@ func (a *App) appearanceSettings(c *ui.Context) {
 		settingsRow(c, "主题", "Rex 色洗的浅色或深色；编辑器、上下文栏与弹层同步切换。", func() {
 			ui.Segmented(c, &a.themeMode, "浅色", "深色").Label("主题")
 		})
+		a.settingsDivider(c, true)
+		settingsRowToggle(c, "顶部模糊", "扁平风格下，头部浮在文档上：页面滚到它下面时模糊、淡出。关掉只有一块不透明的头部底色。", &a.headerFade)
 	})
 	ui.Text(c, "native 渲染与编辑器共用同一套颜色；切换后立即生效。").
 		FontSize(11.5).TextColor(t.TextMuted).Padding(0, 4)
