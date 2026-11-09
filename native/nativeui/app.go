@@ -134,8 +134,9 @@ type App struct {
 	// 淡出，而不是被头部的边缘切断（见 header_fade.go）。关掉就退回一
 	// 块不透明的头部底色。
 	headerFade bool
-	// fadeValues 是淡出着色器的 uniforms，只建一次，每帧改值。
-	fadeValues *shader.Values
+	// blurValues 与 veilValues 是淡出着色器的 uniforms，只建一次，每帧改值。
+	blurValues *shader.Values
+	veilValues *shader.Values
 	dark       bool // derived from themeMode for the view
 	// themeApplied 是已经交给系统的主题；系统画的材料与标题栏跟随它，
 	// 与页面所画的主题保持一致。-1 表示还没交过。
