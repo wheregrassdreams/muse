@@ -54,25 +54,22 @@ const headerFadeRamp = 48
 // The fade's layout, as shares of headerFadeReach below the header, where
 // 0 is the header's bottom and 1 the strip's:
 //
-//	0 ── 0.25 ─────── 0.70 ───── 0.80 ────── 1
-//	coarse  ███████████▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░
-//	fine    ██████████████████████████████▓▓▓
-//	veil    ███████████▓▓▓▓▓▓▓░░░░░░░░░░░░░░░
+//	0 ─ 0.10 ──── 0.40 ──── 0.62 ──── 0.88 ── 1
+//	coarse  ██████▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░
+//	fine    ██████████████████████████▓▓▓▓░░░
+//	veil    ████████████▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░
 //
-// The coarse copy holds for the header's own third and hands over to the
-// fine one across the next forty-five hundredths — 4 DIPs to 2, twice apart,
-// which is as close as two blurs may be and still tell apart. The veil then
-// covers that hand-over and is gone by 0.75, before the fine copy goes: the
-// last hand-over, fine to the document, is between two images that are all
-// but the same, and a tint there would draw the eye to the line it is meant
-// to hide. The fine copy holds a fifth of the way before it opens, so the eye
-// sees a slightly soft image before it sees the document.
+// The coarse copy hands over high up — a tenth to four tenths — where the
+// veil is still nearly all of its three tenths, so the change from 4 DIPs of
+// blur to 2 happens under the color rather than in the open. The fine copy
+// then holds most of the way down and goes with the veil, so the strip's foot
+// is the only place either of them is faded and uncovered.
 const (
-	fadeCoarseHold = 0.25
-	fadeCoarseEnd  = 0.70
-	fadeSeamHold   = 0.80
-	fadeVeilHold   = 0.25
-	fadeVeilGone   = 0.75
+	fadeCoarseHold = 0.10
+	fadeCoarseEnd  = 0.40
+	fadeSeamHold   = 0.62
+	fadeVeilHold   = 0.30
+	fadeVeilGone   = 0.90
 )
 
 // fadeLayers are the fade's copies: each covers the strip from its top
