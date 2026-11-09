@@ -2,6 +2,7 @@ package nativeui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -26,8 +27,8 @@ func TestPanelDragResizesAndFolds(t *testing.T) {
 	tt.Frame()
 	tt.Move(x-100, y)
 	tt.Frame()
-	if a.panelWidth != panelMinWidth {
-		t.Fatalf("width = %.0f, want the minimum %.0f", a.panelWidth, panelMinWidth)
+	if a.panelOpen {
+		t.Fatal("crossing fold threshold must start closing while held")
 	}
 	tt.Release(x-100, y)
 	tt.Frame()
@@ -191,4 +192,171 @@ func TestFlatPanelContinuousDrag(t *testing.T) {
 	}
 	tt.Release(x+25, y)
 	tt.Frame()
+}
+
+func TestFlatPanelHeldFoldAndReverse(t *testing.T) {
+	a := New()
+	a.flat = true
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	r, _ := tt.Find("调整面板宽度")
+	x, y := r.X+6, r.Y+40
+	start := a.panelWidth
+	tt.Press(x, y)
+	tt.Frame()
+	for _, d := range []float32{-100, -120, -40, -10} {
+		tt.Move(x+d, y)
+		tt.Frame()
+		if d == -100 {
+			tt.Advance(30 * time.Millisecond)
+			if a.panelW <= 0 || a.panelW >= start {
+				t.Fatalf("missing fold intermediate frame: %v", a.panelW)
+			}
+		}
+		tt.Advance(200 * time.Millisecond)
+		wantOpen := start+d >= panelFoldOn
+		if a.panelOpen != wantOpen {
+			t.Fatalf("delta %v open=%v", d, a.panelOpen)
+		}
+		want := float32(0)
+		if wantOpen {
+			want = a.panelWidth
+		}
+		if a.panelW != want {
+			t.Fatalf("delta %v drawn=%v want=%v", d, a.panelW, want)
+		}
+	}
+	tt.Release(x-10, y)
+	tt.Frame()
+	tt.Frame()
+	a.collapsePanel()
+	tt.Frame()
+	tt.Advance(30 * time.Millisecond)
+	if a.panelW <= 0 || a.panelW >= start-10 {
+		t.Fatalf("button collapse lost animation: %v", a.panelW)
+	}
+	tt.Advance(time.Second)
+	if a.panelW != 0 {
+		t.Fatalf("collapse residue %v", a.panelW)
+	}
+
+}
+
+func TestFlatCollapsedEdgeDragReopens(t *testing.T) {
+	a := New()
+	a.flat = true
+	a.panelOpen = false
+	a.panelW = 0
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	r, ok := tt.Find("调整面板宽度")
+	if !ok || r.X != 0 {
+		t.Fatalf("missing editor edge: %+v", r)
+	}
+	x, y := r.X+6, r.Y+40
+	tt.Move(x, y)
+	tt.Frame()
+	tt.Press(x, y)
+	tt.Frame()
+	for _, d := range []float32{20, 40, 80, 60} {
+		tt.Move(x+d, y)
+		tt.Frame()
+		if d == 40 {
+			tt.Advance(30 * time.Millisecond)
+			if a.panelW <= 0 || a.panelW >= a.panelWidth {
+				t.Fatalf("missing opening intermediate frame: %v", a.panelW)
+			}
+		}
+		tt.Advance(200 * time.Millisecond)
+		want := float32(0)
+		if d >= 36 {
+			want = panelDefaultWidth
+		}
+		if a.panelW != want {
+			t.Fatalf("delta=%v drawn=%v want=%v", d, a.panelW, want)
+		}
+	}
+	tt.Release(x+60, y)
+	tt.Frame()
+	tt.Frame()
+	if !a.panelOpen || a.panelW != panelDefaultWidth {
+		t.Fatalf("release open=%v width=%v", a.panelOpen, a.panelW)
+	}
+}
+
+func TestEdgePullWaitsForFinalHandleBeforeResizing(t *testing.T) {
+	a := New()
+	a.flat = true
+	a.panelOpen = false
+	a.panelW = 0
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	r, _ := tt.Find("调整面板宽度")
+	x, y := r.X+6, r.Y+40
+	tt.Press(x, y)
+	tt.Frame()
+	tt.Move(x+40, y)
+	tt.Frame()
+	tt.Advance(30 * time.Millisecond)
+	target := a.panelWidth
+	if !a.panelAwaitHandle || a.panelW <= 0 || a.panelW >= target {
+		t.Fatalf("opening state: wait=%v drawn=%v target=%v", a.panelAwaitHandle, a.panelW, target)
+	}
+	for _, px := range []float32{80, 150, 220} {
+		tt.Move(px, y)
+		tt.Frame()
+		tt.Advance(200 * time.Millisecond)
+		if a.panelWidth != target || !a.panelAwaitHandle {
+			t.Fatalf("pointer %v resized before catch: width=%v waiting=%v", px, a.panelWidth, a.panelAwaitHandle)
+		}
+	}
+	tt.Move(target+6, y)
+	tt.Frame()
+	tt.Frame()
+	if a.panelAwaitHandle || a.panelWidth != target {
+		t.Fatalf("catch jumped width: %v waiting=%v", a.panelWidth, a.panelAwaitHandle)
+	}
+	tt.Move(target+26, y)
+	tt.Frame()
+	tt.Frame()
+	if a.panelWidth != target+20 {
+		t.Fatalf("did not resume resize: %v", a.panelWidth)
+	}
+	tt.Release(target+26, y)
+	tt.Frame()
+	if a.panelAwaitHandle {
+		t.Fatal("release retained latch")
+	}
+}
+
+func TestEdgePullReleaseClearsHandleWait(t *testing.T) {
+	a := New()
+	a.flat = true
+	a.panelOpen = false
+	a.panelW = 0
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	r, _ := tt.Find("调整面板宽度")
+	y := r.Y + 40
+	tt.Press(6, y)
+	tt.Frame()
+	tt.Move(46, y)
+	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
+	tt.Release(46, y)
+	tt.Frame()
+	tt.Frame()
+	if a.panelAwaitHandle {
+		t.Fatal("release retained wait")
+	}
+	r, _ = tt.Find("调整面板宽度")
+	target := a.panelWidth
+	tt.Press(r.X+6, y)
+	tt.Frame()
+	tt.Move(r.X+26, y)
+	tt.Frame()
+	tt.Frame()
+	if a.panelWidth != target+20 {
+		t.Fatalf("fresh drag blocked: %v", a.panelWidth)
+	}
 }

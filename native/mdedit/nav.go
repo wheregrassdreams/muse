@@ -772,7 +772,7 @@ func (e *Editor) objectAt(off int) (int, int, bool) {
 	}
 	rel := off - l.lineStart
 	for _, p := range l.view.disp.pieces {
-		if p.kind != pAtom || p.obj == nil || p.s1 <= p.s0 {
+		if p.kind != pAtom || (p.obj == nil && !e.isInlineMathRange(l.lineStart+p.s0, l.lineStart+p.s1)) || p.s1 <= p.s0 {
 			continue
 		}
 		// A pointer on the object's box lands on one of its two edges: the

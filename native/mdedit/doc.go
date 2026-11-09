@@ -64,7 +64,9 @@ const (
 // cont is a container a leaf is inside: a quotation, an item of a list or
 // a footnote's definition, outermost first in leaf.conts.
 type cont struct {
-	kind contKind
+	kind  contKind
+	alert parser.Alert
+	title string
 	// id is the container's block in the parse, which identifies it while
 	// the source does not change.
 	id int
@@ -527,11 +529,17 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 			case parser.Quote:
 				first := len(out)
 				n := len(conts)
-				conts = append(conts, cont{kind: cQuote, id: c, start: b.Start})
+				conts = append(conts, quoteContainer(src, c, b))
+				ct := conts[len(conts)-1]
+				if isCalloutContainer(ct) && b.Alert != parser.NoAlert {
+					h := rawLeaf(a, src, lineStartAt(src, b.Start), lineEndAt(src, b.Start), false)
+					setConts(h, conts)
+					out = append(out, h)
+				}
 				walk(c, conts, listDepth)
 				conts = conts[:n]
 				if len(out) == first {
-					out = append(out, emptyLeaf(a, src, b, conts, cont{kind: cQuote, id: c, start: b.Start}))
+					out = append(out, emptyLeaf(a, src, b, conts, quoteContainer(src, c, b)))
 				}
 				markFirst(out[first:], len(conts))
 			case parser.List:

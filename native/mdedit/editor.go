@@ -60,7 +60,11 @@ type Options struct {
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
 type Editor struct {
-	opts Options
+	modal                          modalState
+	opts                           Options
+	inlineMathStart, inlineMathEnd int
+	inlineMathOK                   bool
+	mathPreviewHidden              bool
 
 	src    string
 	leaves []*leaf
@@ -296,6 +300,8 @@ func (e *Editor) Source() string { return e.src }
 // SetSource replaces the document, as opening another file does: the
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
+	e.mathPreviewHidden = false
+	e.inlineMathOK = false
 	e.src = src
 	e.p.clear()
 	e.rev++
@@ -542,6 +548,9 @@ func insertPhantom(leaves []*leaf, p *phantom) []*leaf {
 // leafLo returns the first offset the caret can take in a leaf: a fenced
 // code block's info string comes before its lines.
 func leafLo(l *leaf) int {
+	if l.kind == kHeading {
+		return l.lineStart
+	}
 	if l.kind == kCode && l.fenced {
 		return l.infoStart
 	}
@@ -657,6 +666,10 @@ func (e *Editor) lastStop() int {
 // setCaret moves the caret to off, keeping the anchor when extend is set,
 // and leaves the phantom unless the caret stays in it.
 func (e *Editor) setCaret(off int, extend bool) {
+	if e.inlineMathOK && (off < e.inlineMathStart || off > e.inlineMathEnd) {
+		e.inlineMathOK = false
+		e.mathPreviewHidden = false
+	}
 	off = max(0, min(off, len(e.src)))
 	if e.phantom != nil && !(off == e.phantom.at && e.leafIsPhantom(off)) {
 		e.dropPhantom()

@@ -59,6 +59,7 @@ const (
 	panelMinWidth     float32 = 224
 	panelMaxWidth     float32 = 440
 	panelFoldOn       float32 = 200
+	panelUnfoldOn     float32 = 36
 )
 
 // panelView is the page the context panel shows.
@@ -145,8 +146,14 @@ type App struct {
 	panelPrevTarget float32
 	// panelDrag 累计一次边缘拖动，拖动期间面板宽度逐帧跟手；
 	// panelNarrow 记录这次拖动已经越过了收起的阈值。
-	panelDrag   float32
-	panelNarrow bool
+	// After edge-triggered opening, resize waits for the held pointer to
+	// catch the final handle position rather than following its initial delta.
+	panelAwaitHandle bool
+	panelDragging    bool
+	panelTransition  bool
+	panelDirect      bool
+	panelDrag        float32
+	panelNarrow      bool
 
 	// workspace
 	recents []recentEntry
@@ -242,25 +249,27 @@ type App struct {
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
 	a := &App{
-		panel:        panelFiles,
-		panelOpen:    true,
-		flat:         true,
-		panelWidth:   panelDefaultWidth,
-		panelW:       panelDefaultWidth,
-		themeApplied: -1,
-		dirs:         map[string][]string{},
-		isDir:        map[string]bool{},
-		expanded:     map[string]bool{},
-		outlineRow:   -1,
-		fontSize:     16,
-		lineHeight:   1.75,
-		recents:      loadRecents(),
-		ai:           loadAISettings(),
-		aiClient:     services.NewAI(),
-		aiMessages:   loadAIChat(),
+		panel:         panelFiles,
+		panelOpen:     true,
+		flat:          true,
+		panelWidth:    panelDefaultWidth,
+		panelW:        panelDefaultWidth,
+		themeApplied:  -1,
+		dirs:          map[string][]string{},
+		isDir:         map[string]bool{},
+		expanded:      map[string]bool{},
+		folderToggled: map[string]time.Time{},
+		outlineRow:    -1,
+		fontSize:      16,
+		lineHeight:    1.75,
+		recents:       loadRecents(),
+		ai:            loadAISettings(),
+		aiClient:      services.NewAI(),
+		aiMessages:    loadAIChat(),
 	}
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
 	a.ed = mdedit.New("", a.editorOptions())
+	a.ed.SetKeymap(loadEditorSettings().Keymap)
 	a.loadDoc("")
 	return a
 }
@@ -376,9 +385,7 @@ func (a *App) canvas(c *ui.Context) {
 			card := ui.Column(c).Fill().Clip().Background(a.windowBG())
 			card.Children(func() {
 				a.editorContent(c)
-				if a.panelOpen {
-					a.panelResizeHandle(c)
-				}
+				a.panelResizeHandle(c)
 			})
 			return
 		}
@@ -537,7 +544,7 @@ func (a *App) contextPanel(c *ui.Context) {
 	// 仍要走 AnimateTo，动画通道得保持连续——跳过调用会让下一次开关从
 	// 0 起步。切换模块本身不改宽度，因此不会走这里。
 	anim := ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut}
-	if a.panelOpen && a.panelPrevTarget > 0.5 && a.panelPrevTarget != target {
+	if !a.panelTransition && a.panelOpen && a.panelPrevTarget > 0.5 && a.panelPrevTarget != target {
 		anim.Duration = 0
 	}
 	a.panelPrevTarget = target
@@ -546,9 +553,15 @@ func (a *App) contextPanel(c *ui.Context) {
 	// the outer box clips it, so text does not reflow on the way; it only
 	// fades as the box closes.
 	panel := ui.Column(c).Shrink(0).FillHeight().Clip()
+	if a.panelDirect && !a.panelTransition {
+		panel.Jump("width", target)
+	}
 	w := panel.AnimateTo("width", target, anim)
-	if a.panelOpen && a.panelDrag != 0 {
-		w = target
+	if a.panelTransition && panel.Settled("width") {
+		a.panelTransition = false
+	}
+	if a.panelDirect && !a.panelDragging {
+		a.panelDirect = false
 	}
 	a.panelW = w
 	panel.Width(w)
@@ -589,9 +602,8 @@ func (a *App) contextPanel(c *ui.Context) {
 	})
 }
 
-// panelResizeHandle is the panel's right edge, which a drag moves, a double
-// click puts back at the module's width, and a drag released past the fold
-// collapses.
+// panelResizeHandle stays on the editor edge, including while folded.
+// Crossing the fold threshold acts immediately; reversing the held drag reopens it.
 func (a *App) panelResizeHandle(c *ui.Context) {
 	left := a.panelWidth - 12
 	if a.flat {
@@ -602,21 +614,55 @@ func (a *App) panelResizeHandle(c *ui.Context) {
 		Bottom(0).Width(12).Cursor(ui.CursorResizeEW).Label("调整面板宽度").
 		Column().AlignItems(ui.Center)
 	if dx, _, ok := h.Dragged(); ok {
-		if a.panelDrag == 0 {
-			a.panelDrag = a.panelWidth
+		if !a.panelDragging {
+			a.panelDragging = true
+			a.panelDrag = 0
+			if a.panelOpen {
+				a.panelDrag = a.panelWidth
+			}
 		}
-		a.panelDrag += dx
-		a.panelNarrow = a.panelDrag < panelFoldOn
-		a.panelWidth = min(max(a.panelDrag, panelMinWidth), panelMaxWidth)
-	} else if a.panelDrag != 0 {
+		if a.panelAwaitHandle {
+			px, _, _ := h.PointerPosition()
+			// Wait for the final handle position, not its animated intermediate edge.
+			if h.Bounds().X+px >= a.panelWidth {
+				a.panelAwaitHandle = false
+				a.panelDrag = a.panelWidth
+				a.panelTransition = false
+				a.panelDirect = true
+			}
+			dx = 0
+		}
+		if !a.panelAwaitHandle {
+			a.panelDrag += dx
+			wasOpen := a.panelOpen
+			if wasOpen && a.panelDrag < panelFoldOn {
+				a.panelOpen = false
+				a.panelDrag = 0
+			} else if !wasOpen && a.panelDrag >= panelUnfoldOn {
+				a.panelOpen = true
+				a.panelAwaitHandle = true
+				a.panelDrag = a.panelWidth
+			}
+			if wasOpen != a.panelOpen {
+				a.panelTransition = true
+				a.panelDirect = false
+			} else {
+				a.panelDirect = !a.panelTransition
+			}
+			a.panelNarrow = !a.panelOpen
+			if a.panelOpen {
+				a.panelWidth = min(max(a.panelDrag, panelMinWidth), panelMaxWidth)
+			}
+		}
+		a.invalidate()
+	} else if a.panelDragging {
+		a.panelDragging = false
+		a.panelAwaitHandle = false
 		a.panelDrag = 0
-		if a.panelNarrow {
-			a.panelNarrow = false
-			a.collapsePanel()
-			return
-		}
+		a.panelNarrow = false
 	}
 	if h.DoubleClicked() {
+		a.panelOpen = true
 		a.panelWidth = a.panelTargetWidth()
 		a.invalidate()
 	}
@@ -632,11 +678,11 @@ func (a *App) panelResizeHandle(c *ui.Context) {
 // while it is dragged. It is a child of the edge box, so it is part of what a
 // drag grabs and never takes the pointer away from it.
 func (a *App) panelGrip(c *ui.Context, edge ui.Element) {
-	if !edge.Hovered() && a.panelDrag == 0 {
+	if !edge.Hovered() && !a.panelDragging {
 		return
 	}
 	t := c.Theme()
-	drag := a.panelDrag != 0
+	drag := a.panelDragging
 	height := float32(40)
 	if drag {
 		height = 56
@@ -1165,6 +1211,9 @@ func (a *App) editorHeader(c *ui.Context) {
 			ui.Text(c, a.tailPath(c, a.docPath(), 12.5, avail)).
 				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
 		})
+		if label := a.ed.ModeLabel(); label != "" {
+			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label("编辑模式")
+		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
@@ -1210,6 +1259,7 @@ func (a *App) setWorkspace(root string) {
 	a.isDir = map[string]bool{}
 	a.dirMu.Unlock()
 	a.expanded = map[string]bool{}
+	a.folderToggled = map[string]time.Time{}
 	a.fileList = ui.ListState{}
 	a.selectedPath = ""
 	a.children(root)
@@ -1903,6 +1953,7 @@ func (a *App) appearanceSettings(c *ui.Context) {
 }
 
 func (a *App) typographySettings(c *ui.Context) {
+	a.keymapSettings(c)
 	settingsGroup(c, "", func() {
 		a.settingsDivider(c, false)
 		settingsRow(c, "字号", "编辑器正文的基准字号。", func() {

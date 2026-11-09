@@ -310,7 +310,11 @@ func (e *Editor) revealAt(l *leaf) int {
 // it is. The view is kept on the leaf: the leaf the next layout sees with
 // the same content and parameters keeps it (see sameLeaf).
 func (e *Editor) view(l *leaf, width float32, header bool, align parser.Align) *leafView {
-	return e.viewAt(l, width, header, align, e.revealAt(l), true)
+	reveal := e.revealAt(l)
+	if _, end, ok := e.calloutHeader(l); ok && e.caret >= l.lineStart && e.caret <= end {
+		reveal = e.caret - l.lineStart
+	}
+	return e.viewAt(l, width, header, align, reveal, true)
 }
 
 // viewWith returns the leaf's view at width as it shows with the caret at
@@ -370,7 +374,11 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	case kHTML:
 		v = e.htmlView(l, width, at, withCompose)
 	case kRaw:
-		v = e.linesView(l, width, at, withCompose, l.frontMatter)
+		if _, _, ok := e.calloutHeader(l); ok {
+			v = e.textView(l, width, at, withCompose, header, align)
+		} else {
+			v = e.linesView(l, width, at, withCompose, l.frontMatter)
+		}
 	case kRule:
 		v = e.ruleView(l, width, at, withCompose)
 	default:
@@ -414,7 +422,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		st.bold = true
 	}
 	for _, c := range l.conts {
-		if c.kind == cQuote {
+		if c.kind == cQuote && !isCalloutContainer(c) {
 			st.muted = true
 		}
 	}
@@ -437,6 +445,10 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		}
 		b.inlines(ins, l.start, l.end, st)
 	}
+	if e.inlineMathOK && e.focused && e.caret >= e.inlineMathStart && e.caret <= e.inlineMathEnd && e.inlineMathStart >= l.lineStart && e.inlineMathEnd <= l.end {
+		b.rawRange(e.inlineMathStart, e.inlineMathEnd, st)
+	}
+	e.projectCalloutHeader(b, l, at)
 	b.ensure(l.start)
 	v := &leafView{disp: b.display()}
 	shape := ui.TextShape{Width: width}
@@ -762,7 +774,11 @@ func (e *Editor) indentOf(conts []cont) float32 {
 	for _, c := range conts {
 		switch c.kind {
 		case cQuote:
-			x += e.lk.size * quoteIndent
+			if isCalloutContainer(c) {
+				x += e.lk.size * 1.4
+			} else {
+				x += e.lk.size * quoteIndent
+			}
 		default:
 			x += e.lk.size * itemIndent
 		}
@@ -773,6 +789,11 @@ func (e *Editor) indentOf(conts []cont) float32 {
 // margins returns the room above and below a leaf.
 func (e *Editor) margins(l *leaf) (top, bottom float32) {
 	s := e.lk.size
+	for _, i := range l.firstOf {
+		if i < len(l.conts) && isCalloutContainer(l.conts[i]) {
+			return s * .7, s * .7
+		}
+	}
 	switch l.kind {
 	case kHeading:
 		if l.pending {

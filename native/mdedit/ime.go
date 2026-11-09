@@ -227,6 +227,10 @@ func (e *Editor) MarkedRange() (ui.TextInputRange, bool) {
 }
 
 func (e *Editor) ReplaceText(r *ui.TextInputRange, s string) {
+	if !e.ModalAcceptsText() {
+		e.modalText(s)
+		return
+	}
 	defer e.invalidate()
 	switch {
 	case r == nil && e.compose != "":
@@ -253,6 +257,9 @@ func (e *Editor) dropPhantomIfAway(at int) {
 }
 
 func (e *Editor) SetMarkedText(r *ui.TextInputRange, s string, selected ui.TextInputRange) {
+	if !e.ModalAcceptsText() {
+		return
+	}
 	defer e.invalidate()
 	if r != nil && e.compose == "" {
 		// Composing over a range of the source, as reconversion does: it
@@ -279,6 +286,11 @@ func (e *Editor) SetMarkedText(r *ui.TextInputRange, s string, selected ui.TextI
 }
 
 func (e *Editor) UnmarkText() {
+	if !e.ModalAcceptsText() {
+		e.compose = ""
+		e.composing = false
+		return
+	}
 	if e.compose == "" {
 		e.composing = false
 		return

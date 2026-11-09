@@ -57,6 +57,13 @@ func (e *Editor) replace(from, to int, text string) {
 	if old == text {
 		return
 	}
+	if e.inlineMathOK {
+		if from >= e.inlineMathStart && to <= e.inlineMathEnd {
+			e.inlineMathEnd += len(text) - (to - from)
+		} else {
+			e.inlineMathOK = false
+		}
+	}
 	e.src = e.src[:from] + text + e.src[to:]
 	e.rev++
 	// The input method's offsets move with the edit, not from a reading of
@@ -176,6 +183,7 @@ func (e *Editor) changed() {
 
 // Undo takes back the last step.
 func (e *Editor) Undo() bool {
+	e.inlineMathOK = false
 	n := len(e.hist.undo)
 	if n == 0 {
 		return false
@@ -193,6 +201,7 @@ func (e *Editor) Undo() bool {
 
 // Redo makes the last step undone again.
 func (e *Editor) Redo() bool {
+	e.inlineMathOK = false
 	n := len(e.hist.redo)
 	if n == 0 {
 		return false

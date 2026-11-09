@@ -635,7 +635,8 @@ func (b *builder) math(in *parser.Inline, st istyle) {
 		n = 2
 	}
 	cs, ce := min(in.Start+n, in.End), max(in.End-n, in.Start+n)
-	if b.objectOpen(in.Start, in.End) {
+	if b.revealed(in.Start, in.End) || b.objectOpen(in.Start, in.End) {
+		b.e.inlineMathStart, b.e.inlineMathEnd, b.e.inlineMathOK = in.Start, in.End, true
 		inner := st
 		inner.code = true
 		b.marker(in.Start, cs, st)
@@ -959,4 +960,46 @@ func (e *Editor) plainText(ins []parser.Inline) string {
 		}
 	}
 	return b.String()
+}
+
+// rawRange replaces only the editing session's source interval. The parser
+// may no longer recognize it as math; surrounding inline projections survive.
+func (b *builder) rawRange(start, end int, st istyle) {
+	old := b.pieces
+	b.pieces = nil
+	b.text.Reset()
+	b.u16 = 0
+	s, z := start-b.base, end-b.base
+	inserted := false
+	emit := func() {
+		if !inserted {
+			b.textRun(start, end, st)
+			inserted = true
+		}
+	}
+	for _, p := range old {
+		if p.s1 <= s {
+			b.add(p)
+			continue
+		}
+		if p.s0 >= z {
+			emit()
+			b.add(p)
+			continue
+		}
+		if p.kind == pText && p.s0 < s {
+			left := p
+			left.s1 = s
+			left.text = p.text[:s-p.s0]
+			b.add(left)
+		}
+		emit()
+		if p.kind == pText && p.s1 > z {
+			right := p
+			right.s0 = z
+			right.text = p.text[z-p.s0:]
+			b.add(right)
+		}
+	}
+	emit()
 }

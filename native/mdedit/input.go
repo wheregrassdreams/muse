@@ -13,12 +13,21 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	defer e.invalidate()
 	switch ev.Kind {
 	case ui.InputKeyDown:
+		if e.modalKey(ev.Key, ev.Mods) {
+			if ev.Key == ui.KeyEscape {
+				e.mathPreviewHidden = true
+			}
+			return true
+		}
 		if e.key(ev.Key, ev.Mods) {
 			e.blinkStart = time.Now()
 			return true
 		}
 		return false
 	case ui.InputText:
+		if e.modalText(ev.Text) {
+			return true
+		}
 		if ev.Text == "" {
 			return false
 		}
@@ -27,12 +36,22 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		e.blinkStart = time.Now()
 		return true
 	case ui.InputCompose:
+		if !e.ModalAcceptsText() {
+			return true
+		}
 		e.compose = ev.Text
 		n := ui.UTF16Len(ev.Text)
 		c := min(ui.UTF16Len(string([]rune(ev.Text)[:min(ev.Caret, len([]rune(ev.Text)))])), n)
 		e.composeSel = ui.TextInputRange{Start: c, End: c}
 		return true
 	case ui.InputCommand:
+		if !e.ModalAcceptsText() {
+			switch ev.Text {
+			case "copy", "undo", "redo", "selectAll":
+			default:
+				return true
+			}
+		}
 		return e.command(ev.Text)
 	case ui.InputPointerDown:
 		return e.press(ev)
@@ -217,6 +236,10 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		return e.tab(shift)
 	case ui.KeyEscape:
+		if _, _, _, ok := e.activeInlineMath(); ok && !e.mathPreviewHidden {
+			e.mathPreviewHidden = true
+			return true
+		}
 		if e.anchor != e.caret {
 			e.anchor = e.caret
 			return true
@@ -425,6 +448,10 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	default:
 		extend := ev.Mods&ui.Shift != 0
 		if a, z, ok := e.objectAt(off); ok && !extend {
+			if e.isInlineMathRange(a, z) {
+				e.anchor, e.caret = a+1, a+1
+				break
+			}
 			// An object is one unit: a click takes it whole, and the
 			// selection is what opens its source (docs/editor-model.md).
 			// Typing or Backspace then replace it, as they would a letter.

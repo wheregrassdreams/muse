@@ -142,6 +142,8 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	// The rail floats over the document's right edge, and follows the pointer
 	// there as an overlay does.
 	e.railView(c, b)
+	e.tableEdgesView(c, b)
+	e.mathPreviewView(c, b)
 	if e.railAnim {
 		// The lens and the preview are on their way to somewhere: frames
 		// move them, as CSS transitions would.

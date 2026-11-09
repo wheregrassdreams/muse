@@ -23,6 +23,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	vis := p.Visible()
 	top, bottom := vis.Y-r.Y-40, vis.Y-r.Y+vis.H+40
 	ox, oy := r.X, r.Y
+	e.paintCallouts(p, ox, oy)
 
 	// The containers' chrome: quotation bars from their first leaf to their
 	// last.
@@ -32,7 +33,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	for _, l := range e.leaves {
 		x := e.colX
 		for _, c := range l.conts {
-			if c.kind == cQuote {
+			if c.kind == cQuote && !isCalloutContainer(c) {
 				b := bars[c.id]
 				if b == nil {
 					b = &bar{x: x, y0: l.y, y1: l.y + l.h}
@@ -414,7 +415,7 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 
 // paintCaret draws the caret, blinking, while the editor has the focus.
 func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
-	if !e.focused || e.anchor != e.caret && e.compose == "" {
+	if !e.focused || e.anchor != e.caret && e.compose == "" && !e.blockCaret() {
 		return
 	}
 	phase := p.Now().Sub(e.blinkStart)
@@ -429,6 +430,13 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 		r, ok = e.caretRect(e.caret)
 	}
 	if !ok {
+		return
+	}
+	if e.blockCaret() && e.compose == "" {
+		r = e.blockCaretRect(r)
+		r.X += ox
+		r.Y += oy
+		p.Fill(r, e.lk.caret.Alpha(0.42), 0)
 		return
 	}
 	h := r.H
