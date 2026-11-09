@@ -35,7 +35,7 @@ const headerFadeReach = 22
 // about where a blur stops being one — the copy is nearly the document, so
 // it can be laid over it and taken away again without an edge.
 const (
-	headerFadeBlur = 5
+	headerFadeBlur = 4
 	headerFadeSeam = 2
 )
 
@@ -54,24 +54,25 @@ const headerFadeRamp = 48
 // The fade's layout, as shares of headerFadeReach below the header, where
 // 0 is the header's bottom and 1 the strip's:
 //
-//	0 ── 0.30 ────── 0.60 ────── 0.80 ────── 1
-//	coarse  ███████████▓▓▓▓▓▓░░░░░░░░░░░░░░░░
-//	fine    ████████████████████████████▓▓▓▓░
-//	veil    ████████████▓▓▓▓░░░░░░░░░░░░░░░░░
+//	0 ── 0.25 ─────── 0.70 ───── 0.80 ────── 1
+//	coarse  ███████████▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░
+//	fine    ██████████████████████████████▓▓▓
+//	veil    ███████████▓▓▓▓▓▓▓░░░░░░░░░░░░░░░
 //
-// The coarse copy holds for the first third and hands over to the fine one
-// over the next: a cross-fade between 5 and 2 DIPs, two and a half times
-// apart, which reads as one blur getting softer. The veil is gone by the
-// time the coarse copy is, so the last hand-over — the fine copy, all but
-// the document, opened up over it — carries no tint at all: a tint there
-// would draw the eye to the very line it is meant to hide. The fine copy
-// then holds a fifth of the way before it goes, so the eye sees a slightly
-// soft image before it sees the document.
+// The coarse copy holds for the header's own third and hands over to the
+// fine one across the next forty-five hundredths — 4 DIPs to 2, twice apart,
+// which is as close as two blurs may be and still tell apart. The veil then
+// covers that hand-over and is gone by 0.75, before the fine copy goes: the
+// last hand-over, fine to the document, is between two images that are all
+// but the same, and a tint there would draw the eye to the line it is meant
+// to hide. The fine copy holds a fifth of the way before it opens, so the eye
+// sees a slightly soft image before it sees the document.
 const (
-	fadeCoarseHold = 0.30
-	fadeCoarseEnd  = 0.60
+	fadeCoarseHold = 0.25
+	fadeCoarseEnd  = 0.70
 	fadeSeamHold   = 0.80
-	fadeVeilGone   = 0.60
+	fadeVeilHold   = 0.25
+	fadeVeilGone   = 0.75
 )
 
 // fadeLayers are the fade's copies: each covers the strip from its top
@@ -113,12 +114,13 @@ var Band float
 var Solid float
 var Tint vec3
 var Hold float
+var From float
 var Gone float
 var Cover float
 
 func Fragment(dst vec4, pos vec2) vec4 {
 	t := clamp((pos.y-Solid)/max(Band-Solid, 1.0), 0.0, 1.0)
-	a := Hold * (1.0 - smoothstep(0.0, Gone, t)) * Cover
+	a := Hold * (1.0 - smoothstep(From, Gone, t)) * Cover
 	return vec4(Tint*a, a)
 }
 `)
@@ -133,6 +135,7 @@ var (
 	veilSolidU = headerVeilShader.Uniform("Solid")
 	veilTintU  = headerVeilShader.Uniform("Tint")
 	veilHoldU  = headerVeilShader.Uniform("Hold")
+	veilFromU  = headerVeilShader.Uniform("From")
 	veilGoneU  = headerVeilShader.Uniform("Gone")
 	veilCoverU = headerVeilShader.Uniform("Cover")
 )
@@ -194,6 +197,7 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 		Float(veilSolidU, h).
 		Vec3(veilTintU, float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255).
 		Float(veilHoldU, headerFadeVeil).
+		Float(veilFromU, fadeVeilHold).
 		Float(veilGoneU, fadeVeilGone).
 		Float(veilCoverU, cover)
 	headerVeilShader.Draw(p, r, shader.Options{Values: a.veilValues})
