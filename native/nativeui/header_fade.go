@@ -30,15 +30,15 @@ import (
 // other pixel of the document.
 
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
-const headerFadeReach = 44
+const headerFadeReach = 28
 
 // headerFadeBlur is the standard deviation of the strip's blur, in DIPs:
 // enough that text under the header reads as light rather than as letters.
-const headerFadeBlur = 12
+const headerFadeBlur = 8
 
 // headerFadeVeil is how much of the page's color the header is: the rest
 // is the document, blurred, showing through as a wash.
-const headerFadeVeil = 0.84
+const headerFadeVeil = 0.8
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.

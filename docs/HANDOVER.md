@@ -196,10 +196,10 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 
 - **几何**：编辑器让出 `Options.TopInset = headerH`（`mdedit` 里进 `padTop`，
   `scrollIntoView` 的 `topMargin` 也抬到它之上），头部与一条
-  `headerH + headerFadeReach(44)` 高的 pass-through 条带**绝对定位**在内容列里，
+  `headerH + headerFadeReach(28)` 高的 pass-through 条带**绝对定位**在内容列里，
   于是正文能真正滚到头部下面。
 - **着色器**（`ui/shader`，Kage）：读 `backdropSample` —— 框架把这条带下面的**已画像素**
-  拷成纹理、**按一个固定半径模糊**（`Options.BackdropBlur: 12`），着色器把页面色罩上去，
+  拷成纹理、**按一个固定半径模糊**（`Options.BackdropBlur: 8`），着色器把页面色罩上去，
   再把整份拷贝按 `1 - smoothstep(0.22, 1, t)` 淡出。**一个半径，不是越往上越糊的渐进模糊。**
 - **为什么不是渐进模糊**：半径随高度变化更像镜头，但一行字从"字"变成"一团"是在某个高度
   **同时发生**的（所有字的笔画一起跨过那个半径），那条分界横贯整页，看起来就是一道缝——
@@ -209,6 +209,15 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
   "鬼影"（曾按 `k = d²` 衰减，顶行只剩 25% 锐字，用户说像没渲染完）；模糊弱到看不见的
   地方拷贝必须也到 0，否则盖在平色（表格、代码块、mermaid）上时，渲染器把颜色舍入一两级，
   就显出整条带的矩形边。所以是"先不透明、再长坡淡出"，坡的起点 `0.22` 在着色器里。
+- **对照过 mygo-music**（`egoist/mygo-music` 的 `wallPane`）：它用框架自带的
+  `plugins/glass.Blur{Radius, Mask}`，那是"按 mask 渐变的**渐进**模糊"——内部把半径拆成
+  逐级减半的 blur level（32/16/8/4/2px），每级用一个 effect 只画在"该半径适用"的那条带里
+  （模糊的方差可以相加，所以叠起来是平滑的），再在上面用 `backdropOver` 把缓存的背景图按
+  2px 条重刷一遍，让接缝处"与上面一模一样，于是没有边"。**三点没照抄**：它靠重刷背景图藏边，
+  我们的页面是白底没有可重刷的东西（等价物就是页面色罩）；它是真渐进模糊，正是我们刚去掉的
+  那条可读性缝，只是它的背后是专辑封面（色块、没有字）且带宽 72–112 DIP 才不明显；它的
+  Radius 16 会拆出 5 级 = 5 次 backdrop 读回，实测 3 层 p90 就 7.4ms。
+  它值得借的只有形状：**贴着头部的那一段最实、坡要长、边缘处必须与外面一致**。
 - **罩色也在着色器里**（`Hold*(1-smoothstep(t))`），不用 `FillGradient`：渐变只能用
   直线段逼近曲线，离开头部的那一段是折线，折点会显出**马赫带**（一条淡淡的横线）。
   着色器的 smoothstep 起点导数为 0。**别把罩色既写进着色器又画渐变**——两处叠加会把
