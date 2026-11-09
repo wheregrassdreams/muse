@@ -196,25 +196,31 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 
 - **几何**：编辑器让出 `Options.TopInset = headerH`（`mdedit` 里进 `padTop`，
   `scrollIntoView` 的 `topMargin` 也抬到它之上），头部与一条
-  `headerH + headerFadeReach(60)` 高的 pass-through 条带**绝对定位**在内容列里，
+  `headerH + headerFadeReach(44)` 高的 pass-through 条带**绝对定位**在内容列里，
   于是正文能真正滚到头部下面。
 - **着色器**（`ui/shader`，Kage）：读 `backdropSample` —— 框架把这条带下面的**已画像素**
   拷成纹理（`Options.BackdropBlur: 8` 先做一次基底模糊，否则十几个采样点在锐利文字上会有
-  颗粒感），再用 12 个黄金角采样把半径**从顶部 20 DIP 渐变到 0**，条带末尾用
-  `smoothstep` 把 alpha 收掉。半径逐像素变化，这是"渐进模糊"而不是"整体模糊+淡出"：
+  颗粒感），再用 12 个黄金角采样把半径**从头部的下边界 22 DIP 渐变到 0**（`headerFadeReach`
+  只有 44 DIP，贴近头部）。半径逐像素变化，这是"渐进模糊"而不是"整体模糊+淡出"：
   后者会把锐字和糊字叠在一起，看起来像"变浅的字"。
-- **罩色**不是着色器画的，而是条带上一条 6 段 `FillGradient`（页面色，头顶 86%，
-  在 `headerH*0.9` 处开始按 smoothstep 收）。**别把罩色同时写进着色器**——两处叠加会
-  把整条带洗成白色（踩过）。
+- **拷贝的不透明度 = 模糊本身**（`k = d²`，d 是离头部下边界的剩余比例）：模糊收缩到 0
+  的地方拷贝也到 0，所以条带**不可能在边界上留一条线**。早先版本拷贝到最后一行为止
+  都是不透明的，盖在平色（表格、代码块、mermaid）上时，渲染器把颜色舍入一两级，
+  就显出整条带的矩形边——用户圈的就是这条。
+- **罩色也在着色器里**（`Hold*(1-smoothstep(t))`），不用 `FillGradient`：渐变只能用
+  直线段逼近曲线，离开头部的那一段是折线，折线的起点会显出**马赫带**（一条淡淡的横线）。
+  着色器的 smoothstep 起点导数为 0，没有转折。**别把罩色既写进着色器又画渐变**——
+  两处叠加会把整条带洗成白色（踩过）。
 - **静止时零成本**：`cover = ScrollY()/48`，文档在顶部时 `cover = 0`，条带不画、也不读
   backdrop —— 首行在静止时是锐的（`TestHeaderFadeStartsAtTheTopOfTheDocument`）。
 - **为什么不用多层**：试过 1/2/3 层不同模糊强度的条带（更像 iOS 渐进模糊），每层都要
   一次 backdrop 读回（Metal 每个 backdrop batch 要 `endEncoding` 重开编码器）。实测
   全屏滚动 120Hz：3 层 p90 7.4ms（掉帧），1 层 2.4ms，单遍着色器 2.7ms。**backdrop
   读回是固定开销，模糊半径本身几乎免费**，所以层数要按"读回次数"算，不按像素算。
-- **实测**（2×retina、2444×1502 窗口、每帧整屏滚动这种最坏情况，`MYGO_FRAME_STATS=all`）：
-  关 med 1.5 / p90 2.4；开 med 1.8 / p90 2.7–4.6。打字只重画条带那 104 DIP 和一行，
-  比这个更轻。量法见 §2（临时往 `View` 里塞 `ScrollToOffset` + `c.After(8ms)`）。
+- **实测**（2×retina、2444×1502 窗口、每帧整屏滚动这种最坏情况，`MYGO_FRAME_STATS=all`，
+  同一套"一次 backdrop 读回 + 一遍着色器"的结构）：关 med 1.5 / p90 2.4；开 med 1.8 /
+  p90 2.7–4.6。打字只重画条带那一带和一行，比这个更轻。量法见 §2（临时往 `View` 里塞
+  `ScrollToOffset` + `c.After(8ms)`，取 `MYGO_FRAME_STATS` 的中位/p90）。
 - `p.Preferences().ReduceTransparency` 时**不读 backdrop**，只画不透明的渐变罩色。
 
 

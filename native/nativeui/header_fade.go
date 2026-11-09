@@ -25,20 +25,15 @@ import (
 // text it shows, as it repaints any other pixel of the document.
 
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
-const headerFadeReach = 60
+const headerFadeReach = 44
 
 // headerFadeBlur is the blur's radius at the strip's top, in DIPs: how far
 // the document's pixels spread under the header.
-const headerFadeBlur = 20
+const headerFadeBlur = 22
 
-// headerFadeVeil is how much of the page's color the top of the strip is,
-// and headerFadeSolid the share of the header's height it stays that way:
-// the rest is the document, blurred, showing through as a wash. The veil
-// reaches a little below the header; the blur goes further.
-const (
-	headerFadeVeil  = 0.86
-	headerFadeSolid = 0.9
-)
+// headerFadeVeil is how much of the page's color the header is: the rest
+// is the document, blurred, showing through as a wash.
+const headerFadeVeil = 0.84
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
@@ -49,25 +44,35 @@ const headerFadeRamp = 48
 // sharp pixels, and a smooth base lets a dozen of them read as one blur.
 const headerFadeBase = 8
 
-// headerFadeOpen is where the strip opens up again at its foot, in DIPs
-// from its top: the taps have shrunk to nothing there, and what is left of
-// the base blur fades out rather than ending on a line.
-const headerFadeOpen = 22
-
 // headerFadeShader blurs the strip's backdrop with a radius that widens
-// towards its top, and opens up again at its foot: Band is the strip's
-// height in DIPs, Radius the blur's radius at its top and Open where the
-// strip starts to fade out.
+// towards the header, lets as much of it show as there is blur, and veils
+// it with the page's color: Band is the strip's height in DIPs, Solid the
+// height that keeps the widest blur (the header's own), Radius that blur's
+// radius, Tint the page's color and Hold how much of it the header is.
+//
+// The copy's opacity is the blur's own: where the taps have shrunk to
+// nothing there is no copy to draw, so the strip cannot end on an edge —
+// the blurred pixels and their strength go to nothing together. A copy at
+// full strength down to its last row would leave a line wherever it
+// covered a flat color, as the renderer's blur rounds one by a level or
+// two.
+//
+// The veil is the shader's too, rather than a gradient over the strip: a
+// gradient holds a curve in straight steps, and the step where it leaves
+// the header shows as a faint line across the page (a Mach band) — the
+// very edge this fade is for.
 var headerFadeShader = shader.MustCompile(`package main
 
 var Band float
+var Solid float
 var Radius float
-var Open float
+var Tint vec3
+var Hold float
 
 func Fragment(dst vec4, pos vec2) vec4 {
-	t := clamp(pos.y/Band, 0.0, 1.0)
+	t := clamp((pos.y-Solid)/max(Band-Solid, 1.0), 0.0, 1.0)
 	d := 1.0 - t
-	r := Radius * d * sqrt(d)
+	r := Radius * d
 	c := backdropSample(pos)
 	for i := 0; i < 12; i++ {
 		a := float(i) * 2.39996
@@ -75,15 +80,18 @@ func Fragment(dst vec4, pos vec2) vec4 {
 		c += backdropSample(pos + vec2(cos(a), sin(a))*q)
 	}
 	c /= 13.0
-	a := 1.0 - smoothstep(Open, Band, pos.y)
-	return vec4(c.rgb*a, c.a*a)
+	v := mix(c, vec4(Tint, 1.0), Hold*(1.0-smoothstep(0.0, 1.0, t)))
+	k := d * d
+	return vec4(v.rgb*k, v.a*k)
 }
 `)
 
 var (
 	headerFadeBandU   = headerFadeShader.Uniform("Band")
+	headerFadeSolidU  = headerFadeShader.Uniform("Solid")
 	headerFadeRadiusU = headerFadeShader.Uniform("Radius")
-	headerFadeOpenU   = headerFadeShader.Uniform("Open")
+	headerFadeTintU   = headerFadeShader.Uniform("Tint")
+	headerFadeHoldU   = headerFadeShader.Uniform("Hold")
 )
 
 // headerVeil builds the strip the header floats on, in the flat style. It
@@ -116,31 +124,29 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 	if cover <= 0 {
 		return
 	}
-	strength := float32(headerFadeVeil)
-	if p.Preferences().ReduceTransparency {
-		// Opaque surfaces: the veil is solid where the header is, with
-		// nothing of the document showing through it.
-		strength = 1
-	} else {
+	if !p.Preferences().ReduceTransparency {
 		if a.fadeValues == nil {
 			a.fadeValues = headerFadeShader.NewValues()
 		}
 		a.fadeValues.
 			Float(headerFadeBandU, band).
+			Float(headerFadeSolidU, h).
 			Float(headerFadeRadiusU, headerFadeBlur*cover).
-			Float(headerFadeOpenU, band-headerFadeOpen)
+			Vec3(headerFadeTintU, float32(tint.R)/255, float32(tint.G)/255, float32(tint.B)/255).
+			Float(headerFadeHoldU, headerFadeVeil*cover)
 		headerFadeShader.Draw(p, r, shader.Options{Values: a.fadeValues, BackdropBlur: headerFadeBase})
+		return
 	}
-	// The veil: the page's color, solid where the header's controls are,
-	// easing out where the document comes through.
-	p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: veilStops(tint, cover, strength, min(h*headerFadeSolid, band), band)}, 0)
+	// Opaque surfaces: the header's own color, opened up where the document
+	// comes through, and nothing of the document showing through the header.
+	p.FillGradient(r, ui.LinearGradient{Angle: 180, Stops: veilStops(tint, cover, 1, h, band)}, 0)
 }
 
 // veilStops places the veil's color along the strip: strength opaque where
 // the header is, nothing where the fade ends, easing out as smoothstep
 // does. The gradient's stops hold the curve in a few steps.
 func veilStops(tint ui.Color, cover, strength, solid, band float32) []ui.GradientStop {
-	const n = 6
+	const n = 12
 	stops := make([]ui.GradientStop, 0, n+1)
 	for i := 0; i <= n; i++ {
 		t := float32(i) / n
