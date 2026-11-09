@@ -28,7 +28,7 @@ import (
 // then "not", and the last of them is a blur small enough to be no blur.
 
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
-const headerFadeReach = 28
+const headerFadeReach = 20
 
 // The fade's two blurs, in DIPs: the coarse one under the header, and the
 // fine one that takes over from it and hands the document back. The fine one

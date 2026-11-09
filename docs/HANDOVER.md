@@ -196,10 +196,10 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 
 - **几何**：编辑器让出 `Options.TopInset = headerH`（`mdedit` 里进 `padTop`，
   `scrollIntoView` 的 `topMargin` 也抬到它之上），头部与一条
-  `headerH + headerFadeReach(28)` 高的 pass-through 条带**绝对定位**在内容列里，
+  `headerH + headerFadeReach(20)` 高的 pass-through 条带**绝对定位**在内容列里，
   于是正文能真正滚到头部下面——这是 macOS scroll edge 的前提。
 - **macOS 的 scroll edge：正文从头部底下过，模糊逐级加深，不染色**
-  （`header_fade.go`）。坡长 28 DIP，t 从头部下边界（0）到坡尾（1），四级级联，每级比
+  （`header_fade.go`）。坡长 20 DIP，t 从头部下边界（0）到坡尾（1），四级级联，每级比
   下一级模糊一倍；下表由数字生成，别手画（手画过一次、和参数不符，被用户抓到）：
 
   ```
