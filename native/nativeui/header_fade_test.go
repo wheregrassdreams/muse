@@ -233,10 +233,10 @@ func TestHeaderFadeDark(t *testing.T) {
 	}
 }
 
-// TestHeaderFadeIsTransparent is why the strip carries no color: over a
+// TestHeaderFadeIsTransparent is why the strip's veil is light: over a
 // callout's blue a veil of the page's color is a white band with an edge,
-// which is the opposite of what a fade is for. The color under the header
-// stays the document's own.
+// which is the opposite of what a fade is for. A little of it takes the
+// edge off the copy; much of it paints the page over the document.
 func TestHeaderFadeIsTransparent(t *testing.T) {
 	body := strings.Repeat("> callout 的一行内容，用来把整页铺满蓝色。\n>\n", 100)
 	a := New()
@@ -257,8 +257,8 @@ func TestHeaderFadeIsTransparent(t *testing.T) {
 	img := tt.Image()
 	fadeShot(t, img, "header-fade-callout")
 	// The middle of the band, a row across the callout: its blue is the
-	// median, as the text's own pixels are few. A veil of the page's color
-	// would take nearly all of it.
+	// median, as the text's own pixels are few. The veil of 0.3 leaves
+	// about 12 of its 17; one near 1 leaves 4.
 	var blue []int
 	y := int(editorHeaderH) + 6
 	for x := int(ed.X) + 8; x < int(ed.X+ed.W)-8; x++ {

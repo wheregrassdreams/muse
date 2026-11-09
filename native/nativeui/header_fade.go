@@ -36,13 +36,13 @@ const headerFadeReach = 22
 // edge where it goes.
 const headerFadeBlur = 4
 
-// headerFadeVeil is how much of the page's color the header is. It is none:
-// the strip is transparent, a blur and nothing else. A veil of the page's
-// color is invisible over the page and a slab everywhere else — over a
-// callout's blue it is a white band with an edge, which is the opposite of
-// what a fade is for. The blur alone has to make the header's own text and
-// icons read, so it is the blur that the header's legibility depends on.
-const headerFadeVeil = 0
+// headerFadeVeil is how much of the page's color the header is. A little:
+// enough to take the edge off the copy as it goes, not enough to paint the
+// page over what is under the header. Invisible over the page, a light wash
+// over anything else — over a callout's blue it leaves the blue, where a
+// veil near 1 would leave a white band with a straight edge. The blur does
+// the work; the veil only softens the hand-off.
+const headerFadeVeil = 0.3
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
