@@ -31,14 +31,15 @@ import (
 const headerFadeReach = 18
 
 // The fade's two blurs, in DIPs: the coarse one under the header, and the
-// fine one that takes over from it and hands the document back. Two DIPs is
-// about where a blur stops being one — the copy is nearly the document, so
-// it can be laid over it and taken away again without an edge. The two are a
-// step and a half apart (three to two): a mix of two blurs reads as the
-// sharper of them, so a step much larger than that is a step the eye catches.
+// fine one that takes over from it and hands the document back. The fine one
+// is a DIP: two pixels at 2x, which is where a blur stops reading as one —
+// the copy is nearly the document, so it can be laid over it and taken away
+// again without an edge. (The glass plugin's own finest level is two *pixels*
+// for the same reason; a DIP is twice that on a retina display, and a copy
+// that far from the document does show where it goes.)
 const (
 	headerFadeBlur = 3
-	headerFadeSeam = 2
+	headerFadeSeam = 1
 )
 
 // headerFadeVeil is how much of the page's color the header is. A little:
@@ -77,8 +78,8 @@ const headerFadeDecay = 2.5
 // foot so that nothing of the strip ends on an edge.
 const (
 	fadeCoarseHold = 0.12
-	fadeCoarseEnd  = 0.85
-	fadeSeamHold   = 0.75
+	fadeCoarseEnd  = 0.75
+	fadeSeamHold   = 0.68
 	fadeVeilHold   = 0.0
 	fadeVeilGone   = 1
 )
