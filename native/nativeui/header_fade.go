@@ -50,12 +50,14 @@ const headerFadeBase = 8
 // height that keeps the widest blur (the header's own), Radius that blur's
 // radius, Tint the page's color and Hold how much of it the header is.
 //
-// The copy's opacity is the blur's own: where the taps have shrunk to
-// nothing there is no copy to draw, so the strip cannot end on an edge —
-// the blurred pixels and their strength go to nothing together. A copy at
-// full strength down to its last row would leave a line wherever it
-// covered a flat color, as the renderer's blur rounds one by a level or
-// two.
+// The copy is opaque while the blur is worth seeing, and opens up only as
+// the taps shrink to nothing, so that the strip cannot end on an edge: the
+// blurred pixels and their strength go to nothing together. A copy at full
+// strength down to its last row would leave a line wherever it covered a
+// flat color, as the renderer's blur rounds one by a level or two. And a
+// copy that was already half transparent where the blur is strong would
+// show the sharp pixels underneath instead — a ghost of readable text
+// rather than a blur.
 //
 // The veil is the shader's too, rather than a gradient over the strip: a
 // gradient holds a curve in straight steps, and the step where it leaves
@@ -81,7 +83,7 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	}
 	c /= 13.0
 	v := mix(c, vec4(Tint, 1.0), Hold*(1.0-smoothstep(0.0, 1.0, t)))
-	k := d * d
+	k := smoothstep(0.0, 0.45, d)
 	return vec4(v.rgb*k, v.a*k)
 }
 `)

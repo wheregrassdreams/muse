@@ -130,7 +130,7 @@ func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 		t.Fatal("no line of text under the header to look at")
 	}
 	faded, sharp := bandOf(on, ed, y), bandOf(off, ed, y)
-	if faded.rough > sharp.rough/4 {
+	if faded.rough > sharp.rough/8 {
 		t.Fatalf("not blurred at y=%d: %+v against %+v", y, faded, sharp)
 	}
 	if faded.mean < sharp.mean+20 {

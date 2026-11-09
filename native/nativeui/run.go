@@ -41,6 +41,13 @@ func Run() {
 		if os.Getenv("MUSE_SETTINGS") == "1" {
 			app.settingsOpen = true
 		}
+		// Capture hooks: MUSE_CAPTURE photographs the window, and
+		// MUSE_SCROLL puts it where the shot should show.
+		if off := os.Getenv("MUSE_SCROLL"); off != "" {
+			if n, err := strconv.Atoi(off); err == nil {
+				app.ed.ScrollToOffset(n)
+			}
+		}
 		// TEMP capture hook
 		switch os.Getenv("MUSE_PANEL") {
 		case "outline":
