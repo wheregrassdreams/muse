@@ -18,9 +18,9 @@ func TestDarkIconsStayReadable(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
-	r, ok := tt.Find("大纲")
+	r, ok := tt.Find("AI 助手")
 	if !ok {
-		t.Fatal("the outline button is not on screen")
+		t.Fatal("the AI button is not on screen")
 	}
 	img := tt.Image()
 	brightest := 0.0

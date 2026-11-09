@@ -376,6 +376,9 @@ func (a *App) canvas(c *ui.Context) {
 			card := ui.Column(c).Fill().Clip().Background(a.windowBG())
 			card.Children(func() {
 				a.editorContent(c)
+				if a.panelOpen {
+					a.panelResizeHandle(c)
+				}
 			})
 			return
 		}
@@ -535,7 +538,7 @@ func (a *App) contextPanel(c *ui.Context) {
 	// 0 起步。切换模块本身不改宽度，因此不会走这里。
 	anim := ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.EaseOut}
 	if a.panelOpen && a.panelPrevTarget > 0.5 && a.panelPrevTarget != target {
-		anim.Duration = time.Millisecond
+		anim.Duration = 0
 	}
 	a.panelPrevTarget = target
 	// The panel is always built so its width can slide instead of vanishing
@@ -544,6 +547,9 @@ func (a *App) contextPanel(c *ui.Context) {
 	// fades as the box closes.
 	panel := ui.Column(c).Shrink(0).FillHeight().Clip()
 	w := panel.AnimateTo("width", target, anim)
+	if a.panelOpen && a.panelDrag != 0 {
+		w = target
+	}
 	a.panelW = w
 	panel.Width(w)
 	if w < 0.5 {
@@ -561,7 +567,7 @@ func (a *App) contextPanel(c *ui.Context) {
 		ui.Column(c).Width(a.panelWidth).FillHeight().Opacity(openness).
 			Padding(top, 0, 0, 0).Children(func() {
 			a.sidebarHeader(c)
-			a.sidebarModules(c)
+
 			ui.Column(c).Grow(1).FillWidth().MinHeight(0).Children(func() {
 				switch a.panel {
 				case panelFiles:
@@ -576,7 +582,7 @@ func (a *App) contextPanel(c *ui.Context) {
 			})
 			a.sidebarFooter(c)
 			// The edge goes in last, so it hits above the content.
-			if a.panelW > a.panelWidth-0.5 {
+			if !a.flat {
 				a.panelResizeHandle(c)
 			}
 		})
@@ -587,7 +593,11 @@ func (a *App) contextPanel(c *ui.Context) {
 // click puts back at the module's width, and a drag released past the fold
 // collapses.
 func (a *App) panelResizeHandle(c *ui.Context) {
-	h := ui.Box(c).Key("panel-resize").Absolute().Left(a.panelWidth - 12).
+	left := a.panelWidth - 12
+	if a.flat {
+		left = 0
+	}
+	h := ui.Box(c).Key("panel-resize").Absolute().Left(left).
 		Top(canvasPadding + cardBorder + editorHeaderH).
 		Bottom(0).Width(12).Cursor(ui.CursorResizeEW).Label("调整面板宽度").
 		Column().AlignItems(ui.Center)
@@ -644,29 +654,20 @@ func (a *App) panelGrip(c *ui.Context, edge ui.Element) {
 // panelHeader is the line over the context panel: the module names show on
 // the rail, so the line holds only the way to fold the panel away, and the
 // room to drag the window.
-// sidebarHeader is the sidebar's own first line, as the reference has it: a
-// tile for the space, its name and the way to another one, a search, and the
-// button that starts something new.
+// sidebarHeader separates window controls from workspace actions.
 func (a *App) sidebarHeader(c *ui.Context) {
 	t := c.Theme()
-	bar := c.TitleBar()
-	left := float32(34) // room for the app's sidebar toggle over this line
-	if bar.Left+34 > left {
+	left := float32(34)
+	if bar := c.TitleBar(); bar.Left+34 > left {
 		left = bar.Left + 34
 	}
-	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, 8, 0, left).Gap(6).
-		DragWindow().AlignItems(ui.Center).Children(func() {
-		// The space: a tile with its first letter, its name, and a chevron.
+	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, 8, 0, left).DragWindow().AlignItems(ui.Center).Children(func() {
+		a.smallIcon(c, iconAI, "AI 助手", func() { a.showPanel(panelAI) })
+	})
+	ui.Row(c).Height(44).Shrink(0).Padding(0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 		name := a.spaceName()
-		ui.Box(c).Size(20, 20).Radius(6).Background(t.Surface).
-			Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, firstRune(name)).FontSize(11).FontWeight(700).TextColor(t.Text)
-		})
-		space := ui.ButtonBase(c).Height(26).Radius(6).Padding(0, 4).
-			Justify(ui.Center).AlignItems(ui.Center).Label(name).Tooltip("切换工作区")
-		if space.Hovered() {
-			space.Background(t.SurfaceHover)
-		}
+		ui.Box(c).Size(20, 20).Radius(6).Background(t.Surface).Center().Children(func() { ui.Text(c, firstRune(name)).FontSize(11).FontWeight(700) })
+		space := ui.ButtonBase(c).Height(28).Padding(0, 4).Radius(6).Label(name).Tooltip("工作区")
 		space.Menu(func(m *ui.Menu) {
 			if m.Item("打开文件夹…").Chosen() {
 				a.openFolderDialog()
@@ -674,76 +675,37 @@ func (a *App) sidebarHeader(c *ui.Context) {
 			if m.Item("打开文件…").Chosen() {
 				a.openFileDialog()
 			}
-			m.Separator()
-			for _, v := range []struct {
-				label string
-				view  panelView
-			}{{"文件", panelFiles}, {"大纲", panelOutline}, {"搜索", panelSearch}, {"AI 助手", panelAI}} {
-				if m.Item(v.label).Chosen() {
-					a.showPanel(v.view)
-				}
-			}
 		})
 		space.Children(func() {
-			ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, name).FontSize(13).FontWeight(600).SingleLine().Ellipsis("…")
 				ui.Icon(c, iconChevronDown).Size(12, 12).TextColor(t.TextMuted)
 			})
 		})
 		ui.Spacer(c)
 		a.smallIcon(c, iconSearch, "搜索", func() { a.showPanel(panelSearch) })
-		// The compose button of the reference: one rounded surface, a pen,
-		// and the menu of what can be started.
-		newBtn := ui.ButtonBase(c).Height(26).Radius(8).Padding(0, 8).
-			Justify(ui.Center).AlignItems(ui.Center).Label("新建").Tooltip("新建")
-		newBtn.Background(t.Surface)
-		if newBtn.Hovered() {
-			newBtn.Background(t.SurfaceHover)
-		}
-		newBtn.Menu(func(m *ui.Menu) {
-			if m.Item("新建文档").Chosen() {
-				a.newDoc()
-			}
-			if m.Item("新建文件夹").Chosen() {
-				a.newFolderIn(a.createTarget())
-			}
-		})
-		newBtn.Children(func() {
-			ui.Row(c).Gap(3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconEdit).Size(13, 13).TextColor(iconTint(t))
-				ui.Icon(c, iconChevronDown).Size(11, 11).TextColor(t.TextMuted)
+		ui.Row(c).Height(28).Radius(8).Background(t.Surface).AlignItems(ui.Center).Children(func() {
+			a.smallIcon(c, iconEdit, "新建文档", func() {
+				if a.root != "" {
+					a.newFileIn(a.createTarget())
+				} else {
+					a.newDoc()
+				}
 			})
+			more := ui.ButtonBase(c).Size(20, 28).Padding(0).Label("新建菜单").Tooltip("新建菜单")
+			more.Menu(func(m *ui.Menu) {
+				if m.Item("新建文件夹").Chosen() {
+					a.newFolderIn(a.createTarget())
+				}
+			})
+			more.Children(func() { ui.Icon(c, iconChevronDown).Size(11, 11).TextColor(t.TextMuted) })
 		})
 	})
-}
-
-// sidebarModules is what the rail used to hold: one quiet row of the views
-// this sidebar can show, the active one raised.
-func (a *App) sidebarModules(c *ui.Context) {
-	t := c.Theme()
-	ui.Row(c).Shrink(0).Padding(0, 8, 6, 8).Gap(2).Children(func() {
-		for _, v := range []struct {
-			icon  *ui.SVG
-			label string
-			view  panelView
-		}{
-			{iconFiles, "文件", panelFiles},
-			{iconOutline, "大纲", panelOutline},
-			{iconSearch, "搜索", panelSearch},
-			{iconAI, "AI 助手", panelAI},
-		} {
-			v := v
-			b := ui.ButtonBase(c).Width(26).Height(24).Radius(6).Padding(0).
-				Justify(ui.Center).AlignItems(ui.Center).Label(v.label).Tooltip(v.label)
-			if a.panelOpen && a.panel == v.view {
-				b.Background(t.Surface)
-			} else if b.Hovered() {
-				b.Background(t.SurfaceHover)
-			}
-			b.OnClick(func() { a.showPanel(v.view) })
-			b.Children(func() { ui.Icon(c, v.icon).Size(14, 14).TextColor(iconTint(t)) })
-		}
-	})
+	if a.panel != panelFiles {
+		ui.Row(c).Height(30).Padding(0, 10).AlignItems(ui.Center).Children(func() {
+			a.smallIcon(c, iconChevronLeft, "返回文件树", func() { a.showPanel(panelFiles) })
+		})
+	}
 }
 
 // sidebarFooter holds the settings of the app itself, at the sidebar's foot.
@@ -828,15 +790,6 @@ func (a *App) filesView(c *ui.Context) {
 		})
 		return
 	}
-
-	// 新建文件/新建文件夹在列表内容顶部成排展示（Obsidian 的资源管理器
-	// 头部方式），落在选中的文件夹里；未选中任何目录时落在根目录。
-	ui.Row(c).Shrink(0).Padding(6, 10, 4, 6).Gap(2).AlignItems(ui.Center).Children(func() {
-		a.smallIcon(c, iconFilePlus, "新建文件", func() { a.newFileIn(a.createTarget()) })
-		a.smallIcon(c, iconFolderPlus, "新建文件夹", func() { a.newFolderIn(a.createTarget()) })
-		ui.Spacer(c)
-		a.smallIcon(c, iconChevronDown, "全部折叠", a.collapseAll)
-	})
 
 	rows := a.fileRows()
 	if len(rows) == 0 {
@@ -1192,7 +1145,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		// Room for the app's sidebar toggle, which stays at the content's
 		// left edge whether the panel is open or folded: folding the panel
 		// brings this header over to it, and the header keeps the seat.
-		ui.Box(c).Width(30).Shrink(0)
+		ui.Box(c).Width(max(float32(30), bar.Left+38-a.panelW)).Shrink(0)
 		tint := iconTint(t)
 		if a.canNav(-1) {
 			a.smallIcon(c, iconChevronLeft, "后退", func() { a.nav(-1) })
@@ -1668,6 +1621,10 @@ func (a *App) clearTreeCache() {
 // (relative or absolute), rename, trash and reveal.
 func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("全部折叠").Chosen() {
+			a.collapseAll()
+		}
+		m.Separator()
 		a.dirMu.Lock()
 		isDir := a.isDir[path]
 		a.dirMu.Unlock()
@@ -2405,6 +2362,9 @@ func (a *App) topLine(c *ui.Context) float32 {
 }
 
 func (a *App) canvasLeft(c *ui.Context) float32 {
+	if a.flat {
+		return 0
+	}
 	left := canvasPadding
 	if a.panelWidth <= 0 {
 		return left

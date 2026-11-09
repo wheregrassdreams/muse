@@ -69,7 +69,7 @@ func TestModulesShareOnePanelWidth(t *testing.T) {
 	if want != panelDefaultWidth {
 		t.Fatalf("the panel starts at %.0f, want the one %.0f", want, panelDefaultWidth)
 	}
-	for _, label := range []string{"大纲", "搜索", "AI 助手", "文件"} {
+	for _, label := range []string{"搜索", "AI 助手", "返回文件树"} {
 		if err := tt.Click(label); err != nil {
 			t.Fatalf("click %s: %v", label, err)
 		}
@@ -156,7 +156,7 @@ func TestTopBarControlsShareOneLine(t *testing.T) {
 	// The tester draws no title bar, so the first line is the header's own
 	// height: with a title bar it is that bar's.
 	line := float32(editorHeaderH / 2)
-	for _, s := range []string{"侧栏", "未命名", "信息", "更多"} {
+	for _, s := range []string{"侧栏", "AI 助手", "信息", "更多"} {
 		r, ok := tt.Find(s)
 		if !ok {
 			t.Fatalf("%q is not on screen", s)
@@ -165,4 +165,30 @@ func TestTopBarControlsShareOneLine(t *testing.T) {
 			t.Errorf("%q centres at %.2f, want the top line at %.1f", s, r.Y+r.H/2, line)
 		}
 	}
+}
+
+// Repeated motion must track the pointer rather than accumulate animation lag.
+func TestFlatPanelContinuousDrag(t *testing.T) {
+	a := New()
+	a.flat = true
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	r, ok := tt.Find("调整面板宽度")
+	if !ok || r.X < a.panelW {
+		t.Fatalf("handle must be on editor side: %+v panel=%v", r, a.panelW)
+	}
+	x, y := r.X+r.W/2, r.Y+40
+	start := a.panelWidth
+	tt.Press(x, y)
+	tt.Frame()
+	for _, delta := range []float32{10, 30, 50, 25} {
+		tt.Move(x+delta, y)
+		tt.Frame()
+		tt.Frame()
+		if a.panelWidth != start+delta || a.panelW != a.panelWidth {
+			t.Fatalf("delta=%v target=%v drawn=%v", delta, a.panelWidth, a.panelW)
+		}
+	}
+	tt.Release(x+25, y)
+	tt.Frame()
 }

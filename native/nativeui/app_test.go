@@ -68,7 +68,7 @@ func TestSidebarModulesInsetFromWindowEdge(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	for _, label := range []string{"文件", "大纲", "搜索", "AI 助手"} {
+	for _, label := range []string{"搜索", "AI 助手", "新建文档"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("module %q missing", label)
