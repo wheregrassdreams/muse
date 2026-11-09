@@ -238,9 +238,10 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
   **别超过 0.5**：超过就是"白板 + 白板的边"，`TestHeaderFadeIsTransparent` 会红
   （它把整页铺成蓝色 callout，断言头部下面那一行的蓝色中位数 ≥10；0.2 时是 18，
   0.8 时是 4）。罩在 0.85 处收完，坡尾不带颜色。
-- **`headerFadeSolid = 1`**：平台覆盖整个头部高度，阶梯全落在头部下方。调到 0.5 试过：
-  阶梯没变长，只是挪进了头部里面，看得见的那段反而几乎不糊（带内最暗值 145 → 51，
-  锐利是 29），守护测试当场变红。**它决定阶梯切在哪，不能把它拉长。**
+- **`headerFadeSolid = 0.5`**（用户眼调后选定）：平台到头部中线为止，阶梯从那里开始，
+  所以**最糊的地方正好在头部控件背后**，正文再往下就慢慢回到原样。它只决定阶梯切在哪、
+  不改变阶梯长度——长度始终是 `headerFadeReach`。数值上：带内最暗值 1 → 145、0.5 → 51
+  （锐利 29），所以 0.5 看起来"轻"得多，这是有意的。
 - **静止时零成本**：`cover = ScrollY()/48`；文档在顶部时 `cover = 0`，条带不画、也不读
   backdrop，首行在静止时是锐的（`TestHeaderFadeStartsAtTheTopOfTheDocument`）。
 - **成本**：每次读回在 Metal 上是一次 `endEncoding` + 重开编码器，是这笔账的全部。
@@ -270,7 +271,7 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 | `mdedit/parser_source_test.go` | 读本包源码：只有 `parsed.go` 能写解析输入 |
 | `mdoc/display_math_test.go` | display/inline 的尺寸关系、分式尺寸、操作符间距 |
 | `nativeui/panel_test.go` | 侧栏开关只有一个且位置不变、顶栏同一行 |
-| `nativeui/header_fade_test.go` | 顶部模糊：整条带的平均粗糙度必须降到锐利的 1/3 以下、条带外与原样逐像素相同、静止时不画、关掉是不透明条、开关不动文档、深色、**彩色块不被洗白**（蓝色中位数 ≥10，卡住罩 ≤0.5）、降低透明度、设置开关 |
+| `nativeui/header_fade_test.go` | 顶部模糊：条带覆盖的像素必须被改动（逐像素差 > 8/通道）、条带外与原样逐像素相同、静止时不画、关掉是不透明条、开关不动文档、深色、**彩色块不被洗白**（蓝色中位数 ≥10，卡住罩 ≤0.5）、降低透明度、设置开关 |
 | `nativeui/app_test.go` | 侧栏模块行、模块切换、主题跟随 |
 
 ---
