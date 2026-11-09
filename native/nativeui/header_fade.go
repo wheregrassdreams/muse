@@ -28,7 +28,7 @@ import (
 // then "not", and the last of them is a blur small enough to be no blur.
 
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
-const headerFadeReach = 22
+const headerFadeReach = 18
 
 // The fade's two blurs, in DIPs: the coarse one under the header, and the
 // fine one that takes over from it and hands the document back. Two DIPs is
@@ -47,31 +47,40 @@ const (
 // over anything else — over a callout's blue it leaves the blue, where a
 // veil near 1 would leave a white band with a straight edge. The blur does
 // the work; the veil only softens the hand-off.
-const headerFadeVeil = 0.3
+const headerFadeVeil = 0.5
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
 const headerFadeRamp = 48
 
+// headerFadeDecay is how fast a copy leaves once it starts to: the fall is
+// exponential, not an S — the first half of the way takes most of the copy
+// with it, and what is left trails off. A cross-fade between two blurs has
+// its change in the middle of an S, where the eye finds it; an exponential
+// has its change at the top, where the veil is thickest, and nothing after.
+const headerFadeDecay = 2.5
+
 // The fade's layout, as shares of headerFadeReach below the header, where
 // 0 is the header's bottom and 1 the strip's:
 //
-//	0 ─ 0.10 ──── 0.40 ──── 0.62 ──── 0.88 ── 1
-//	coarse  ██████▓▓▓▓▓▓░░░░░░░░░░░░░░░░░░░░░
-//	fine    ██████████████████████████▓▓▓▓░░░
-//	veil    ████████████▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░
+//	0 ───── 0.12 ──────────────────── 0.85 ─ 1
+//	coarse  █████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░
+//	fine    ███████████████████████████████▓▓▓▓
+//	veil    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 //
-// The coarse copy hands over high up — a tenth to four tenths — where the
-// veil is still nearly all of its three tenths, so the change from 3 DIPs of
-// blur to 2 happens under the color rather than in the open. The fine copy
-// then holds most of the way down and goes with the veil, so the strip's foot
-// is the only place either of them is faded and uncovered.
+// The coarse copy holds the two DIPs under the header whole, then leaves on
+// an exponential: most of it gone in the first third of its fall, where the
+// veil is still thick, and a tail that thins to nothing — so the change from
+// three DIPs of blur to two is under the color rather than in the open. The
+// fine copy then holds most of the way down and goes with the veil, which
+// falls from the header's edge to the strip's foot, both of them out by the
+// foot so that nothing of the strip ends on an edge.
 const (
-	fadeCoarseHold = 0.10
-	fadeCoarseEnd  = 0.40
-	fadeSeamHold   = 0.62
-	fadeVeilHold   = 0.30
-	fadeVeilGone   = 0.90
+	fadeCoarseHold = 0.12
+	fadeCoarseEnd  = 0.85
+	fadeSeamHold   = 0.75
+	fadeVeilHold   = 0.0
+	fadeVeilGone   = 1
 )
 
 // fadeLayers are the fade's copies: each covers the strip from its top
@@ -92,10 +101,12 @@ var Solid float
 var Hold float
 var End float
 var Cover float
+var Decay float
 
 func Fragment(dst vec4, pos vec2) vec4 {
 	t := clamp((pos.y-Solid)/max(Band-Solid, 1.0), 0.0, 1.0)
-	k := (1.0 - smoothstep(Hold, End, t)) * Cover
+	x := clamp((t-Hold)/max(End-Hold, 0.001), 0.0, 1.0)
+	k := (exp(-Decay*x) - exp(-Decay)) / (1.0 - exp(-Decay)) * Cover
 	c := backdropSample(pos)
 	return vec4(c.rgb*k, c.a*k)
 }
@@ -130,6 +141,7 @@ var (
 	blurHoldU  = headerBlurShader.Uniform("Hold")
 	blurEndU   = headerBlurShader.Uniform("End")
 	blurCoverU = headerBlurShader.Uniform("Cover")
+	blurDecayU = headerBlurShader.Uniform("Decay")
 	veilBandU  = headerVeilShader.Uniform("Band")
 	veilSolidU = headerVeilShader.Uniform("Solid")
 	veilTintU  = headerVeilShader.Uniform("Tint")
@@ -185,7 +197,8 @@ func (a *App) paintHeaderVeil(p *ui.Painter, r ui.Rect, h float32) {
 			Float(blurSolidU, h).
 			Float(blurHoldU, l.hold).
 			Float(blurEndU, l.end).
-			Float(blurCoverU, cover)
+			Float(blurCoverU, cover).
+			Float(blurDecayU, headerFadeDecay)
 		headerBlurShader.Draw(p, r, shader.Options{Values: a.blurValues, BackdropBlur: l.blur})
 	}
 	if headerFadeVeil <= 0 {
