@@ -28,7 +28,7 @@ import (
 // then "not", and the last of them is a blur small enough to be no blur.
 
 // headerFadeReach is how far the fade reaches below the header, in DIPs.
-const headerFadeReach = 18
+const headerFadeReach = 28
 
 // The fade's two blurs, in DIPs: the coarse one under the header, and the
 // fine one that takes over from it and hands the document back. The fine one
@@ -38,7 +38,7 @@ const headerFadeReach = 18
 // for the same reason; a DIP is twice that on a retina display, and a copy
 // that far from the document does show where it goes.)
 const (
-	headerFadeBlur = 3
+	headerFadeBlur = 8
 	headerFadeSeam = 1
 )
 
@@ -48,7 +48,7 @@ const (
 // over anything else — over a callout's blue it leaves the blue, where a
 // veil near 1 would leave a white band with a straight edge. The blur does
 // the work; the veil only softens the hand-off.
-const headerFadeVeil = 0.5
+const headerFadeVeil = 0
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
@@ -59,7 +59,7 @@ const headerFadeRamp = 48
 // with it, and what is left trails off. A cross-fade between two blurs has
 // its change in the middle of an S, where the eye finds it; an exponential
 // has its change at the top, where the veil is thickest, and nothing after.
-const headerFadeDecay = 2.5
+const headerFadeDecay = 4
 
 // The fade's layout, as shares of headerFadeReach below the header, where
 // 0 is the header's bottom and 1 the strip's:
@@ -78,8 +78,8 @@ const headerFadeDecay = 2.5
 // foot so that nothing of the strip ends on an edge.
 const (
 	fadeCoarseHold = 0.12
-	fadeCoarseEnd  = 0.75
-	fadeSeamHold   = 0.68
+	fadeCoarseEnd  = 0.72
+	fadeSeamHold   = 0.70
 	fadeVeilHold   = 0.0
 	fadeVeilGone   = 1
 )
@@ -87,8 +87,10 @@ const (
 // fadeLayers are the fade's copies: each covers the strip from its top
 // until Hold, as a share of the strip's fade, and opens up by End.
 var fadeLayers = []struct{ blur, hold, end float32 }{
-	{headerFadeBlur, fadeCoarseHold, fadeCoarseEnd},
-	{headerFadeSeam, fadeSeamHold, 1},
+	{8, 0.10, 0.45},
+	{4, 0.25, 0.62},
+	{2, 0.45, 0.80},
+	{1, 0.70, 1},
 }
 
 // headerBlurShader lays one blurred copy of the strip's backdrop over it,
