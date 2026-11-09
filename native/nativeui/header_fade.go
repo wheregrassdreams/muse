@@ -48,7 +48,7 @@ const (
 // over anything else — over a callout's blue it leaves the blue, where a
 // veil near 1 would leave a white band with a straight edge. The blur does
 // the work; the veil only softens the hand-off.
-const headerFadeVeil = 0
+const headerFadeVeil = 0.2
 
 // headerFadeRamp is how far the document scrolls before the header's fade
 // is as strong as it gets, in DIPs.
@@ -81,16 +81,15 @@ const (
 	fadeCoarseEnd  = 0.72
 	fadeSeamHold   = 0.70
 	fadeVeilHold   = 0.0
-	fadeVeilGone   = 1
+	fadeVeilGone   = 0.85
 )
 
 // fadeLayers are the fade's copies: each covers the strip from its top
 // until Hold, as a share of the strip's fade, and opens up by End.
 var fadeLayers = []struct{ blur, hold, end float32 }{
-	{8, 0.10, 0.45},
-	{4, 0.25, 0.62},
-	{2, 0.45, 0.80},
-	{1, 0.70, 1},
+	{8, 0.10, 0.50},
+	{3, 0.35, 0.78},
+	{1, 0.65, 1},
 }
 
 // headerBlurShader lays one blurred copy of the strip's backdrop over it,
