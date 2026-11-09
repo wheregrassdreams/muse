@@ -55,12 +55,12 @@ const headerFadeVeil = 0.2
 const headerFadeRamp = 48
 
 // headerFadeSolid is the share of the header's height that stays under the
-// widest blur: the fade's ladder starts half way down the header, so the
-// top of the window is blurred whole and the rest of the way is spread over
-// the header's lower half and the fade, rather than crammed into the fade
-// alone. At 1 the header is one flat blur; at 0 the blur grows all the way
-// from the window's top, as macOS's scroll edge does, and the header's own
-// text sits over what is only half blurred.
+// widest blur: at 1 the whole header is one flat blur and the fade's ladder
+// lies below it, in the strip; at 0.5 the ladder starts half way down the
+// header — but then half of it is behind the header's own text, where nobody
+// looks, and what shows below the header is barely blurred at all (measured:
+// the darkest pixel at the strip's top goes from 145 at 1 to 51 at 0.5,
+// against 29 sharp). It moves the ladder; it does not lengthen it.
 const headerFadeSolid = 1
 
 // headerFadeDecay is how fast a copy leaves once it starts to: the fall is
