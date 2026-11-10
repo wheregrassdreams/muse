@@ -1,8 +1,9 @@
 package mdedit
 
 import (
-	"github.com/egoist/mygo/ui/markdown/parser"
 	"strings"
+
+	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
 func (e *Editor) isInlineMathRange(start, end int) bool {
@@ -34,6 +35,11 @@ func (e *Editor) activeInlineMath() (start, end int, tex string, ok bool) {
 		e.mathPreviewHidden = false
 		return
 	}
+	if e.inlineMathOK && (e.inlineMathStart < 0 || e.inlineMathEnd > len(e.src) ||
+		e.inlineMathStart >= e.inlineMathEnd || e.caret < e.inlineMathStart || e.caret > e.inlineMathEnd) {
+		e.inlineMathOK = false
+		e.mathPreviewHidden = false
+	}
 	if !e.inlineMathOK {
 		e.sync()
 		i := e.leafIndex(e.caret)
@@ -55,12 +61,23 @@ func (e *Editor) activeInlineMath() (start, end int, tex string, ok bool) {
 		}
 	}
 	start, end = e.inlineMathStart, e.inlineMathEnd
-	if start < 0 || end > len(e.src) || start >= end || e.caret < start || e.caret > end {
-		e.inlineMathOK = false
-		e.mathPreviewHidden = false
-		return 0, 0, "", false
-	}
-	s := e.src[start:end]
+	cs, ce := inlineMathContent(e.src[start:end])
+	return start, end, e.src[start+cs : start+ce], true
+}
+
+// inlineMathRange is the session used by a view with its own reveal offset.
+// In particular, a collapsed speculative view cannot inherit the real caret's
+// expanded source, nor can a stale session survive moving or losing focus.
+func (e *Editor) inlineMathRange(l *leaf, at int) (int, int, bool) {
+	s, z := e.inlineMathStart, e.inlineMathEnd
+	ok := e.inlineMathOK && e.focused && e.caret >= s && e.caret <= z &&
+		at >= s && at <= z && s >= l.lineStart && z <= l.end
+	return s, z, ok
+}
+
+// inlineMathContent returns the TeX bounds within a session, tolerating a
+// deleted opener/closer and an escaped closing delimiter.
+func inlineMathContent(s string) (start, end int) {
 	opening, closing := "$", "$"
 	switch {
 	case strings.HasPrefix(s, "$$"):
@@ -70,16 +87,19 @@ func (e *Editor) activeInlineMath() (start, end int, tex string, ok bool) {
 	case strings.HasPrefix(s, `\[`):
 		opening, closing = `\[`, `\]`
 	}
-	tex = strings.TrimPrefix(s, opening)
-	if strings.HasSuffix(tex, closing) {
-		pos := len(tex) - len(closing)
+	if strings.HasPrefix(s, opening) {
+		start = len(opening)
+	}
+	end = len(s)
+	if strings.HasSuffix(s[start:], closing) {
+		pos := end - len(closing)
 		slashes := 0
-		for i := pos - 1; i >= 0 && tex[i] == '\\'; i-- {
+		for i := pos - 1; i >= start && s[i] == '\\'; i-- {
 			slashes++
 		}
 		if slashes%2 == 0 {
-			tex = tex[:pos]
+			end = pos
 		}
 	}
-	return start, end, tex, true
+	return
 }

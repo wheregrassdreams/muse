@@ -60,6 +60,14 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	case ui.InputScroll:
 		return e.scrollDiagram(ev)
 	case ui.InputPointerUp:
+		if e.imageDrag != nil {
+			d := e.imageDrag
+			e.imageDrag = nil
+			e.resizeImageSource(d.hit, d.previewWidth)
+			e.assetGen.Add(1)
+			e.invalidate()
+			return true
+		}
 		if e.diagPan != nil {
 			e.diagPan = nil
 			return true
@@ -236,6 +244,12 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		return e.tab(shift)
 	case ui.KeyEscape:
+		if e.imageDrag != nil {
+			e.imageDrag = nil
+			e.assetGen.Add(1)
+			e.invalidate()
+			return true
+		}
 		if _, _, _, ok := e.activeInlineMath(); ok && !e.mathPreviewHidden {
 			e.mathPreviewHidden = true
 			return true
@@ -361,6 +375,24 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	}
 	e.layoutIfNeeded()
 	x, y := ev.X, ev.Y
+	if hit, ok := e.imageAt(x, y); ok {
+		preview, source, grip := imageToolRects(hit.box, e.lk.size)
+		switch {
+		case preview.Contains(x, y):
+			if e.opts.OnImagePreview != nil {
+				e.opts.OnImagePreview(hit.obj.imagePath)
+			}
+			return true
+		case source.Contains(x, y):
+			if hit.leaf != nil {
+				e.toggleSource(hit.leaf)
+			}
+			return true
+		case grip.Contains(x, y):
+			e.imageDrag = &imageResizeDrag{hit: hit, startX: x, startY: y, startWidth: hit.obj.w, previewWidth: hit.obj.w}
+			return true
+		}
+	}
 	if l, v, box, contentW, ok := e.diagramBarAt(x, y); ok {
 		e.pressDiagramBar(l, v, box, contentW, x, y)
 		return true
@@ -472,6 +504,16 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 // or drags a diagram's scroll bar.
 func (e *Editor) drag(ev ui.InputEvent) bool {
 	e.pointerX, e.pointerY = ev.X, ev.Y
+	if e.imageDrag != nil {
+		if ev.Button != 0 {
+			return false
+		}
+		dx, dy := ev.X-e.imageDrag.startX, ev.Y-e.imageDrag.startY
+		e.imageDrag.previewWidth = max(40, e.imageDrag.startWidth+(dx+dy)*0.5)
+		e.assetGen.Add(1)
+		e.invalidate()
+		return true
+	}
 	if e.diagPan != nil {
 		if ev.Button != 0 {
 			e.diagPan = nil
@@ -549,6 +591,18 @@ func (e *Editor) autoScroll() bool {
 // over its scroll bar, an I-beam over the text.
 func (e *Editor) hover(x, y float32) {
 	e.pointerX, e.pointerY = x, y
+	if hit, ok := e.imageAt(x, y); ok {
+		preview, source, grip := imageToolRects(hit.box, e.lk.size)
+		if preview.Contains(x, y) || source.Contains(x, y) {
+			e.cursor = ui.CursorPointer
+		} else if grip.Contains(x, y) {
+			e.cursor = ui.CursorResizeNWSE
+		} else {
+			e.cursor = ui.CursorText
+		}
+		e.invalidate()
+		return
+	}
 	// The pointer on the source control of the block it is on keeps that
 	// block: the control rides above the block, where the pointer is on
 	// nothing else.
@@ -592,7 +646,7 @@ func (e *Editor) hover(x, y float32) {
 func (e *Editor) diagramBarAt(x, y float32) (*leaf, *leafView, ui.Rect, float32, bool) {
 	for _, l := range e.leaves {
 		v := l.view
-		if v == nil || v.diagram == nil {
+		if v == nil || v.diagram == nil || !v.diagBarShown {
 			continue
 		}
 		box, contentW := e.diagramBox(l, v, 0, 0)

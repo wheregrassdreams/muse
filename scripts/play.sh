@@ -28,7 +28,7 @@ reset() {
 }
 
 build() {
-  go build -C native -o .mygo/play/Muse .
+  sh scripts/go.sh build -C native -o .mygo/play/Muse .
   identity="$(mygo_sign_identity)"
   if [ -n "$identity" ] && command -v codesign >/dev/null 2>&1; then
     codesign --force --sign "$identity" --timestamp=none "$out/Muse"
@@ -49,7 +49,7 @@ launch() {
 # editing it brings the note back with what was written.
 sources() {
   find native/mdedit native/nativeui native/mdoc native/services native/doc \
-    native/cmd native/main.go "$fixture" \
+    native/cmd native/frontmatter native/notestore native/vaultindex native/vaultsearch native/vaultwatch native/scrollui native/main.go "$fixture" \
     -newer "$1" \( -name '*.go' -o -name '*.md' \) -print -quit 2>/dev/null
 }
 

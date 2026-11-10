@@ -65,7 +65,18 @@ func (e *Editor) tableEdgesView(c *ui.Context, viewport ui.Rect) {
 				continue
 			}
 			ui.Overlay(c, func() {
-				el := ui.Box(c).Absolute().Left(r.X).Top(r.Y).Width(r.W).Height(r.H).Label(label).Cursor(ui.CursorPointer).Tooltip(label)
+				el := ui.Box(c).Absolute().Left(r.X).Top(r.Y).Width(r.W).Height(r.H).Label(label).Cursor(ui.CursorPointer).Tooltip(label).
+					HandleInput(func(ev ui.InputEvent) bool {
+						if ev.Kind != ui.InputScroll {
+							return false
+						}
+						y := min(max(e.scroll.Y+ev.DY, 0), e.scroll.MaxY)
+						if y != e.scroll.Y {
+							e.scroll.Y = y
+							e.invalidate()
+						}
+						return true
+					})
 				_, _, over := el.PointerPosition()
 				if over {
 					c.After(40 * time.Millisecond)

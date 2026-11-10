@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 identity="$(mygo_sign_identity)"
 mkdir -p out
-go build -C native -o ../out/Muse .
+sh scripts/go.sh build -C native -o ../out/Muse .
 
 if [ -n "$identity" ] && command -v codesign >/dev/null 2>&1; then
   codesign --force --sign "$identity" --timestamp=none out/Muse

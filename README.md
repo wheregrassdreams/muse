@@ -45,15 +45,19 @@ Grab a build from [Releases](https://github.com/CarlOpenLab/muse/releases/latest
 ```bash
 sh scripts/dev.sh             # run (signed, so macOS keeps permission grants)
 sh scripts/build.sh           # build a binary, signed with the same identity
-go test -C native ./...       # tests
+sh scripts/go.sh -C native test ./... # tests, with native search library
 ```
 
 The scripts sign with the first `Apple Development` identity in your keychain
 (override with `MACOS_SIGNING_IDENTITY`), so macOS permission grants survive
-rebuilds. On Windows, use `go run -C native .` / `go build -C native -o Muse .`
-directly.
+rebuilds. On Windows, use Git Bash and `sh scripts/go.sh -C native run .` /
+`sh scripts/go.sh -C native build -o Muse.exe .`.
 
-Requires Go 1.27.3+. No Node, no pnpm, no vite — there is no frontend build at all.
+Requires Go 1.27.3+, CGO and a C compiler. Experimental full-text search uses
+Anytype's Tantivy binding; the scripts download and checksum its pinned static
+library on first build. Linux uses the musl artifact and requires `CC=musl-gcc`.
+See [search build and runtime notes](docs/tantivy-search.md).
+No Node, no pnpm, no vite — there is no frontend build at all.
 
 ## Project layout
 

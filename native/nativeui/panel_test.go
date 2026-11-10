@@ -59,18 +59,18 @@ func TestPanelDragResizesAndFolds(t *testing.T) {
 	}
 }
 
-// TestModulesShareOnePanelWidth checks that switching modules never
-// resizes the panel: the four views share one width, so the editor beside
-// it does not reflow and flicker.
+// TestModulesShareOnePanelWidth checks that sidebar modules and current-file
+// search keep one width, so the editor beside the panel does not reflow.
 func TestModulesShareOnePanelWidth(t *testing.T) {
 	a := New()
+	a.aiEnabled = true
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	want := a.panelWidth
 	if want != panelDefaultWidth {
 		t.Fatalf("the panel starts at %.0f, want the one %.0f", want, panelDefaultWidth)
 	}
-	for _, label := range []string{"搜索", "AI 助手", "返回文件树"} {
+	for _, label := range []string{"AI 助手", "返回文件树"} {
 		if err := tt.Click(label); err != nil {
 			t.Fatalf("click %s: %v", label, err)
 		}
@@ -81,6 +81,13 @@ func TestModulesShareOnePanelWidth(t *testing.T) {
 		if a.panelW != want {
 			t.Fatalf("switching to %s drew the panel %.0f wide, want %.0f", label, a.panelW, want)
 		}
+	}
+	// Full-vault search is a floating overlay; the current-document search
+	// panel remains available to Cmd+F and keeps the shared panel width.
+	a.showPanel(panelSearch)
+	tt.Frame()
+	if a.panelWidth != want || a.panelW != want {
+		t.Fatalf("current-document search changed panel width: target=%.0f actual=%.0f", want, a.panelWidth)
 	}
 	// A width the user dragged to stays across a switch as well.
 	a.panelWidth = 320
@@ -151,6 +158,7 @@ func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 // on.
 func TestTopBarControlsShareOneLine(t *testing.T) {
 	a := New()
+	a.aiEnabled = true
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()

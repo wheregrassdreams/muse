@@ -1,0 +1,28 @@
+goos: darwin
+goarch: arm64
+pkg: muse-searchprobe
+cpu: Apple M3
+BenchmarkProbe/1000/Build-8   	       1	 187472291 ns/op	  10.92 MB/s	215154608 B/op	 1090700 allocs/op
+BenchmarkProbe/1000/Search/commonword-8         	       1	    783333 ns/op	  882296 B/op	    2559 allocs/op
+BenchmarkProbe/1000/Literal/commonword-8        	       1	   7595500 ns/op	  179784 B/op	      16 allocs/op
+BenchmarkProbe/1000/Search/rareword-8           	       1	    148209 ns/op	  557608 B/op	     655 allocs/op
+BenchmarkProbe/1000/Literal/rareword-8          	       1	  14694625 ns/op	  114968 B/op	       6 allocs/op
+BenchmarkProbe/1000/Search/absentword-8         	       1	    104917 ns/op	  553472 B/op	     511 allocs/op
+BenchmarkProbe/1000/Literal/absentword-8        	       1	  15886208 ns/op	  114920 B/op	       5 allocs/op
+BenchmarkProbe/1000/Search/中文-8                 	       1	    547209 ns/op	  880544 B/op	    2652 allocs/op
+BenchmarkProbe/1000/Literal/中文-8                	       1	   7311542 ns/op	  179768 B/op	      15 allocs/op
+BenchmarkProbe/1000/Update-8                    	       1	  14542125 ns/op	 7395784 B/op	    6566 allocs/op
+BenchmarkProbe/1000/Reopen-8                    	       1	  51148334 ns/op	22319576 B/op	   71798 allocs/op
+BenchmarkProbe/10000/Build-8                    	       1	1957902499 ns/op	  10.46 MB/s	2265805352 B/op	10969844 allocs/op
+BenchmarkProbe/10000/Search/commonword-8        	       1	   6323625 ns/op	 6188656 B/op	   33819 allocs/op
+BenchmarkProbe/10000/Literal/commonword-8       	       1	   9643792 ns/op	80976064 B/op	   32695 allocs/op
+BenchmarkProbe/10000/Search/rareword-8          	       1	    121583 ns/op	  556144 B/op	     532 allocs/op
+BenchmarkProbe/10000/Literal/rareword-8         	       1	 152452708 ns/op	 1122584 B/op	       6 allocs/op
+BenchmarkProbe/10000/Search/absentword-8        	       1	    112542 ns/op	  557240 B/op	     981 allocs/op
+BenchmarkProbe/10000/Literal/absentword-8       	       1	 159750000 ns/op	 1533240 B/op	    8110 allocs/op
+BenchmarkProbe/10000/Search/中文-8                	       1	   6283167 ns/op	 5421256 B/op	   29702 allocs/op
+BenchmarkProbe/10000/Literal/中文-8               	       1	   9057334 ns/op	 1187384 B/op	      15 allocs/op
+BenchmarkProbe/10000/Update-8                   	       1	 210348083 ns/op	65478368 B/op	   45778 allocs/op
+BenchmarkProbe/10000/Reopen-8                   	       1	 181529125 ns/op	112023264 B/op	  201564 allocs/op
+PASS
+ok  	muse-searchprobe	5.589s

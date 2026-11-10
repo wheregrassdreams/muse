@@ -151,3 +151,52 @@ func TestTableEdgeHoverLeaves(t *testing.T) {
 		t.Fatal("hover strip did not disappear")
 	}
 }
+
+func TestTableEdgeScrollStaysWithEditor(t *testing.T) {
+	src := "| A | B |\n| --- | --- |\n|  |  |\n\n" + strings.Repeat("paragraph\n\n", 80)
+	e := New(src, Options{FontSize: 16})
+	var other ui.ScrollState
+	var viewport ui.Rect
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Width(800).Height(600).Children(func() {
+			ui.Column(c).Width(500).FillHeight().Children(func() {
+				e.View(c).Grow(1)
+				viewport = e.scrollHandle.Bounds(c)
+			})
+			ui.Column(c).Width(300).FillHeight().Children(func() {
+				ui.Scroll(c).Fill().TrackScroll(&other).Children(func() {
+					for range 80 {
+						ui.Text(c, "other panel content").Height(24)
+					}
+				})
+			})
+		})
+	}, 1000, 600)
+	tt.Frame()
+	tt.Frame()
+	var table *leaf
+	for _, l := range e.leaves {
+		if l.tab != nil {
+			table = l
+			break
+		}
+	}
+	if table == nil || e.scroll.MaxY <= 0 || viewport.W <= 0 || viewport.H <= 0 {
+		t.Fatalf("editor table or scroll range missing: table=%v max=%v viewport=%+v", table != nil, e.scroll.MaxY, viewport)
+	}
+	x := viewport.X + table.x + table.geom.w/2
+	y := viewport.Y + table.y - e.scroll.Y + table.geom.rowY[len(table.geom.rowY)-1] - 2
+	before := e.scroll.Y
+	otherBefore := other.Y
+	tt.Move(x, y)
+	tt.Frame()
+	tt.Wheel(x, y, 0, 80)
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if e.scroll.Y <= before {
+		t.Fatalf("wheel over table edge left editor at %v", e.scroll.Y)
+	}
+	if other.Y != otherBefore {
+		t.Fatalf("wheel over table edge scrolled other panel: %v -> %v", otherBefore, other.Y)
+	}
+}

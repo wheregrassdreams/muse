@@ -9,7 +9,9 @@
 package nativeui
 
 import (
+	"errors"
 	"fmt"
+	"muse/notestore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,7 +27,9 @@ import (
 
 	"muse/mdedit"
 	"muse/mdoc"
+	"muse/scrollui"
 	"muse/services"
+	"muse/vaultsearch"
 )
 
 const (
@@ -103,11 +107,29 @@ var (
 	messageDialog = mygo.Dialog.Message
 	errorDialog   = mygo.Dialog.Error
 	trashItem     = mygo.Shell.TrashItem
+	shellOpenPath = mygo.Shell.OpenPath
 )
 
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
-	win *mygo.Window
+	documents           *documentRuntime
+	vault               *vaultRuntime
+	pendingLinks        bool
+	workspaceSearch     bool
+	workspaceQuery      string
+	workspaceSearchSel  int
+	workspaceScroll     ui.ScrollState
+	workspaceIndicator  scrollui.Indicator
+	workspaceReveal     bool
+	workspaceSubmit     bool
+	workspaceInputFocus ui.Handle
+	indexedPath         string
+	indexedOffset       int
+	indexedRevision     string
+	win                 *mygo.Window
+	imagePreview        imagePreviewState
+	imageDocument       imageDocumentState
+	restoreEditorFocus  bool
 
 	folderToggled map[string]time.Time
 
@@ -122,7 +144,7 @@ type App struct {
 	cmdSel     int
 
 	// appearance
-	themeMode int // 0 pure white, 1 near black
+	themeMode int // themeLight, themeDark, or themeSystem
 	// navHist 是打开过的文档，navAt 是当前停在的位置：编辑器的后退/前进
 	// 在这里走，和浏览器一样，新的打开会截断后面的记录。
 	navHist []string
@@ -171,13 +193,22 @@ type App struct {
 	// mainMu 在 headless 下把 onMain 和渲染帧串起来：没有窗口事件循环
 	// 时 onMain 就地执行，后台 Agent 会与测试的帧同时改编辑器和 AI
 	// 状态；有窗口时 onMain 本来就在帧的线程上，锁空转。
-	mainMu       sync.Mutex
-	root         string
-	dirs         map[string][]string
-	isDir        map[string]bool
-	expanded     map[string]bool
-	fileList     ui.ListState
-	selectedPath string
+	mainMu            sync.Mutex
+	root              string
+	dirs              map[string][]string
+	isDir             map[string]bool
+	expanded          map[string]bool
+	fileList          ui.ListState
+	fileScroll        ui.ScrollState
+	fileIndicator     scrollui.Indicator
+	outlineScroll     ui.ScrollState
+	outlineIndicator  scrollui.Indicator
+	searchScroll      ui.ScrollState
+	searchIndicator   scrollui.Indicator
+	selectedPath      string
+	propertiesOpen    bool
+	propertyScroll    ui.ScrollState
+	propertyIndicator scrollui.Indicator
 
 	// document: the editor owns the Markdown being written; source mirrors
 	// it for what reads the document (saving, search, the AI's tools), and
@@ -189,12 +220,32 @@ type App struct {
 	headings []heading
 	dirty    bool
 
+	propertyTitleEditing bool
+	propertyTitleFocused bool
+	propertyTitleDraft   string
+	propertyEditKey      string
+	propertyEditDraft    string
+	propertyEditLocation string
+	propertyAddKey       string
+	propertyAddValue     string
+	propertyAddKind      string
+	propertySourceMode   bool
+	propertySourceDraft  string
+	propertyPrefs        documentPropertyPrefs
+	propertySystem       []systemProperty
+	propertyError        string
+	propertyCache        propertyDocumentCache
+
 	// settings
-	settingsOpen bool
-	settingsTab  int
-	settingsDrag ui.Point
-	fontSize     float64
-	lineHeight   float64
+	settingsOpen      bool
+	settingsTab       int
+	settingsDrag      ui.Point
+	settingsScroll    ui.ScrollState
+	settingsIndicator scrollui.Indicator
+	aiEnabled         bool
+	aiIndicator       scrollui.Indicator
+	fontSize          float64
+	lineHeight        float64
 
 	// AI
 	ai          aiSettings
@@ -257,6 +308,7 @@ type App struct {
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
 	a := &App{
+		themeMode:     themeSystem,
 		panel:         panelFiles,
 		panelOpen:     true,
 		flat:          true,
@@ -289,6 +341,29 @@ func New() *App {
 func (a *App) View(c *ui.Context) {
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
+	closedImagePreview := false
+	if (a.propertyTitleEditing || a.propertyEditKey != "" || a.propertySourceMode) && c.Shortcut(0, ui.KeyEscape) {
+		switch {
+		case a.propertyTitleEditing:
+			a.propertyTitleEditing = false
+		case a.propertyEditKey != "":
+			a.propertyEditKey, a.propertyEditLocation = "", ""
+		case a.propertySourceMode:
+			a.propertySourceMode = false
+		}
+		a.invalidate()
+	}
+	if a.imagePreview.open && c.Shortcut(0, ui.KeyEscape) {
+		a.closeImagePreview()
+		closedImagePreview = true
+		a.invalidate()
+	}
+	if !a.imagePreview.open && a.restoreEditorFocus && !closedImagePreview {
+		a.ed.Focus()
+		a.restoreEditorFocus = false
+	}
+	a.vaultTick(c)
+	a.documentTick(c)
 	a.applyTheme(c)
 	row := ui.Row(c).Fill()
 	if c.Vibrancy() {
@@ -302,14 +377,24 @@ func (a *App) View(c *ui.Context) {
 	row.Children(func() {
 		a.contextPanel(c)
 		a.canvas(c)
+		if a.propertiesOpen {
+			a.propertiesSidebar(c)
+		}
 	})
 
 	a.sidebarToggle(c)
 	a.windowControls(c)
-	a.settingsDialog(c)
-	a.renameDialog(c)
-	a.quickOpenDialog(c)
-	a.commandPaletteDialog(c)
+	if !a.imagePreview.open && !closedImagePreview {
+		a.settingsDialog(c)
+		a.renameDialog(c)
+		a.documentDialogs(c)
+		a.historyDialog(c)
+		a.linksDialog(c)
+		a.quickOpenDialog(c)
+		a.commandPaletteDialog(c)
+		a.workspaceSearchDialog(c)
+	}
+	a.imagePreviewDialog(c)
 }
 
 // windowBG is a single flat color, not a wash: the light side is a neutral
@@ -322,7 +407,8 @@ func (a *App) windowBG() ui.Color {
 }
 
 func (a *App) applyTheme(c *ui.Context) {
-	a.dark = a.themeMode == 1
+	systemDark := c.Theme().Dark
+	a.dark = a.themeMode == themeDark || (a.themeMode == themeSystem && systemDark)
 	a.syncAppearance()
 	t := *c.Theme()
 	if a.dark {
@@ -370,12 +456,17 @@ func (a *App) syncAppearance() {
 		return
 	}
 	a.themeApplied = a.themeMode
-	if a.themeMode == 1 {
+	switch a.themeMode {
+	case themeDark:
 		setAppAppearance(mygo.ThemeDark)
-		return
+	case themeSystem:
+		setAppAppearance(mygo.ThemeSystem)
+	default:
+		setAppAppearance(mygo.ThemeLight)
 	}
-	setAppAppearance(mygo.ThemeLight)
 }
+
+func sidebarColor(t *ui.Theme) ui.Color { return t.Background.Alpha(0.94) }
 
 // canvas is the floating editor card: 8px away from the window's top, right
 // and bottom, and 8px from the context panel. The rail and the panel paint
@@ -451,7 +542,7 @@ func (a *App) sidebarToggle(c *ui.Context) {
 // view is a raised card, as the demo's chosen sidebar row is.
 func (a *App) rail(c *ui.Context) {
 	bar := c.TitleBar()
-	ui.Column(c).Width(railWidth).FillHeight().Padding(0, railInset).GapY(railGapY).Children(func() {
+	ui.Column(c).Width(railWidth).FillHeight().Background(sidebarColor(c.Theme())).Padding(0, railInset).GapY(railGapY).Children(func() {
 		// The room above the first button: macOS's traffic lights when the
 		// system reports them, else just enough to centre the first button
 		// on the window's one top line.
@@ -463,20 +554,15 @@ func (a *App) rail(c *ui.Context) {
 		a.railButton(c, iconOutline, "大纲", a.panelOpen && a.panel == panelOutline, func() {
 			a.showPanel(panelOutline)
 		})
-		a.railButton(c, iconSearch, "搜索", a.panelOpen && a.panel == panelSearch, func() {
-			a.showPanel(panelSearch)
+		a.railButton(c, iconSearch, "搜索笔记库", false, func() {
+			a.openWorkspaceSearch()
 		})
-		a.railButton(c, iconAI, "AI 助手", a.panelOpen && a.panel == panelAI, func() {
-			a.showPanel(panelAI)
-		})
-		ui.Spacer(c)
-		themeIcon := iconMoon
-		themeLabel := "切换到深色"
-		if a.dark {
-			themeIcon = iconSun
-			themeLabel = "切换到浅色"
+		if a.aiEnabled {
+			a.railButton(c, iconAI, "AI 助手", a.panelOpen && a.panel == panelAI, func() {
+				a.showPanel(panelAI)
+			})
 		}
-		a.railButton(c, themeIcon, themeLabel, false, func() { a.themeMode = 1 - a.themeMode })
+		ui.Spacer(c)
 		a.railButton(c, iconSettings, "设置", a.settingsOpen, a.openSettings)
 		ui.Box(c).Height(8)
 	})
@@ -573,7 +659,7 @@ func (a *App) contextPanel(c *ui.Context) {
 		a.panelDirect = false
 	}
 	a.panelW = w
-	panel.Width(w)
+	panel.Width(w).Background(sidebarColor(c.Theme()))
 	if w < 0.5 {
 		return
 	}
@@ -717,11 +803,12 @@ func (a *App) sidebarHeader(c *ui.Context) {
 		left = bar.Left + 34
 	}
 	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, 8, 0, left).DragWindow().AlignItems(ui.Center).Children(func() {
-		a.smallIcon(c, iconAI, "AI 助手", func() { a.showPanel(panelAI) })
+		if a.aiEnabled {
+			a.smallIcon(c, iconAI, "AI 助手", func() { a.showPanel(panelAI) })
+		}
 	})
 	ui.Row(c).Height(44).Shrink(0).Padding(0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 		name := a.spaceName()
-		ui.Box(c).Size(20, 20).Radius(6).Background(t.Surface).Center().Children(func() { ui.Text(c, firstRune(name)).FontSize(11).FontWeight(700) })
 		space := ui.ButtonBase(c).Height(28).Padding(0, 4).Radius(6).Label(name).Tooltip("工作区")
 		space.Menu(func(m *ui.Menu) {
 			if m.Item("打开文件夹…").Chosen() {
@@ -738,7 +825,7 @@ func (a *App) sidebarHeader(c *ui.Context) {
 			})
 		})
 		ui.Spacer(c)
-		a.smallIcon(c, iconSearch, "搜索", func() { a.showPanel(panelSearch) })
+		a.smallIcon(c, iconSearch, "搜索笔记库", func() { a.openWorkspaceSearch() })
 		ui.Row(c).Height(28).Radius(8).Background(t.Surface).AlignItems(ui.Center).Children(func() {
 			a.smallIcon(c, iconEdit, "新建文档", func() {
 				if a.root != "" {
@@ -765,12 +852,7 @@ func (a *App) sidebarHeader(c *ui.Context) {
 
 // sidebarFooter holds the settings of the app itself, at the sidebar's foot.
 func (a *App) sidebarFooter(c *ui.Context) {
-	themeIcon, themeLabel := iconMoon, "切换到深色"
-	if a.dark {
-		themeIcon, themeLabel = iconSun, "切换到浅色"
-	}
 	ui.Row(c).Shrink(0).Padding(0, 8, 10, 8).Gap(2).Children(func() {
-		a.smallIcon(c, themeIcon, themeLabel, func() { a.themeMode = 1 - a.themeMode })
 		a.smallIcon(c, iconSettings, "设置", a.openSettings)
 	})
 }
@@ -785,14 +867,6 @@ func (a *App) spaceName() string {
 		return filepath.Base(filepath.Dir(a.path))
 	}
 	return "未命名"
-}
-
-// firstRune is the first character of s, for a space's tile.
-func firstRune(s string) string {
-	for _, r := range s {
-		return string(r)
-	}
-	return "·"
 }
 
 func (a *App) smallIcon(c *ui.Context, icon *ui.SVG, label string, fn func()) {
@@ -854,6 +928,10 @@ func (a *App) filesView(c *ui.Context) {
 		})
 		return
 	}
+	showScrollbar := a.fileIndicator.Visible(c.Now(), a.fileScroll.X, a.fileScroll.Y)
+	if showScrollbar {
+		c.After(a.fileIndicator.Remaining(c.Now()))
+	}
 	ui.List(c, &a.fileList, len(rows), func(i int) {
 		r := rows[i]
 		row := ui.Row(c).Height(28).Radius(6).Gap(5).
@@ -882,7 +960,11 @@ func (a *App) filesView(c *ui.Context) {
 				ui.Icon(c, iconFolder).Size(14, 14).TextColor(iconTint(t))
 			} else {
 				ui.Box(c).Width(12)
-				ui.Icon(c, iconFile).Size(14, 14).TextColor(iconTint(t))
+				icon := iconFile
+				if isImageFile(r.path) {
+					icon = iconImage
+				}
+				ui.Icon(c, icon).Size(14, 14).TextColor(iconTint(t))
 			}
 			ui.Text(c, filepath.Base(r.path)).FontSize(12.5).TextColor(t.Text).
 				SingleLine().Ellipsis("…")
@@ -895,13 +977,15 @@ func (a *App) filesView(c *ui.Context) {
 				}
 				a.folderToggled[r.path] = time.Now()
 				a.expanded[r.path] = !a.expanded[r.path]
+			} else if isImageFile(r.path) {
+				a.requestOpen(r.path)
 			} else {
 				a.selectedPath = r.path
 				a.requestOpen(r.path)
 			}
 		})
 		a.fileMenu(c, row, r.path)
-	}).Grow(1).Padding(0, 8).Gap(1)
+	}).Grow(1).Padding(0, 8).Gap(1).TrackScroll(&a.fileScroll).Scrollbars(showScrollbar)
 }
 
 type fileRow struct {
@@ -948,6 +1032,10 @@ func (a *App) outlineView(c *ui.Context) {
 	if current >= 0 {
 		a.outlineRow = current
 	}
+	showScrollbar := a.outlineIndicator.Visible(c.Now(), a.outlineScroll.X, a.outlineScroll.Y)
+	if showScrollbar {
+		c.After(a.outlineIndicator.Remaining(c.Now()))
+	}
 	ui.List(c, &a.outlineState, len(a.headings), func(i int) {
 		h := a.headings[i]
 		row := ui.Row(c).Height(26).Radius(6).Padding(0, 8, 0, 6+float32(h.level-1)*14).
@@ -980,7 +1068,7 @@ func (a *App) outlineView(c *ui.Context) {
 			a.ed.ScrollToOffset(h.offset)
 			a.ed.Focus()
 		})
-	}).Grow(1).Padding(0, 8).Gap(0)
+	}).Grow(1).Padding(0, 8).Gap(0).TrackScroll(&a.outlineScroll).Scrollbars(showScrollbar)
 }
 
 // snippetParts splits a search snippet at the first case-insensitive
@@ -1000,6 +1088,221 @@ func snippetParts(snippet, query string) (string, string, string) {
 }
 
 func (a *App) searchView(c *ui.Context) {
+	a.documentSearchView(c)
+}
+
+func (a *App) openWorkspaceSearch() {
+	if a.root == "" && a.path != "" {
+		a.root = filepath.Dir(a.path)
+	}
+	a.enableDocumentServices()
+	a.workspaceSearch = true
+	a.workspaceQuery = ""
+	a.workspaceSearchSel = 0
+	a.workspaceReveal = true
+	a.workspaceSubmit = false
+	a.invalidate()
+}
+
+func (a *App) closeWorkspaceSearch() {
+	a.workspaceSearch = false
+	a.workspaceSubmit = false
+	if a.vault != nil {
+		a.vault.queryToken++
+		if a.vault.queryCancel != nil {
+			a.vault.queryCancel()
+			a.vault.queryCancel = nil
+		}
+	}
+	a.invalidate()
+}
+
+func (a *App) workspaceRecentNotes() []recentEntry {
+	var out []recentEntry
+	root := a.root
+	for _, entry := range a.recents {
+		if entry.IsDir || filepath.Ext(entry.Path) != ".md" {
+			continue
+		}
+		if root != "" {
+			rel, err := filepath.Rel(root, entry.Path)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+		}
+		if _, err := os.Stat(entry.Path); err == nil {
+			out = append(out, entry)
+			if len(out) == recentShow {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func (a *App) openWorkspaceRecent(entry recentEntry) {
+	a.closeWorkspaceSearch()
+	a.requestOpen(entry.Path)
+}
+
+func (a *App) openSelectedWorkspaceHit() {
+	if a.vault == nil || a.workspaceSearchSel < 0 || a.workspaceSearchSel >= len(a.vault.hits) {
+		return
+	}
+	hit := a.vault.hits[a.workspaceSearchSel]
+	a.closeWorkspaceSearch()
+	a.navigateSearchHit(hit)
+}
+
+func (a *App) openSelectedWorkspaceItem() {
+	if strings.TrimSpace(a.workspaceQuery) != "" {
+		a.openSelectedWorkspaceHit()
+		return
+	}
+	recent := a.workspaceRecentNotes()
+	if a.workspaceSearchSel >= 0 && a.workspaceSearchSel < len(recent) {
+		a.openWorkspaceRecent(recent[a.workspaceSearchSel])
+	}
+}
+
+func (a *App) submitWorkspaceSearch() {
+	if !a.workspaceSearch || a.workspaceSubmit {
+		return
+	}
+	a.workspaceSubmit = true
+	a.openSelectedWorkspaceItem()
+}
+
+func (a *App) workspaceSearchDialog(c *ui.Context) {
+	if !a.workspaceSearch {
+		return
+	}
+	if c.Shortcut(0, ui.KeyEscape) {
+		a.closeWorkspaceSearch()
+		return
+	}
+	if c.Shortcut(0, ui.KeyEnter) {
+		a.submitWorkspaceSearch()
+		return
+	}
+	a.syncWorkspaceSearchQuery()
+	v := a.vault
+	querying := strings.TrimSpace(a.workspaceQuery) != ""
+	count := 0
+	if querying && v != nil {
+		count = len(v.hits)
+	} else if !querying {
+		count = len(a.workspaceRecentNotes())
+	}
+	if c.Shortcut(0, ui.KeyUp) && count > 0 {
+		a.workspaceSearchSel = (a.workspaceSearchSel - 1 + count) % count
+		a.workspaceReveal = true
+	}
+	if c.Shortcut(0, ui.KeyDown) && count > 0 {
+		a.workspaceSearchSel = (a.workspaceSearchSel + 1) % count
+		a.workspaceReveal = true
+	}
+	if a.workspaceSearchSel >= count {
+		a.workspaceSearchSel = max(0, count-1)
+	}
+	t := c.Theme()
+	ui.Box(c).Absolute().Top(0).Right(0).Bottom(0).Left(0).Background(ui.RGBA(0, 0, 0, 0.30)).Children(func() {
+		ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24).Children(func() {
+			ui.Column(c).Width(760).Height(620).MaxWidthPercent(94).MaxHeightPercent(86).Radius(14).
+				Background(t.Background).Border(1, t.Border).
+				Shadow(0, 18, 44, -8, ui.RGBA(0, 0, 0, 0.32)).Clip().Children(func() {
+				ui.Row(c).Height(58).Padding(0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
+					ui.Icon(c, iconSearch).Size(18, 18).TextColor(t.TextMuted)
+					ui.TextInputBase(c, &a.workspaceQuery).Ref(&a.workspaceInputFocus).Grow(1).MinWidth(0).
+						Placeholder("搜索笔记库…").Label("搜索笔记库").AutoFocus().
+						OnSubmit(func() { a.submitWorkspaceSearch() })
+					fullLabel, literalLabel := "全文", "字面量"
+					if v == nil || !v.searchLiteral {
+						fullLabel = "✓ 全文"
+					} else {
+						literalLabel = "✓ 字面量"
+					}
+					if ui.Button(c, fullLabel).Clicked() && v != nil && v.searchLiteral {
+						v.searchLiteral = false
+						v.queryToken++
+						v.hits = nil
+						a.workspaceReveal = true
+						v.due = time.Now()
+						a.workspaceInputFocus.Focus(c)
+					}
+					if ui.Button(c, literalLabel).Clicked() && v != nil && !v.searchLiteral {
+						v.searchLiteral = true
+						v.queryToken++
+						v.hits = nil
+						a.workspaceReveal = true
+						v.due = time.Now()
+						a.workspaceInputFocus.Focus(c)
+					}
+				})
+				ui.Box(c).Height(1).FillWidth().Background(t.Border)
+				if !querying {
+					showSearchScroll := a.workspaceIndicator.Visible(c.Now(), a.workspaceScroll.X, a.workspaceScroll.Y)
+					if showSearchScroll {
+						c.After(a.workspaceIndicator.Remaining(c.Now()))
+					}
+					quietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
+						recent := a.workspaceRecentNotes()
+						if len(recent) == 0 {
+							ui.Text(c, "最近没有打开的笔记").FontSize(12).TextColor(t.TextMuted)
+						}
+						for i, entry := range recent {
+							e := entry
+							a.workspaceSearchRow(c, t, i == a.workspaceSearchSel, filepath.Base(e.Path), e.Path, "", func() { a.openWorkspaceRecent(e) })
+						}
+					})
+				} else if a.root == "" {
+					ui.Text(c, "先打开一个笔记文件夹，再搜索整个笔记库").FontSize(12).TextColor(t.TextMuted)
+				} else {
+					a.workspaceSearchView(c)
+				}
+				ui.Box(c).Height(1).FillWidth().Background(t.Border)
+				ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
+					if querying && v != nil && v.search != nil {
+						if v.searchLiteral {
+							ui.Textf(c, "%d 处匹配", len(v.hits)).FontSize(10.5).TextColor(t.TextMuted)
+						} else {
+							ui.Textf(c, "%d 篇笔记", len(v.hits)).FontSize(10.5).TextColor(t.TextMuted)
+						}
+					} else if !querying {
+						ui.Text(c, "最近笔记").FontSize(10.5).TextColor(t.TextMuted)
+					}
+					ui.Spacer(c)
+					ui.Text(c, "↑↓ 选择   ↵ 打开   Esc 关闭").FontSize(10.5).TextColor(t.TextMuted)
+				})
+			})
+		})
+	})
+}
+
+func (a *App) workspaceSearchRow(c *ui.Context, t *ui.Theme, selected bool, title, path, snippet string, open func()) {
+	row := ui.Row(c).FillWidth().Height(64).Shrink(0).Padding(9, 11).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("打开笔记：" + title)
+	if selected {
+		row.Background(t.SurfaceHover)
+	} else if row.Hovered() {
+		row.Background(t.SurfaceHover)
+	}
+	row.Children(func() {
+		ui.Icon(c, iconFile).Size(16, 16).TextColor(iconTint(t))
+		ui.Column(c).FillWidth().AlignItems(ui.Start).Gap(3).Children(func() {
+			ui.Text(c, title).FontSize(13).FontWeight(620).TextColor(t.Text).SingleLine().Ellipsis("…")
+			ui.Text(c, path).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+			if snippet != "" {
+				ui.Text(c, strings.Join(strings.Fields(snippet), " ")).FontSize(11.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+			}
+		})
+	})
+	if selected && a.workspaceReveal {
+		row.ScrollIntoView()
+		a.workspaceReveal = false
+	}
+	row.OnClick(open)
+}
+func (a *App) documentSearchView(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Padding(10).Gap(8).Children(func() {
 		ui.TextInput(c, &a.query).Placeholder("在当前文档中查找").Label("查找")
@@ -1022,6 +1325,10 @@ func (a *App) searchView(c *ui.Context) {
 			}
 		})
 		ui.Textf(c, "%d 处匹配", a.matches).FontSize(11).TextColor(t.TextMuted)
+		showScrollbar := a.searchIndicator.Visible(c.Now(), a.searchScroll.X, a.searchScroll.Y)
+		if showScrollbar {
+			c.After(a.searchIndicator.Remaining(c.Now()))
+		}
 		ui.List(c, &a.searchState, len(a.searchHits), func(i int) {
 			row := ui.Row(c).Height(28).Radius(6).Padding(0, 8).Cursor(ui.CursorPointer)
 			switch {
@@ -1045,7 +1352,7 @@ func (a *App) searchView(c *ui.Context) {
 				ui.Text(c, after).FontSize(11.5).TextColor(t.Text)
 			})
 			row.OnClick(func() { a.goToHit(i) })
-		}).Grow(1).Gap(1)
+		}).Grow(1).Gap(1).TrackScroll(&a.searchScroll).Scrollbars(showScrollbar)
 	})
 }
 
@@ -1178,6 +1485,10 @@ func hitSnippet(src string, s, e int) string {
 // Editor
 
 func (a *App) editorContent(c *ui.Context) {
+	if a.imageDocument.open {
+		a.imageDocumentView(c)
+		return
+	}
 	ui.Column(c).Fill().Children(func() {
 		opts := a.editorOptions()
 		if !a.flat {
@@ -1186,9 +1497,6 @@ func (a *App) editorContent(c *ui.Context) {
 			a.ed.View(c).Grow(1)
 			return
 		}
-		// Flat: the header floats over the document. The editor reserves
-		// the header's height so its first line starts below it, and what
-		// scrolls up passes under the veil instead of being cut at an edge.
 		opts.TopInset = a.headerH(c)
 		a.ed.SetOptions(opts)
 		a.ed.View(c).Grow(1)
@@ -1238,30 +1546,46 @@ func (a *App) editorHeader(c *ui.Context) {
 			ui.Text(c, a.tailPath(c, a.docPath(), 12.5, avail)).
 				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
 		})
+		if a.imageDocument.open {
+			a.smallIcon(c, iconImage, "全局预览", func() { a.openImagePreview(a.imageDocument.path) })
+		}
 		if label := a.ed.ModeLabel(); label != "" {
 			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label("编辑模式")
 		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
-		if a.dirty {
+		if a.dirty && !a.imageDocument.open {
 			a.smallIcon(c, iconSave, "保存", func() { a.save() })
 		}
-		info := a.smallIconTint(c, iconInfo, "信息", nil, tint)
-		info.Menu(func(m *ui.Menu) {
-			chars, _, lines := countText(a.source)
-			m.Item("路径：" + a.docPath())
-			m.Item(fmt.Sprintf("%d 字 · %d 行", chars, lines))
-			if st, err := os.Stat(a.path); err == nil {
-				m.Item("修改于 " + st.ModTime().Format("2006-01-02 15:04"))
-			}
-			m.Separator()
-			if m.Item("在访达中显示").Chosen() && a.path != "" {
-				mygo.Shell.ShowItemInFolder(a.path)
-			}
-		})
+		if a.propertiesEnabled() {
+			a.smallIconTint(c, iconInfo, "信息", func() { a.openProperties() }, tint)
+		} else {
+			info := a.smallIconTint(c, iconInfo, "信息", nil, tint)
+			info.Menu(func(m *ui.Menu) {
+				chars, _, lines := countText(a.source)
+				m.Item("路径：" + a.docPath())
+				m.Item(fmt.Sprintf("%d 字 · %d 行", chars, lines))
+				if st, err := os.Stat(a.path); err == nil {
+					m.Item("修改于 " + st.ModTime().Format("2006-01-02 15:04"))
+				}
+				m.Separator()
+				if m.Item("在访达中显示").Chosen() && a.path != "" {
+					mygo.Shell.ShowItemInFolder(a.path)
+				}
+			})
+		}
 		more := a.smallIconTint(c, iconMore, "更多", nil, tint)
 		more.Menu(func(m *ui.Menu) {
+			if m.Item("版本历史…").Chosen() {
+				a.openHistory()
+			}
+			if m.Item("恢复草稿…").Chosen() {
+				a.openRecovery()
+			}
+			if m.Item("关联笔记…").Chosen() {
+				a.openLinks()
+			}
 			if m.Item("保存").Chosen() {
 				a.save()
 			}
@@ -1318,7 +1642,7 @@ func (a *App) children(dir string) []string {
 			names = append(names, path)
 			continue
 		}
-		if isEditableFile(path) {
+		if isVisibleWorkspaceFile(path) {
 			names = append(names, path)
 		}
 	}
@@ -1370,9 +1694,12 @@ func (a *App) finish(fn func()) {
 	})
 }
 
-func (a *App) snapshotDoc() (dirty bool, name, path, source string) {
+func (a *App) snapshotDoc() (dirty bool, name, path, source, revision string) {
 	a.onMain(func() {
 		dirty, name, path, source = a.dirty, a.displayName(), a.path, a.diskSource()
+		if a.documents != nil {
+			revision = a.documents.revision
+		}
 	})
 	return
 }
@@ -1404,13 +1731,17 @@ func (a *App) openFileDialog() {
 	go func() {
 		paths, err := openDialog(mygo.OpenDialogOptions{
 			Parent: a.win,
-			Title:  "打开文本文件",
+			Title:  "打开文件",
 			Filters: []mygo.FileFilter{
-				{Name: "文本文件", Extensions: textFileFilter()},
+				{Name: "文本与图片", Extensions: append(textFileFilter(), imageFileExtensions()...)},
 			},
 		})
 		if err != nil || len(paths) == 0 {
 			a.finish(nil)
+			return
+		}
+		if isImageFile(paths[0]) {
+			a.finish(func() { a.openImageDocument(paths[0], true) })
 			return
 		}
 		if !a.confirmDiscardOffUI() {
@@ -1433,6 +1764,10 @@ func (a *App) openFileDialog() {
 }
 
 func (a *App) openPathNow(path string) {
+	if isImageFile(path) {
+		a.openImageDocument(path, true)
+		return
+	}
 	if !isEditableFile(path) {
 		a.notice("不支持的文件类型：" + filepath.Base(path))
 		a.invalidate()
@@ -1456,6 +1791,10 @@ func (a *App) openPathNow(path string) {
 // requestOpen opens a path from the UI. A clean document opens at once; an
 // edited one asks first, with the dialog off the UI thread.
 func (a *App) requestOpen(path string) {
+	if isImageFile(path) {
+		a.openImageDocument(path, true)
+		return
+	}
 	if !isEditableFile(path) {
 		a.notice("不支持的文件类型：" + filepath.Base(path))
 		a.invalidate()
@@ -1471,7 +1810,7 @@ func (a *App) requestOpen(path string) {
 	a.startBusy()
 	go func() {
 		if !a.confirmDiscardOffUI() {
-			a.finish(nil)
+			a.finish(func() { a.indexedPath = "" })
 			return
 		}
 		data, err := os.ReadFile(path)
@@ -1485,14 +1824,31 @@ func (a *App) requestOpen(path string) {
 }
 
 func (a *App) applyOpen(path, data string) {
+	if a.indexedPath == path && a.indexedRevision != "" && notestore.Revision(data) != a.indexedRevision && a.vault != nil {
+		rel, _ := filepath.Rel(a.vault.root, path)
+		hit := vaultsearch.Hit{Path: filepath.ToSlash(rel), Revision: a.indexedRevision}
+		a.indexedPath, a.indexedRevision = "", ""
+		a.notice("笔记在打开前已变化，正在重新定位搜索结果")
+		a.navigateSearchHit(hit)
+		return
+	}
 	a.pushNav(path)
+	a.imageDocument = imageDocumentState{}
 	a.path = path
 	a.selectedPath = path
+	if a.vault != nil && a.vault.watch != nil {
+		_ = a.vault.watch.WatchFile(path)
+	}
 	a.loadDoc(data)
 	a.dirty = false
 	a.updateTitle()
 	a.addRecent(path, false)
 	a.ed.Focus()
+	if a.indexedPath == path {
+		a.ed.ScrollToOffset(editorOffset(data, a.indexedOffset))
+		a.indexedPath = ""
+		a.indexedRevision = ""
+	}
 }
 
 func (a *App) newDoc() {
@@ -1514,6 +1870,7 @@ func (a *App) newDoc() {
 }
 
 func (a *App) resetDoc() {
+	a.imageDocument = imageDocumentState{}
 	a.path = ""
 	a.selectedPath = ""
 	a.loadDoc("")
@@ -1532,10 +1889,22 @@ func (a *App) save() {
 		a.invalidate()
 		return
 	}
-	if err := writeFileAtomic(a.path, []byte(a.diskSource())); err != nil {
+	revision := ""
+	if a.documents != nil {
+		revision = a.documents.revision
+	}
+	if err := a.writeDocument(a.path, a.diskSource(), revision); err != nil {
+		if a.documents != nil && errors.Is(err, notestore.ErrConflict) {
+			a.documents.conflict = a.path
+			a.documents.conflictOpen = true
+		}
 		a.notice(fmt.Sprintf("保存失败：%v", err))
 	} else {
 		a.dirty = false
+		if a.documents != nil {
+			a.documents.revision = notestore.Revision(a.diskSource())
+			_ = a.documents.store.DeleteDraft(a.path)
+		}
 		a.notice("已保存")
 	}
 	a.updateTitle()
@@ -1546,7 +1915,7 @@ func (a *App) save() {
 // thread. It runs in a goroutine; every state change hops back to the main
 // thread. It returns true when it is safe to replace the document.
 func (a *App) confirmDiscardOffUI() bool {
-	dirty, name, path, source := a.snapshotDoc()
+	dirty, name, path, source, revision := a.snapshotDoc()
 	if !dirty {
 		return true
 	}
@@ -1588,14 +1957,21 @@ func (a *App) confirmDiscardOffUI() bool {
 		errorDialog("无法保存", "请选择文本文件扩展名。")
 		return false
 	}
-	if err := writeFileAtomic(savePath, []byte(source)); err != nil {
+	expected, err := a.destinationRevision(savePath, path, revision)
+	if err == nil {
+		err = a.writeDocument(savePath, source, expected)
+	}
+	if err != nil {
 		errorDialog("保存失败", err.Error())
 		return false
 	}
 	a.onMain(func() {
 		a.path = savePath
 		a.selectedPath = savePath
-		a.dirty = false
+		if a.documents != nil {
+			a.documents.revision = notestore.Revision(source)
+		}
+		a.dirty = a.diskSource() != source
 		a.updateTitle()
 	})
 	return true
@@ -1605,13 +1981,17 @@ func (a *App) saveAs() {
 	if a.busy {
 		return
 	}
-	var name, source string
+	var name, source, originalPath, revision string
 	a.onMain(func() {
 		name = "Untitled.md"
 		if a.path != "" {
 			name = filepath.Base(a.path)
 		}
 		source = a.diskSource()
+		originalPath = a.path
+		if a.documents != nil {
+			revision = a.documents.revision
+		}
 	})
 	a.startBusy()
 	go func() {
@@ -1630,7 +2010,11 @@ func (a *App) saveAs() {
 			a.finish(nil)
 			return
 		}
-		if err := writeFileAtomic(path, []byte(source)); err != nil {
+		expected, err := a.destinationRevision(path, originalPath, revision)
+		if err == nil {
+			err = a.writeDocument(path, source, expected)
+		}
+		if err != nil {
 			errorDialog("保存失败", err.Error())
 			a.finish(nil)
 			return
@@ -1638,7 +2022,10 @@ func (a *App) saveAs() {
 		a.finish(func() {
 			a.path = path
 			a.selectedPath = path
-			a.dirty = false
+			if a.documents != nil {
+				a.documents.revision = notestore.Revision(source)
+			}
+			a.dirty = a.diskSource() != source
 			a.updateTitle()
 			a.clearTreeCache()
 		})
@@ -1851,6 +2238,10 @@ func uniquePath(dir, base, ext string) string {
 
 func (a *App) settingsDialog(c *ui.Context) {
 	t := c.Theme()
+	showScrollbar := a.settingsIndicator.Visible(c.Now(), a.settingsScroll.X, a.settingsScroll.Y)
+	if showScrollbar {
+		c.After(a.settingsIndicator.Remaining(c.Now()))
+	}
 	w, h := c.Size()
 	panelW := min(820, w-64)
 	panelH := min(620, h-64)
@@ -1896,7 +2287,7 @@ func (a *App) settingsDialog(c *ui.Context) {
 								BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 								ui.Text(c, title).FontSize(15).FontWeight(650)
 							})
-							ui.Scroll(c).Fill().Children(func() {
+							ui.Scroll(c).Fill().TrackScroll(&a.settingsScroll).Scrollbars(showScrollbar).Children(func() {
 								ui.Column(c).FillWidth().Padding(18).Gap(18).Children(func() {
 									switch a.settingsTab {
 									case 0:
@@ -1970,16 +2361,34 @@ func settingsRow(c *ui.Context, label, detail string, control func()) {
 // settingsRowToggle is settingsRow for a switch: its label turns it too, so
 // the left of the row is as much the switch as the switch is.
 func settingsRowToggle(c *ui.Context, label, detail string, on *bool) {
+	settingsRowToggleAction(c, label, detail, on, func() { *on = !*on })
+}
+
+func settingsRowToggleAction(c *ui.Context, label, detail string, on *bool, toggle func()) {
 	t := c.Theme()
 	ui.Row(c).FillWidth().Padding(11, 0).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).MinWidth(0).Gap(3).OnClick(func() { *on = !*on }).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(3).OnClick(toggle).Children(func() {
 			ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
 			if detail != "" {
 				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
 			}
 		})
-		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Switch(c, on).Label(label)
+		checked := *on
+		control := ui.ButtonBase(c).Width(38).Height(22).Radius(11).Padding(2).
+			Label(label + "开关").Tooltip(label).AlignItems(ui.Center)
+		if checked {
+			control.Background(t.Accent)
+		} else {
+			control.Background(t.Border)
+		}
+		control.OnClick(toggle).Children(func() {
+			if checked {
+				ui.Row(c).Fill().Justify(ui.End).Children(func() {
+					ui.Box(c).Size(18, 18).Radius(9).Background(t.Background)
+				})
+			} else {
+				ui.Row(c).Fill().Justify(ui.Start).Children(func() { ui.Box(c).Size(18, 18).Radius(9).Background(t.Background) })
+			}
 		})
 	})
 }
@@ -1988,11 +2397,23 @@ func (a *App) appearanceSettings(c *ui.Context) {
 	t := c.Theme()
 	settingsGroup(c, "", func() {
 		a.settingsDivider(c, false)
-		settingsRow(c, "主题", "Rex 色洗的浅色或深色；编辑器、上下文栏与弹层同步切换。", func() {
-			ui.Segmented(c, &a.themeMode, "浅色", "深色").Label("主题")
+		settingsRow(c, "主题", "编辑器与系统界面同步切换，也可跟随 macOS 外观。", func() {
+			for mode, label := range []string{"浅色", "深色", "跟随系统"} {
+				mode, label := mode, label
+				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label("主题：" + label)
+				if a.themeMode == mode {
+					b.Background(c.Theme().Background).Border(1, c.Theme().Border)
+				} else if b.Hovered() {
+					b.Background(c.Theme().SurfaceHover)
+				}
+				b.OnClick(func() { a.setThemeMode(mode) }).Children(func() { ui.Text(c, label) })
+			}
 		})
 		a.settingsDivider(c, true)
 		settingsRowToggle(c, "顶部模糊", "扁平风格下，头部浮在文档上：页面滚到它下面时模糊、淡出。关掉只有一块不透明的头部底色。", &a.headerFade)
+	})
+	settingsGroup(c, "功能", func() {
+		settingsRowToggleAction(c, "AI 助手", "启用侧栏中的 AI 对话与 Agent 工具。", &a.aiEnabled, func() { a.setAIEnabled(!a.aiEnabled) })
 	})
 	ui.Text(c, "native 渲染与编辑器共用同一套颜色；切换后立即生效。").
 		FontSize(11.5).TextColor(t.TextMuted).Padding(0, 4)
@@ -2037,17 +2458,24 @@ func (a *App) docDir() string {
 // document being edited.
 func (a *App) editorOptions() mdedit.Options {
 	return mdedit.Options{
-		FontSize:    float32(a.fontSize),
-		LineHeight:  float32(a.lineHeight),
-		BaseDir:     a.docDir(),
-		Placeholder: "开始写作…",
-		Label:       "文档",
-		Code:        codeLanguage(a.path),
-		Invalidate:  a.invalidate,
-		OnChange:    a.docChanged,
-		OnLink:      a.openLink,
-		SaveImage:   a.saveImage,
-		OnDropFiles: a.openDropped,
+		Header:          a.propertyHeader(),
+		HeaderHeight:    a.propertyHeaderHeight(),
+		HideFrontmatter: a.propertiesEnabled() && !a.propertySourceMode && a.propertyDocument().Err == nil,
+		FontSize:        float32(a.fontSize),
+		LineHeight:      float32(a.lineHeight),
+		MaxWidth:        800,
+		PadX:            56,
+		BaseDir:         a.docDir(),
+		Placeholder:     "开始写作…",
+		Label:           "文档",
+		Code:            codeLanguage(a.path),
+		Invalidate:      a.invalidate,
+		OnChange:        a.docChanged,
+		OnLink:          a.openLink,
+		AssetRoot:       a.root,
+		OnImagePreview:  a.openImagePreview,
+		SaveImage:       a.saveImage,
+		OnDropFiles:     a.openDropped,
 	}
 }
 
@@ -2095,6 +2523,7 @@ func codeLanguage(path string) string {
 // undo starts over. Windows line endings are kept as \n while editing and
 // written back as they were.
 func (a *App) loadDoc(src string) {
+	a.documentLoaded(src)
 	a.crlf = strings.Contains(src, "\r\n")
 	if a.crlf {
 		src = strings.ReplaceAll(src, "\r\n", "\n")
@@ -2115,6 +2544,7 @@ func (a *App) docChanged() {
 	}
 	a.source = src
 	a.dirty = true
+	a.documentChanged()
 	a.refreshHeadings()
 	a.updateTitle()
 }
@@ -2170,6 +2600,9 @@ func (a *App) openLink(href string) {
 		go openExternal(href)
 		return
 	}
+	if a.indexedLink(href) {
+		return
+	}
 	p := href
 	if i := strings.IndexAny(p, "#?"); i >= 0 {
 		p = p[:i]
@@ -2186,6 +2619,9 @@ func (a *App) openLink(href string) {
 
 // openWiki opens a `[[wiki link]]` by its target (see resolveWiki).
 func (a *App) openWiki(target string) {
+	if a.indexedLink(target) {
+		return
+	}
 	if p := resolveWiki(a.root, a.docDir(), a.fileRows(), target); p != "" {
 		a.requestOpen(p)
 	}
@@ -2313,13 +2749,56 @@ func (a *App) nav(delta int) {
 	if !a.canNav(delta) {
 		return
 	}
-	a.navAt += delta
-	a.openPathNow(a.navHist[a.navAt])
+	target := a.navAt + delta
+	path := a.navHist[target]
+	if isImageFile(path) {
+		a.navAt = target
+		a.openImageDocument(path, false)
+		return
+	}
+	// Returning from an image to the still-open note must reveal its editor
+	// state, including unsaved edits, rather than reload the on-disk version.
+	if path == a.path {
+		a.navAt = target
+		a.imageDocument = imageDocumentState{}
+		a.ed.Focus()
+		a.updateTitle()
+		a.invalidate()
+		return
+	}
+	if a.dirty {
+		if a.win == nil || a.busy {
+			return
+		}
+		a.startBusy()
+		go func() {
+			if !a.confirmDiscardOffUI() {
+				a.finish(nil)
+				return
+			}
+			a.finish(func() {
+				a.navAt = target
+				a.openPathNow(path)
+			})
+		}()
+		return
+	}
+	a.navAt = target
+	a.openPathNow(path)
 }
 
 // docPath is the document's path as the header reads it: from the workspace's
 // own name down, so that the line names where in the vault it lives.
 func (a *App) docPath() string {
+	if a.imageDocument.open {
+		path := a.imageDocument.path
+		if a.root != "" {
+			if rel, err := filepath.Rel(a.root, path); err == nil && !strings.HasPrefix(rel, "..") {
+				return filepath.Join(filepath.Base(a.root), rel)
+			}
+		}
+		return path
+	}
 	if a.path == "" {
 		return "未命名"
 	}
@@ -2360,6 +2839,9 @@ func (a *App) tailPath(c *ui.Context, path string, size, width float32) string {
 }
 
 func (a *App) displayName() string {
+	if a.imageDocument.open {
+		return filepath.Base(a.imageDocument.path)
+	}
 	if a.path == "" {
 		return "未命名"
 	}

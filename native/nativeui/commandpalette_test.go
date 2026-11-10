@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -18,22 +19,18 @@ func TestCommandPalette(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
-	// 模糊过滤 "主题" → 命中「切换主题」
-	a.cmdValue = "主题"
-	t.Logf("value=%q ncmds=%d", a.cmdValue, len(a.paletteCommands()))
-	cands := a.paletteCandidates()
-	t.Logf("cands=%d", len(cands))
-	if len(cands) != 1 || cands[0].name != "切换主题" {
-		t.Fatalf("过滤结果错误: %+v", cands)
+	for _, cmd := range a.paletteCommands() {
+		if strings.Contains(cmd.name, "主题") || strings.Contains(cmd.name, "AI 助手") {
+			t.Fatalf("disabled AI or theme control is still a command: %q", cmd.name)
+		}
 	}
-	before := a.themeMode
-	a.cmdSel = 0
-	a.applyCommandPalette()
-	if a.cmdPalette {
-		t.Fatal("运行后面板未关闭")
+	a.aiEnabled = true
+	foundAI := false
+	for _, cmd := range a.paletteCommands() {
+		foundAI = foundAI || cmd.name == "AI 助手面板"
 	}
-	if a.themeMode == before {
-		t.Fatal("切换主题命令未执行")
+	if !foundAI {
+		t.Fatal("enabling AI did not expose its palette command")
 	}
 
 	// 无匹配提示空候选，Esc 路径关闭

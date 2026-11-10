@@ -20,6 +20,15 @@ live preview 只是**显示**，不改变编辑语义）。
 
 ### 当前进度（2026-11-09）
 
+新增第一批笔记库基础能力：自动保存/恢复、版本校验、递归监听、内存索引、全库搜索与关联笔记。接口、用户入口与限制见 [vault-runtime.md](vault-runtime.md)。
+
+2026-11-10：文档标题、语义属性摘要和右侧完整属性面板见 [document-properties.md](document-properties.md)。
+
+2026-11-10：图片显示、全局缩放/拖动预览、悬浮工具与嵌入显示尺寸调整见 [image-preview.md](image-preview.md)。Vim/Helix normal 光标使用高对比实心块。
+
+2026-11-10：搜索开始实验接入 Anytype 使用的 `anyproto/tantivy-go v1.0.6`（CGO + Rust 静态库）。索引是工作区之外的可重建缓存；结构化链接索引仍归 `vaultindex`。构建使用 `scripts/go.sh`，自动下载并校验对应平台的固定 native archive；不要求手动安装 Rust。架构和验收限制见 [tantivy-search.md](tantivy-search.md)。
+
+
 - **基线**：`go test ./...` 五个包全绿；`MUSE_PERF=1` 的按键预算 5–8ms（随机器负载浮动，
   同机同时刻对比才有意义）。HEAD 见 `git log`。
 - **最近做完的是一件事：顶部模糊**（§7.1）。它前后改过十几版（`git log --oneline -20`
@@ -35,8 +44,7 @@ live preview 只是**显示**，不改变编辑语义）。
 ## 2. 五分钟上手
 
 ```bash
-cd native
-go test ./...                       # 五个包，全绿是基线；改动前先跑一遍
+sh scripts/go.sh -C native test ./... # 包含原生 Tantivy 链接
 ```
 
 跑起来（仓库根目录）：
@@ -61,7 +69,7 @@ sh scripts/play.sh --once           # 打开一次，关窗即退
 **性能闸门**（1MB 文档，一次按键的 CPU 时间 < 8.3ms）：
 
 ```bash
-MUSE_PERF=1 go test ./mdedit -run TestTypingFrameBudget -v
+MUSE_PERF=1 sh scripts/go.sh -C native test ./mdedit -run TestTypingFrameBudget -v
 ```
 
 它默认跳过，因为 `go test ./...` 会把各包并排跑，墙钟读数会被别的进程污染。
@@ -185,12 +193,12 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 ## 7. UI 现状（外壳）
 
 - **默认扁平**：编辑器不是悬浮卡片（无描边/投影/圆角，与窗口同色）。菜单"扁平风格"
-  （⌘⇧F）可切回卡片样式。`App.flat`。
-- **没有左侧工具栏**（56px 图标列已删除）。它的内容分到侧栏：
-  - 第一行：空间磁贴（首字母）+ 工作区名 + ⌄（菜单：打开文件/文件夹 + 四个视图）、
-    搜索、撰写药丸（✎ ⌄ → 新建文档/新建文件夹）
-  - 第二行：文件 / 大纲 / 搜索 / AI 助手（安静小图标，当前视图抬起）
-  - 底部：主题、设置
+  可切回卡片样式。`App.flat`。⌘⇧F 现用于笔记库搜索。
+- **侧栏分两排**：首行是侧栏开关与可选 AI 入口；第二行是工作区名 + ⌄、搜索、新建文档与文件夹下拉。无头像磁贴、大纲或重复操作行，底部只保留设置。
+- **侧栏底色**：主题背景色的 94% 不透明覆盖在系统材料上，减少桌面干扰。
+- **AI 与主题**：AI 默认隐藏，可在设置 → 外观 → 功能中开启；浅色 / 深色 / 跟随系统统一在设置中调节，保存到配置目录的 settings.json。
+- **文件树图片**：图片与文本都可见；图片交给系统默认应用打开，不作为 Markdown 文本加载。
+- **滚动条**：编辑区、侧栏列表、设置、AI 对话和图表横向条共用 scrollui 策略，实际偏移变化后显示约 700ms；单纯悬浮不显示、不续期。
 - **侧栏开关只有一个**，固定在窗口左上（`x = 6`，有交通灯时从 `TitleBar` 之后算）。
   面板打开时压在侧栏头部左上；面板收起时它**不动**，编辑卡片向左扩，编辑器头部固定
   留 30px 给它——`TestTheSidebarToggleKeepsItsSeat` 守着"只有一个、x 不变"。
@@ -324,7 +332,7 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 
 ## 11. 接手第一小时
 
-1. `cd native && go test ./...` —— 确认五个包全绿（当前基线）。
+1. `sh scripts/go.sh -C native test ./...` —— 确认全部包全绿（含 CGO 原生搜索）。
 2. `sh scripts/play.sh` —— 打开 playground，翻一遍：中文 mermaid、块级公式、
    `%%注释%%`、表格 `</>`、空笔记。
 3. 读 `docs/editor-model.md` 与 `docs/rendering.md`（这两份是这个项目的"为什么"）。

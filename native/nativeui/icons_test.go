@@ -14,6 +14,7 @@ import (
 // draw lighter than the labels beside them there.
 func TestDarkIconsStayReadable(t *testing.T) {
 	a := New()
+	a.aiEnabled = true
 	a.themeMode = 1
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()

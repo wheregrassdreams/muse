@@ -2,11 +2,11 @@ package mdedit
 
 import "testing"
 
-func TestTagsAreTagged(t *testing.T) {
+func TestBodyTagsReadAsPlainText(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
-		{"见 #项目 吧\n", "见 «a:#项目» 吧"},
-		{"#项目/子 嵌套\n", "«a:#项目/子» 嵌套"},
-		{"行首 #tag 和 #b\n", "行首 «a:#tag» 和 «a:#b»"},
+		{"见 #项目 吧\n", "见 #项目 吧"},
+		{"#项目/子 嵌套\n", "#项目/子 嵌套"},
+		{"行首 #tag 和 #b\n", "行首 #tag 和 #b"},
 		// Not tags: inside a word, a lone #, or one that starts with a
 		// separator.
 		{"a#b 不是\n", "a#b 不是"},
@@ -22,7 +22,7 @@ func TestTagsAreTagged(t *testing.T) {
 
 func TestTagStopsAtPunctuation(t *testing.T) {
 	got := shown(t, "看 #tag, 这个\n")
-	if len(got) != 1 || got[0] != "看 «a:#tag», 这个" {
+	if len(got) != 1 || got[0] != "看 #tag, 这个" {
 		t.Fatalf("shows %q", got)
 	}
 }

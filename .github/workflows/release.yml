@@ -57,6 +57,23 @@ jobs:
         shell: bash
         run: test -z "$(gofmt -l .)"
 
+      - name: Install Linux native toolchain
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo 'CC=musl-gcc' >> "$GITHUB_ENV"
+
+      - name: Prepare pinned Tantivy native library
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          tantivy_dir=$(sh scripts/prepare-tantivy.sh)
+          printf 'CGO_ENABLED=1\nCGO_LDFLAGS="-L%s"\n' "$tantivy_dir" >> "$GITHUB_ENV"
+
       - name: Vet
         working-directory: native
         run: go vet ./...

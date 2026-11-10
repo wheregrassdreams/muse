@@ -37,7 +37,11 @@ func (a *App) aiView(c *ui.Context) {
 	// 滚动区与输入区直接挂到面板列上（这里不再包一层固定列）：多包
 	// 一层 grow=0 的列会带上「最小高度=全部内容」的地板，内容一长就
 	// 把输入区挤出面板。
-	ui.Scroll(c).Grow(1).TrackScroll(&a.aiScroll).Children(func() {
+	showScrollbar := a.aiIndicator.Visible(c.Now(), a.aiScroll.X, a.aiScroll.Y)
+	if showScrollbar {
+		c.After(a.aiIndicator.Remaining(c.Now()))
+	}
+	ui.Scroll(c).Grow(1).TrackScroll(&a.aiScroll).Scrollbars(showScrollbar).Children(func() {
 		ui.Column(c).FillWidth().Padding(10, 12, 12, 12).Gap(12).Children(func() {
 			if len(a.aiMessages) == 0 {
 				a.aiEmpty(c)

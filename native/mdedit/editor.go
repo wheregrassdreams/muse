@@ -3,6 +3,7 @@ package mdedit
 import (
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/mdoc"
+	"muse/scrollui"
 )
 
 // Options configure an editor. The app sets them before building the
@@ -28,8 +30,15 @@ type Options struct {
 	PadX     float32
 	// TopInset reserves space for an overlaid header, in DIPs.
 	TopInset float32
+	// HideFrontmatter omits the YAML frontmatter leaf from the layout while
+	// keeping it in the source, parser offsets, and undo history.
+	HideFrontmatter bool
+	// Header is an optional document header that scrolls with the body.
+	Header       func(*ui.Context)
+	HeaderHeight float32
 	// BaseDir resolves the relative paths of images.
-	BaseDir string
+	BaseDir   string
+	AssetRoot string
 	// Placeholder shows in an empty document.
 	Placeholder string
 	// Label names the editor to assistive technology.
@@ -42,6 +51,8 @@ type Options struct {
 	OnChange func()
 	// OnLink opens a link the user Cmd-clicked (Ctrl-clicked).
 	OnLink func(url string)
+	// OnImagePreview opens an image preview for its resolved local path or URL.
+	OnImagePreview func(pathOrURL string)
 	// Code makes the document code rather than Markdown, as a .json or a
 	// .go file is: its lines show as they are, highlighted as the language
 	// of that name, or plain when the name is "text".
@@ -62,6 +73,10 @@ type Options struct {
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
 type Editor struct {
+	// paintMu keeps a frame's leaves and parser snapshot together. MyGo calls
+	// Draw after the app's View callback returns, so an app edit can otherwise
+	// replace the parser while paint is still walking the previous leaves.
+	paintMu                        sync.Mutex
 	modal                          modalState
 	opts                           Options
 	inlineMathStart, inlineMathEnd int
@@ -115,10 +130,12 @@ type Editor struct {
 
 	hist history
 
-	lk       look
-	views    map[viewKey]*leafView
-	frame    uint64
-	assetGen atomic.Uint64
+	lk        look
+	views     map[viewKey]*leafView
+	frame     uint64
+	assetGen  atomic.Uint64
+	imageHits []imageHit
+	imageDrag *imageResizeDrag
 
 	// The element's size and where the column of text is in it.
 	elemW, viewH float32
@@ -138,11 +155,12 @@ type Editor struct {
 	// it.
 	estW, estSize, estLH float32
 
-	scroll       ui.ScrollState
-	scrollHandle ui.Handle
-	handle       ui.Handle
-	focused      bool
-	blinkStart   time.Time
+	scroll          ui.ScrollState
+	scrollIndicator scrollui.Indicator
+	scrollHandle    ui.Handle
+	handle          ui.Handle
+	focused         bool
+	blinkStart      time.Time
 	// wantReveal scrolls the caret into view at the next frame.
 	wantReveal bool
 	// scrollTo, when set, scrolls an offset to the top of the view at the
@@ -275,13 +293,39 @@ func New(src string, opts Options) *Editor {
 
 // SetOptions changes the editor's options.
 func (e *Editor) SetOptions(opts Options) {
-	if opts.Code != e.opts.Code {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	codeChanged := opts.Code != e.opts.Code
+	frontmatterChanged := opts.HideFrontmatter != e.opts.HideFrontmatter
+	imageBaseChanged := opts.BaseDir != e.opts.BaseDir || opts.AssetRoot != e.opts.AssetRoot
+	if codeChanged || frontmatterChanged {
 		e.rev++
-		e.parsed = 0
-		e.p.clear()
-		e.pending, e.pendingMulti = nil, false
+		if codeChanged {
+			e.parsed = 0
+			e.pending, e.pendingMulti = nil, false
+		}
 	}
 	e.opts = opts
+	if imageBaseChanged {
+		e.assetGen.Add(1)
+	}
+	if codeChanged || frontmatterChanged {
+		// Keep leaves and parser paired when the parse mode or visibility
+		// changes, including callers that inspect the editor before the next View.
+		e.sync()
+	}
+	hideFMEnd := 0
+	if opts.HideFrontmatter {
+		hideFMEnd = hideFrontMatterEnd(e.src)
+	}
+	if frontmatterChanged && hideFMEnd > 0 && e.caret < hideFMEnd {
+		e.caret = e.firstStop()
+		if e.anchor < hideFMEnd {
+			e.anchor = e.caret
+		}
+		e.hasGoal = false
+		e.wantReveal = true
+	}
 }
 
 // Options returns the editor's options.
@@ -302,6 +346,8 @@ func (e *Editor) Source() string { return e.src }
 // SetSource replaces the document, as opening another file does: the
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	e.mathPreviewHidden = false
 	e.inlineMathOK = false
 	e.src = src
@@ -366,6 +412,22 @@ func (e *Editor) sync() {
 	e.arenaCur ^= 1
 	e.leaves = buildLeaves(e.src, e.p.doc, e.p.fm, &e.arena[e.arenaCur])
 	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
+	if e.opts.HideFrontmatter {
+		hideFMEnd := hideFrontMatterEnd(e.src)
+		if hideFMEnd > 0 {
+			kept := e.leaves[:0]
+			for _, l := range e.leaves {
+				if l.lineStart >= hideFMEnd {
+					kept = append(kept, l)
+				}
+			}
+			e.leaves = kept
+			// A frontmatter-only document still has an editable body position.
+			if len(e.leaves) == 0 {
+				e.leaves = insertPhantom(e.leaves, &phantom{at: hideFMEnd})
+			}
+		}
+	}
 	// The block shown as its source is a block of lines, not the block it
 	// draws: a table stops being cells and becomes the Markdown it is
 	// written as. Its control opened it and closes it, like a fold: the
@@ -717,6 +779,8 @@ func (e *Editor) setPhantom(p *phantom) {
 // Select selects a range of the source, as a search's match, and scrolls
 // to it.
 func (e *Editor) Select(start, end int) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	e.dropPhantom()
 	start = max(0, min(start, len(e.src)))
 	end = max(start, min(end, len(e.src)))
@@ -729,6 +793,8 @@ func (e *Editor) Select(start, end int) {
 // ScrollToOffset scrolls the source offset off to the top of the view and
 // puts the caret there, as an outline's heading is gone to.
 func (e *Editor) ScrollToOffset(off int) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	e.dropPhantom()
 	off = e.normalize(max(0, min(off, len(e.src))), 1)
 	e.anchor, e.caret = off, off
@@ -753,6 +819,8 @@ func (e *Editor) scrollToOffsetCentered(off int) {
 // SetHighlights draws ranges of the source as found, current the one
 // chosen (or -1).
 func (e *Editor) SetHighlights(rs []Range, current int) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	e.highlights, e.current = rs, current
 	e.invalidate()
 }

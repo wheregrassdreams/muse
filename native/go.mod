@@ -3,8 +3,10 @@ module muse
 go 1.27.3
 
 require (
+	github.com/anyproto/tantivy-go v1.0.6
 	github.com/egoist/mygo v0.8.3
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gofrs/flock v0.13.0
 	github.com/luo-studio/go-tex v0.0.0-20260508062349-60635a3613c5
 	github.com/tdewolff/canvas v0.0.0-20260406091912-5d4f7059846e
 	github.com/yuin/goldmark v1.8.6
@@ -35,6 +37,7 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/knuth v0.5.5 // indirect
 	modernc.org/token v1.1.0 // indirect
 	star-tex.org/x/tex v0.7.1 // indirect

@@ -1,0 +1,144 @@
+{
+  "backend": "muse/vaultsearch (Tantivy)",
+  "dataset": "deterministic mixed English/Chinese UTF-8 notes",
+  "documents": 10000,
+  "source_bytes_per_document": 2048,
+  "total_source_bytes": 20480000,
+  "index_directory": "/var/folders/1r/7sqw81gn7bgbv2b0tqsm6kj80000gn/T/muse-searchbench-21447014/index",
+  "initial_open": {
+    "elapsed": "28.509958ms",
+    "elapsed_ns": 28509958,
+    "go_heap_before_bytes": 23245160,
+    "go_heap_after_bytes": 23257840,
+    "go_alloc_bytes": 20304
+  },
+  "build_reconcile": {
+    "elapsed": "13.865964083s",
+    "elapsed_ns": 13865964083,
+    "go_heap_before_bytes": 23256296,
+    "go_heap_after_bytes": 24897832,
+    "go_alloc_bytes": 132226208
+  },
+  "reopen": {
+    "elapsed": "4.138958ms",
+    "elapsed_ns": 4138958,
+    "go_heap_before_bytes": 23270896,
+    "go_heap_after_bytes": 24518360,
+    "go_alloc_bytes": 2820488
+  },
+  "no_change_reconcile": {
+    "elapsed": "11.886167ms",
+    "elapsed_ns": 11886167,
+    "go_heap_before_bytes": 24511968,
+    "go_heap_after_bytes": 24511968,
+    "go_alloc_bytes": 1723008
+  },
+  "single_document_update": {
+    "elapsed": "121.52825ms",
+    "elapsed_ns": 121528250,
+    "go_heap_before_bytes": 1468016,
+    "go_heap_after_bytes": 2173112,
+    "go_alloc_bytes": 5319720
+  },
+  "update_check": {
+    "updated_token_hits": 1,
+    "old_token_hits": 0
+  },
+  "searches": {
+    "chinese_one": {
+      "query": "知",
+      "hit_count": 500,
+      "measurement": {
+        "elapsed": "15.369792ms",
+        "elapsed_ns": 15369792,
+        "go_heap_before_bytes": 1478296,
+        "go_heap_after_bytes": 1599384,
+        "go_alloc_bytes": 5459096
+      }
+    },
+    "chinese_two": {
+      "query": "索引",
+      "hit_count": 500,
+      "measurement": {
+        "elapsed": "14.972125ms",
+        "elapsed_ns": 14972125,
+        "go_heap_before_bytes": 1478360,
+        "go_heap_after_bytes": 1599432,
+        "go_alloc_bytes": 5459208
+      }
+    },
+    "common": {
+      "query": "musecommon",
+      "hit_count": 500,
+      "measurement": {
+        "elapsed": "15.431208ms",
+        "elapsed_ns": 15431208,
+        "go_heap_before_bytes": 1487576,
+        "go_heap_after_bytes": 1590552,
+        "go_alloc_bytes": 5418424
+      }
+    },
+    "literal": {
+      "query": "musecommon",
+      "hit_count": 500,
+      "measurement": {
+        "elapsed": "4.580334ms",
+        "elapsed_ns": 4580334,
+        "go_heap_before_bytes": 1478376,
+        "go_heap_after_bytes": 1620968,
+        "go_alloc_bytes": 2076600
+      }
+    },
+    "literal_nohit": {
+      "query": "query-that-does-not-exist-7fa91",
+      "hit_count": 0,
+      "measurement": {
+        "elapsed": "342.162709ms",
+        "elapsed_ns": 342162709,
+        "go_heap_before_bytes": 1484480,
+        "go_heap_after_bytes": 1542432,
+        "go_alloc_bytes": 100215960
+      }
+    },
+    "literal_rare": {
+      "query": "rareterm",
+      "hit_count": 1,
+      "measurement": {
+        "elapsed": "343.244875ms",
+        "elapsed_ns": 343244875,
+        "go_heap_before_bytes": 1478392,
+        "go_heap_after_bytes": 1535192,
+        "go_alloc_bytes": 100309344
+      }
+    },
+    "nohit": {
+      "query": "query-that-does-not-exist-7fa91",
+      "hit_count": 0,
+      "measurement": {
+        "elapsed": "1.077958ms",
+        "elapsed_ns": 1077958,
+        "go_heap_before_bytes": 1478280,
+        "go_heap_after_bytes": 1481952,
+        "go_alloc_bytes": 13376
+      }
+    },
+    "rare": {
+      "query": "rareterm",
+      "hit_count": 1,
+      "measurement": {
+        "elapsed": "648.333µs",
+        "elapsed_ns": 648333,
+        "go_heap_before_bytes": 1478264,
+        "go_heap_after_bytes": 1488552,
+        "go_alloc_bytes": 30568
+      }
+    }
+  },
+  "index_disk_bytes_after_build": 7142496,
+  "index_disk_bytes_after_update": 6533039,
+  "go_heap_scope": "runtime.MemStats only; native Tantivy/Rust allocations are excluded",
+  "rss_measurement": "run the command under /usr/bin/time -l; max RSS is process-wide",
+  "hold": "2s",
+  "process_peak_rss_bytes": 207290368,
+  "post_queries_rss_sample_bytes": 205799424
+}

@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "documents": 1000,
+  "source_bytes": 2048000,
+  "sampled_peak_rss_bytes": 257196032,
+  "last_rss_sample_bytes": 236175360,
+  "sample_interval_ms": 100,
+  "screenshot": "/tmp/muse-tantivy-native.png"
+}

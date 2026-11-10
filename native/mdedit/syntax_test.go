@@ -12,6 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+
+	"muse/mdoc"
 )
 
 // shownEditor lays src out in an editor without the focus, where no
@@ -71,7 +73,7 @@ func styledText(e *Editor, d display) string {
 		if sp.Font == e.lk.mono {
 			tags = append(tags, "code")
 		}
-		if sp.Color == e.lk.accent {
+		if sp.Color == e.lk.accent || sp.Color == mdoc.InlineLinkColor(e.lk.dark) {
 			tags = append(tags, "a")
 		}
 		tag := strings.Join(tags, ",")

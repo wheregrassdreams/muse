@@ -151,13 +151,19 @@ func TestAPictureHasASourceControlToo(t *testing.T) {
 	if got := disp(); got != "￼" {
 		t.Fatalf("the picture draws %q, want the object alone", got)
 	}
-	chip := h.e.sourceChip(pic)
-	h.tt.Move(h.e.colX+40, pic.y+20)
+	chip := pictureControl(h, pic)
+	h.tt.Move(chip.X+6, chip.Y+4)
 	h.frame()
 	h.tt.ClickAt(chip.X+6, chip.Y+4)
 	h.frame()
 	if got := disp(); !strings.Contains(got, "![图](a.png)") {
 		t.Fatalf("the control showed %q, want the tag", got)
+	}
+	for _, l := range h.e.leaves {
+		if h.e.pictureBlock(l) {
+			chip = pictureControl(h, l)
+			break
+		}
 	}
 	h.tt.ClickAt(chip.X+6, chip.Y+4)
 	h.frame()

@@ -20,15 +20,13 @@ func Run() {
 	app := New()
 	mygo.App.SetName("Muse")
 	mygo.App.WhenReady(func() {
+		app.applyNativePreferences(loadNativePreferences())
+		app.enableDocumentServices()
 		switch os.Getenv("MUSE_THEME") {
 		case "light":
-			app.themeMode = 0
+			app.themeMode = themeLight
 		case "dark":
-			app.themeMode = 1
-		default:
-			if mygo.Theme.IsDark() {
-				app.themeMode = 1
-			}
+			app.themeMode = themeDark
 		}
 		// 材料在窗口创建时就按应用外观画好，先定下来再开窗。
 		app.syncAppearance()
@@ -50,18 +48,26 @@ func Run() {
 		}
 		// TEMP capture hook
 		switch os.Getenv("MUSE_PANEL") {
+		case "properties":
+			app.openProperties()
+		case "vault-search":
+			app.openWorkspaceSearch()
+			app.workspaceQuery = os.Getenv("MUSE_SEARCH_QUERY")
 		case "outline":
 			app.showPanel(panelOutline)
 		case "search":
 			app.showPanel(panelSearch)
 		case "ai":
-			app.showPanel(panelAI)
+			if app.aiEnabled {
+				app.showPanel(panelAI)
+			}
 		case "closed":
 			app.panelOpen = false
 			app.panelW = 0
 		}
 		app.openWindow()
 	})
+	mygo.Theme.OnUpdated(app.invalidate)
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows {
 			app.openWindow()
@@ -114,6 +120,7 @@ func (a *App) openWindow() {
 	a.win.OnMaximize(a.invalidate)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if !a.dirty {
+			stopVault(a.vault)
 			return
 		}
 		e.PreventDefault()
@@ -199,11 +206,9 @@ func (a *App) installMenu() {
 			Submenu: []*mygo.MenuItem{
 				{Label: "文件栏", Accelerator: "Shift+CmdOrCtrl+L", Click: click(func() { a.togglePanel(panelFiles) })},
 				{Label: "大纲", Click: click(func() { a.togglePanel(panelOutline) })},
-				{Label: "搜索", Accelerator: "CmdOrCtrl+F", Click: click(func() { a.togglePanel(panelSearch) })},
-				{Label: "AI 助手", Click: click(func() { a.togglePanel(panelAI) })},
-				mygo.Separator(),
-				{Label: "切换主题", Accelerator: "CmdOrCtrl+Shift+T", Click: click(func() { a.themeMode = 1 - a.themeMode })},
-				{Label: "扁平风格", Accelerator: "CmdOrCtrl+Shift+F", Click: click(func() { a.flat = !a.flat; a.invalidate() })},
+				{Label: "当前文档查找", Accelerator: "CmdOrCtrl+F", Click: click(func() { a.closeWorkspaceSearch(); a.showPanel(panelSearch) })},
+				{Label: "搜索笔记库", Accelerator: "CmdOrCtrl+Shift+F", Click: click(a.openWorkspaceSearch)},
+				{Label: "扁平风格", Click: click(func() { a.flat = !a.flat; a.invalidate() })},
 				{Label: "顶部模糊", Click: click(func() { a.headerFade = !a.headerFade; a.invalidate() })},
 				mygo.Separator(),
 				{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: click(a.openSettings)},

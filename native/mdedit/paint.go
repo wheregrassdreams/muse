@@ -13,6 +13,12 @@ const blink = 530 * time.Millisecond
 // paint draws the document: the leaves in view, the selection, what a
 // search found, and the caret.
 func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	// An app edit may have landed after View built this element. Lay out the
+	// current source/parser pair before reading leaves retained by this draw.
+	e.layoutIfNeeded()
+	e.imageHits = e.imageHits[:0]
 	e.elemRect = r
 	if r.W != e.elemW && r.W > 0 {
 		// The width changed since the layout: lay out again next frame.
@@ -77,6 +83,12 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		}
 		e.paintSourceChip(p, l, ox, oy)
 	}
+	for _, hit := range e.imageHits {
+		if !hit.box.Contains(e.pointerX, e.pointerY) && (e.imageDrag == nil || e.imageDrag.hit.obj.sourceFrom != hit.obj.sourceFrom || e.imageDrag.hit.obj.sourceTo != hit.obj.sourceTo) {
+			continue
+		}
+		e.paintImageTools(p, hit, ox, oy)
+	}
 	if e.src == "" && e.opts.Placeholder != "" && e.compose == "" {
 		// The placeholder of an empty note stands on the first line of the
 		// document, where the note begins — not wherever the caret's line
@@ -130,12 +142,16 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 		if v.diagram == nil {
 			p.TextLayout(v.layout, lx, ly, e.lk.text)
 		}
-		e.paintObjects(p, v, lx, ly)
+		e.paintObjects(p, u, v, lx, ly)
 	} else if a != z && a <= leafLo(u) && z >= u.end {
 		p.Fill(box, e.lk.selection, 4)
 	}
 	if v.block != nil {
-		e.paintObject(p, v.block, ui.Rect{X: x + v.bx, Y: y + v.by, W: v.block.w, H: v.block.h})
+		r := ui.Rect{X: x + v.bx, Y: y + v.by, W: v.block.w, H: v.block.h}
+		e.paintObject(p, v.block, r)
+		if v.block.imagePath != "" {
+			e.imageHits = append(e.imageHits, imageHit{obj: v.block, box: ui.Rect{X: r.X - e.elemRect.X, Y: r.Y - e.elemRect.Y, W: r.W, H: r.H}, leaf: u})
+		}
 	}
 	if v.diagram != nil {
 		e.paintDiagram(p, u, v, ox, oy)
@@ -194,7 +210,11 @@ func (e *Editor) paintDiagram(p *ui.Painter, u *leaf, v *leafView, ox, oy float3
 	p.Clip(box, 6, func() {
 		v.diagram.Draw(p, ui.Rect{X: box.X - off, Y: box.Y, W: max(contentW, box.W), H: box.H}, p.Theme())
 	})
-	if contentW > box.W {
+	v.diagBarShown = v.diagIndicator.Visible(p.Now(), off, 0)
+	if v.diagBarShown {
+		p.After(v.diagIndicator.Remaining(p.Now()))
+	}
+	if contentW > box.W && v.diagBarShown {
 		track, thumb := diagramBarRects(box, contentW, off)
 		hot := track.Contains(e.pointerX, e.pointerY)
 		e.paintDiagramBar(p, track, thumb, hot || e.diagDrag != nil && e.diagDrag.leaf == u)
@@ -269,7 +289,7 @@ func (d *display) looseDisp(rel int) int {
 }
 
 // paintObjects draws the images and formulas inside a layout's lines.
-func (e *Editor) paintObjects(p *ui.Painter, v *leafView, lx, ly float32) {
+func (e *Editor) paintObjects(p *ui.Painter, u *leaf, v *leafView, lx, ly float32) {
 	if !v.disp.hasObjects {
 		return
 	}
@@ -281,10 +301,35 @@ func (e *Editor) paintObjects(p *ui.Painter, v *leafView, lx, ly float32) {
 				r.X += lx
 				r.Y += ly
 				e.paintObject(p, pc.obj, r)
+				if pc.obj.imagePath != "" {
+					e.imageHits = append(e.imageHits, imageHit{obj: pc.obj, box: ui.Rect{X: r.X - e.elemRect.X, Y: r.Y - e.elemRect.Y, W: r.W, H: r.H}, leaf: u})
+				}
 				break
 			}
 		}
 	}
+}
+
+func (e *Editor) paintImageTools(p *ui.Painter, hit imageHit, ox, oy float32) {
+	box := hit.box
+	box.X += e.elemRect.X
+	box.Y += e.elemRect.Y
+	preview, source, grip := imageToolRects(box, e.lk.size)
+	for i, item := range []struct {
+		r     ui.Rect
+		label string
+	}{{preview, "↗"}, {source, "</>"}} {
+		p.Fill(item.r, e.lk.panel, 5)
+		p.Stroke(item.r, e.lk.border, 5, 1)
+		sp := ui.Span{Text: item.label, Size: e.lk.size * 0.7, Color: e.lk.text}
+		w, h := p.MeasureText(item.r.W-4, sp)
+		p.RichText(item.r.X+(item.r.W-w)/2, item.r.Y+(item.r.H-h)/2, item.r.W-4, sp)
+		_ = i
+	}
+	// A quiet L mark at the lower-right corner is the image resize affordance.
+	col := e.lk.text.Alpha(0.72)
+	p.Fill(ui.Rect{X: grip.X + grip.W - 3, Y: grip.Y + grip.H*0.42, W: 2, H: grip.H * 0.48}, col, 1)
+	p.Fill(ui.Rect{X: grip.X + grip.W*0.42, Y: grip.Y + grip.H - 3, W: grip.W * 0.48, H: 2}, col, 1)
 }
 
 // paintObject draws an image or a formula in r, or a placeholder for an
@@ -434,9 +479,31 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 	}
 	if e.blockCaret() && e.compose == "" {
 		r = e.blockCaretRect(r)
-		r.X += ox
-		r.Y += oy
-		p.Fill(r, e.lk.caret.Alpha(0.42), 0)
+		box := ui.Rect{X: ox + r.X, Y: oy + r.Y, W: r.W, H: r.H}
+		p.Fill(box, e.lk.caret.Alpha(1), 0)
+		// Repaint the shaped text through the caret box so the glyph itself
+		// takes a contrasting foreground on the opaque caret background.
+		if us := e.units(); len(us) > 0 {
+			if i := e.unitIndex(us, e.caret); i >= 0 {
+				u := us[i]
+				v := e.unitView(u, e.caret)
+				if v.layout != nil {
+					if d, ok := v.disp.srcToDisp(e.caret - u.lineStart); ok {
+						if sp, ok := blockCaretGlyph(v.disp, d, blockCaretTextColor(e.lk.caret)); ok {
+							glyph := ui.ShapeRichText([]ui.Span{sp}, v.font, 0)
+							lines, glyphLines := v.layout.Lines(), glyph.Lines()
+							if len(lines) > 0 && len(glyphLines) > 0 {
+								ln := lines[lineOf(lines, d, e.upstream)]
+								y := oy + u.y + v.ty + ln.Baseline - glyphLines[0].Baseline
+								p.Clip(box, 0, func() {
+									p.TextLayout(glyph, box.X, y, blockCaretTextColor(e.lk.caret))
+								})
+							}
+						}
+					}
+				}
+			}
+		}
 		return
 	}
 	h := r.H

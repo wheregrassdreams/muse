@@ -25,6 +25,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/mdoc"
+	"muse/notestore"
 	"muse/services"
 )
 
@@ -1657,7 +1658,7 @@ func (a *App) toolEditDocument(rel, oldText, newText string) toolOutcome {
 	if err != nil {
 		return toolFail("%v", err)
 	}
-	if err := a.applyToolFileEdit(path, updated); err != nil {
+	if err := a.applyToolFileEdit(path, updated, notestore.Revision(content)); err != nil {
 		return toolFail("%v", err)
 	}
 	return toolOK(map[string]any{
@@ -1702,7 +1703,11 @@ func (a *App) toolWriteDocument(rel, content string) toolOutcome {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return toolFail("创建目录失败：%v", err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		expected, err := a.destinationRevision(path, "", "")
+		if err == nil {
+			err = a.writeDocument(path, content, expected)
+		}
+		if err != nil {
 			return toolFail("写入失败：%v", err)
 		}
 		a.dirMu.Lock()
@@ -1739,8 +1744,8 @@ func (a *App) applyToolSourceEdit(content string) {
 }
 
 // applyToolFileEdit 把工具改出的内容写到磁盘上的其他文件。
-func (a *App) applyToolFileEdit(path, content string) error {
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+func (a *App) applyToolFileEdit(path, content, revision string) error {
+	if err := a.writeDocument(path, content, revision); err != nil {
 		return err
 	}
 	a.dirMu.Lock()

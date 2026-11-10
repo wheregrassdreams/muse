@@ -54,8 +54,9 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 // to the width; a placeholder showing alt until it loads. alone makes it a
 // line of its own: a paragraph of just an image.
 func (e *Editor) imageObject(dest, alt string, width float32, alone bool) *object {
-	bmp := mdoc.LoadImage(dest, e.opts.BaseDir, e.assetLoaded)
-	obj := &object{bmp: bmp, alt: alt, block: alone}
+	resolved := mdoc.ResolveImageSource(dest, e.opts.BaseDir, e.opts.AssetRoot)
+	bmp := mdoc.LoadImage(resolved, "", e.assetLoaded)
+	obj := &object{bmp: bmp, alt: alt, block: alone, imagePath: resolved}
 	if bmp == nil {
 		obj.w = min(max(width, 80), 260)
 		obj.h = e.lk.size * 2.4

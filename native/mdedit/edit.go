@@ -385,7 +385,11 @@ func (e *Editor) backspace(word bool) {
 	if u == nil {
 		return
 	}
-	if first, ok := e.edgeStop(u, false); ok && off <= first && !(u.kind == kCode && u.fenced && off >= u.infoStart && off <= u.infoEnd && off > u.infoStart) {
+	// Heading markers are editable source positions before the content's
+	// edge stop. Only Backspace at the content start converts the heading;
+	// before it, delete backward normally without consuming syntax ahead.
+	beforeHeadingContent := u.kind == kHeading && off < u.start
+	if first, ok := e.edgeStop(u, false); ok && off <= first && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStart && off <= u.infoEnd && off > u.infoStart) {
 		e.backspaceAtStart(u)
 		return
 	}

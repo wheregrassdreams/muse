@@ -1,0 +1,1 @@
+{"build":"1.38915625s","build_total_alloc_bytes":2286039280,"document_hits":1,"documents_requested":10000,"heap_alloc_bytes":1694167184,"index_disk_bytes":242081155,"literal":"150.749417ms","occurrences":1,"reopen":"39.306709ms","retained_heap_after_gc_bytes":538382600,"search":"174.416µs"}

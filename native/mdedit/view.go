@@ -12,6 +12,7 @@ import (
 type laid struct {
 	rev        uint64
 	caret      int
+	anchor     int
 	reveal     int
 	compose    string
 	colX, colW float32
@@ -45,6 +46,7 @@ func (e *Editor) layoutIfNeeded() {
 	k := laid{
 		rev:     e.rev,
 		caret:   e.caret,
+		anchor:  e.anchor,
 		reveal:  e.revealCaret(),
 		compose: e.compose,
 		colX:    e.colX,
@@ -109,32 +111,47 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 		e.colW = max(min(maxW, e.elemW-2*padX), 120)
 		e.colX = max((e.elemW-e.colW)/2, 0)
 	}
-	e.padTop = e.lk.size*2.2 + max(e.opts.TopInset, 0)
+	padTop := e.lk.size*2.2 + max(e.opts.TopInset, 0) + max(e.opts.HeaderHeight, 0)
+	if e.padTop != padTop {
+		e.leavesLaid = false
+	}
+	e.padTop = padTop
 	e.padBottom = max(e.viewH*0.35, e.lk.size*4)
 	e.layoutIfNeeded()
 	e.pruneViews()
 	e.scrollIntoView()
 
 	h := max(e.docH, e.viewH)
-	sc := ui.Scroll(c).Fill().TrackScroll(&e.scroll).Bind(&e.scrollHandle)
+	showBar := e.scrollIndicator.Visible(c.Now(), e.scroll.X, e.scroll.Y)
+	if showBar {
+		c.After(e.scrollIndicator.Remaining(c.Now()))
+	}
+	sc := ui.Scroll(c).Fill().Scrollbars(showBar).TrackScroll(&e.scroll).Bind(&e.scrollHandle)
 	sc.Children(func() {
-		label := e.opts.Label
-		if label == "" {
-			label = "文档"
-		}
-		// Cursor comes after HandleTextInput, which sets the text cursor
-		// itself: the shape set last is the one the window shows, and the
-		// editor changes it as the pointer moves over links and boxes.
-		el := ui.Box(c).FillWidth().Height(h).Focusable().FocusRing(false).Bind(&e.handle).
-			Role(ui.RoleTextField).Label(label).
-			HandleTextInput(e).Cursor(e.cursor).
-			HandleInput(e.input).Draw(e.paint).ContextMenu(e.menu)
-		if files := el.DroppedFiles(); len(files) > 0 {
-			if x, y, ok := el.PointerPosition(); ok {
-				e.setCaret(e.hitTest(x, y), false)
+		ui.Column(c).FillWidth().Height(h).Shrink(0).Children(func() {
+			label := e.opts.Label
+			if label == "" {
+				label = "文档"
 			}
-			e.dropFiles(files)
-		}
+			// Cursor comes after HandleTextInput, which sets the text cursor
+			// itself: the shape set last is the one the window shows, and the
+			// editor changes it as the pointer moves over links and boxes.
+			el := ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(h).Focusable().FocusRing(false).Bind(&e.handle).
+				Role(ui.RoleTextField).Label(label).
+				HandleTextInput(e).Cursor(e.cursor).
+				HandleInput(e.input).Draw(e.paint).ContextMenu(e.menu)
+			if files := el.DroppedFiles(); len(files) > 0 {
+				if x, y, ok := el.PointerPosition(); ok {
+					e.setCaret(e.hitTest(x, y), false)
+				}
+				e.dropFiles(files)
+			}
+			if e.opts.Header != nil && e.opts.HeaderHeight > 0 {
+				ui.Box(c).Height(max(e.opts.TopInset, 0)).Shrink(0)
+				ui.Column(c).Key("document-header").ZIndex(1).Margin(0, e.colX).Width(e.colW).Height(e.opts.HeaderHeight).Shrink(0).Children(func() { e.opts.Header(c) })
+			}
+
+		})
 	})
 	if e.autoScroll() {
 		c.After(16 * time.Millisecond)

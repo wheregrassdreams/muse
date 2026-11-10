@@ -9,6 +9,8 @@ import "strings"
 // than a new document: the caret stays where it was, around the change,
 // and undo brings the old text back.
 func (e *Editor) ReplaceAll(src string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	if src == e.src {
 		return
 	}
@@ -27,12 +29,18 @@ func (e *Editor) ReplaceAll(src string) {
 	for s > 0 && len(e.src)-s < len(e.src) && !runeStart(e.src[len(e.src)-s]) {
 		s--
 	}
-	e.Replace(p, len(e.src)-s, src[p:len(src)-s])
+	e.replaceRange(p, len(e.src)-s, src[p:len(src)-s])
 }
 
 // Replace replaces the source's bytes [from, to) with text, as one step of
 // undo.
 func (e *Editor) Replace(from, to int, text string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	e.replaceRange(from, to, text)
+}
+
+func (e *Editor) replaceRange(from, to int, text string) {
 	e.dropPhantom()
 	from = max(0, min(from, len(e.src)))
 	to = max(from, min(to, len(e.src)))
@@ -47,6 +55,8 @@ func (e *Editor) Replace(from, to int, text string) {
 // AppendBlock adds Markdown as a block of its own at the end of the
 // document, and puts the caret at its end.
 func (e *Editor) AppendBlock(md string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	md = strings.Trim(md, "\n")
 	if md == "" {
 		return
@@ -69,6 +79,8 @@ func (e *Editor) AppendBlock(md string) {
 // PrependBlock adds Markdown as a block of its own at the start of the
 // document.
 func (e *Editor) PrependBlock(md string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
 	md = strings.Trim(md, "\n")
 	if md == "" {
 		return
@@ -88,7 +100,11 @@ func (e *Editor) PrependBlock(md string) {
 }
 
 // InsertAtCaret types Markdown at the caret, as pasted.
-func (e *Editor) InsertAtCaret(md string) { e.insertText(md) }
+func (e *Editor) InsertAtCaret(md string) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	e.insertText(md)
+}
 
 // Caret returns the caret's offset in the source.
 func (e *Editor) Caret() int { return e.caret }

@@ -241,6 +241,27 @@ func frontMatterEnd(src string) int {
 	return 0
 }
 
+// hideFrontMatterEnd includes empty front matter's delimiters for the
+// display-only projection. frontMatterEnd deliberately leaves `---\n---`
+// as two horizontal rules in the default editing mode.
+func hideFrontMatterEnd(src string) int {
+	if end := frontMatterEnd(src); end > 0 {
+		return end
+	}
+	if !strings.HasPrefix(src, "---\n") && !strings.HasPrefix(src, "---\r\n") {
+		return 0
+	}
+	off := strings.IndexByte(src, '\n') + 1
+	if off != 4 && off != 5 {
+		return 0
+	}
+	end := lineEndAt(src, off)
+	if line := strings.TrimRight(src[off:end], " \t\r"); line == "---" || line == "..." {
+		return end
+	}
+	return 0
+}
+
 // maskFrontMatter returns src with its front matter blanked out, its
 // newlines kept, so that the parser reads blank lines there and every
 // offset after it stays where it was.

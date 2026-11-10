@@ -475,6 +475,7 @@ type remoteEntry struct {
 	bmp     *ui.Bitmap
 	loading bool
 	failed  bool
+	waiters []func()
 }
 
 var remoteImages sync.Map
@@ -483,21 +484,34 @@ var remoteImages sync.Map
 // first caller starts the fetch; OnAsync repaints the view when it lands.
 func remoteBitmap(src string, done func()) *ui.Bitmap {
 	e := &remoteEntry{loading: true}
+	if done != nil {
+		e.waiters = append(e.waiters, done)
+	}
 	actual, loaded := remoteImages.LoadOrStore(src, e)
 	if loaded {
 		e = actual.(*remoteEntry)
 		e.mu.Lock()
-		bmp := e.bmp
+		bmp, failed := e.bmp, e.failed
+		if e.loading && done != nil {
+			e.waiters = append(e.waiters, done)
+		}
 		e.mu.Unlock()
+		// A new viewer still needs a completion signal for a cached failure;
+		// otherwise it would show a loading spinner indefinitely.
+		if failed && done != nil {
+			go done()
+		}
 		return bmp
 	}
 	go func() {
 		fail := func() {
 			e.mu.Lock()
 			e.loading, e.failed = false, true
+			waiters := e.waiters
+			e.waiters = nil
 			e.mu.Unlock()
-			if done != nil {
-				done()
+			for _, notify := range waiters {
+				notify()
 			}
 		}
 		client := &http.Client{Timeout: 15 * time.Second}
@@ -516,7 +530,7 @@ func remoteBitmap(src string, done func()) *ui.Bitmap {
 			fail()
 			return
 		}
-		bmp, err := ui.DecodeBitmap(data)
+		bmp, err := decodeDocumentImage(data)
 		e.mu.Lock()
 		e.loading = false
 		if err != nil {
@@ -524,9 +538,11 @@ func remoteBitmap(src string, done func()) *ui.Bitmap {
 		} else {
 			e.bmp = bmp
 		}
+		waiters := e.waiters
+		e.waiters = nil
 		e.mu.Unlock()
-		if done != nil {
-			done()
+		for _, notify := range waiters {
+			notify()
 		}
 	}()
 	return nil
@@ -574,7 +590,7 @@ func loadBitmap(path string) *ui.Bitmap {
 	if err != nil {
 		return nil
 	}
-	bmp, err := ui.DecodeBitmap(data)
+	bmp, err := decodeDocumentImage(data)
 	if err != nil {
 		return nil
 	}
@@ -582,8 +598,17 @@ func loadBitmap(path string) *ui.Bitmap {
 	return bmp
 }
 
-// uiSpans converts model spans to ui spans, resolving links and code to the
-// theme's accent and mono face.
+// InlineLinkColor keeps document links quieter than interactive UI accents.
+// Opaque blue-gray tones remain legible on both page and callout backgrounds.
+func InlineLinkColor(dark bool) ui.Color {
+	if dark {
+		return ui.Hex("#9dafbe")
+	}
+	return ui.Hex("#526b82")
+}
+
+// uiSpans converts model spans to ui spans, resolving document link colors
+// and the mono face.
 func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 	t := c.Theme()
 	out := make([]ui.Span, 0, len(spans))
@@ -607,7 +632,8 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 			u.Background = t.Surface
 		}
 		if sp.Link != "" {
-			u.Color = t.Accent
+			u.Color = InlineLinkColor(t.Dark)
+			u.Underline = true
 		}
 		if sp.Math {
 			u.Text = texToUnicode(sp.Text)
@@ -763,7 +789,7 @@ func dataBitmap(src string) *ui.Bitmap {
 	var bmp *ui.Bitmap
 	if comma := strings.IndexByte(src, ','); comma > 0 && strings.Contains(src[:comma], ";base64") {
 		if data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(src[comma+1:])); err == nil {
-			bmp, _ = ui.DecodeBitmap(data)
+			bmp, _ = decodeDocumentImage(data)
 		}
 	}
 	dataImages.Store(src, bmp)

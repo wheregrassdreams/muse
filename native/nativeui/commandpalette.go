@@ -22,7 +22,7 @@ func (a *App) paletteCommands() []paletteCommand {
 	toggle := func(p panelView) func() {
 		return func() { a.togglePanel(p) }
 	}
-	return []paletteCommand{
+	cmds := []paletteCommand{
 		{name: "新建文档", hint: "⌘N", run: a.newDoc},
 		{name: "保存", hint: "⌘S", run: a.save},
 		{name: "另存为…", hint: "⇧⌘S", run: a.saveAs},
@@ -31,13 +31,15 @@ func (a *App) paletteCommands() []paletteCommand {
 		{name: "打开文件夹…", hint: "⇧⌘O", run: a.openFolderDialog},
 		{name: "新建文件", hint: "", run: func() { a.newFileIn(a.createTarget()) }},
 		{name: "新建文件夹", hint: "", run: func() { a.newFolderIn(a.createTarget()) }},
-		{name: "切换主题", hint: "⇧⌘T", run: func() { a.themeMode = 1 - a.themeMode }},
 		{name: "文件面板", hint: "", run: toggle(panelFiles)},
 		{name: "大纲面板", hint: "", run: toggle(panelOutline)},
-		{name: "搜索面板", hint: "", run: toggle(panelSearch)},
-		{name: "AI 助手面板", hint: "", run: toggle(panelAI)},
+		{name: "搜索笔记库", hint: "⇧⌘F", run: a.openWorkspaceSearch},
 		{name: "设置…", hint: "", run: a.openSettings},
 	}
+	if a.aiEnabled {
+		cmds = append(cmds, paletteCommand{name: "AI 助手面板", run: toggle(panelAI)})
+	}
+	return cmds
 }
 
 func (a *App) paletteCandidates() []paletteCommand {

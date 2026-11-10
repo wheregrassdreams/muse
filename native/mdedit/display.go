@@ -42,7 +42,13 @@ type piece struct {
 // object is an inline object of a layout, drawn in the box the layout
 // gives its object replacement character.
 type object struct {
-	bmp *ui.Bitmap
+	bmp                   *ui.Bitmap
+	imagePath             string
+	imageDest, imageTitle string
+	sourceFrom, sourceTo  int
+	widthFrom, widthTo    int
+	imageSyntax           uint8
+	width                 float32
 	// alt is drawn in a placeholder while bmp is nil.
 	alt string
 	// w, h and descent are the box's size, in DIPs.
@@ -514,7 +520,11 @@ func (b *builder) wiki(w wikiLink, st istyle) {
 	// An embed of a picture is the picture, as Obsidian draws it. A note
 	// embed transcludes later; for now it reads as its label.
 	if w.embed && !b.objectOpen(w.from, w.to) && isImageName(w.target) {
-		if obj := b.e.imageObject(w.target, "", b.width, b.alone); obj != nil {
+		sz := wikiImageSize(b.src, w)
+		if obj := b.e.sizedImage(w.target, "", sz, b.width, b.alone); obj != nil {
+			obj.sourceFrom, obj.sourceTo, obj.imageSyntax = w.from, w.to, imageSyntaxWiki
+			obj.width = obj.w
+			b.e.applyImagePreview(obj, w.from, w.to)
 			b.atom(w.from, w.to, "", st, obj)
 			return
 		}
@@ -630,18 +640,8 @@ func (b *builder) codeSpan(in *parser.Inline, st istyle) {
 // math adds a formula within text: typeset, or its TeX while the caret is
 // at it.
 func (b *builder) math(in *parser.Inline, st istyle) {
-	n := 1
-	if strings.HasPrefix(b.src[in.Start:in.End], "$$") || strings.HasPrefix(b.src[in.Start:in.End], `\(`) || strings.HasPrefix(b.src[in.Start:in.End], `\[`) {
-		n = 2
-	}
-	cs, ce := min(in.Start+n, in.End), max(in.End-n, in.Start+n)
 	if b.revealed(in.Start, in.End) || b.objectOpen(in.Start, in.End) {
-		b.e.inlineMathStart, b.e.inlineMathEnd, b.e.inlineMathOK = in.Start, in.End, true
-		inner := st
-		inner.code = true
-		b.marker(in.Start, cs, st)
-		b.textRun(cs, min(ce, in.End), inner)
-		b.marker(min(ce, in.End), in.End, st)
+		b.mathSource(in.Start, in.End, st)
 		return
 	}
 	if obj := b.e.mathObject(in.Text, b.fontSize, in.Display); obj != nil {
@@ -656,19 +656,33 @@ func (b *builder) math(in *parser.Inline, st istyle) {
 // image adds an image: drawn, and its source too while the caret is at it.
 func (b *builder) image(ins []parser.Inline, i int, st istyle) {
 	in := &ins[i]
-	obj := b.e.imageObject(in.Dest, b.e.plainText(ins[i+1:max(in.Next, i+1)]), b.width, b.alone)
+	alt := b.e.plainText(ins[i+1 : max(in.Next, i+1)])
+	alt, inlineWidth := imageAltWidth(alt)
+	var obj *object
+	if inlineWidth > 0 {
+		obj = b.e.sizedImage(in.Dest, alt, imgSize{w: inlineWidth}, b.width, b.alone)
+	} else {
+		obj = b.e.imageObject(in.Dest, alt, b.width, b.alone)
+	}
+	if obj != nil && in.Dest != "" {
+		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = in.Start, in.End, imageSyntaxMarkdown
+		obj.imageDest, obj.imageTitle = in.Dest, in.Title
+		obj.widthFrom, obj.widthTo = imageAltWidthRange(b.src, in.Start, in.End)
+		obj.width = obj.w
+		b.e.applyImagePreview(obj, in.Start, in.End)
+	}
 	if !b.objectOpen(in.Start, in.End) {
 		b.atom(in.Start, in.End, "", st, obj)
 		return
 	}
 	b.revealedAny = true
 	cs, ce := children(ins, i, in.Start+2)
-	alt := st
-	alt.muted = true
+	altStyle := st
+	altStyle.muted = true
 	b.marker(in.Start, cs, st)
 	b.pos = cs
-	b.walk(ins, i+1, in.Next, alt)
-	b.gap(ce, alt)
+	b.walk(ins, i+1, in.Next, altStyle)
+	b.gap(ce, altStyle)
 	b.marker(ce, in.End, st)
 	b.pos = in.End
 	if obj != nil && obj.block {
@@ -735,6 +749,11 @@ func (b *builder) htmlInline(in *parser.Inline, st istyle) istyle {
 // its tag too while the caret is at it.
 func (b *builder) htmlImage(in *parser.Inline, src, alt string, sz imgSize, st istyle) {
 	obj := b.e.sizedImage(src, alt, sz, b.width, false)
+	if obj != nil {
+		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = in.Start, in.End, imageSyntaxHTML
+		obj.width = obj.w
+		b.e.applyImagePreview(obj, in.Start, in.End)
+	}
 	if !b.revealed(in.Start, in.End) {
 		b.atom(in.Start, in.End, "", st, obj)
 		return
@@ -973,7 +992,7 @@ func (b *builder) rawRange(start, end int, st istyle) {
 	inserted := false
 	emit := func() {
 		if !inserted {
-			b.textRun(start, end, st)
+			b.mathSource(start, end, st)
 			inserted = true
 		}
 	}
@@ -1002,4 +1021,14 @@ func (b *builder) rawRange(start, end int, st istyle) {
 		}
 	}
 	emit()
+}
+
+// mathSource uses the same source styling for parsed and incomplete formulas.
+func (b *builder) mathSource(start, end int, st istyle) {
+	cs, ce := inlineMathContent(b.src[start:end])
+	inner := st
+	inner.code = true
+	b.marker(start, start+cs, st)
+	b.textRun(start+cs, start+ce, inner)
+	b.marker(start+ce, end, st)
 }

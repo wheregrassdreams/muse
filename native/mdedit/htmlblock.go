@@ -199,6 +199,11 @@ func htmlBlockDisplay(b *builder, l *leaf) {
 			if src, alt, sz, ok := imgTag(tag); ok {
 				flush(s)
 				obj := b.e.sizedImage(src, alt, sz, b.width, false)
+				if obj != nil {
+					obj.sourceFrom, obj.sourceTo, obj.imageSyntax = s, e, imageSyntaxHTML
+					obj.width = obj.w
+					b.e.applyImagePreview(obj, s, e)
+				}
 				b.atom(s, e, "", st, obj)
 				emitted, atBreak = true, false
 			}

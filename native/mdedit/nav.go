@@ -1035,6 +1035,11 @@ func (e *Editor) showsChip(l *leaf) bool {
 	if e.sourceOK && l.lineStart == e.sourceAt {
 		return true
 	}
+	// Rendered pictures have their own controls inside the actual image box.
+	// Keep this older block chip only as the exit from an explicit source view.
+	if e.pictureBlock(l) {
+		return false
+	}
 	return e.hoverBlock == l.lineStart
 }
 

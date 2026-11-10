@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"fmt"
+	"github.com/egoist/mygo/ui"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,14 @@ func TestBlockControlsLeaveTheCaretAndTheViewAlone(t *testing.T) {
 			// the caret stays at the top, off the screen: that is where a
 			// person's eyes are when they click one.
 			h.e.scroll.Y = blockOfKind(h, kCode).y - 25
+			if c.name == "picture-tag" {
+				for _, l := range h.e.leaves {
+					if h.e.pictureBlock(l) {
+						h.e.scroll.Y = l.y - 100
+						break
+					}
+				}
+			}
 			h.frame()
 			caret, scroll := h.e.caret, h.e.scroll.Y
 			for i, want := range []func(*harness) bool{c.on, c.off} {
@@ -130,6 +139,18 @@ func pressTableTag(h *harness) bool {
 	return true
 }
 
+func pictureControl(h *harness, p *leaf) ui.Rect {
+	if !h.e.sourceOpen(p) {
+		for _, hit := range h.e.imageHits {
+			if hit.leaf != nil && hit.leaf.lineStart == p.lineStart {
+				_, source, _ := imageToolRects(hit.box, h.e.lk.size)
+				return source
+			}
+		}
+	}
+	return h.e.sourceChip(p)
+}
+
 func pressPictureTag(h *harness) bool {
 	var p *leaf
 	for _, l := range h.e.leaves {
@@ -140,8 +161,8 @@ func pressPictureTag(h *harness) bool {
 	if p == nil {
 		return false
 	}
-	chip := h.e.sourceChip(p)
-	h.tt.Move(p.x+40, p.y+20-h.e.scroll.Y)
+	chip := pictureControl(h, p)
+	h.tt.Move(chip.X+6, chip.Y+4-h.e.scroll.Y)
 	h.frame()
 	h.tt.ClickAt(chip.X+6, chip.Y+4-h.e.scroll.Y)
 	return true

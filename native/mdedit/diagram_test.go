@@ -1,8 +1,10 @@
 package mdedit
 
 import (
+	"muse/scrollui"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -68,6 +70,9 @@ func TestDiagramScrollsSideways(t *testing.T) {
 
 func TestDiagramScrollBarDrags(t *testing.T) {
 	h, l := diagramHarness(t)
+	box0, _ := h.e.diagramBox(l, l.view, 0, 0)
+	h.tt.Scroll(box0.X+30, box0.Y+30, 30, 0)
+	h.frame()
 	v := l.view
 	box, contentW := h.e.diagramBox(l, v, 0, 0)
 	track, thumb := diagramBarRects(box, contentW, v.diagX)
@@ -243,5 +248,26 @@ func TestDiagramKeepsItsScroll(t *testing.T) {
 	}
 	if !strings.HasSuffix(h.e.Source(), "tail") {
 		t.Fatal("the edit did not land")
+	}
+}
+
+func TestDiagramScrollbarExpiresWhileHovered(t *testing.T) {
+	h, l := diagramHarness(t)
+	box, _ := h.e.diagramBox(l, l.view, 0, 0)
+	h.tt.Move(box.X+10, box.Y+box.H+4)
+	h.frame()
+	if l.view.diagBarShown {
+		t.Fatal("hover revealed scrollbar")
+	}
+	h.tt.Scroll(box.X+30, box.Y+30, 30, 0)
+	h.frame()
+	if !l.view.diagBarShown {
+		t.Fatal("scroll did not reveal scrollbar")
+	}
+	h.tt.Move(box.X+10, box.Y+box.H+4)
+	h.tt.Advance(scrollui.VisibleFor + time.Second)
+	h.frame()
+	if l.view.diagBarShown {
+		t.Fatal("hover prevented scrollbar expiration")
 	}
 }

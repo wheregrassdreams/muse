@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown/parser"
 
 	"muse/mdoc"
+	"muse/scrollui"
 )
 
 // look is how the document looks, resolved from the window's theme and the
@@ -108,13 +109,8 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 		s.Underline = true
 	}
 	if st.link {
-		s.Color = lk.accent
-	}
-	if st.tag {
-		// A tag reads as a tag, not as a link: the accent on a soft pill.
-		s.Color = lk.accent
-		s.Background = lk.accent.Alpha(0.12)
-		s.Radius = max(3, size/5)
+		s.Color = mdoc.InlineLinkColor(lk.dark)
+		s.Underline = true
 	}
 	if st.mark {
 		s.Background = lk.markBg
@@ -208,9 +204,11 @@ type leafView struct {
 	font ui.Font
 	// diagram is a Mermaid diagram drawn instead of its code; diagX is how
 	// far it is scrolled sideways when it is wider than the column.
-	diagram *mdoc.Diagram
-	diagX   float32
-	used    uint64
+	diagram       *mdoc.Diagram
+	diagX         float32
+	diagIndicator scrollui.Indicator
+	diagBarShown  bool
+	used          uint64
 }
 
 // viewKey is what a leaf's view is made of: views of the same key are the
@@ -221,6 +219,8 @@ type viewKey struct {
 	flags     uint8
 	width     float32
 	reveal    int
+	mathRange [2]int
+	selection [2]int
 	compose   string
 	composeAt int
 	text      string
@@ -239,6 +239,8 @@ type viewParams struct {
 	flags     uint8
 	width     float32
 	reveal    int
+	mathRange [2]int
+	selection [2]int
 	compose   string
 	composeAt int
 	look      lookKey
@@ -249,7 +251,7 @@ type viewParams struct {
 func (k *viewKey) params() viewParams {
 	return viewParams{
 		kind: k.kind, level: k.level, flags: k.flags, width: k.width,
-		reveal: k.reveal, compose: k.compose, composeAt: k.composeAt,
+		reveal: k.reveal, mathRange: k.mathRange, selection: k.selection, compose: k.compose, composeAt: k.composeAt,
 		look: k.look, assets: k.assets, align: k.align,
 	}
 }
@@ -341,6 +343,12 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	at := -1
 	if reveal >= 0 {
 		at = reveal + l.lineStart
+	}
+	if start, end, ok := e.inlineMathRange(l, at); ok {
+		k.mathRange = [2]int{start - l.lineStart, end - l.lineStart}
+	}
+	if a, z := e.selection(); a != z && a < l.end && z > l.lineStart {
+		k.selection = [2]int{max(a, l.lineStart) - l.lineStart, min(z, l.end) - l.lineStart}
 	}
 	// Leaves can meet at the caret: a heading and the empty paragraph Enter
 	// opens after it end and start at the same offset. Only the unit the
@@ -445,8 +453,20 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		}
 		b.inlines(ins, l.start, l.end, st)
 	}
-	if e.inlineMathOK && e.focused && e.caret >= e.inlineMathStart && e.caret <= e.inlineMathEnd && e.inlineMathStart >= l.lineStart && e.inlineMathEnd <= l.end {
-		b.rawRange(e.inlineMathStart, e.inlineMathEnd, st)
+	if start, end, ok := e.inlineMathRange(l, at); ok {
+		// Parsed formulas already have the correct inherited inline style.
+		parsed := false
+		if l.id >= 0 {
+			for _, in := range e.p.doc.Inlines(l.id) {
+				if in.Kind == parser.Math && in.Start == start && in.End == end {
+					parsed = true
+					break
+				}
+			}
+		}
+		if !parsed {
+			b.rawRange(start, end, st)
+		}
 	}
 	e.projectCalloutHeader(b, l, at)
 	b.ensure(l.start)
@@ -676,6 +696,9 @@ func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *lea
 func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *leafView {
 	html := e.codeText(l)
 	if obj := e.htmlImageObject(html, width); obj != nil {
+		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = l.start, l.end, imageSyntaxHTML
+		obj.width = obj.w
+		e.applyImagePreview(obj, l.start, l.end)
 		if at < 0 {
 			return &leafView{block: obj, bx: (width - obj.w) / 2, h: obj.h}
 		}
@@ -836,6 +859,9 @@ func tightAfter(prev, l *leaf) bool {
 // the rest an estimated height: the text of a large document is not
 // shaped off screen, where nobody reads it.
 func (e *Editor) layoutDoc(x, width float32, virtual bool) {
+	// Only the real caret starts a session. Speculative navigation views
+	// must be pure projections and must not replace the editing interval.
+	e.activeInlineMath()
 	if virtual && (width != e.estW || e.lk.size != e.estSize || e.lk.lh != e.estLH) {
 		// The heights below were estimated for another width or text size,
 		// where the text wrapped another way: measure them again.
@@ -881,7 +907,11 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		if prev == nil {
 			// Blank lines before the first block are lines too — pressing
 			// Enter on the first line must show the line it adds.
-			top = float32(e.newlinesBetween(0, l.start)) * e.lk.size * e.lk.lh
+			start := 0
+			if e.opts.HideFrontmatter {
+				start = hideFrontMatterEnd(e.src)
+			}
+			top = float32(e.newlinesBetween(start, l.start)) * e.lk.size * e.lk.lh
 		} else if tight {
 			top = s * 0.2
 		} else if prev.kind == kBlank {

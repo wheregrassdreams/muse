@@ -1,6 +1,8 @@
 package nativeui
 
 import (
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,6 +30,65 @@ func TestNativeShellRendersMarkdown(t *testing.T) {
 		if _, _, ok := a.ed.WindowPoint(off); !ok {
 			t.Fatalf("%q has no place in the editor", want)
 		}
+	}
+}
+
+func TestWorkspaceSearchModalFocusAndEscape(t *testing.T) {
+	a := New()
+	tt := ui.NewTester(a.View, 1200, 800)
+	a.openWorkspaceSearch()
+	tt.Frame()
+	if !a.workspaceSearch {
+		t.Fatal("workspace search modal did not open")
+	}
+	tt.Type("needle")
+	tt.Frame()
+	if a.workspaceQuery != "needle" {
+		t.Fatalf("autofocused search input got %q", a.workspaceQuery)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.workspaceSearch {
+		t.Fatal("Escape did not close workspace search")
+	}
+}
+
+func TestSidebarMagnifierOpensWorkspaceSearch(t *testing.T) {
+	a := New()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("搜索笔记库"); err != nil {
+		t.Fatalf("click sidebar search icon: %v", err)
+	}
+	tt.Frame()
+	if !a.workspaceSearch || !tt.HasText("搜索笔记库") {
+		t.Fatal("sidebar magnifier did not open the workspace search modal")
+	}
+	if !a.panelOpen || a.panel != panelFiles {
+		t.Fatal("sidebar search opened the modal by changing the current panel")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.workspaceSearch {
+		t.Fatal("Escape did not dismiss the modal opened from the sidebar")
+	}
+}
+
+func TestWorkspaceSearchPaletteEntryUsesSharedOpen(t *testing.T) {
+	a := New()
+	var run func()
+	for _, command := range a.paletteCommands() {
+		if command.name == "搜索笔记库" {
+			run = command.run
+			break
+		}
+	}
+	if run == nil {
+		t.Fatal("workspace search command is missing")
+	}
+	run()
+	if !a.workspaceSearch {
+		t.Fatal("palette command did not open workspace search")
 	}
 }
 
@@ -66,9 +127,10 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 // of the app at the sidebar's foot.
 func TestSidebarModulesInsetFromWindowEdge(t *testing.T) {
 	a := New()
+	a.aiEnabled = true
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	for _, label := range []string{"搜索", "AI 助手", "新建文档"} {
+	for _, label := range []string{"搜索笔记库", "AI 助手", "新建文档"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("module %q missing", label)
@@ -85,8 +147,78 @@ func TestSidebarModulesInsetFromWindowEdge(t *testing.T) {
 	}
 }
 
+func TestSidebarDefaultHidesAIAndFollowsSystemInHeadless(t *testing.T) {
+	captureDir := os.Getenv("MUSE_SIDEBAR_CAPTURE_DIR")
+	for _, tc := range []struct {
+		name string
+		dark bool
+	}{{"light", false}, {"dark", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := New()
+			if a.themeMode != themeSystem {
+				t.Fatalf("new app theme = %d, want follow system", a.themeMode)
+			}
+			tt := ui.NewTesterWith(a.View, 1200, 800, ui.TesterOptions{Dark: tc.dark})
+			tt.Frame()
+			if a.dark != tc.dark {
+				t.Fatalf("system appearance dark = %v, want %v", a.dark, tc.dark)
+			}
+			if tt.HasText("AI 助手") {
+				t.Fatal("AI is visible while disabled")
+			}
+			iconRect, ok := tt.Find("设置")
+			if !ok {
+				t.Fatal("sidebar settings icon is missing")
+			}
+			img := tt.Image()
+			background := img.At(100, 400)
+			if got := colorDistance(background, color.NRGBA{R: 255, G: 255, B: 255, A: 255}); !tc.dark && got > 20 {
+				t.Fatalf("light sidebar background differs from the light theme: distance %.1f", got)
+			}
+			if got := colorDistance(background, color.NRGBA{R: 35, G: 35, B: 40, A: 255}); tc.dark && got > 25 {
+				t.Fatalf("dark sidebar background differs from the dark theme: distance %.1f", got)
+			}
+			iconPixels := 0
+			for y := int(iconRect.Y); y < int(iconRect.Y+iconRect.H); y++ {
+				for x := int(iconRect.X); x < int(iconRect.X+iconRect.W); x++ {
+					if colorDistance(img.At(x, y), background) > 18 {
+						iconPixels++
+					}
+				}
+			}
+			if iconPixels < 3 {
+				t.Fatalf("sidebar settings icon has only %d pixels distinct from its background", iconPixels)
+			}
+			if captureDir != "" {
+				if err := os.MkdirAll(captureDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				f, err := os.Create(filepath.Join(captureDir, tc.name+".png"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := png.Encode(f, img); err != nil {
+					f.Close()
+					t.Fatal(err)
+				}
+				if err := f.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func colorDistance(a, b color.Color) float64 {
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	dr, dg, db := float64(int64(ar)-int64(br))/257, float64(int64(ag)-int64(bg))/257, float64(int64(ab)-int64(bb))/257
+	return (dr*dr + dg*dg + db*db) / 3
+}
+
 func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 	a := New()
+	a.aiEnabled = true
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !a.panelOpen {
@@ -144,11 +276,11 @@ func TestThemeSwitchForcesTheAppAppearance(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	a.themeMode = 1
+	a.themeMode = themeDark
 	tt.Frame()
-	a.themeMode = 0
+	a.themeMode = themeLight
 	tt.Frame()
-	want := []mygo.ThemeSource{mygo.ThemeLight, mygo.ThemeDark, mygo.ThemeLight}
+	want := []mygo.ThemeSource{mygo.ThemeSystem, mygo.ThemeDark, mygo.ThemeLight}
 	if !slices.Equal(asked, want) {
 		t.Fatalf("appearance requests = %v, want %v", asked, want)
 	}
