@@ -16,6 +16,8 @@ type modalState struct {
 	line                  bool
 	register              string
 	registerLine          bool
+	registerTable         *tableRegister
+	blockInsert           *tableBlockInsert
 }
 
 func (e *Editor) SetKeymap(s string) {
@@ -53,7 +55,21 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 	if e.Keymap() == "default" || m&ui.Cmd != 0 {
 		return false
 	}
+	if k == ui.KeyV && m == ui.Ctrl {
+		e.caret = e.selectionFocus()
+		e.tableBridge = nil
+		e.tableNavigation = nil
+		e.modal.mode = "BlockVisual"
+		e.modal.pending = ""
+		e.modal.count = 0
+		e.anchor = e.caret
+		e.tableSelection = nil
+		e.invalidate()
+		return true
+	}
 	if k == ui.KeyEscape {
+		e.caret = e.selectionFocus()
+		e.tableNavigation = nil
 		e.compose = ""
 		e.composing = false
 		e.modal.mode = "Normal"
@@ -61,6 +77,10 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 		e.modal.count = 0
 		e.modal.opCount = 0
 		e.modal.line = false
+		e.tableSelection = nil
+		e.tableSelectDrag = nil
+		e.tableBridge = nil
+		e.modal.blockInsert = nil
 		e.anchor = e.caret
 		e.breakCoalescing()
 		return true
@@ -102,6 +122,7 @@ func (e *Editor) modalApply(op string, a, z int) {
 	}
 	e.modal.register = e.src[a:z]
 	e.modal.registerLine = e.modal.line
+	e.modal.registerTable = nil
 	e.modal.line = false
 	e.anchor, e.caret = a, z
 	if op == "y" {
@@ -127,6 +148,9 @@ func (e *Editor) modalText(s string) bool {
 	}
 	m := &e.modal
 	c := s
+	if c != "h" && c != "l" && !(c >= "0" && c <= "9") {
+		e.tableNavigation = nil
+	}
 	if c >= "0" && c <= "9" && (c != "0" || m.count > 0) {
 		m.count = min(9999, m.count*10+int(c[0]-'0'))
 		return true
@@ -160,19 +184,23 @@ func (e *Editor) modalText(s string) bool {
 		e.modalApply(op, a, z)
 		return true
 	}
-	extend := m.mode == "Visual" || m.mode == "Select" || m.pending != ""
+	extend := m.mode == "Visual" || m.mode == "Select" || m.mode == "BlockVisual" || m.pending != ""
 	start := e.caret
 	motion := true
 	for i := 0; i < n*max(1, m.opCount); i++ {
 		switch c {
 		case "h":
-			e.setCaret(e.step(e.caret, -1, false), extend)
+			e.moveHorizontal(-1, extend)
 		case "l":
-			e.setCaret(e.step(e.caret, 1, false), extend)
+			e.moveHorizontal(1, extend)
 		case "j":
-			e.vertical(1, extend)
+			if !e.moveStructuralRow(1, extend) {
+				e.vertical(1, extend)
+			}
 		case "k":
-			e.vertical(-1, extend)
+			if !e.moveStructuralRow(-1, extend) {
+				e.vertical(-1, extend)
+			}
 		case "w":
 			at := e.step(e.caret, 1, true)
 			for at < len(e.src) {
@@ -229,6 +257,9 @@ func (e *Editor) modalText(s string) bool {
 		e.commit(z+1, z+1)
 		m.mode = "Insert"
 	case "v":
+		e.caret = e.selectionFocus()
+		e.tableSelection = nil
+		e.tableBridge = nil
 		if e.Keymap() == "helix" {
 			m.mode = "Select"
 		} else {
@@ -236,10 +267,19 @@ func (e *Editor) modalText(s string) bool {
 		}
 		e.anchor = e.caret
 	case "V":
+		e.caret = e.selectionFocus()
+		e.tableSelection = nil
+		e.tableBridge = nil
 		m.mode = "Visual"
 		m.line = true
 		e.anchor = e.caret
 	case "d", "c", "y":
+		if e.tableSelection != nil && e.tableBridge == nil && e.applyTableSelection(c) {
+			if c != "c" {
+				m.mode = "Normal"
+			}
+			return true
+		}
 		if e.Keymap() == "helix" || extend {
 			a, z := e.selection()
 			if m.line {
@@ -265,16 +305,23 @@ func (e *Editor) modalText(s string) bool {
 			m.pending = c
 			m.opCount = n
 		}
-	case "p":
+	case "p", "P":
+		if m.registerTable != nil && e.pasteTableRegister(c == "P") {
+			return true
+		}
 		if m.register != "" {
 			at := e.caret
 			value := strings.Repeat(m.register, n)
 			if m.registerLine {
-				_, at = e.modalLine(at)
-				if at < len(e.src) {
-					at++
+				if c == "P" {
+					at, _ = e.modalLine(at)
 				} else {
-					value = "\n" + strings.TrimSuffix(value, "\n")
+					_, at = e.modalLine(at)
+					if at < len(e.src) {
+						at++
+					} else {
+						value = "\n" + strings.TrimSuffix(value, "\n")
+					}
 				}
 			} else if at < len(e.src) {
 				_, size := utf8.DecodeRuneInString(e.src[at:])

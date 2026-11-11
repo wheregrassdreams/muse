@@ -124,6 +124,10 @@ func (e *Editor) command(cmd string) bool {
 
 // SelectAll selects the whole document.
 func (e *Editor) SelectAll() {
+	e.tableSelection = nil
+	e.tableBridge = nil
+	e.tableNavigation = nil
+	e.tableSelectDrag = nil
 	e.dropPhantom()
 	e.anchor, e.caret = 0, len(e.src)
 	e.wantReveal = false
@@ -145,6 +149,10 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		dir := 1
 		if key == ui.KeyLeft {
 			dir = -1
+		}
+		if m == 0 && (shift || e.tableSelection != nil || e.tableBridge != nil) {
+			e.moveHorizontal(dir, shift)
+			return true
 		}
 		switch {
 		case isMac && m == ui.Cmd:
@@ -175,6 +183,9 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		dir := 1
 		if key == ui.KeyUp {
 			dir = -1
+		}
+		if m == 0 && e.moveStructuralRow(dir, shift) {
+			return true
 		}
 		if isMac && m == ui.Cmd {
 			if dir < 0 {
@@ -466,6 +477,9 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	}
 	e.dragging = true
 	e.hasGoal = false
+	if ev.Mods&ui.Shift == 0 {
+		e.clearTableSelection()
+	}
 	switch {
 	case ev.Clicks >= 3:
 		a, z := e.blockRangeAt(off)
@@ -541,6 +555,9 @@ func (e *Editor) drag(ev ui.InputEvent) bool {
 // element.
 func (e *Editor) dragTo(x, y float32) {
 	off := e.hitTest(x, y)
+	// Pointer motion owns its own anchor/head, rather than retaining a
+	// structural focus created by an earlier keyboard selection.
+	e.clearTableSelection()
 	a, z := off, off
 	switch e.dragUnit {
 	case 1:
@@ -556,6 +573,7 @@ func (e *Editor) dragTo(x, y float32) {
 			e.caret = off
 		}
 	}
+	e.structuralSelectionForRange()
 }
 
 // autoScroll scrolls the view while a drag holds the pointer above or below

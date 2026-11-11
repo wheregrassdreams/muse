@@ -86,7 +86,30 @@ func (e *Editor) typeText(text string) {
 	if text == "" {
 		return
 	}
+	if e.typeTableBlock(text) {
+		return
+	}
+	if e.repairOrphanTable(text) {
+		return
+	}
+	if e.tableSelection != nil {
+		s := *e.tableSelection
+		if s.axis == tableRows || s.axis == tableWhole {
+			if e.applyTableSelection("c") {
+				e.typeText(text)
+				return
+			}
+		} else if s.axis == tableColumns {
+			if e.typeTableColumnSelection(text) {
+				return
+			}
+		}
+	}
 	e.layoutIfNeeded()
+	if e.phantom != nil && e.anchor != e.caret {
+		e.begin(stepEdit)
+		e.dropPhantom()
+	}
 	e.trackBlankLineInput(text, stepTyping)
 	if p := e.phantom; p != nil {
 		e.begin(stepTyping)
@@ -147,6 +170,55 @@ func (e *Editor) typeText(text string) {
 	e.replace(a, z, text)
 	c := a + len(text)
 	e.commit(c, c)
+}
+
+// repairOrphanTable turns a typed or pasted "| " on an empty logical line
+// immediately before a GFM delimiter and data row into a matching blank
+// header. The replacement is one ordinary source edit and therefore one undo.
+func (e *Editor) repairOrphanTable(text string) bool {
+	if text != "| " || e.anchor != e.caret {
+		return false
+	}
+	lineStart := lineStartAt(e.src, e.caret)
+	prefix := e.src[lineStart:e.caret]
+	for _, r := range prefix {
+		if r != '>' && r != ' ' && r != '\t' {
+			return false
+		}
+	}
+	lineEnd := lineEndAt(e.src, e.caret)
+	if strings.TrimSpace(e.src[e.caret:lineEnd]) != "" || lineEnd >= len(e.src) {
+		return false
+	}
+	sepStart := lineEnd + 1
+	sepEnd := lineEndAt(e.src, sepStart)
+	dataStart := sepEnd + 1
+	if dataStart >= len(e.src) {
+		return false
+	}
+	dataEnd := lineEndAt(e.src, dataStart)
+	data := e.src[dataStart:dataEnd]
+	pipes := splitRow(e.src, [2]int{sepStart, sepEnd})
+	if len(pipes) < 2 || !strings.Contains(data, "|") {
+		return false
+	}
+	for i := 0; i+1 < len(pipes); i++ {
+		cell := strings.TrimSpace(e.src[pipes[i]+1 : pipes[i+1]])
+		cell = strings.Trim(cell, ":")
+		if len(cell) < 1 || strings.Trim(cell, "-") != "" {
+			return false
+		}
+	}
+	var header strings.Builder
+	header.WriteByte('|')
+	for i := 0; i < len(pipes)-1; i++ {
+		header.WriteString("   |")
+	}
+	e.begin(stepEdit)
+	e.replace(e.caret, e.caret, header.String())
+	caret := e.caret + 2
+	e.commit(caret, caret)
+	return true
 }
 
 // wrapPairs are what a selection typed over with an opening character is
@@ -280,6 +352,9 @@ func blockFor(text, cont string) (string, int, bool) {
 
 // deleteSelection deletes the selection, as one step of undo.
 func (e *Editor) deleteSelection() {
+	if e.tableSelection != nil && e.tableBridge == nil && e.applyTableSelection("d") {
+		return
+	}
 	a, z := e.selection()
 	if a == z {
 		return
@@ -370,6 +445,9 @@ func (e *Editor) mergeLastStep() {
 // the caret, or at the start of a block, the block's structure.
 func (e *Editor) backspace(word bool) {
 	e.layoutIfNeeded()
+	if e.backspaceTableBlock() {
+		return
+	}
 	if e.anchor != e.caret {
 		e.deleteSelection()
 		return

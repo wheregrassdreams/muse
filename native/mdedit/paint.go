@@ -63,7 +63,6 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		p.Fill(ui.Rect{X: ox + b.x + 1, Y: oy + b.y0 - 2, W: 2, H: b.y1 - b.y0 + 4}, e.lk.quoteBar, 1)
 	}
 
-	a, z := e.selection()
 	for _, l := range e.leaves {
 		if l.y+l.h < top || l.y > bottom {
 			continue
@@ -74,11 +73,11 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 			e.paintTable(p, l, ox, oy, t)
 			for _, row := range l.tab.rows {
 				for _, cell := range row {
-					e.paintUnit(p, cell, ox, oy, a, z)
+					e.paintUnit(p, cell, ox, oy)
 				}
 			}
 		default:
-			e.paintUnit(p, l, ox, oy, a, z)
+			e.paintUnit(p, l, ox, oy)
 		}
 	}
 	for _, l := range e.leaves {
@@ -109,7 +108,8 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 
 // paintUnit draws a leaf or a cell: its panel, what is found and selected
 // in it, its text and its objects.
-func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
+func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
+	a, z := e.textSelectionForUnit(u)
 	v := u.view
 	if v == nil {
 		// A blank line has no text and no view: nothing to draw — but a
@@ -139,7 +139,8 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 			}
 			e.fillRange(p, u, v, h.Start, h.End, lx, ly, col)
 		}
-		if a != z {
+		structural := e.tableSelection != nil && u.table != nil && e.tableSelection.lineStart == u.table.lineStart
+		if a != z && !structural {
 			sel := e.lk.selection
 			if !e.focused {
 				sel = sel.Alpha(0.6)
@@ -150,7 +151,7 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 			v.layout.Draw(p, lx, ly, e.lk.text)
 		}
 		e.paintObjects(p, u, v, lx, ly)
-	} else if a != z && a <= leafLo(u) && z >= u.end {
+	} else if a != z && a <= leafLo(u) && z >= u.end && !(e.tableSelection != nil && u.table != nil && e.tableSelection.lineStart == u.table.lineStart) {
 		p.Fill(box, e.lk.selection, 4)
 	}
 	if v.block != nil {
@@ -480,14 +481,23 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 	box := ui.Rect{X: x, Y: y, W: g.w, H: h}
 	const radius = 4
 	line := mdoc.MarkdownRuleColor(e.lk.dark)
-	a, z := e.selection()
-	wholeSelected := a <= l.lineStart && z >= blockEnd(e.src, l) && a != z
-	if wholeSelected {
+	if s := e.tableStructureSelection(l); s != nil {
 		selection := e.lk.selection
 		if !e.focused {
 			selection = selection.Alpha(0.6)
 		}
-		p.Fill(box, selection, radius)
+		selected := box
+		switch s.axis {
+		case tableRows:
+			first, last := s.first, s.last
+			selected.Y = y + g.rowY[first]
+			selected.H = g.rowY[last+1] - g.rowY[first]
+		case tableColumns:
+			first, last := s.first, s.last
+			selected.X = x + g.colX[first]
+			selected.W = g.colX[last+1] - g.colX[first]
+		}
+		p.Fill(selected, selection, radius)
 	} else if len(g.rowY) > 1 {
 		header := ui.Rect{X: x, Y: y, W: g.w, H: g.rowY[1]}
 		p.Clip(box, radius, func() { p.Fill(header, e.lk.panel, 0) })
@@ -509,14 +519,38 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 
 // paintCaret draws the caret, blinking, while the editor has the focus.
 func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
-	if !e.focused || e.anchor != e.caret && e.compose == "" && !e.blockCaret() {
+	if e.compose == "" && e.tableBridge == nil {
+		if rowCaret, ok := e.tableSelectionCaretRect(); ok {
+			// Structural row selection is its own focus state. Keep the active
+			// boundary visible even if the text editor has temporarily lost focus.
+			e.paintTableBoundaryCaret(p, ox, oy, rowCaret)
+			return
+		}
+	}
+	if !e.focused {
 		return
+	}
+	if e.compose == "" {
+		if _, _, _, boundary := e.tableBoundaryAtOffset(e.caret); boundary {
+			if r, ok := e.caretRect(e.caret); ok {
+				e.paintTableBoundaryCaret(p, ox, oy, r)
+				return
+			}
+		} else if t, _ := e.tableAtEdge(e.caret); t != nil {
+			if r, ok := e.caretRect(e.caret); ok {
+				e.paintTableBoundaryCaret(p, ox, oy, r)
+				return
+			}
+		}
 	}
 	phase := p.Now().Sub(e.blinkStart)
 	if phase < 30*time.Second {
 		p.After(blink - phase%blink)
 	}
 	if e.compose == "" && phase%(2*blink) >= blink {
+		return
+	}
+	if e.anchor != e.caret && e.compose == "" && !e.blockCaret() {
 		return
 	}
 	r, ok := e.composeCaretRect()
@@ -557,6 +591,12 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 	}
 	h := r.H
 	p.Fill(ui.Rect{X: ox + r.X - 0.75, Y: oy + r.Y, W: 1.75, H: h}, e.lk.caret, 0.5)
+}
+
+func (e *Editor) paintTableBoundaryCaret(p *ui.Painter, ox, oy float32, r ui.Rect) {
+	// A table boundary has no character cell to invert. Use the same thin
+	// accent stroke for every side and row, independent of the modal mode.
+	p.Fill(ui.Rect{X: ox + r.X - 0.75, Y: oy + r.Y, W: 2.25, H: r.H}, e.lk.caret, 0.5)
 }
 
 // composeCaretRect returns the caret's box inside the composition of an

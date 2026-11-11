@@ -93,4 +93,5 @@ func (e *Editor) tableEdgesView(c *ui.Context, viewport ui.Rect) {
 			})
 		}
 	}
+	e.tableSelectionHandlesView(c, viewport)
 }

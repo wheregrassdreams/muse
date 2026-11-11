@@ -26,6 +26,7 @@ type step struct {
 	breaksBefore, breaksAfter []int
 	changes                   []change
 	before, after             [2]int
+	tableBefore               *tableNavigationState
 	phBefore, phAfter         *phantom
 	kind                      stepKind
 	at                        time.Time
@@ -47,6 +48,10 @@ func (e *Editor) begin(kind stepKind) {
 		return
 	}
 	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: append([]int(nil), e.typedBreaks...), at: time.Now()}
+	if e.tableSelection != nil || e.tableBridge != nil {
+		state := e.tableNavigationState()
+		e.hist.open.tableBefore = &state
+	}
 }
 
 // replace replaces the source's bytes [from, to) with text, recorded in the
@@ -109,6 +114,10 @@ func (e *Editor) replace(from, to int, text string) {
 func (e *Editor) commit(anchor, caret int) {
 	s := e.hist.open
 	e.hist.open = nil
+	e.tableNavigation = nil
+	e.tableSelection = nil
+	e.tableSelectDrag = nil
+	e.tableBridge = nil
 	e.anchor, e.caret = anchor, caret
 	if e.phantom != nil && e.rev != e.parsed {
 		// Text came in around the phantom: it is no longer empty.
@@ -204,6 +213,9 @@ func (e *Editor) Undo() bool {
 	e.hist.redo = append(e.hist.redo, s)
 	e.typedBreaks = append([]int(nil), s.breaksBefore...)
 	e.restore(s.before, s.phBefore)
+	if s.tableBefore != nil {
+		e.restoreTableNavigation(*s.tableBefore)
+	}
 	return true
 }
 
@@ -231,6 +243,11 @@ func (e *Editor) restore(sel [2]int, ph *phantom) {
 	e.rev++
 	e.u16ix.rev = 0
 	e.phantom = ph
+	e.tableNavigation = nil
+	e.tableSelection = nil
+	e.tableSelectDrag = nil
+	e.tableBridge = nil
+	e.modal.blockInsert = nil
 	e.parsed = 0
 	// Undo and redo replaced the source as a whole: any edit kept for the
 	// parser describes a source that no longer holds.

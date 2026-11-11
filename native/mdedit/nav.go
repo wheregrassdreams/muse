@@ -188,6 +188,11 @@ func (e *Editor) stopOK(u *leaf, off int) bool {
 // can, in direction dir first.
 func (e *Editor) normalize(off, dir int) int {
 	e.layoutIfNeeded()
+	// Row boundaries are real structural caret stops. Treating them as
+	// source gaps advances a pointer endpoint into the next row on release.
+	if _, _, _, ok := e.tableBoundaryAtOffset(off); ok {
+		return off
+	}
 	us := e.units()
 	i := e.unitIndex(us, off)
 	if i < 0 {
@@ -303,6 +308,27 @@ func (e *Editor) edgeStop(l *leaf, end bool) (int, bool) {
 // dir, across leaves at their edges.
 func (e *Editor) step(off, dir int, word bool) int {
 	e.layoutIfNeeded()
+	if t, row, right, ok := e.tableBoundaryAtOffset(off); ok {
+		if !right && dir > 0 {
+			return t.tab.rows[row][0].start
+		}
+		if right && dir < 0 {
+			cells := t.tab.rows[row]
+			return cells[len(cells)-1].end
+		}
+		if !right && dir < 0 {
+			if row > 0 {
+				return e.tableRowBoundary(t, row-1, true)
+			}
+			return e.tableSideStep(t, dir)
+		}
+		if right && dir > 0 {
+			if row+1 < len(t.tab.rows) {
+				return e.tableRowBoundary(t, row+1, false)
+			}
+			return e.tableSideStep(t, dir)
+		}
+	}
 	if t, after := e.tableAtEdge(off); t != nil {
 		if dir > 0 && !after {
 			return blockEnd(e.src, t)
@@ -319,6 +345,18 @@ func (e *Editor) step(off, dir int, word bool) int {
 	}
 	u := us[i]
 	if t := e.tableOf(u); t != nil {
+		if _, row, col := cellAt(t, off); row >= 0 && row < len(t.tab.rows) {
+			if dir < 0 && col == 0 {
+				if edge, ok := e.edgeStop(u, false); ok && off == edge {
+					return e.tableRowBoundary(t, row, false)
+				}
+			}
+			if dir > 0 && col == len(t.tab.rows[row])-1 {
+				if edge, ok := e.edgeStop(u, true); ok && off == edge {
+					return e.tableRowBoundary(t, row, true)
+				}
+			}
+		}
 		cells := t.tab.cells()
 		if dir < 0 && u == cells[0] {
 			if edge, ok := e.edgeStop(u, false); ok && off == edge {
@@ -539,12 +577,26 @@ func isIdeograph(r rune) bool {
 // caretRect returns the caret's box at off, in the element's coordinates.
 func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 	e.layoutIfNeeded()
-	if t, after := e.tableAtEdge(off); t != nil && t.geom != nil && len(t.geom.rowY) > 0 {
+	if e.phantom != nil && e.leafIsPhantom(off) {
+		u := e.leafAt(off)
+		return ui.Rect{X: u.x, Y: u.y, W: 1, H: u.h}, true
+	}
+	if t, row, right, ok := e.tableBoundaryAtOffset(off); ok && row+1 < len(t.geom.rowY) {
 		x := t.x
-		if after {
+		if right {
 			x += t.geom.w
 		}
-		return ui.Rect{X: x, Y: t.y, W: 1, H: t.geom.rowY[len(t.geom.rowY)-1]}, true
+		return ui.Rect{X: x, Y: t.y + t.geom.rowY[row], W: 1, H: t.geom.rowY[row+1] - t.geom.rowY[row]}, true
+	}
+	if t, after := e.tableAtEdge(off); t != nil && t.geom != nil && len(t.geom.rowY) > 0 {
+		x := t.x
+		row := 0
+		if after {
+			x += t.geom.w
+			row = len(t.geom.rowY) - 2
+		}
+		row = max(0, min(row, len(t.geom.rowY)-2))
+		return ui.Rect{X: x, Y: t.y + t.geom.rowY[row], W: 1, H: t.geom.rowY[row+1] - t.geom.rowY[row]}, true
 	}
 	us := e.units()
 	i := e.unitIndex(us, off)
@@ -601,7 +653,57 @@ func lineOf(lines []ui.TextLine, d int, upstream bool) int {
 
 // vertical moves the caret up (dir < 0) or down lines, keeping its x.
 func (e *Editor) vertical(dir int, extend bool) {
+	e.tableNavigation = nil
+	focus := e.selectionFocus()
+	if e.tableSelection != nil {
+		e.tableSelection = nil
+		e.anchor, e.caret = focus, focus
+	}
 	e.layoutIfNeeded()
+	e.tableBridge = nil
+	if t, row, right, ok := e.tableBoundaryAtOffset(e.caret); ok {
+		// A table embedded in a document selection is one semantic unit.
+		if extend && (e.anchor < t.lineStart || e.anchor > blockEnd(e.src, t)) {
+			e.leaveTableBoundary(t, dir, true)
+			return
+		}
+		next := row + dir
+		if next < 0 || next >= len(t.tab.rows) {
+			r, _ := e.caretRect(e.caret)
+			if !e.hasGoal {
+				e.goalX, e.hasGoal = r.X, true
+			}
+			ti := -1
+			for i, l := range e.leaves {
+				if l == t {
+					ti = i
+					break
+				}
+			}
+			if ti < 0 {
+				return
+			}
+			if !extend && (ti+dir < 0 || ti+dir >= len(e.leaves)) && e.phantomAtEdge(ti, dir) {
+				return
+			}
+			e.enterLeaf(ti+dir, dir, extend)
+			return
+		}
+		lines := e.tableLines(t)
+		li := next
+		if next > 0 {
+			li++
+		}
+		if li < len(lines) {
+			off := lines[li][0]
+			if right {
+				off = lines[li][1]
+			}
+			e.setCaret(off, extend)
+			e.hasGoal = false
+			return
+		}
+	}
 	r, ok := e.caretRect(e.caret)
 	if !ok {
 		return
@@ -710,6 +812,16 @@ func (e *Editor) enterLeaf(li, dir int, extend bool) {
 	}
 	l := e.leaves[li]
 	if l.kind == kTable {
+		if extend && (e.anchor < l.lineStart || e.anchor > blockEnd(e.src, l) || e.phantom != nil && e.leafIsPhantom(e.caret)) {
+			// Enter the table as a whole structure, keeping the outside anchor.
+			off := blockEnd(e.src, l)
+			if e.anchor >= off {
+				off = l.lineStart
+			}
+			e.dropPhantom()
+			e.setCaretKeepGoal(off, true)
+			return
+		}
 		row := l.tab.rows[0]
 		if dir < 0 {
 			row = l.tab.rows[len(l.tab.rows)-1]
@@ -833,10 +945,12 @@ func (e *Editor) hitTest(x, y float32) int {
 	if l.kind == kTable {
 		if l.geom != nil {
 			if x < l.x {
-				return l.lineStart
+				row := tableRowIndexAt(l, y)
+				return e.tableRowBoundary(l, row, false)
 			}
 			if x > l.x+l.geom.w {
-				return blockEnd(e.src, l)
+				row := tableRowIndexAt(l, y)
+				return e.tableRowBoundary(l, row, true)
 			}
 		}
 		var best *leaf

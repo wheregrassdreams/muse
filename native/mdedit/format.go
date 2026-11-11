@@ -794,6 +794,10 @@ func (e *Editor) insertText(text string) {
 		return
 	}
 	e.layoutIfNeeded()
+	if e.phantom != nil && e.anchor != e.caret {
+		e.begin(stepEdit)
+		e.dropPhantom()
+	}
 	e.trackBlankLineInput(text, stepEdit)
 	if p := e.phantom; p != nil {
 		cont := phantomPrefix(p.conts)
@@ -807,7 +811,7 @@ func (e *Editor) insertText(text string) {
 		return
 	}
 	a, z := e.selection()
-	if u := e.unitAt(e.caret); u != nil {
+	if u := e.unitAt(e.caret); u != nil && e.tableSelection == nil {
 		if e.isCell(u) {
 			text = strings.ReplaceAll(strings.ReplaceAll(text, "|", `\|`), "\n", " ")
 		} else if cont := e.contPrefix(u); cont != "" {

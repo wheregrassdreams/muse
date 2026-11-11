@@ -366,7 +366,7 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	if start, end, ok := e.inlineMathRange(l, at); ok {
 		k.mathRange = [2]int{start - l.lineStart, end - l.lineStart}
 	}
-	if a, z := e.selection(); a != z && a < l.end && z > l.lineStart {
+	if a, z := e.textSelectionForUnit(l); a != z && a < l.end && z > l.lineStart {
 		k.selection = [2]int{max(a, l.lineStart) - l.lineStart, min(z, l.end) - l.lineStart}
 	}
 	// Leaves can meet at the caret: a heading and the empty paragraph Enter

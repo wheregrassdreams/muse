@@ -206,7 +206,7 @@ func (e *Editor) scrollIntoView() {
 		return
 	}
 	e.wantReveal = false
-	r, ok := e.caretRect(e.caret)
+	r, ok := e.caretRect(e.selectionFocus())
 	if !ok {
 		return
 	}

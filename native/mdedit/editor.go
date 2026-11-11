@@ -125,6 +125,13 @@ type Editor struct {
 
 	// The selection: its anchor and its caret, byte offsets of the source.
 	anchor, caret int
+	// tableSelection owns the active structural variant. anchor/caret retain
+	// the dormant text endpoints; structural source ranges are derived.
+	tableNavigation []tableNavigationStep
+	tableNavigating bool
+	tableSelection  *tableSelection
+	tableSelectDrag *tableSelectDrag
+	tableBridge     *tableContentBridge
 	// phantom is the empty paragraph the caret is in, if it is in one.
 	phantom *phantom
 	// goalX is the x a run of Up and Down keeps the caret at.
@@ -694,10 +701,24 @@ func cellAt(l *leaf, off int) (*leaf, int, int) {
 
 // selection returns the selection's start and end.
 func (e *Editor) selection() (int, int) {
+	if e.tableSelection != nil {
+		if a, z, ok := e.tableSelectionSourceRange(e.tableSelectionLeaf(), e.tableSelection); ok {
+			return a, z
+		}
+	}
 	if e.anchor < e.caret {
 		return e.anchor, e.caret
 	}
 	return e.caret, e.anchor
+}
+
+// textSelectionRange is the text envelope. textSelectionForUnit excludes the
+// structures embedded in it; a dedicated structure has no active text envelope.
+func (e *Editor) textSelectionRange() (int, int) {
+	if e.tableSelection != nil {
+		return 0, 0
+	}
+	return e.selection()
 }
 
 // SelectionRange returns the selected range of the source.
@@ -708,8 +729,20 @@ func (e *Editor) SelectionRange() Range {
 
 // SelectedText returns the source the selection holds.
 func (e *Editor) SelectedText() string {
-	a, z := e.selection()
-	return e.src[a:z]
+	if e.tableBridge == nil {
+		if s := e.tableSelection; s != nil {
+			if t := e.tableSelectionLeaf(); t != nil {
+				if r := e.tableRegisterForSelection(t, s); r != nil {
+					return r.markdown()
+				}
+			}
+		}
+	}
+	var selected strings.Builder
+	for _, part := range e.selectionParts() {
+		selected.WriteString(e.src[part.source.Start:part.source.End])
+	}
+	return selected.String()
 }
 
 // revealCaret returns the offset whose syntax shows: the caret's, or where
@@ -721,7 +754,7 @@ func (e *Editor) revealCaret() int {
 	if e.frozen {
 		return e.frozenAt
 	}
-	return e.caret
+	return e.selectionFocus()
 }
 
 // firstStop returns the first offset the caret can take.
@@ -747,6 +780,30 @@ func (e *Editor) lastStop() int {
 // setCaret moves the caret to off, keeping the anchor when extend is set,
 // and leaves the phantom unless the caret stays in it.
 func (e *Editor) setCaret(off int, extend bool) {
+	if !e.tableNavigating {
+		e.tableNavigation = nil
+	}
+	if b := e.tableBridge; b != nil {
+		inside := false
+		for _, l := range e.leaves {
+			if l.kind == kTable && l.lineStart == b.lineStart && b.row < len(l.tab.rows) && b.col < len(l.tab.rows[b.row]) {
+				cell := l.tab.rows[b.row][b.col]
+				lo, hi := cell.start, cell.end
+				if b.axis == tableRows {
+					row := l.tab.rows[b.row]
+					lo, hi = row[0].start, row[len(row)-1].end
+				}
+				inside = off >= lo && off <= hi
+				break
+			}
+		}
+		if !inside {
+			e.tableBridge = nil
+		}
+	}
+	if !extend && e.tableBridge == nil {
+		e.tableSelection = nil
+	}
 	if e.inlineMathOK && (off < e.inlineMathStart || off > e.inlineMathEnd) {
 		e.inlineMathOK = false
 		e.mathPreviewHidden = false
@@ -762,6 +819,9 @@ func (e *Editor) setCaret(off int, extend bool) {
 	e.wantReveal = true
 	e.compose = ""
 	e.blinkStart = time.Now()
+	if extend && e.tableBridge == nil {
+		e.structuralSelectionForRange()
+	}
 }
 
 // leafIsPhantom reports whether the caret at off stays in the phantom.
@@ -783,6 +843,7 @@ func (e *Editor) dropPhantom() {
 
 // setPhantom puts the caret in a phantom paragraph.
 func (e *Editor) setPhantom(p *phantom) {
+	e.clearTableSelection()
 	e.phantom = p
 	e.rev++
 	e.parsed = 0
@@ -798,6 +859,7 @@ func (e *Editor) setPhantom(p *phantom) {
 func (e *Editor) Select(start, end int) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	e.clearTableSelection()
 	e.dropPhantom()
 	start = max(0, min(start, len(e.src)))
 	end = max(start, min(end, len(e.src)))
@@ -812,6 +874,7 @@ func (e *Editor) Select(start, end int) {
 func (e *Editor) ScrollToOffset(off int) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	e.clearTableSelection()
 	e.dropPhantom()
 	off = e.normalize(max(0, min(off, len(e.src))), 1)
 	e.anchor, e.caret = off, off
@@ -826,6 +889,7 @@ func (e *Editor) ScrollY() float32 { return e.scroll.Y }
 // scrollToOffsetCentered scrolls off to the middle of the view, as the
 // rail's ticks do.
 func (e *Editor) scrollToOffsetCentered(off int) {
+	e.clearTableSelection()
 	e.dropPhantom()
 	off = e.normalize(max(0, min(off, len(e.src))), 1)
 	e.anchor, e.caret = off, off
@@ -874,4 +938,12 @@ type Heading struct {
 	Level  int
 	Text   string
 	Offset int
+}
+
+// clearTableSelection hands ownership back to an explicit text/navigation action.
+func (e *Editor) clearTableSelection() {
+	e.tableSelection = nil
+	e.tableBridge = nil
+	e.tableNavigation = nil
+	e.tableSelectDrag = nil
 }

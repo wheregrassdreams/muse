@@ -26,6 +26,8 @@ live preview 只是**显示**，不改变编辑语义）。
 
 2026-11-11：正文和 AI 回复使用 Markdown 软换行语义，普通单换行显示为空格，空行分段，显式硬换行保留。共享的标题、代码、引用、表格视觉参数与来源见 [markdown-style.md](markdown-style.md)。
 
+2026-11-12：表格结构选择的状态所有权、回归路径与后续交互讨论见 [table-selection-handover.md](table-selection-handover.md)。
+
 新增第一批笔记库基础能力：自动保存/恢复、版本校验、递归监听、内存索引、全库搜索与关联笔记。接口、用户入口与限制见 [vault-runtime.md](vault-runtime.md)。
 
 2026-11-10：文档标题、语义属性摘要和右侧完整属性面板见 [document-properties.md](document-properties.md)。
