@@ -243,6 +243,10 @@ func (e *Editor) ReplaceText(r *ui.TextInputRange, s string) {
 		z, _ := e.virtualByte(max(r.Start, r.End))
 		e.compose, e.composing = "", false
 		e.dropPhantomIfAway(a)
+		if a == z && a == e.caret {
+			e.layoutIfNeeded()
+			e.trackBlankLineInput(s, stepEdit)
+		}
 		e.begin(stepEdit)
 		e.replace(a, z, s)
 		e.commit(a+len(s), a+len(s))

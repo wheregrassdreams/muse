@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"muse/frontmatter"
+	"muse/mdoc"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,8 +62,8 @@ func (a *App) documentTitle(c *ui.Context) {
 		ui.Row(c).Height(56).Shrink(0).FillWidth().AlignItems(ui.Center).Children(func() {
 			if a.propertyTitleEditing {
 				input := ui.TextInputBase(c.Key("document-title-input"), &a.propertyTitleDraft).Grow(1).
-					Height(42).Padding(0, 4).TextColor(t.Text).FocusRing(false).
-					FontSize(25).FontWeight(650).Placeholder(filepath.Base(strings.TrimSuffix(a.path, filepath.Ext(a.path)))).Label("文档标题").
+					Height(42).Padding(0, 4).TextColor(mdoc.BodyTextColor(t.Dark)).FocusRing(false).
+					FontSize(25).FontWeight(600).Placeholder(filepath.Base(strings.TrimSuffix(a.path, filepath.Ext(a.path)))).Label("文档标题").
 					AutoFocus().OnSubmit(func() { a.commitDocumentTitle() })
 				if input.Focused() {
 					a.propertyTitleFocused = true
@@ -93,7 +94,7 @@ func (a *App) documentTitle(c *ui.Context) {
 				b.Background(t.SurfaceHover)
 			}
 			b.Children(func() {
-				ui.Text(c, label).FontSize(25).FontWeight(650).TextColor(t.Text).SingleLine().Ellipsis("…")
+				ui.Text(c, label).FontSize(25).FontWeight(600).TextColor(mdoc.BodyTextColor(t.Dark)).SingleLine().Ellipsis("…")
 				if b.Hovered() {
 					ui.Icon(c, iconEdit).Size(14, 14).TextColor(t.TextMuted)
 				}

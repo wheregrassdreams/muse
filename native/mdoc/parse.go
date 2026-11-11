@@ -336,7 +336,7 @@ func parseInlines(n ast.Node, src []byte, st style) []Span {
 				out = appendSpan(out, Span{Text: t,
 					Bold: st.bold, Italic: st.italic, Code: st.code, Strike: st.strike, Link: st.link})
 				if v.SoftLineBreak() {
-					out = appendSpan(out, Span{Text: "\n", Bold: st.bold, Italic: st.italic, Link: st.link})
+					out = appendSpan(out, Span{Text: "\n", SoftBreak: true, Bold: st.bold, Italic: st.italic, Link: st.link})
 				}
 				if v.HardLineBreak() {
 					out = appendSpan(out, Span{Text: "\n", Bold: st.bold, Italic: st.italic, Link: st.link})
@@ -422,7 +422,7 @@ func wholeMath(n ast.Node, src []byte) (string, bool) {
 func splitMathSpans(in []Span) []Span {
 	var out []Span
 	for _, sp := range in {
-		if sp.Code || sp.Math {
+		if sp.Code || sp.Math || sp.SoftBreak {
 			out = append(out, sp)
 			continue
 		}
@@ -479,7 +479,7 @@ func appendSpan(out []Span, s Span) []Span {
 	if n := len(out); n > 0 {
 		p := &out[n-1]
 		if p.Bold == s.Bold && p.Italic == s.Italic && p.Code == s.Code &&
-			p.Strike == s.Strike && p.Link == s.Link && p.Math == s.Math {
+			p.Strike == s.Strike && p.Link == s.Link && p.Math == s.Math && p.SoftBreak == s.SoftBreak {
 			p.Text += s.Text
 			return out
 		}

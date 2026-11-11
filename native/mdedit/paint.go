@@ -1,11 +1,15 @@
 package mdedit
 
 import (
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
+
+	"muse/appearance"
+	"muse/mdoc"
 )
 
 const blink = 530 * time.Millisecond
@@ -56,7 +60,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		if b.y1 < top || b.y0 > bottom {
 			continue
 		}
-		p.Fill(ui.Rect{X: ox + b.x + 1, Y: oy + b.y0 - 2, W: 3, H: b.y1 - b.y0 + 4}, e.lk.quoteBar, 1.5)
+		p.Fill(ui.Rect{X: ox + b.x + 1, Y: oy + b.y0 - 2, W: 2, H: b.y1 - b.y0 + 4}, e.lk.quoteBar, 1)
 	}
 
 	a, z := e.selection()
@@ -120,6 +124,9 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 	if v.panel {
 		p.Fill(box, e.lk.panel, 6)
 	}
+	if v.layout != nil && len(v.disp.codeBoxes) > 0 {
+		e.paintInlineCodeBoxes(p, v, x+v.tx, y+v.ty)
+	}
 	if u.kind == kRule && v.layout == nil {
 		p.Fill(ui.Rect{X: x, Y: y + u.h/2 - 0.75, W: u.w, H: 1.5}, e.lk.border.Alpha(1), 0)
 	}
@@ -140,7 +147,7 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 			e.fillRange(p, u, v, a, z, lx, ly, sel)
 		}
 		if v.diagram == nil {
-			p.TextLayout(v.layout, lx, ly, e.lk.text)
+			v.layout.Draw(p, lx, ly, e.lk.text)
 		}
 		e.paintObjects(p, u, v, lx, ly)
 	} else if a != z && a <= leafLo(u) && z >= u.end {
@@ -164,6 +171,35 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32, a, z int) {
 		p.RichText(lx, y+size*0.35, 0, sp)
 		if isMermaid(u) {
 			e.paintDiagramToggle(p, u, lx, y)
+		}
+	}
+}
+
+// paintInlineCodeBoxes paints one background per revealed inline code or
+// math range. Delimiters keep their own muted text style over this shared
+// shape, instead of drawing separate rounded span backgrounds.
+func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, v *leafView, x, y float32) {
+	lines := v.layout.Lines()
+	for _, box := range v.disp.codeBoxes {
+		for _, r := range v.layout.SelectionRects(box.range_) {
+			padX := e.lk.size * 0.2
+			baseline := r.Y + r.H/2
+			bestDistance := float32(math.MaxFloat32)
+			for _, line := range lines {
+				lineCenter := line.Rect.Y + line.Rect.H/2
+				distance := float32(math.Abs(float64(lineCenter - (r.Y + r.H/2))))
+				if distance < bestDistance {
+					bestDistance = distance
+					baseline = line.Baseline
+				}
+			}
+			h := box.size*1.32 + 2*box.padY
+			p.Fill(ui.Rect{
+				X: x + r.X - padX,
+				Y: y + baseline - box.size*0.98 - box.padY,
+				W: r.W + 2*padX,
+				H: h,
+			}, e.lk.codeBg, max(3, e.lk.size/5))
 		}
 	}
 }
@@ -405,7 +441,7 @@ func (e *Editor) paintItemMarker(p *ui.Painter, c cont, x, baseline, w float32) 
 			path.MoveTo(r.X+r.W*0.24, r.Y+r.H*0.52)
 			path.LineTo(r.X+r.W*0.43, r.Y+r.H*0.7)
 			path.LineTo(r.X+r.W*0.77, r.Y+r.H*0.32)
-			p.StrokePath(&path, 1.8, ui.RGB(255, 255, 255))
+			p.StrokePath(&path, 1.8, appearance.From(e.lk.accent, e.lk.dark).OnAccent)
 		} else {
 			p.Stroke(r, e.lk.muted.Alpha(0.8), 3.5, 1.3)
 		}
@@ -440,22 +476,35 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 		return
 	}
 	x, y := ox+l.x, oy+l.y
-	if len(g.rowY) > 1 {
-		p.Fill(ui.Rect{X: x, Y: y, W: g.w, H: g.rowY[1]}, e.lk.panel, 0)
+	h := g.rowY[len(g.rowY)-1]
+	box := ui.Rect{X: x, Y: y, W: g.w, H: h}
+	const radius = 4
+	line := mdoc.MarkdownRuleColor(e.lk.dark)
+	a, z := e.selection()
+	wholeSelected := a <= l.lineStart && z >= blockEnd(e.src, l) && a != z
+	if wholeSelected {
+		selection := e.lk.selection
+		if !e.focused {
+			selection = selection.Alpha(0.6)
+		}
+		p.Fill(box, selection, radius)
+	} else if len(g.rowY) > 1 {
+		header := ui.Rect{X: x, Y: y, W: g.w, H: g.rowY[1]}
+		p.Clip(box, radius, func() { p.Fill(header, e.lk.panel, 0) })
 	}
-	line := e.lk.border.Alpha(1)
-	if !e.lk.dark {
-		line = ui.RGBA(0, 0, 0, 0.12)
-	} else {
-		line = ui.RGBA(255, 255, 255, 0.14)
-	}
-	for _, ry := range g.rowY {
+	for i, ry := range g.rowY {
+		if i == 0 || i == len(g.rowY)-1 {
+			continue
+		}
 		p.Fill(ui.Rect{X: x, Y: y + ry - 0.5, W: g.w, H: 1}, line, 0)
 	}
-	h := g.rowY[len(g.rowY)-1]
-	for _, cx := range g.colX {
+	for i, cx := range g.colX {
+		if i == 0 || i == len(g.colX)-1 {
+			continue
+		}
 		p.Fill(ui.Rect{X: x + cx - 0.5, Y: y, W: 1, H: h}, line, 0)
 	}
+	p.Stroke(box, line, radius, 1)
 }
 
 // paintCaret draws the caret, blinking, while the editor has the focus.

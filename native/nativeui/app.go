@@ -25,6 +25,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/shader"
 
+	"muse/appearance"
 	"muse/mdedit"
 	"muse/mdoc"
 	"muse/scrollui"
@@ -144,7 +145,8 @@ type App struct {
 	cmdSel     int
 
 	// appearance
-	themeMode int // themeLight, themeDark, or themeSystem
+	themeMode int    // themeLight, themeDark, or themeSystem
+	accentID  string // persisted accent preset, default red
 	// navHist 是打开过的文档，navAt 是当前停在的位置：编辑器的后退/前进
 	// 在这里走，和浏览器一样，新的打开会截断后面的记录。
 	navHist []string
@@ -246,6 +248,7 @@ type App struct {
 	aiIndicator       scrollui.Indicator
 	fontSize          float64
 	lineHeight        float64
+	smartTypography   bool
 
 	// AI
 	ai          aiSettings
@@ -308,29 +311,35 @@ type App struct {
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
 	a := &App{
-		themeMode:     themeSystem,
-		panel:         panelFiles,
-		panelOpen:     true,
-		flat:          true,
-		headerFade:    true,
-		panelWidth:    panelDefaultWidth,
-		panelW:        panelDefaultWidth,
-		themeApplied:  -1,
-		dirs:          map[string][]string{},
-		isDir:         map[string]bool{},
-		expanded:      map[string]bool{},
-		folderToggled: map[string]time.Time{},
-		outlineRow:    -1,
-		fontSize:      16,
-		lineHeight:    1.75,
-		recents:       loadRecents(),
-		ai:            loadAISettings(),
-		aiClient:      services.NewAI(),
-		aiMessages:    loadAIChat(),
+		themeMode:       themeSystem,
+		accentID:        "red",
+		panel:           panelFiles,
+		panelOpen:       true,
+		flat:            true,
+		headerFade:      true,
+		panelWidth:      panelDefaultWidth,
+		panelW:          panelDefaultWidth,
+		themeApplied:    -1,
+		dirs:            map[string][]string{},
+		isDir:           map[string]bool{},
+		expanded:        map[string]bool{},
+		folderToggled:   map[string]time.Time{},
+		outlineRow:      -1,
+		fontSize:        16,
+		lineHeight:      1.7,
+		smartTypography: true,
+		recents:         loadRecents(),
+		ai:              loadAISettings(),
+		aiClient:        services.NewAI(),
+		aiMessages:      loadAIChat(),
 	}
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
+	s := loadEditorSettings()
+	if s.SmartTypography != nil {
+		a.smartTypography = *s.SmartTypography
+	}
 	a.ed = mdedit.New("", a.editorOptions())
-	a.ed.SetKeymap(loadEditorSettings().Keymap)
+	a.ed.SetKeymap(s.Keymap)
 	a.loadDoc("")
 	return a
 }
@@ -398,12 +407,12 @@ func (a *App) View(c *ui.Context) {
 }
 
 // windowBG is a single flat color, not a wash: the light side is a neutral
-// canvas with a white editor card, the dark side a near-black canvas.
+// canvas shared with the editor, the dark side a near-black canvas.
 func (a *App) windowBG() ui.Color {
 	if a.dark {
 		return ui.Hex("#1a1a1a")
 	}
-	return ui.Hex("#f5f5f5")
+	return ui.Hex("#ffffff")
 }
 
 func (a *App) applyTheme(c *ui.Context) {
@@ -420,12 +429,6 @@ func (a *App) applyTheme(c *ui.Context) {
 		t.Border = ui.RGBA(255, 255, 255, 0.07)
 		t.Text = ui.Hex("#ececf0")
 		t.TextMuted = ui.Hex("#a9a9b4")
-		t.Accent = ui.Hex("#6b93ff")
-		t.AccentHover = ui.Hex("#7fa3ff")
-		t.AccentPressed = ui.Hex("#5580f0")
-		t.AccentText = ui.Hex("#101014")
-		t.Selection = ui.RGBA(107, 147, 255, 0.28)
-		t.Focus = ui.Hex("#6b93ff")
 	} else {
 		t.Dark = false
 		t.Background = ui.Hex("#ffffff")
@@ -435,13 +438,10 @@ func (a *App) applyTheme(c *ui.Context) {
 		t.Border = ui.RGBA(0, 0, 0, 0.07)
 		t.Text = ui.Hex("#1d1d1f")
 		t.TextMuted = ui.Hex("#6e6e78")
-		t.Accent = ui.Hex("#3b6cf6")
-		t.AccentHover = ui.Hex("#4d7cf7")
-		t.AccentPressed = ui.Hex("#2f5ce0")
-		t.AccentText = ui.Hex("#ffffff")
-		t.Selection = ui.RGBA(59, 108, 246, 0.25)
-		t.Focus = ui.Hex("#3b6cf6")
 	}
+	palette := appearance.From(appearance.Color(a.accentID), a.dark)
+	t.Accent, t.AccentHover, t.AccentPressed = palette.Accent, palette.Hover, palette.Pressed
+	t.AccentText, t.Selection, t.Focus = palette.OnAccent, palette.Selection, palette.Accent
 	t.Radius = 7
 	t.FontSize = 13
 	c.SetTheme(&t)
@@ -2410,6 +2410,8 @@ func (a *App) appearanceSettings(c *ui.Context) {
 			}
 		})
 		a.settingsDivider(c, true)
+		a.accentSettings(c)
+		a.settingsDivider(c, true)
 		settingsRowToggle(c, "顶部模糊", "扁平风格下，头部浮在文档上：页面滚到它下面时模糊、淡出。关掉只有一块不透明的头部底色。", &a.headerFade)
 	})
 	settingsGroup(c, "功能", func() {
@@ -2423,6 +2425,8 @@ func (a *App) typographySettings(c *ui.Context) {
 	a.keymapSettings(c)
 	settingsGroup(c, "", func() {
 		a.settingsDivider(c, false)
+		settingsRowToggleAction(c, "智能排版", "自动优化换行与间距，让段落更易读。", &a.smartTypography, func() { a.setSmartTypography(!a.smartTypography) })
+		a.settingsDivider(c, true)
 		settingsRow(c, "字号", "编辑器正文的基准字号。", func() {
 			ui.Textf(c, "%.0fpx", a.fontSize).FontSize(12).TextColor(c.Theme().TextMuted).Width(38)
 			ui.Slider(c, &a.fontSize, 12, 22).Width(190).Label("字号")
@@ -2458,24 +2462,27 @@ func (a *App) docDir() string {
 // document being edited.
 func (a *App) editorOptions() mdedit.Options {
 	return mdedit.Options{
-		Header:          a.propertyHeader(),
-		HeaderHeight:    a.propertyHeaderHeight(),
-		HideFrontmatter: a.propertiesEnabled() && !a.propertySourceMode && a.propertyDocument().Err == nil,
-		FontSize:        float32(a.fontSize),
-		LineHeight:      float32(a.lineHeight),
-		MaxWidth:        800,
-		PadX:            56,
-		BaseDir:         a.docDir(),
-		Placeholder:     "开始写作…",
-		Label:           "文档",
-		Code:            codeLanguage(a.path),
-		Invalidate:      a.invalidate,
-		OnChange:        a.docChanged,
-		OnLink:          a.openLink,
-		AssetRoot:       a.root,
-		OnImagePreview:  a.openImagePreview,
-		SaveImage:       a.saveImage,
-		OnDropFiles:     a.openDropped,
+		DisableSmartTypography:  !a.smartTypography,
+		SoftBreaksAsSpaces:      true,
+		PreserveTypedLineBreaks: true,
+		Header:                  a.propertyHeader(),
+		HeaderHeight:            a.propertyHeaderHeight(),
+		HideFrontmatter:         a.propertiesEnabled() && !a.propertySourceMode && a.propertyDocument().Err == nil,
+		FontSize:                float32(a.fontSize),
+		LineHeight:              float32(a.lineHeight),
+		MaxWidth:                800,
+		PadX:                    56,
+		BaseDir:                 a.docDir(),
+		Placeholder:             "开始写作…",
+		Label:                   "文档",
+		Code:                    codeLanguage(a.path),
+		Invalidate:              a.invalidate,
+		OnChange:                a.docChanged,
+		OnLink:                  a.openLink,
+		AssetRoot:               a.root,
+		OnImagePreview:          a.openImagePreview,
+		SaveImage:               a.saveImage,
+		OnDropFiles:             a.openDropped,
 	}
 }
 

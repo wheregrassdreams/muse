@@ -64,11 +64,68 @@ func (e *Editor) unitIndex(us []*leaf, off int) int {
 	if line >= 0 {
 		return line
 	}
+	if t, right := e.tableAtEdge(off); t != nil {
+		cells := t.tab.cells()
+		target := cells[0]
+		if right {
+			target = cells[len(cells)-1]
+		}
+		for i, u := range us {
+			if u == target {
+				return i
+			}
+		}
+	}
 	return cover
 }
 
 // tableOf returns the table leaf a cell is in.
 func (e *Editor) tableOf(cell *leaf) *leaf { return cell.table }
+
+// tableAtEdge reports the virtual caret stops immediately before or after a
+// table. Those stops let horizontal movement treat the table as one unit.
+func (e *Editor) tableAtEdge(off int) (table *leaf, after bool) {
+	for _, l := range e.leaves {
+		if l.kind != kTable || l.tab == nil || len(l.tab.cells()) == 0 {
+			continue
+		}
+		if off == l.lineStart {
+			return l, false
+		}
+		if off == blockEnd(e.src, l) {
+			return l, true
+		}
+	}
+	return nil, false
+}
+
+func (e *Editor) tableSideStep(t *leaf, dir int) int {
+	us := e.units()
+	cells := t.tab.cells()
+	first, last := -1, -1
+	for i, u := range us {
+		if u == cells[0] {
+			first = i
+		}
+		if u == cells[len(cells)-1] {
+			last = i
+		}
+	}
+	i := first - 1
+	if dir > 0 {
+		i = last + 1
+	}
+	for i >= 0 && i < len(us) {
+		if s, ok := e.edgeStop(us[i], dir < 0); ok {
+			return s
+		}
+		i += dir
+	}
+	if dir < 0 {
+		return t.lineStart
+	}
+	return blockEnd(e.src, t)
+}
 
 // isCell reports whether a unit is a table's cell.
 func (e *Editor) isCell(u *leaf) bool {
@@ -112,6 +169,11 @@ func (e *Editor) revealFor(l *leaf, off int) int {
 func (e *Editor) stopOK(u *leaf, off int) bool {
 	if u.isLine() {
 		return off == u.start
+	}
+	if t := e.tableOf(u); t != nil {
+		if edge, _ := e.tableAtEdge(off); edge == t {
+			return true
+		}
 	}
 	v := e.unitView(u, off)
 	if v.layout == nil {
@@ -198,14 +260,13 @@ func (e *Editor) gapStop(us []*leaf, off, dir int) int {
 // can take in a leaf.
 func (e *Editor) edgeStop(l *leaf, end bool) (int, bool) {
 	if l.kind == kTable {
-		cells := l.tab.cells()
-		if len(cells) == 0 {
+		if l.tab == nil || len(l.tab.cells()) == 0 {
 			return 0, false
 		}
 		if end {
-			return e.edgeStop(cells[len(cells)-1], true)
+			return blockEnd(e.src, l), true
 		}
-		return e.edgeStop(cells[0], false)
+		return l.lineStart, true
 	}
 	if l.isLine() {
 		return l.start, true
@@ -242,12 +303,34 @@ func (e *Editor) edgeStop(l *leaf, end bool) (int, bool) {
 // dir, across leaves at their edges.
 func (e *Editor) step(off, dir int, word bool) int {
 	e.layoutIfNeeded()
+	if t, after := e.tableAtEdge(off); t != nil {
+		if dir > 0 && !after {
+			return blockEnd(e.src, t)
+		}
+		if dir < 0 && after {
+			return t.lineStart
+		}
+		return e.tableSideStep(t, dir)
+	}
 	us := e.units()
 	i := e.unitIndex(us, off)
 	if i < 0 {
 		return e.gapStop(us, off, dir)
 	}
 	u := us[i]
+	if t := e.tableOf(u); t != nil {
+		cells := t.tab.cells()
+		if dir < 0 && u == cells[0] {
+			if edge, ok := e.edgeStop(u, false); ok && off == edge {
+				return t.lineStart
+			}
+		}
+		if dir > 0 && u == cells[len(cells)-1] {
+			if edge, ok := e.edgeStop(u, true); ok && off == edge {
+				return blockEnd(e.src, t)
+			}
+		}
+	}
 	if u.kind == kCode && u.fenced && dir < 0 && off == u.start && e.revealFor(u, off) >= 0 && !(off >= u.infoStart && off <= u.infoEnd) {
 		// From the start of the code to its fence's info string.
 		return u.infoEnd
@@ -277,6 +360,15 @@ func (e *Editor) step(off, dir int, word bool) int {
 		return s
 	}
 	for j := i + dir; j >= 0 && j < len(us); j += dir {
+		if t := e.tableOf(us[j]); t != nil {
+			cells := t.tab.cells()
+			if dir > 0 && us[j] == cells[0] {
+				return t.lineStart
+			}
+			if dir < 0 && us[j] == cells[len(cells)-1] {
+				return blockEnd(e.src, t)
+			}
+		}
 		if s, ok := e.edgeStop(us[j], dir < 0); ok {
 			return s
 		}
@@ -447,6 +539,13 @@ func isIdeograph(r rune) bool {
 // caretRect returns the caret's box at off, in the element's coordinates.
 func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 	e.layoutIfNeeded()
+	if t, after := e.tableAtEdge(off); t != nil && t.geom != nil && len(t.geom.rowY) > 0 {
+		x := t.x
+		if after {
+			x += t.geom.w
+		}
+		return ui.Rect{X: x, Y: t.y, W: 1, H: t.geom.rowY[len(t.geom.rowY)-1]}, true
+	}
 	us := e.units()
 	i := e.unitIndex(us, off)
 	if i < 0 {
@@ -509,6 +608,19 @@ func (e *Editor) vertical(dir int, extend bool) {
 	}
 	if !e.hasGoal {
 		e.goalX, e.hasGoal = r.X, true
+	}
+	if t, after := e.tableAtEdge(e.caret); t != nil {
+		for i, l := range e.leaves {
+			if l != t {
+				continue
+			}
+			if dir > 0 && !after || dir < 0 && after {
+				e.enterLeaf(i, dir, extend)
+			} else {
+				e.enterLeaf(i+dir, dir, extend)
+			}
+			return
+		}
 	}
 	us := e.units()
 	i := e.unitIndex(us, e.caret)
@@ -719,6 +831,14 @@ func (e *Editor) hitTest(x, y float32) int {
 		return 0
 	}
 	if l.kind == kTable {
+		if l.geom != nil {
+			if x < l.x {
+				return l.lineStart
+			}
+			if x > l.x+l.geom.w {
+				return blockEnd(e.src, l)
+			}
+		}
 		var best *leaf
 		bestD := float32(1 << 30)
 		for _, cell := range l.tab.cells() {
@@ -890,6 +1010,9 @@ func (e *Editor) wordRangeAt(off int) (int, int) {
 
 // blockRangeAt returns the source range of the leaf (or cell) at off.
 func (e *Editor) blockRangeAt(off int) (int, int) {
+	if t, _ := e.tableAtEdge(off); t != nil {
+		return t.lineStart, blockEnd(e.src, t)
+	}
 	// A block that draws as one thing — a table, a fence, a picture of its
 	// own — is one unit of the source too: the whole of its lines, markers
 	// and all, and the break that ends the last of them. Its content's edges

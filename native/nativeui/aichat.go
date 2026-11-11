@@ -395,11 +395,12 @@ func (a *App) aiMdBlocks(text string) []mdoc.Block {
 // aiTextPart 是正文段：mdoc 流式渲染。
 func (a *App) aiTextPart(c *ui.Context, text string) {
 	mdoc.BlocksView(c, a.aiMdBlocks(text), mdoc.Options{
-		BodyFontSize: 12.5,
-		ContentWidth: a.aiContentWidth(),
-		BaseDir:      a.docDir(),
-		Padding:      0,
-		IndentStep:   14,
+		BodyFontSize:       12.5,
+		SoftBreaksAsSpaces: true,
+		ContentWidth:       a.aiContentWidth(),
+		BaseDir:            a.docDir(),
+		Padding:            0,
+		IndentStep:         14,
 	})
 }
 

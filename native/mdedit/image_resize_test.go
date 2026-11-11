@@ -76,7 +76,7 @@ func TestWikiImageResizeUsesWidthPipeAndUndo(t *testing.T) {
 	const src = "![[assets/foo.png]]"
 	e := New(src, Options{FontSize: 16})
 	e.lk.size = 16
-	e.lk.lh = 1.75
+	e.lk.lh = 1.7
 	e.layoutIfNeeded()
 	var obj *object
 	for _, l := range e.leaves {

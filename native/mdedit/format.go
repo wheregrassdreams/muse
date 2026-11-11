@@ -794,12 +794,14 @@ func (e *Editor) insertText(text string) {
 		return
 	}
 	e.layoutIfNeeded()
+	e.trackBlankLineInput(text, stepEdit)
 	if p := e.phantom; p != nil {
 		cont := phantomPrefix(p.conts)
 		text = strings.ReplaceAll(text, "\n", "\n"+cont)
 		e.begin(stepEdit)
 		e.phantom = nil
 		e.replace(p.at, p.at, p.pre+text+p.post)
+		e.rememberInsertedBreaks(p.at, p.pre+text+p.post)
 		c := p.at + len(p.pre) + len(text)
 		e.commit(c, c)
 		return

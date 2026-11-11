@@ -53,7 +53,7 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 		body = 16
 	}
 	if lineHeight <= 0 {
-		lineHeight = 1.9
+		lineHeight = 1.7
 	}
 	lineH := body * lineHeight
 	var lines []inlineLine
@@ -101,6 +101,15 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 			u.Weight = weight
 		}
 		for _, tok := range tokenizeInline(u.Text) {
+			if tok == "\n" {
+				if len(cur.runs) == 0 {
+					cur.h = lineH
+					lines = append(lines, cur)
+				} else {
+					flush()
+				}
+				continue
+			}
 			u.Text = tok
 			w, _ := c.MeasureText(0, u)
 			add(inlineRun{span: u, w: w, space: tok == " "})
@@ -131,6 +140,9 @@ func tokenizeInline(text string) []string {
 	}
 	for _, r := range text {
 		switch {
+		case r == '\n':
+			flush()
+			out = append(out, "\n")
 		case unicode.IsSpace(r):
 			flush()
 			out = append(out, " ")

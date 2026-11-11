@@ -87,6 +87,7 @@ func (e *Editor) typeText(text string) {
 		return
 	}
 	e.layoutIfNeeded()
+	e.trackBlankLineInput(text, stepTyping)
 	if p := e.phantom; p != nil {
 		e.begin(stepTyping)
 		e.phantom = nil
@@ -100,12 +101,18 @@ func (e *Editor) typeText(text string) {
 			}
 		}
 		e.replace(at, at, p.pre+ins+p.post)
+		e.rememberInsertedBreaks(at, p.pre+ins+p.post)
 		c += at + len(p.pre)
 		e.commit(c, c)
 		return
 	}
 	a, z := e.selection()
 	u := e.unitAt(e.caret)
+	if t, _ := e.tableAtEdge(e.caret); t != nil {
+		// The virtual stops are outside the table. Typing there should add
+		// adjacent Markdown, without applying cell-specific rules.
+		u = nil
+	}
 	inCode := u != nil && (u.kind == kCode || u.kind == kMath || u.kind == kHTML || u.kind == kRaw)
 	cell := u != nil && e.isCell(u)
 	if r := []rune(text); len(r) == 1 {
@@ -351,6 +358,7 @@ func (e *Editor) mergeLastStep() {
 	if n := len(e.hist.undo); n > 0 {
 		last := &e.hist.undo[n-1]
 		last.changes = append(last.changes, s.changes...)
+		last.breaksAfter = append([]int(nil), e.typedBreaks...)
 		last.closedForCoalescing = true
 	}
 	e.rev++
@@ -389,7 +397,8 @@ func (e *Editor) backspace(word bool) {
 	// edge stop. Only Backspace at the content start converts the heading;
 	// before it, delete backward normally without consuming syntax ahead.
 	beforeHeadingContent := u.kind == kHeading && off < u.start
-	if first, ok := e.edgeStop(u, false); ok && off <= first && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStart && off <= u.infoEnd && off > u.infoStart) {
+	_, tableEdge := e.tableAtEdge(off)
+	if first, ok := e.edgeStop(u, false); ok && off <= first && !tableEdge && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStart && off <= u.infoEnd && off > u.infoStart) {
 		e.backspaceAtStart(u)
 		return
 	}
@@ -547,6 +556,17 @@ func (e *Editor) deleteForward(word bool) {
 		return
 	}
 	off := e.caret
+	if table, _ := e.tableAtEdge(off); table != nil {
+		next := e.step(off, 1, word)
+		if next <= off {
+			return
+		}
+		e.begin(stepDelete)
+		e.replace(off, next, "")
+		e.commit(off, off)
+		e.tidyEmpty()
+		return
+	}
 	u := e.unitAt(off)
 	if u == nil {
 		return
@@ -603,6 +623,9 @@ func (e *Editor) deleteForward(word bool) {
 // enter breaks the line at the caret as Typora does: a new paragraph, a
 // new item, the next row of a table, a new line of code.
 func (e *Editor) enter(shift bool) {
+	previous := e.preserveInsertedBreaks
+	e.preserveInsertedBreaks = e.opts.PreserveTypedLineBreaks
+	defer func() { e.preserveInsertedBreaks = previous }()
 	e.layoutIfNeeded()
 	if e.anchor != e.caret {
 		e.deleteSelection()

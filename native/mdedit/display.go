@@ -61,6 +61,7 @@ type object struct {
 // istyle is the inline style a run of text is in.
 type istyle struct {
 	bold, italic, strike, code, mono, link, tag, under, mark, sup, sub, kbd bool
+	codeJoined                                                              bool
 	marker                                                                  bool
 	muted                                                                   bool
 	// color and bg are the text's and its background's, as HTML sets
@@ -70,17 +71,22 @@ type istyle struct {
 
 // builder makes the pieces of a leaf's display.
 type builder struct {
-	e   *Editor
-	src string
+	// A callout title is a structural row even when prose soft breaks fold.
+	hardBreakAt int
+	// Quoted prose keeps source soft breaks as visible line breaks.
+	preserveSoftBreaks bool
+	e                  *Editor
+	src                string
 	// base is the offset pieces are relative to.
 	base int
 	// reveal is the caret's offset, which shows the syntax of what it is
 	// in; -1 for none.
-	reveal int
-	pos    int
-	pieces []piece
-	text   strings.Builder
-	u16    int
+	reveal    int
+	pos       int
+	pieces    []piece
+	codeBoxes []inlineCodeBox
+	text      strings.Builder
+	u16       int
 	// The composition of an input method, inserted at composeAt.
 	compose   string
 	composeAt int
@@ -217,6 +223,13 @@ func (b *builder) textRun(s, e int, st istyle) { b.lineRun(s, e, b.span(st), fal
 func (b *builder) marker(s, e int, st istyle) {
 	st.marker = true
 	b.lineRun(s, e, b.span(st), true)
+}
+
+// codeMarker keeps revealed code and math delimiters inside the same quiet
+// inline container as their source text.
+func (b *builder) codeMarker(s, e int, st istyle) {
+	st.code, st.codeJoined = true, true
+	b.marker(s, e, st)
 }
 
 // lineRun adds source text from s to e in sp. A line ending in it, as in
@@ -368,7 +381,13 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			for end < len(b.src) && (b.src[end] == ' ' || b.src[end] == '\t') {
 				end++
 			}
-			b.atom(in.Start, end, "\n", st, nil)
+			text := "\n"
+			structural := b.hardBreakAt >= in.Start && b.hardBreakAt < in.End
+			editing := b.e.typedBreakIn(in.Start, in.End)
+			if in.Kind == parser.SoftBreak && b.e.opts.SoftBreaksAsSpaces && !b.preserveSoftBreaks && !editing && !structural && !(b.e.sourceOK && b.e.sourceAt == b.base) {
+				text = " "
+			}
+			b.atom(in.Start, end, text, st, nil)
 			b.pos = end
 		case parser.Code:
 			b.codeSpan(in, st)
@@ -559,13 +578,21 @@ func (b *builder) wrapped(ins []parser.Inline, i int, st istyle) {
 		inner.strike = true
 	}
 	if rev {
-		b.marker(in.Start, cs, st)
+		markerStyle := st
+		if in.Kind == parser.Strong {
+			markerStyle.bold = true
+		}
+		b.marker(in.Start, cs, markerStyle)
 	}
 	b.pos = cs
 	b.walk(ins, i+1, in.Next, inner)
 	b.gap(ce, inner)
 	if rev {
-		b.marker(ce, in.End, st)
+		markerStyle := st
+		if in.Kind == parser.Strong {
+			markerStyle.bold = true
+		}
+		b.marker(ce, in.End, markerStyle)
 	}
 	b.pos = in.End
 }
@@ -615,13 +642,20 @@ func (b *builder) codeSpan(in *parser.Inline, st istyle) {
 	inner := st
 	inner.code = true
 	if b.revealed(in.Start, in.End) {
-		b.marker(in.Start, cs, st)
+		inner.codeJoined = true
+		boxStart := b.u16
+		b.codeMarker(in.Start, cs, st)
 		b.textRun(cs, ce, inner)
-		b.marker(ce, in.End, st)
+		b.codeMarker(ce, in.End, st)
+		b.codeBoxes = append(b.codeBoxes, inlineCodeBox{
+			range_: ui.TextInputRange{Start: boxStart, End: b.u16},
+			padY:   b.fontSize * 0.1,
+			size:   b.fontSize * 0.875,
+		})
 		return
 	}
 	if ce == cs {
-		b.marker(in.Start, in.End, st)
+		b.codeMarker(in.Start, in.End, st)
 		return
 	}
 	for b.cell {
@@ -799,11 +833,18 @@ func texFallback(tex string) string {
 type display struct {
 	text       string
 	pieces     []piece
+	codeBoxes  []inlineCodeBox
 	hasObjects bool
 }
 
+type inlineCodeBox struct {
+	range_ ui.TextInputRange
+	padY   float32
+	size   float32
+}
+
 func (b *builder) display() display {
-	return display{text: b.text.String(), pieces: b.pieces, hasObjects: b.hasObjects}
+	return display{text: b.text.String(), pieces: b.pieces, codeBoxes: b.codeBoxes, hasObjects: b.hasObjects}
 }
 
 // ensure gives an empty display a piece at the content's start, the one
@@ -1028,7 +1069,14 @@ func (b *builder) mathSource(start, end int, st istyle) {
 	cs, ce := inlineMathContent(b.src[start:end])
 	inner := st
 	inner.code = true
-	b.marker(start, start+cs, st)
+	inner.codeJoined = true
+	boxStart := b.u16
+	b.codeMarker(start, start+cs, st)
 	b.textRun(start+cs, start+ce, inner)
-	b.marker(start+ce, end, st)
+	b.codeMarker(start+ce, end, st)
+	b.codeBoxes = append(b.codeBoxes, inlineCodeBox{
+		range_: ui.TextInputRange{Start: boxStart, End: b.u16},
+		padY:   b.fontSize * 0.1,
+		size:   b.fontSize * 0.875,
+	})
 }

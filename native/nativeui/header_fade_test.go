@@ -244,11 +244,11 @@ func TestHeaderFadeDark(t *testing.T) {
 }
 
 // TestHeaderFadeIsTransparent is why the strip's veil is light: over a
-// callout's blue a veil of the page's color is a white band with an edge,
+// callout's tint a veil of the page's color is a white band with an edge,
 // which is the opposite of what a fade is for. A little of it takes the
 // edge off the copy; much of it paints the page over the document.
 func TestHeaderFadeIsTransparent(t *testing.T) {
-	body := strings.Repeat("> callout 的一行内容，用来把整页铺满蓝色。\n>\n", 100)
+	body := strings.Repeat("> callout 的一行内容，用来把整页铺满重点色。\n>\n", 100)
 	a := New()
 	a.ed.SetSource("> [!NOTE] 提示\n>\n" + body)
 	tt := ui.NewTester(a.View, 1000, 700)
@@ -266,18 +266,17 @@ func TestHeaderFadeIsTransparent(t *testing.T) {
 	}
 	img := tt.Image()
 	fadeShot(t, img, "header-fade-callout")
-	// The middle of the band, a row across the callout: its blue is the
-	// median, as the text's own pixels are few. The veil of 0.3 leaves
-	// about 12 of its 17; one near 1 leaves 4.
-	var blue []int
+	// The median chroma across the callout must survive the veil. Use
+	// channel spread so the check follows every selectable accent hue.
+	var chroma []int
 	y := int(editorHeaderH) + 6
 	for x := int(ed.X) + 8; x < int(ed.X+ed.W)-8; x++ {
 		c := img.RGBAAt(x, y)
-		blue = append(blue, int(c.B)-int(c.R))
+		chroma = append(chroma, max(int(c.R), int(c.G), int(c.B))-min(int(c.R), int(c.G), int(c.B)))
 	}
-	sort.Ints(blue)
-	if med := blue[len(blue)/2]; med < 10 {
-		t.Fatalf("the callout's color is washed out under the header: median blue %d", med)
+	sort.Ints(chroma)
+	if med := chroma[len(chroma)/2]; med < 10 {
+		t.Fatalf("the callout's color is washed out under the header: median chroma %d", med)
 	}
 }
 

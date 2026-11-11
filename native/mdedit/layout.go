@@ -8,14 +8,19 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown/parser"
 
+	"muse/appearance"
 	"muse/mdoc"
 	"muse/scrollui"
+	"muse/textlayout"
 )
 
 // look is how the document looks, resolved from the window's theme and the
 // editor's options as a frame builds.
 type look struct {
-	dark bool
+	dark          bool
+	smart         bool
+	softBreaks    bool
+	editingBreaks bool
 	// size is the body text's, lh its line height as a multiple of it.
 	size, lh   float32
 	font, mono string
@@ -36,28 +41,34 @@ type look struct {
 
 // lookKey is what of the look the shaped leaves depend on.
 type lookKey struct {
-	dark       bool
-	size, lh   float32
-	font, mono string
-	text       ui.Color
-	accent     ui.Color
+	dark          bool
+	smart         bool
+	softBreaks    bool
+	editingBreaks bool
+	size, lh      float32
+	font, mono    string
+	text          ui.Color
+	accent        ui.Color
 }
 
 func (lk *look) key() lookKey {
-	return lookKey{dark: lk.dark, size: lk.size, lh: lk.lh, font: lk.font, mono: lk.mono, text: lk.text, accent: lk.accent}
+	return lookKey{dark: lk.dark, smart: lk.smart, softBreaks: lk.softBreaks, editingBreaks: lk.editingBreaks, size: lk.size, lh: lk.lh, font: lk.font, mono: lk.mono, text: lk.text, accent: lk.accent}
 }
 
 // setLook resolves the look from the theme and the options.
 func (e *Editor) setLook(t *ui.Theme) {
 	lk := &e.lk
 	lk.dark = t.Dark
+	lk.smart = !e.opts.DisableSmartTypography
+	lk.softBreaks = e.opts.SoftBreaksAsSpaces
+	lk.editingBreaks = e.opts.PreserveTypedLineBreaks
 	lk.size = e.opts.FontSize
 	if lk.size <= 0 {
 		lk.size = 16
 	}
 	lk.lh = e.opts.LineHeight
 	if lk.lh <= 0 {
-		lk.lh = 1.75
+		lk.lh = 1.7
 	}
 	lk.font = e.opts.Font
 	if lk.font == "" {
@@ -67,26 +78,19 @@ func (e *Editor) setLook(t *ui.Theme) {
 	if lk.mono == "" {
 		lk.mono = "monospace"
 	}
-	lk.text = t.Text
+	lk.text = mdoc.BodyTextColor(t.Dark)
 	lk.muted = t.TextMuted
 	lk.accent = t.Accent
-	lk.marker = t.TextMuted.Alpha(0.7)
+	lk.marker = mdoc.MarkdownMarkerColor(t.Dark)
 	lk.border = t.Border
 	lk.selection = t.Selection
 	lk.caret = t.Accent
-	if t.Dark {
-		lk.codeBg = ui.RGBA(255, 255, 255, 0.08)
-		lk.panel = ui.RGBA(255, 255, 255, 0.045)
-		lk.codeText = ui.Hex("#e4a3a3")
-		lk.quoteBar = ui.RGBA(255, 255, 255, 0.16)
-		lk.markBg = ui.RGBA(250, 204, 21, 0.32)
-	} else {
-		lk.codeBg = ui.RGBA(0, 0, 0, 0.055)
-		lk.panel = ui.Hex("#f6f7f9")
-		lk.codeText = ui.Hex("#c7254e")
-		lk.quoteBar = ui.RGBA(0, 0, 0, 0.12)
-		lk.markBg = ui.RGBA(250, 204, 21, 0.45)
-	}
+	lk.codeBg, lk.codeText = mdoc.InlineCodeColorsFor(t.Accent, t.Dark)
+	lk.panel = mdoc.CodePanelColor(t.Dark)
+	lk.quoteBar = mdoc.MarkdownRuleColor(t.Dark)
+	// Palette.Soft is intentionally faint; lift it enough for Markdown marks
+	// to remain visible at paragraph scale across every accent preset.
+	lk.markBg = appearance.From(t.Accent, t.Dark).Soft.Alpha(2.1)
 	lk.code = editor.DefaultTheme(t)
 }
 
@@ -94,22 +98,26 @@ func (e *Editor) setLook(t *ui.Theme) {
 func (lk *look) span(st istyle, size float32) ui.Span {
 	s := ui.Span{Color: lk.text}
 	if st.muted {
-		s.Color = lk.muted
+		s.Color = lk.text.Mix(lk.muted, 0.25)
+		if st.strike {
+			s.Color = lk.muted
+		}
 	}
 	if st.bold {
-		s.Weight = 700
+		s.Weight = 600
 	}
 	if st.italic {
 		s.Italic = true
 	}
 	if st.strike {
 		s.Strikethrough = true
+		s.Color = lk.text.Mix(lk.muted, 0.4)
 	}
 	if st.under {
 		s.Underline = true
 	}
 	if st.link {
-		s.Color = mdoc.InlineLinkColor(lk.dark)
+		s.Color = mdoc.InlineLinkColorFor(lk.accent, lk.dark)
 		s.Underline = true
 	}
 	if st.mark {
@@ -118,8 +126,15 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.code {
 		s.Font = lk.mono
 		s.Size = size * 0.875
-		s.Background = lk.codeBg
-		s.Radius = max(3, size/5)
+		if st.codeJoined {
+			// Revealed code ranges receive one shared background in paint.go.
+			s.Background = ui.Color{}
+		} else {
+			s.Background = lk.codeBg
+			s.Radius = max(3, size/5)
+			s.PaddingX = size * 0.2
+			s.PaddingY = size * 0.1
+		}
 		if !st.link {
 			s.Color = lk.codeText
 		}
@@ -148,10 +163,15 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 		}
 	}
 	if st.marker {
+		if !st.codeJoined {
+			s.Font = lk.font
+			s.Background = ui.Color{}
+			s.Radius = 0
+			s.PaddingX, s.PaddingY = 0, 0
+		}
+		s.Italic = false
 		s.Color = lk.marker
-		s.Background = ui.Color{}
 		s.Underline, s.Strikethrough = false, false
-		s.Radius = 0
 	}
 	return s
 }
@@ -159,19 +179,14 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 // headingSize returns the size of the text of a heading of level.
 func (lk *look) headingSize(level int) float32 { return mdoc.HeadingSize(level, lk.size) }
 
-func headingWeight(level int) int {
-	if level <= 2 {
-		return 700
-	}
-	return 650
-}
+func headingWeight(level int) int { return mdoc.HeadingWeight(level) }
 
 // Spacing, in ems of the body text.
 const (
 	quoteIndent = 1.2
 	itemIndent  = 1.75
 	codePadX    = 1.0
-	codePadY    = 0.75
+	codePadY    = 0.875
 	cellPadX    = 0.7
 	cellPadY    = 0.45
 )
@@ -180,7 +195,7 @@ const (
 // the boxes around it, relative to the leaf's box.
 type leafView struct {
 	disp   display
-	layout *ui.TextLayout
+	layout *textlayout.Layout
 	// empty tells a layout of nothing: shaped from a space, for its height.
 	empty bool
 	// tx and ty place the layout in the leaf's box.
@@ -214,19 +229,20 @@ type leafView struct {
 // viewKey is what a leaf's view is made of: views of the same key are the
 // same, and the editor keeps them across frames.
 type viewKey struct {
-	kind      leafKind
-	level     int
-	flags     uint8
-	width     float32
-	reveal    int
-	mathRange [2]int
-	selection [2]int
-	compose   string
-	composeAt int
-	text      string
-	look      lookKey
-	assets    uint64
-	align     parser.Align
+	typedBreaks string
+	kind        leafKind
+	level       int
+	flags       uint8
+	width       float32
+	reveal      int
+	mathRange   [2]int
+	selection   [2]int
+	compose     string
+	composeAt   int
+	text        string
+	look        lookKey
+	assets      uint64
+	align       parser.Align
 }
 
 // viewParams is what a view depends on besides the leaf's text. A leaf
@@ -234,23 +250,25 @@ type viewKey struct {
 // (see sameLeaf), which is what makes laying out an edited document cost
 // nothing for the leaves the edit did not touch.
 type viewParams struct {
-	kind      leafKind
-	level     int
-	flags     uint8
-	width     float32
-	reveal    int
-	mathRange [2]int
-	selection [2]int
-	compose   string
-	composeAt int
-	look      lookKey
-	assets    uint64
-	align     parser.Align
+	typedBreaks string
+	kind        leafKind
+	level       int
+	flags       uint8
+	width       float32
+	reveal      int
+	mathRange   [2]int
+	selection   [2]int
+	compose     string
+	composeAt   int
+	look        lookKey
+	assets      uint64
+	align       parser.Align
 }
 
 func (k *viewKey) params() viewParams {
 	return viewParams{
-		kind: k.kind, level: k.level, flags: k.flags, width: k.width,
+		typedBreaks: k.typedBreaks,
+		kind:        k.kind, level: k.level, flags: k.flags, width: k.width,
 		reveal: k.reveal, mathRange: k.mathRange, selection: k.selection, compose: k.compose, composeAt: k.composeAt,
 		look: k.look, assets: k.assets, align: k.align,
 	}
@@ -331,14 +349,15 @@ func (e *Editor) viewWith(l *leaf, width float32, header bool, align parser.Alig
 // set.
 func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align, reveal int, settle bool) *leafView {
 	k := viewKey{
-		kind:   l.kind,
-		level:  l.level,
-		flags:  e.leafFlags(l, header),
-		width:  width,
-		reveal: reveal,
-		look:   e.lk.key(),
-		assets: e.assetGen.Load(),
-		align:  align,
+		typedBreaks: e.typedBreakKey(l),
+		kind:        l.kind,
+		level:       l.level,
+		flags:       e.leafFlags(l, header),
+		width:       width,
+		reveal:      reveal,
+		look:        e.lk.key(),
+		assets:      e.assetGen.Load(),
+		align:       align,
 	}
 	at := -1
 	if reveal >= 0 {
@@ -403,7 +422,10 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 // newBuilder returns a builder of the display of leaf l, with the caret
 // at at (-1 for elsewhere), and the composition there when withCompose.
 func (e *Editor) newBuilder(l *leaf, at int, withCompose bool, size, width float32) *builder {
-	b := &builder{e: e, src: e.src, base: l.lineStart, reveal: at, fontSize: size, width: width}
+	b := &builder{e: e, src: e.src, base: l.lineStart, reveal: at, fontSize: size, width: width, hardBreakAt: -1}
+	if _, end, ok := e.calloutHeader(l); ok {
+		b.hardBreakAt = end
+	}
 	if withCompose {
 		b.compose, b.composeAt = e.compose, e.caret
 	}
@@ -430,6 +452,9 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		st.bold = true
 	}
 	for _, c := range l.conts {
+		if c.kind == cQuote {
+			b.preserveSoftBreaks = true
+		}
 		if c.kind == cQuote && !isCalloutContainer(c) {
 			st.muted = true
 		}
@@ -481,7 +506,12 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	if b.alone && !b.revealedAny {
 		shape.Align = ui.Center
 	}
-	v.layout, v.empty = shapeDisplay(&v.disp, f, shape)
+	smart := e.lk.smart && l.kind == kPara && l.table == nil && !b.alone && !e.composing
+	var cache *textlayout.Cache
+	if smart {
+		cache = &e.typographyCache
+	}
+	v.layout, v.empty = shapeDisplay(&v.disp, f, shape, cache)
 	v.font = f
 	_, v.h = v.layout.Size()
 	if width == 0 {
@@ -491,9 +521,9 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 }
 
 // shapeDisplay lays out a display, or a space for an empty one.
-func shapeDisplay(d *display, f ui.Font, shape ui.TextShape) (*ui.TextLayout, bool) {
+func shapeDisplay(d *display, f ui.Font, shape ui.TextShape, cache ...*textlayout.Cache) (*textlayout.Layout, bool) {
 	if d.text == "" {
-		return ui.ShapeRichTextWith([]ui.Span{{Text: " "}}, f, shape), true
+		return textlayout.Shape([]ui.Span{{Text: " "}}, f, shape, false), true
 	}
 	spans := make([]ui.Span, 0, len(d.pieces))
 	for _, p := range d.pieces {
@@ -504,7 +534,10 @@ func shapeDisplay(d *display, f ui.Font, shape ui.TextShape) (*ui.TextLayout, bo
 		sp.Text = p.text
 		spans = append(spans, sp)
 	}
-	return ui.ShapeRichTextWith(spans, f, shape), false
+	if len(cache) > 0 && cache[0] != nil {
+		return cache[0].Shape(spans, f, shape), false
+	}
+	return textlayout.Shape(spans, f, shape, false), false
 }
 
 // lineStarts returns the offsets of the lines of block id's text, when it
@@ -820,12 +853,11 @@ func (e *Editor) margins(l *leaf) (top, bottom float32) {
 	switch l.kind {
 	case kHeading:
 		if l.pending {
-			return s * 0.7, s * 0.7
+			return s * 0.5, s * 0.5
 		}
-		tops := [...]float32{1.4, 1.2, 1.0, 0.9, 0.8, 0.8}
-		return s * tops[min(max(l.level, 1), 6)-1], s * 0.45
+		return mdoc.HeadingTopMargin(l.level, s), s * 0.35
 	case kCode, kMath, kTable, kHTML:
-		return s * 0.8, s * 0.8
+		return s * 0.6, s * 0.6
 	case kRule:
 		return s * 0.6, s * 0.6
 	case kRaw:
@@ -835,7 +867,7 @@ func (e *Editor) margins(l *leaf) (top, bottom float32) {
 		// of its own to add to the lines around it.
 		return 0, 0
 	}
-	return s * 0.7, s * 0.7
+	return s * 0.5, s * 0.5
 }
 
 // tightAfter reports whether a leaf follows the one before it closely: an
@@ -879,6 +911,8 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 	}
 	y := e.padTop
 	var prev *leaf
+	var previousBlock *leaf
+	previousBlockEnd := float32(0)
 	prevBottom := float32(0)
 	s := e.lk.size
 	for _, l := range e.leaves {
@@ -915,15 +949,23 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		} else if tight {
 			top = s * 0.2
 		} else if prev.kind == kBlank {
-			// The blank line above is the gap: a block right below it starts
-			// on the next line, not on its own margin of its own.
+			// Editable blank lines count toward the section gap, rather than
+			// swallowing it or having another full margin added on top.
 			top = 0
+			if l.kind == kHeading && !l.pending && previousBlock != nil && previousBlock.kind != kHeading {
+				headingTop, _ := e.margins(l)
+				top = max(0, headingTop-(y-previousBlockEnd))
+			}
 		} else if n := e.blankLines(prev.end, l.start); n > 0 {
 			// Blank lines are lines: a paragraph break is one blank line, and
 			// every Enter on an empty line leaves one more. They take the
 			// height of the line they are, so the document's lines and its
 			// look agree — pressing Enter there now shows the new line.
 			top = max(top, float32(n)*e.lk.size*e.lk.lh)
+		}
+		if l.kind == kHeading && previousBlock != nil && previousBlock.kind == kHeading {
+			// A title followed by a subtitle is one group, not two sections.
+			top = min(top, s*.65)
 		}
 		// The height this leaf is expected to take, until it is shaped:
 		// the one it had where it was last laid out, or an estimate.
@@ -972,6 +1014,7 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			e.layoutTable(l)
 		}
 		y += l.h
+		previousBlock, previousBlockEnd = l, y
 		prevBottom = bottom
 		prev = l
 	}

@@ -1,9 +1,12 @@
 package mdedit
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
-	"strings"
+
+	"muse/appearance"
 )
 
 // quoteContainer preserves parser-owned containers and extends alert headers
@@ -33,7 +36,7 @@ func quoteContainer(src string, id int, b *parser.Block) cont {
 }
 func isCalloutContainer(c cont) bool { return c.kind == cQuote && c.alert != parser.NoAlert }
 
-func calloutColor(a parser.Alert) ui.Color {
+func calloutColor(a parser.Alert, accent ui.Color, dark bool) ui.Color {
 	switch a {
 	case parser.AlertWarning:
 		return ui.RGB(202, 135, 12)
@@ -44,7 +47,7 @@ func calloutColor(a parser.Alert) ui.Color {
 	case parser.AlertImportant:
 		return ui.RGB(139, 93, 211)
 	default:
-		return ui.RGB(0, 112, 230)
+		return appearance.From(accent, dark).Accent
 	}
 }
 
@@ -73,7 +76,7 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 		}
 	}
 	for _, v := range cards {
-		col := calloutColor(v.c.alert)
+		col := calloutColor(v.c.alert, e.lk.accent, e.lk.dark)
 		alpha := float32(.1)
 		if e.lk.dark {
 			alpha = .18
@@ -89,8 +92,6 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 				col = ui.RGB(80, 205, 155)
 			case parser.AlertImportant:
 				col = ui.RGB(185, 145, 255)
-			default:
-				col = ui.RGB(80, 160, 255)
 			}
 		}
 		headerEditing := false
@@ -102,7 +103,7 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 		}
 		if !headerEditing {
 			paintCalloutIcon(p, ox+v.x+e.lk.size*1.4, oy+v.y+e.lk.size*.5, e.lk.size, col, v.c.alert == parser.AlertWarning || v.c.alert == parser.AlertCaution)
-			p.RichText(ox+v.x+e.lk.size*2.8, oy+v.y+e.lk.size*.45, e.colW-(v.x-e.colX)-e.lk.size*4.2, ui.Span{Text: v.c.title, Color: col, Size: e.lk.size, Weight: 700})
+			p.RichText(ox+v.x+e.lk.size*2.8, oy+v.y+e.lk.size*.45, e.colW-(v.x-e.colX)-e.lk.size*4.2, ui.Span{Text: v.c.title, Color: col, Size: e.lk.size, Weight: 600})
 		}
 	}
 }

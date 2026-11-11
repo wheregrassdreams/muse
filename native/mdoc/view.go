@@ -26,6 +26,9 @@ const (
 
 // Options controls how a document is drawn natively.
 type Options struct {
+	// SoftBreaksAsSpaces displays ordinary source newlines as Markdown spaces.
+	// Explicit hard breaks and paragraph boundaries are unaffected.
+	SoftBreaksAsSpaces bool
 	// BodyFontSize is the size of body text in DIPs; 0 means 16.
 	BodyFontSize float32
 	// Font is the body font family; "" means the system's.
@@ -89,7 +92,7 @@ func View(c *ui.Context, d *Doc, opts Options) ui.Element {
 	}
 	s := rstyle{o: opts.withDefaults()}
 	return ui.Scroll(c).Fill().Children(func() {
-		col := ui.Column(c).FillWidth().Gap(12).Padding(s.o.Padding)
+		col := ui.Column(c).FillWidth().Gap(s.o.BodyFontSize * 0.6).Padding(s.o.Padding)
 		if s.o.ContentWidth > 0 {
 			col.MaxWidth(s.o.ContentWidth).Margin(0, ui.Auto)
 		}
@@ -104,17 +107,20 @@ func View(c *ui.Context, d *Doc, opts Options) ui.Element {
 // click can turn just that block into an input.
 func BlocksView(c *ui.Context, blocks []Block, opts Options) ui.Element {
 	s := rstyle{o: opts.withDefaults()}
-	return ui.Column(c).FillWidth().Gap(12).Children(func() {
+	return ui.Column(c).FillWidth().Gap(s.o.BodyFontSize * 0.6).Children(func() {
 		renderBlocks(c, blocks, 0, s)
 	})
 }
 
 // rstyle carries the resolved options plus the context a block renders in,
-// so a quote's contents draw muted without a second options type.
+// so a quote's contents draw gently subdued without a second options type.
 type rstyle struct {
-	o     Options
-	muted bool
-	width float32
+	o                  Options
+	muted              bool
+	preserveSoftBreaks bool
+	first              bool
+	afterHeading       bool
+	width              float32
 }
 
 func (s rstyle) inlineWidth() float32 {
@@ -128,15 +134,15 @@ func (s rstyle) inlineWidth() float32 {
 }
 
 func (s rstyle) body(c *ui.Context) ui.Color {
-	if s.muted {
-		return c.Theme().TextMuted
-	}
-	return ui.Color{}
+	return BodyTextColor(c.Theme().Dark)
 }
 
 func renderBlocks(c *ui.Context, blocks []Block, depth int, s rstyle) {
-	for _, b := range blocks {
-		renderBlock(c, b, depth, s)
+	for i, b := range blocks {
+		bs := s
+		bs.first = i == 0
+		bs.afterHeading = i > 0 && blocks[i-1].Kind == Heading
+		renderBlock(c, b, depth, bs)
 	}
 }
 
@@ -144,42 +150,32 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 	t := c.Theme()
 	switch b.Kind {
 	case Heading:
+		// The column supplies the ordinary block gap; headings add only the
+		// remaining room so short sections do not acquire oversized gaps.
+		pad := max(HeadingTopMargin(b.Level, s.o.BodyFontSize)-s.o.BodyFontSize*0.6, 0)
+		if s.first || s.afterHeading {
+			pad = 0
+		}
 		if spansHaveMath(b.Inlines) {
-			pad := float32(0)
-			switch b.Level {
-			case 1:
-				pad = 12
-			case 2:
-				pad = 8
-			case 3:
-				pad = 5
-			}
 			ui.Column(c).Padding(pad, 0, 0, 0).Children(func() {
-				renderInlineMath(c, b.Inlines, s, HeadingSize(b.Level, s.o.BodyFontSize), headingWeight(b.Level), 1.3)
+				renderInlineMath(c, b.Inlines, s, HeadingSize(b.Level, s.o.BodyFontSize), HeadingWeight(b.Level), 1.35)
 			})
 			return
 		}
-		el := ui.RichText(c, uiSpans(c, b.Inlines, s)...).
+		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
 			FontSize(HeadingSize(b.Level, s.o.BodyFontSize)).
-			FontWeight(headingWeight(b.Level)).Wrap().LineHeight(1.3)
-		switch b.Level {
-		case 1:
-			el.Padding(12, 0, 0, 0)
-		case 2:
-			el.Padding(8, 0, 0, 0)
-		case 3:
-			el.Padding(5, 0, 0, 0)
-		}
+			FontWeight(HeadingWeight(b.Level)).Wrap().LineHeight(1.35).
+			Padding(pad, 0, 0, 0)
 	case Paragraph:
 		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
-			FontSize(s.o.BodyFontSize).Wrap().LineHeight(1.75)
+			FontSize(s.o.BodyFontSize).Wrap().LineHeight(1.7)
 	case Code:
 		renderCode(c, b, s)
 	case Quote:
 		ui.Column(c).Gap(6).Padding(0, 0, 0, 16).
-			BorderWidth(0, 0, 0, 3).BorderColor(t.Border).
+			BorderWidth(0, 0, 0, 2).BorderColor(MarkdownRuleColor(t.Dark)).
 			Children(func() {
-				renderBlocks(c, b.Children, depth+1, rstyle{o: s.o, muted: true, width: s.inlineWidth() - 19})
+				renderBlocks(c, b.Children, depth+1, rstyle{o: s.o, muted: true, preserveSoftBreaks: true, width: s.inlineWidth() - 18})
 			})
 	case List:
 		renderList(c, b, depth, s)
@@ -187,7 +183,7 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 		ui.Box(c).FillWidth().Height(2).Background(t.Border)
 	case HTML:
 		if txt := htmlToText(b.Text); strings.TrimSpace(txt) != "" {
-			ui.Text(c, txt).FontSize(s.o.BodyFontSize).Wrap().LineHeight(1.75)
+			ui.Text(c, txt).FontSize(s.o.BodyFontSize).TextColor(BodyTextColor(t.Dark)).Wrap().LineHeight(1.7)
 		}
 	case Table:
 		renderTable(c, b, s)
@@ -204,12 +200,12 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 				Font:   "Georgia",
 				Italic: true,
 				Size:   s.o.BodyFontSize + 1,
-			}).TextAlign(ui.Center).Wrap().LineHeight(1.6)
+			}).TextColor(BodyTextColor(t.Dark)).TextAlign(ui.Center).Wrap().LineHeight(1.7)
 		})
 	}
 }
 
-// renderCode follows Typora's block: a soft filled panel, comfortable
+// renderCode uses a quiet neutral panel, comfortable
 // padding, and no always-visible language badge.
 func renderCode(c *ui.Context, b Block, s rstyle) {
 	if strings.EqualFold(strings.TrimSpace(b.Lang), "mermaid") {
@@ -239,8 +235,8 @@ func renderCode(c *ui.Context, b Block, s rstyle) {
 		}
 	}
 	t := c.Theme()
-	code := ui.Column(c).FillWidth().Gap(1).Padding(14, 16).Radius(4).
-		Background(t.Surface)
+	code := ui.Column(c).FillWidth().Gap(0).Padding(s.o.BodyFontSize*0.875, s.o.BodyFontSize).Radius(6).
+		Background(CodePanelColor(t.Dark))
 	if s.o.OnCopyCode != nil {
 		code.ContextMenu(func(m *ui.Menu) {
 			if m.Item("复制代码").Chosen() {
@@ -255,8 +251,8 @@ func renderCode(c *ui.Context, b Block, s rstyle) {
 		}
 		for _, line := range strings.Split(text, "\n") {
 			ui.RichText(c, HighlightLine(line, b.Lang, t.Dark)...).
-				Font(s.o.MonoFont).FontSize(s.o.BodyFontSize - 2).
-				LineHeight(1.55).Wrap()
+				Font(s.o.MonoFont).FontSize(s.o.BodyFontSize * 0.875).
+				LineHeight(1.6).Wrap()
 		}
 	})
 }
@@ -264,7 +260,7 @@ func renderCode(c *ui.Context, b Block, s rstyle) {
 func renderList(c *ui.Context, b Block, depth int, s rstyle) {
 	t := c.Theme()
 	indent := float32(depth) * s.o.IndentStep
-	ui.Column(c).Gap(3).Padding(0, 0, 0, indent).Children(func() {
+	ui.Column(c).Gap(s.o.BodyFontSize*0.2).Padding(0, 0, 0, indent).Children(func() {
 		for idx, it := range b.Items {
 			item := it
 			ui.Row(c).Gap(7).AlignItems(ui.Start).Children(func() {
@@ -278,13 +274,13 @@ func renderList(c *ui.Context, b Block, depth int, s rstyle) {
 					ui.Text(c, item.Marker).FontSize(s.o.BodyFontSize).
 						TextColor(t.TextMuted).MinWidth(20).TextAlign(ui.End)
 				}
-				ui.Column(c).Grow(1).Gap(3).Children(func() {
+				ui.Column(c).Grow(1).Gap(s.o.BodyFontSize * 0.2).Children(func() {
 					if len(item.Inlines) > 0 {
 						if spansHaveMath(item.Inlines) {
-							renderInlineMath(c, item.Inlines, rstyle{o: s.o, muted: s.muted, width: s.inlineWidth() - indent - 30}, s.o.BodyFontSize, 0, 1.8)
+							renderInlineMath(c, item.Inlines, rstyle{o: s.o, muted: s.muted, preserveSoftBreaks: s.preserveSoftBreaks, width: s.inlineWidth() - indent - 30}, s.o.BodyFontSize, 0, 1.7)
 						} else {
 							ui.RichText(c, uiSpans(c, item.Inlines, s)...).
-								FontSize(s.o.BodyFontSize).Wrap().LineHeight(1.75)
+								FontSize(s.o.BodyFontSize).TextColor(BodyTextColor(t.Dark)).Wrap().LineHeight(1.7)
 						}
 					}
 					if len(item.Children) > 0 {
@@ -321,7 +317,7 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 	if cols == 0 {
 		return
 	}
-	ui.Column(c).FillWidth().Border(1, t.Border).Radius(4).Clip().Children(func() {
+	ui.Column(c).FillWidth().Border(1, MarkdownRuleColor(t.Dark)).Radius(4).Clip().Children(func() {
 		for ri, row := range b.Rows {
 			head := ri == 0
 			ui.Row(c).AlignItems(ui.Stretch).Children(func() {
@@ -340,9 +336,9 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 					}
 					box := ui.Column(c).Grow(1).MinHeight(34).
 						Padding(7, 13).BorderWidth(0, right, bottom, 0).
-						BorderColor(t.Border)
+						BorderColor(MarkdownRuleColor(t.Dark))
 					if head {
-						box.Background(t.Surface)
+						box.Background(CodePanelColor(t.Dark))
 					}
 					if e := s.o.CellEdit; e != nil && e.Row == ri && e.Col == ci {
 						box.Children(func() {
@@ -365,7 +361,7 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 								if head {
 									weight = 600
 								}
-								renderInlineMath(c, cell, rstyle{o: s.o, muted: s.muted, width: w}, s.o.BodyFontSize-1, weight, 1.6)
+								renderInlineMath(c, cell, rstyle{o: s.o, muted: s.muted, preserveSoftBreaks: s.preserveSoftBreaks, width: w}, s.o.BodyFontSize-1, weight, 1.7)
 								if s.o.OnCell != nil {
 									box.OnClick(func() { s.o.OnCell(ri, ci) }).Cursor(ui.CursorText)
 								}
@@ -598,15 +594,6 @@ func loadBitmap(path string) *ui.Bitmap {
 	return bmp
 }
 
-// InlineLinkColor keeps document links quieter than interactive UI accents.
-// Opaque blue-gray tones remain legible on both page and callout backgrounds.
-func InlineLinkColor(dark bool) ui.Color {
-	if dark {
-		return ui.Hex("#9dafbe")
-	}
-	return ui.Hex("#526b82")
-}
-
 // uiSpans converts model spans to ui spans, resolving document link colors
 // and the mono face.
 func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
@@ -614,8 +601,12 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 	out := make([]ui.Span, 0, len(spans))
 	for _, sp := range spans {
 		u := ui.Span{Text: sp.Text}
+		if sp.SoftBreak && s.o.SoftBreaksAsSpaces && !s.preserveSoftBreaks {
+			u.Text = " "
+		}
+		u.Color = BodyTextColor(t.Dark)
 		if s.muted {
-			u.Color = t.TextMuted
+			u.Color = s.body(c).Mix(t.TextMuted, 0.25)
 		}
 		if sp.Bold {
 			u.Weight = 600
@@ -628,11 +619,14 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 		}
 		if sp.Code {
 			u.Font = s.o.MonoFont
-			u.Size = s.o.BodyFontSize - 2
-			u.Background = t.Surface
+			u.Size = s.o.BodyFontSize * 0.875
+			u.Background, u.Color = InlineCodeColorsFor(t.Accent, t.Dark)
+			u.Radius = max(3, s.o.BodyFontSize/5)
+			u.PaddingX = s.o.BodyFontSize * 0.2
+			u.PaddingY = s.o.BodyFontSize * 0.1
 		}
 		if sp.Link != "" {
-			u.Color = InlineLinkColor(t.Dark)
+			u.Color = InlineLinkColorFor(t.Accent, t.Dark)
 			u.Underline = true
 		}
 		if sp.Math {
@@ -643,31 +637,6 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 		out = append(out, u)
 	}
 	return out
-}
-
-// HeadingSize is the native heading scale, shared with the block editor.
-func HeadingSize(level int, body float32) float32 {
-	switch level {
-	case 1:
-		return body * 2.1
-	case 2:
-		return body * 1.65
-	case 3:
-		return body * 1.4
-	case 4:
-		return body * 1.2
-	case 5:
-		return body
-	default:
-		return body * 0.875
-	}
-}
-
-func headingWeight(level int) int {
-	if level <= 2 {
-		return 700
-	}
-	return 650
 }
 
 // htmlToText is the small HTML subset Typora documents commonly embed:

@@ -73,7 +73,7 @@ func styledText(e *Editor, d display) string {
 		if sp.Font == e.lk.mono {
 			tags = append(tags, "code")
 		}
-		if sp.Color == e.lk.accent || sp.Color == mdoc.InlineLinkColor(e.lk.dark) {
+		if sp.Color == mdoc.InlineLinkColorFor(e.lk.accent, e.lk.dark) {
 			tags = append(tags, "a")
 		}
 		tag := strings.Join(tags, ",")

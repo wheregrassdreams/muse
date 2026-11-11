@@ -2,6 +2,7 @@ package nativeui
 
 import (
 	"encoding/json"
+	"muse/appearance"
 	"os"
 	"path/filepath"
 )
@@ -14,6 +15,7 @@ const (
 
 type nativePreferences struct {
 	Theme     string `json:"theme,omitempty"`
+	Accent    string `json:"accent,omitempty"`
 	AIEnabled bool   `json:"aiEnabled,omitempty"`
 }
 
@@ -39,6 +41,7 @@ func loadNativePreferences() nativePreferences {
 
 func (a *App) applyNativePreferences(p nativePreferences) {
 	a.aiEnabled = p.AIEnabled
+	a.accentID = appearance.Normalize(p.Accent)
 	if mode, ok := themeModeFromPreference(p.Theme); ok {
 		a.themeMode = mode
 	} else {
@@ -60,7 +63,7 @@ func themeModeFromPreference(value string) (int, bool) {
 }
 
 func (a *App) saveNativePreferences() error {
-	p := nativePreferences{AIEnabled: a.aiEnabled}
+	p := nativePreferences{AIEnabled: a.aiEnabled, Accent: appearance.Normalize(a.accentID)}
 	switch a.themeMode {
 	case themeDark:
 		p.Theme = "dark"

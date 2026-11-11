@@ -37,13 +37,14 @@ const (
 
 // Span is a run of inline text with one style. The zero value is plain text.
 type Span struct {
-	Text   string
-	Bold   bool
-	Italic bool
-	Code   bool
-	Strike bool
-	Link   string // non-empty for a link target
-	Math   bool   // inline TeX
+	Text      string
+	Bold      bool
+	Italic    bool
+	Code      bool
+	Strike    bool
+	Link      string // non-empty for a link target
+	Math      bool   // inline TeX
+	SoftBreak bool   // an ordinary source newline, distinguishable from a hard break
 }
 
 // Cell is one table cell: a run of styled spans.

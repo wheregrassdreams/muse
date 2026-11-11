@@ -23,12 +23,13 @@ const (
 // step is one step of undo: its changes, in the order they were made, and
 // the selection before and after them.
 type step struct {
-	changes             []change
-	before, after       [2]int
-	phBefore, phAfter   *phantom
-	kind                stepKind
-	at                  time.Time
-	closedForCoalescing bool
+	breaksBefore, breaksAfter []int
+	changes                   []change
+	before, after             [2]int
+	phBefore, phAfter         *phantom
+	kind                      stepKind
+	at                        time.Time
+	closedForCoalescing       bool
 }
 
 // history is the editor's undo and redo.
@@ -45,7 +46,7 @@ func (e *Editor) begin(kind stepKind) {
 	if e.hist.open != nil {
 		return
 	}
-	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, at: time.Now()}
+	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: append([]int(nil), e.typedBreaks...), at: time.Now()}
 }
 
 // replace replaces the source's bytes [from, to) with text, recorded in the
@@ -57,6 +58,9 @@ func (e *Editor) replace(from, to int, text string) {
 	if old == text {
 		return
 	}
+	if e.hist.open == nil {
+		e.begin(stepEdit)
+	}
 	if e.inlineMathOK {
 		if from >= e.inlineMathStart && to <= e.inlineMathEnd {
 			e.inlineMathEnd += len(text) - (to - from)
@@ -65,6 +69,7 @@ func (e *Editor) replace(from, to int, text string) {
 		}
 	}
 	e.src = e.src[:from] + text + e.src[to:]
+	e.moveTypedBreaks(from, to, text)
 	e.rev++
 	// The input method's offsets move with the edit, not from a reading of
 	// the whole source.
@@ -126,11 +131,13 @@ func (e *Editor) commit(anchor, caret int) {
 	}
 	s.after = [2]int{e.anchor, e.caret}
 	s.phAfter = e.phantom
+	s.breaksAfter = append([]int(nil), e.typedBreaks...)
 	e.hist.redo = nil
 	if n := len(e.hist.undo); n > 0 && e.coalesces(&e.hist.undo[n-1], s) {
 		prev := &e.hist.undo[n-1]
 		prev.changes = append(prev.changes, s.changes...)
 		prev.after, prev.phAfter, prev.at = s.after, s.phAfter, s.at
+		prev.breaksAfter = s.breaksAfter
 	} else {
 		e.hist.undo = append(e.hist.undo, *s)
 		if len(e.hist.undo) > maxSteps {
@@ -195,6 +202,7 @@ func (e *Editor) Undo() bool {
 		e.src = e.src[:c.at] + c.old + e.src[c.at+len(c.new):]
 	}
 	e.hist.redo = append(e.hist.redo, s)
+	e.typedBreaks = append([]int(nil), s.breaksBefore...)
 	e.restore(s.before, s.phBefore)
 	return true
 }
@@ -213,6 +221,7 @@ func (e *Editor) Redo() bool {
 	}
 	s.closedForCoalescing = true
 	e.hist.undo = append(e.hist.undo, s)
+	e.typedBreaks = append([]int(nil), s.breaksAfter...)
 	e.restore(s.after, s.phAfter)
 	return true
 }

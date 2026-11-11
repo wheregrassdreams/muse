@@ -1050,7 +1050,7 @@ func addBlanks(a *leafArena, src string, out []*leaf, from, to int, skipFirst bo
 			bl := a.get()
 			bl.kind, bl.id, bl.lineStart = kBlank, -1, p
 			bl.start, bl.end, bl.syntaxStart = start, start, start
-			bl.conts = quoteChain(prev, next, depth)
+			bl.conts = quoteChain(prev, next, depth, p)
 			out = append(out, bl)
 		}
 		if e >= to {
@@ -1097,7 +1097,7 @@ func blankLine(src string, p, e int) (start, depth int, ok bool) {
 // quoteChain returns the quotation containers a blank line carrying depth
 // markers is inside: the quotations of the block the parse gives the lines
 // around it, since a `>` line belongs to the quotation above and below it.
-func quoteChain(prev, next *leaf, depth int) []cont {
+func quoteChain(prev, next *leaf, depth, at int) []cont {
 	if depth == 0 {
 		return nil
 	}
@@ -1109,7 +1109,14 @@ func quoteChain(prev, next *leaf, depth int) []cont {
 		// A quotation may sit inside an item or a footnote: the chain up to
 		// the depth-th quotation is the line's, item and all.
 		n := 0
+		valid := l.conts
 		for i, c := range l.conts {
+			// The following block may belong to a new quotation/callout.
+			// Its containers cannot own an empty line before they begin.
+			if c.start > at {
+				valid = l.conts[:i]
+				break
+			}
 			if c.kind != cQuote {
 				continue
 			}
@@ -1117,11 +1124,23 @@ func quoteChain(prev, next *leaf, depth int) []cont {
 				return l.conts[:i+1]
 			}
 		}
-		if len(l.conts) > len(short) {
-			short = l.conts
+		if len(valid) > len(short) {
+			short = valid
 		}
 	}
-	return short
+	// A standalone marker-only quotation can precede any parsed content.
+	// Retain its indentation without borrowing a later callout's identity.
+	out := append([]cont(nil), short...)
+	n := 0
+	for _, c := range out {
+		if c.kind == cQuote {
+			n++
+		}
+	}
+	for ; n < depth; n++ {
+		out = append(out, cont{kind: cQuote, id: -at - n - 1, start: at})
+	}
+	return out
 }
 
 // appendRaw adds the non-blank lines of src between from and to, which no

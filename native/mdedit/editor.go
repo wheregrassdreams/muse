@@ -12,6 +12,7 @@ import (
 
 	"muse/mdoc"
 	"muse/scrollui"
+	"muse/textlayout"
 )
 
 // Options configure an editor. The app sets them before building the
@@ -21,6 +22,15 @@ type Options struct {
 	// line height as a multiple of it (1.75 when 0).
 	FontSize   float32
 	LineHeight float32
+	// DisableSmartTypography opts out of bounded Knuth-Plass paragraph layout.
+	// The zero value enables it for prose; code, headings and tables stay native.
+	DisableSmartTypography bool
+	// SoftBreaksAsSpaces projects ordinary Markdown newlines as spaces.
+	// Explicit hard breaks and blank-line paragraph boundaries remain visible.
+	SoftBreaksAsSpaces bool
+	// PreserveTypedLineBreaks retains user-created source line boundaries in
+	// this editing session. Focus/caret changes never toggle paragraph wrapping.
+	PreserveTypedLineBreaks bool
 	// Font and MonoFont are the families of text and of code: the
 	// theme's font and the system's monospaced one when empty.
 	Font, MonoFont string
@@ -82,6 +92,8 @@ type Editor struct {
 	inlineMathStart, inlineMathEnd int
 	inlineMathOK                   bool
 	mathPreviewHidden              bool
+	typedBreaks                    []int
+	preserveInsertedBreaks         bool
 
 	src    string
 	leaves []*leaf
@@ -130,12 +142,13 @@ type Editor struct {
 
 	hist history
 
-	lk        look
-	views     map[viewKey]*leafView
-	frame     uint64
-	assetGen  atomic.Uint64
-	imageHits []imageHit
-	imageDrag *imageResizeDrag
+	lk              look
+	views           map[viewKey]*leafView
+	typographyCache textlayout.Cache
+	frame           uint64
+	assetGen        atomic.Uint64
+	imageHits       []imageHit
+	imageDrag       *imageResizeDrag
 
 	// The element's size and where the column of text is in it.
 	elemW, viewH float32
@@ -295,6 +308,9 @@ func New(src string, opts Options) *Editor {
 func (e *Editor) SetOptions(opts Options) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	if opts.DisableSmartTypography && !e.opts.DisableSmartTypography {
+		e.typographyCache.Clear()
+	}
 	codeChanged := opts.Code != e.opts.Code
 	frontmatterChanged := opts.HideFrontmatter != e.opts.HideFrontmatter
 	imageBaseChanged := opts.BaseDir != e.opts.BaseDir || opts.AssetRoot != e.opts.AssetRoot
@@ -350,6 +366,7 @@ func (e *Editor) SetSource(src string) {
 	defer e.paintMu.Unlock()
 	e.mathPreviewHidden = false
 	e.inlineMathOK = false
+	e.typedBreaks = nil
 	e.src = src
 	e.p.clear()
 	e.rev++

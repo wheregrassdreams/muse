@@ -20,6 +20,12 @@ live preview 只是**显示**，不改变编辑语义）。
 
 ### 当前进度（2026-11-09）
 
+2026-11-11：正文采用较轻的 Bear 风格；设置新增重点色调色盘，默认红色并持久化。共享颜色派生和范围见 [appearance.md](appearance.md)。
+
+2026-11-11：正文智能排版默认开启，可在编辑器设置中关闭。使用有界 Knuth–Plass 断行、原生行塑形与统一编辑几何；支持范围和原生回退见 [smart-typography.md](smart-typography.md)。
+
+2026-11-11：正文和 AI 回复使用 Markdown 软换行语义，普通单换行显示为空格，空行分段，显式硬换行保留。共享的标题、代码、引用、表格视觉参数与来源见 [markdown-style.md](markdown-style.md)。
+
 新增第一批笔记库基础能力：自动保存/恢复、版本校验、递归监听、内存索引、全库搜索与关联笔记。接口、用户入口与限制见 [vault-runtime.md](vault-runtime.md)。
 
 2026-11-10：文档标题、语义属性摘要和右侧完整属性面板见 [document-properties.md](document-properties.md)。
