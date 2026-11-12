@@ -6,6 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown/parser"
+
+	"muse/mdoc"
 )
 
 // A leaf shows as display text: the characters drawn, each piece of which
@@ -43,6 +45,9 @@ type piece struct {
 // gives its object replacement character.
 type object struct {
 	bmp                   *ui.Bitmap
+	asset                 *mdoc.ImageAsset
+	embed                 *Editor
+	embedBlocked          string
 	imagePath             string
 	imageDest, imageTitle string
 	sourceFrom, sourceTo  int
@@ -53,17 +58,23 @@ type object struct {
 	alt string
 	// w, h and descent are the box's size, in DIPs.
 	w, h, descent float32
-	// block makes the object a line of its own, centered: a paragraph of
-	// just an image.
+	// block makes the object occupy its own visual line.
 	block bool
+	// alignCenter is presentation state for a standalone image. It is
+	// independent of whether the source is currently revealed.
+	alignCenter bool
+	footnote    bool
+	spacer      bool
 }
 
 // istyle is the inline style a run of text is in.
 type istyle struct {
 	bold, italic, strike, code, mono, link, tag, under, mark, sup, sub, kbd bool
+	linkHover, linkInvalid                                                  bool
 	codeJoined                                                              bool
 	marker                                                                  bool
 	muted                                                                   bool
+	heading                                                                 bool
 	// color and bg are the text's and its background's, as HTML sets
 	// them; zero for the look's.
 	color, bg ui.Color
@@ -73,6 +84,12 @@ type istyle struct {
 type builder struct {
 	// A callout title is a structural row even when prose soft breaks fold.
 	hardBreakAt int
+	// quotePrefixMode maps and reveals quote markers on their own source
+	// lines. prefixIndent is removed from the leaf origin while that happens;
+	// unexpanded lines receive a fixed-width decoration to retain their old x.
+	quotePrefixMode bool
+	prefixIndent    float32
+	quoteDepth      int
 	// Quoted prose keeps source soft breaks as visible line breaks.
 	preserveSoftBreaks bool
 	e                  *Editor
@@ -115,7 +132,9 @@ type htmlTag struct {
 	prev istyle
 }
 
-func (b *builder) revealed(s, e int) bool { return b.reveal >= s && b.reveal <= e }
+func (b *builder) revealed(s, e int) bool {
+	return b.reveal >= s && b.reveal <= e || selectionReveals(b.e, s, e, b.cell)
+}
 
 // objectOpen reports whether an object shows its source: the caret is inside
 // it, or the selection covers it. A caret at either side of it does not open
@@ -223,6 +242,21 @@ func (b *builder) textRun(s, e int, st istyle) { b.lineRun(s, e, b.span(st), fal
 func (b *builder) marker(s, e int, st istyle) {
 	st.marker = true
 	b.lineRun(s, e, b.span(st), true)
+}
+
+// prefixSpacer keeps a non-revealed quote line at its normal visual indent
+// while a neighboring line in the same paragraph exposes its source marker.
+// It has geometry but no source mapping, caret stop, or selection range.
+func (b *builder) prefixSpacer(at int, width float32) {
+	if width <= 0 {
+		return
+	}
+	obj := &object{w: width, h: 1, spacer: true}
+	sp := b.span(istyle{})
+	if !b.box(&sp, obj) {
+		return
+	}
+	b.add(piece{kind: pDeco, s0: at - b.base, s1: at - b.base, text: objectRune, span: sp, obj: obj})
 }
 
 // codeMarker keeps revealed code and math delimiters inside the same quiet
@@ -387,6 +421,20 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			if in.Kind == parser.SoftBreak && b.e.opts.SoftBreaksAsSpaces && !b.preserveSoftBreaks && !editing && !structural && !(b.e.sourceOK && b.e.sourceAt == b.base) {
 				text = " "
 			}
+			if b.quotePrefixMode && text == "\n" {
+				if prefixStart, prefixEnd, ok := quotePrefixForBreak(b.src, in.Start, end, b.quoteDepth); ok {
+					newlineEnd := prefixStart
+					b.atom(in.Start, newlineEnd, "\n", st, nil)
+					if b.quotePrefixRevealed(prefixStart, prefixEnd) {
+						b.marker(prefixStart, prefixEnd, st)
+					} else {
+						b.prefixSpacer(prefixEnd, b.prefixIndent)
+						b.spanAtom(prefixStart, prefixEnd, "", b.span(st))
+					}
+					b.pos = end
+					break
+				}
+			}
 			b.atom(in.Start, end, text, st, nil)
 			b.pos = end
 		case parser.Code:
@@ -409,6 +457,24 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 		b.pos = max(b.pos, in.End)
 		i = next
 	}
+}
+
+func (b *builder) quotePrefixRevealed(s, end int) bool {
+	a := s
+	z := end
+	caret := b.reveal
+	if caret >= a && caret < z {
+		return true
+	}
+	if b.e == nil {
+		return false
+	}
+	for _, r := range b.e.SelectionRanges() {
+		if r.Start < z && r.End > a {
+			return true
+		}
+	}
+	return false
 }
 
 // children returns where the children of inline i start and end in the
@@ -536,6 +602,10 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis [
 func (b *builder) wiki(w wikiLink, st istyle) {
 	inner := st
 	inner.link = true
+	inner.linkHover = b.e.hoverLink == (Range{Start: w.from, End: w.to})
+	if b.e.opts.ResolveWikiLink != nil && b.e.opts.ResolveWikiLink(b.e.opts.CurrentPath, w.target) == LinkTargetInvalid {
+		inner.linkInvalid = true
+	}
 	// An embed of a picture is the picture, as Obsidian draws it. A note
 	// embed transcludes later; for now it reads as its label.
 	if w.embed && !b.objectOpen(w.from, w.to) && isImageName(w.target) {
@@ -543,8 +613,26 @@ func (b *builder) wiki(w wikiLink, st istyle) {
 		if obj := b.e.sizedImage(w.target, "", sz, b.width, b.alone); obj != nil {
 			obj.sourceFrom, obj.sourceTo, obj.imageSyntax = w.from, w.to, imageSyntaxWiki
 			obj.width = obj.w
+			if b.alone {
+				obj.alignCenter = b.e.imageAlignCenter(w.from)
+			}
 			b.e.applyImagePreview(obj, w.from, w.to)
 			b.atom(w.from, w.to, "", st, obj)
+			return
+		}
+	}
+	if w.embed && !b.objectOpen(w.from, w.to) {
+		if obj := b.e.wikiNoteObject(w.target, b.width); obj != nil {
+			lineStart, lineEnd := lineStartAt(b.src, w.from), lineEndAt(b.src, w.to)
+			before := strings.TrimSpace(b.src[lineStart:w.from]) != ""
+			after := strings.TrimSpace(b.src[w.to:lineEnd]) != ""
+			if before {
+				b.deco(w.from, "\n", b.span(st), nil)
+			}
+			b.atom(w.from, w.to, "", st, obj)
+			if after {
+				b.deco(w.to, "\n", b.span(st), nil)
+			}
 			return
 		}
 	}
@@ -604,6 +692,7 @@ func (b *builder) link(ins []parser.Inline, i int, st istyle) {
 	cs, ce := children(ins, i, in.Start)
 	inner := st
 	inner.link = true
+	inner.linkHover = b.e.hoverLink == (Range{Start: in.Start, End: in.End})
 	if i+1 >= in.Next || i+1 >= len(ins) {
 		// A link without text shows its source, as there is nothing else
 		// to click or to see.
@@ -625,8 +714,20 @@ func (b *builder) link(ins []parser.Inline, i int, st istyle) {
 	}
 	if rev {
 		b.marker(ce, in.End, st)
+	} else if isExternalLinkTarget(in.Dest) {
+		// The icon follows the label in display space but has no source bytes.
+		icon := b.span(inner)
+		icon.Text = ""
+		icon.Size = max(9, b.fontSize*0.72)
+		icon.Underline, icon.DottedUnderline = false, false
+		b.deco(in.End, " ↗", icon, nil)
 	}
 	b.pos = in.End
+}
+
+func isExternalLinkTarget(target string) bool {
+	target = strings.ToLower(strings.TrimSpace(target))
+	return strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")
 }
 
 // codeSpan adds code within text: its backticks while the caret is at it.
@@ -641,9 +742,9 @@ func (b *builder) codeSpan(in *parser.Inline, st istyle) {
 	}
 	inner := st
 	inner.code = true
+	inner.codeJoined = true
+	boxStart := b.u16
 	if b.revealed(in.Start, in.End) {
-		inner.codeJoined = true
-		boxStart := b.u16
 		b.codeMarker(in.Start, cs, st)
 		b.textRun(cs, ce, inner)
 		b.codeMarker(ce, in.End, st)
@@ -669,6 +770,13 @@ func (b *builder) codeSpan(in *parser.Inline, st istyle) {
 		cs += k + 2
 	}
 	b.textRun(cs, ce, inner)
+	if b.u16 > boxStart {
+		b.codeBoxes = append(b.codeBoxes, inlineCodeBox{
+			range_: ui.TextInputRange{Start: boxStart, End: b.u16},
+			padY:   b.fontSize * 0.1,
+			size:   b.fontSize * 0.875,
+		})
+	}
 }
 
 // math adds a formula within text: typeset, or its TeX while the caret is
@@ -703,6 +811,9 @@ func (b *builder) image(ins []parser.Inline, i int, st istyle) {
 		obj.imageDest, obj.imageTitle = in.Dest, in.Title
 		obj.widthFrom, obj.widthTo = imageAltWidthRange(b.src, in.Start, in.End)
 		obj.width = obj.w
+		if b.alone {
+			obj.alignCenter = b.e.imageAlignCenter(in.Start)
+		}
 		b.e.applyImagePreview(obj, in.Start, in.End)
 	}
 	if !b.objectOpen(in.Start, in.End) {
@@ -732,10 +843,16 @@ func (b *builder) footnoteRef(in *parser.Inline, st istyle) {
 		b.marker(in.Start, in.End, st)
 		return
 	}
-	sp := b.span(st)
-	sp.Color = b.e.lk.accent
-	sp.Size = b.fontSize * 0.75
-	b.add(piece{kind: pAtom, s0: in.Start - b.base, s1: in.End - b.base, text: "[" + in.Text + "]", span: sp})
+	sp := ui.Span{Text: in.Text, Size: b.fontSize * 0.78, Color: b.e.lk.accent}
+	font := ui.Font{Family: b.e.lk.font, Size: sp.Size}
+	w, _ := ui.ShapeRichTextWith([]ui.Span{sp}, font, ui.TextShape{}).Size()
+	sp.ObjectWidth = w
+	// Reserve horizontal room only. The raised label is painted separately
+	// so it cannot enlarge or shift the paragraph's line box.
+	sp.ObjectHeight = 0.01 // Keep a drawable object rect without changing line metrics.
+	o := &object{alt: in.Text, w: w, footnote: true}
+	b.hasObjects = true
+	b.add(piece{kind: pAtom, s0: in.Start - b.base, s1: in.End - b.base, text: "\uFFFC", span: sp, obj: o})
 }
 
 // htmlInline adds a tag within text. The tags of formatting, as <u> and

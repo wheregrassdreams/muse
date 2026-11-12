@@ -32,13 +32,6 @@ type tableSelection struct {
 	textMode  string
 }
 
-type tableSelectDrag struct {
-	lineStart int
-	axis      tableAxis
-	anchor    int
-	shift     bool
-}
-
 type tableContentBridge struct {
 	lineStart       int
 	axis            tableAxis
@@ -55,10 +48,12 @@ type tableContentBridge struct {
 // tableNavigationState keeps text endpoints separate from the active structure.
 // A bridge owns its current text focus; structure ranges are always derived.
 type tableNavigationState struct {
-	mode          string
-	anchor, caret int
-	structure     *tableSelection
-	bridge        *tableContentBridge
+	mode               string
+	anchor, caret      int
+	selectionInclusive bool
+	selectionLinewise  bool
+	structure          *tableSelection
+	bridge             *tableContentBridge
 }
 
 type tableNavigationStep struct {
@@ -67,7 +62,7 @@ type tableNavigationStep struct {
 }
 
 func (e *Editor) tableNavigationState() tableNavigationState {
-	s := tableNavigationState{mode: e.modal.mode, anchor: e.anchor, caret: e.caret}
+	s := tableNavigationState{mode: e.modal.mode, anchor: e.anchor, caret: e.caret, selectionInclusive: e.selectionInclusive, selectionLinewise: e.selectionLinewise}
 	if e.tableSelection != nil {
 		v := *e.tableSelection
 		s.structure = &v
@@ -80,7 +75,7 @@ func (e *Editor) tableNavigationState() tableNavigationState {
 }
 
 func sameTableNavigationState(a, b tableNavigationState) bool {
-	if a.mode != b.mode || a.anchor != b.anchor || a.caret != b.caret || (a.structure == nil) != (b.structure == nil) || (a.bridge == nil) != (b.bridge == nil) {
+	if a.mode != b.mode || a.anchor != b.anchor || a.caret != b.caret || a.selectionInclusive != b.selectionInclusive || a.selectionLinewise != b.selectionLinewise || (a.structure == nil) != (b.structure == nil) || (a.bridge == nil) != (b.bridge == nil) {
 		return false
 	}
 	return (a.structure == nil || *a.structure == *b.structure) && (a.bridge == nil || *a.bridge == *b.bridge)
@@ -89,6 +84,8 @@ func sameTableNavigationState(a, b tableNavigationState) bool {
 func (e *Editor) restoreTableNavigation(s tableNavigationState) {
 	e.modal.mode = s.mode
 	e.anchor, e.caret = s.anchor, s.caret
+	e.selectionInclusive = s.selectionInclusive
+	e.selectionLinewise = s.selectionLinewise
 	e.tableSelection, e.tableBridge = nil, nil
 	if s.structure != nil {
 		v := *s.structure
@@ -156,32 +153,11 @@ func (e *Editor) tableSelectionLeaf() *leaf {
 	return nil
 }
 
-func (e *Editor) beginTableSelectionDrag(t *leaf, axis tableAxis, index int, shift bool) {
-	if t == nil {
-		return
-	}
-	anchor := index
-	if shift && e.tableSelection != nil && e.tableSelection.lineStart == t.lineStart && e.tableSelection.axis == axis {
-		anchor = e.tableSelection.anchor
-	}
-	e.tableSelectDrag = &tableSelectDrag{lineStart: t.lineStart, axis: axis, anchor: anchor, shift: shift}
-	e.selectTableAxis(t, axis, anchor, index, false)
-}
-
-func (e *Editor) updateTableSelectionDrag(index int) {
-	d := e.tableSelectDrag
-	if d == nil {
-		return
-	}
-	t := e.tableSelectionLeaf()
-	if t == nil || t.lineStart != d.lineStart {
-		e.tableSelectDrag = nil
-		return
-	}
-	e.selectTableAxis(t, d.axis, d.anchor, index, false)
-}
-
 func (e *Editor) selectTableAxis(t *leaf, axis tableAxis, first, last int, extend bool) {
+	if e.block != nil {
+		e.block = nil
+	}
+	e.finishBlockInput()
 	if !e.tableNavigating {
 		e.tableNavigation = nil
 	}
@@ -307,7 +283,7 @@ func (e *Editor) tableHorizontalTransition(dir int) bool {
 	if e.Keymap() != "default" && resume == "BlockVisual" {
 		e.modal.mode = "Visual"
 	}
-	e.tableSelectDrag = nil
+	e.tableHandleDrag = nil
 	e.tableBridge = &tableContentBridge{
 		lineStart: t.lineStart, axis: axis, row: row, col: col, dir: dir,
 		resume: resume, index: index, selectionAnchor: s.anchor, fromText: s.fromText, textMode: s.textMode,
@@ -460,7 +436,7 @@ func (e *Editor) tableSelectionCaretRect() (ui.Rect, bool) {
 		return ui.Rect{}, false
 	}
 	row := 0
-	x := t.x
+	x := tableContentX(t)
 	if s.axis == tableColumns {
 		col := max(0, min(s.active, len(t.geom.colX)-2))
 		if s.right {
@@ -758,7 +734,7 @@ func (e *Editor) applyTableSelection(op string) bool {
 		focus := e.selectionFocus()
 		e.Copy()
 		e.tableSelection = nil
-		e.tableSelectDrag = nil
+		e.tableHandleDrag = nil
 		e.tableBridge = nil
 		e.tableNavigation = nil
 		e.anchor, e.caret = focus, focus

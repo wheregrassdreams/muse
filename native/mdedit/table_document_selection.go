@@ -49,6 +49,9 @@ func (e *Editor) tableStructureSelection(t *leaf) *tableSelection {
 		}
 		return nil
 	}
+	if e.block != nil {
+		return nil
+	}
 	a, z := e.selection()
 	return e.tableStructureInRange(t, a, z)
 }
@@ -84,6 +87,9 @@ func (e *Editor) tableStructureInRange(t *leaf, a, z int) *tableSelection {
 }
 
 func (e *Editor) textSelectionForUnit(u *leaf) (int, int) {
+	if e.block != nil {
+		return 0, 0
+	}
 	if u.table != nil {
 		if s := e.tableStructureSelection(u.table); s != nil {
 			_, row, col := cellAt(u.table, u.start)

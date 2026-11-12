@@ -48,6 +48,21 @@ func TestEditorKeymapSettingsUI(t *testing.T) {
 	}
 }
 
+func TestSourceRevealPreferenceIsInformational(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if !tt.HasText("源码展开偏好") || !tt.HasText("当前策略暂不支持自定义") {
+		t.Fatal("settings page does not explain the current source reveal policy")
+	}
+	if _, err := os.Stat(editorConfigPath()); !os.IsNotExist(err) {
+		t.Fatalf("showing the informational row wrote editor settings: %v", err)
+	}
+}
+
 func TestSmartTypographyDefaultsAndReload(t *testing.T) {
 	for _, tc := range []struct {
 		name, config string

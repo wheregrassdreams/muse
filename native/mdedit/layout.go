@@ -97,6 +97,9 @@ func (e *Editor) setLook(t *ui.Theme) {
 // span returns how text in style st looks, in a leaf of text of size.
 func (lk *look) span(st istyle, size float32) ui.Span {
 	s := ui.Span{Color: lk.text}
+	if st.heading {
+		s.Color = mdoc.HeadingTextColor(lk.dark)
+	}
 	if st.muted {
 		s.Color = lk.text.Mix(lk.muted, 0.25)
 		if st.strike {
@@ -119,6 +122,13 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.link {
 		s.Color = mdoc.InlineLinkColorFor(lk.accent, lk.dark)
 		s.Underline = true
+		if st.linkInvalid {
+			s.Color = s.Color.Mix(lk.muted, 0.45)
+			s.DottedUnderline = true
+		}
+		if st.linkHover {
+			s.Color = appearance.From(lk.accent, lk.dark).Hover
+		}
 	}
 	if st.mark {
 		s.Background = lk.markBg
@@ -126,17 +136,18 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.code {
 		s.Font = lk.mono
 		s.Size = size * 0.875
+		codeBg, codeText := mdoc.InlineCodeColorsFor(lk.accent, lk.dark)
 		if st.codeJoined {
-			// Revealed code ranges receive one shared background in paint.go.
+			// Inline code ranges receive one shared background in paint.go.
 			s.Background = ui.Color{}
 		} else {
-			s.Background = lk.codeBg
+			s.Background = codeBg
 			s.Radius = max(3, size/5)
 			s.PaddingX = size * 0.2
 			s.PaddingY = size * 0.1
 		}
 		if !st.link {
-			s.Color = lk.codeText
+			s.Color = codeText
 		}
 	}
 	if st.kbd {
@@ -188,7 +199,7 @@ const (
 	codePadX    = 1.0
 	codePadY    = 0.875
 	cellPadX    = 0.7
-	cellPadY    = 0.45
+	cellPadY    = 0.55
 )
 
 // leafView is a leaf as the editor shows it: its display, laid out, and
@@ -237,11 +248,15 @@ type viewKey struct {
 	reveal      int
 	mathRange   [2]int
 	selection   [2]int
+	blockRev    uint64
 	compose     string
 	composeAt   int
 	text        string
 	look        lookKey
 	assets      uint64
+	linkRev     uint64
+	linkContext string
+	hoverLink   Range
 	align       parser.Align
 }
 
@@ -258,10 +273,14 @@ type viewParams struct {
 	reveal      int
 	mathRange   [2]int
 	selection   [2]int
+	blockRev    uint64
 	compose     string
 	composeAt   int
 	look        lookKey
 	assets      uint64
+	linkRev     uint64
+	linkContext string
+	hoverLink   Range
 	align       parser.Align
 }
 
@@ -269,8 +288,8 @@ func (k *viewKey) params() viewParams {
 	return viewParams{
 		typedBreaks: k.typedBreaks,
 		kind:        k.kind, level: k.level, flags: k.flags, width: k.width,
-		reveal: k.reveal, mathRange: k.mathRange, selection: k.selection, compose: k.compose, composeAt: k.composeAt,
-		look: k.look, assets: k.assets, align: k.align,
+		reveal: k.reveal, mathRange: k.mathRange, selection: k.selection, blockRev: k.blockRev, compose: k.compose, composeAt: k.composeAt,
+		look: k.look, assets: k.assets, linkRev: k.linkRev, linkContext: k.linkContext, hoverLink: k.hoverLink, align: k.align,
 	}
 }
 
@@ -284,6 +303,7 @@ const (
 	// fSource is a block showing its source: its view is not the view it
 	// draws, so it is not the view to keep across frames.
 	fSource
+	fFolded
 )
 
 // leafFlags returns the flags of a leaf's view key, the editor's own above
@@ -292,6 +312,9 @@ func (e *Editor) leafFlags(l *leaf, header bool) uint8 {
 	f := leafFlags(l, header)
 	if e.sourceOK && e.sourceAt == l.lineStart {
 		f |= fSource
+	}
+	if e.isFoldedHeading(l) {
+		f |= fFolded
 	}
 	return f
 }
@@ -348,6 +371,10 @@ func (e *Editor) viewWith(l *leaf, width float32, header bool, align parser.Alig
 // viewAt returns the leaf's view, and keeps it on the leaf when settle is
 // set.
 func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align, reveal int, settle bool) *leafView {
+	hoverLink := Range{}
+	if e.hoverLink.End > e.hoverLink.Start && e.hoverLink.Start < l.end && e.hoverLink.End > l.lineStart {
+		hoverLink = e.hoverLink
+	}
 	k := viewKey{
 		typedBreaks: e.typedBreakKey(l),
 		kind:        l.kind,
@@ -356,7 +383,16 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 		width:       width,
 		reveal:      reveal,
 		look:        e.lk.key(),
+		blockRev: func() uint64 {
+			if e.block != nil {
+				return e.block.revision
+			}
+			return 0
+		}(),
 		assets:      e.assetGen.Load(),
+		linkRev:     e.opts.LinkRevision,
+		linkContext: e.opts.LinkContext,
+		hoverLink:   hoverLink,
 		align:       align,
 	}
 	at := -1
@@ -438,7 +474,7 @@ func (e *Editor) textFont(l *leaf) ui.Font {
 	if l.kind == kHeading && !l.pending {
 		f.Size = e.lk.headingSize(l.level)
 		f.Weight = headingWeight(l.level)
-		f.LineHeight = 1.35
+		f.LineHeight = mdoc.HeadingLineHeight(l.level)
 	}
 	return f
 }
@@ -447,7 +483,28 @@ func (e *Editor) textFont(l *leaf) ui.Font {
 func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bool, align parser.Align) *leafView {
 	f := e.textFont(l)
 	b := e.newBuilder(l, at, withCompose, f.Size, width)
+	b.quoteDepth = quoteDepth(l)
+	b.quotePrefixMode = e.quotePrefixOpenAt(l, at-l.lineStart)
+	containerPrefixVisible := false
+	if s, end, ok := containerPrefixRange(l); ok {
+		containerPrefixVisible = b.containerPrefixRevealed(s, end, l.end)
+	}
+	var quoteFirst Range
+	quoteFirstVisible := false
+	for _, r := range quoteSourcePrefixes(e, l) {
+		if r.Start == l.lineStart {
+			quoteFirst = r
+			quoteFirstVisible = b.quotePrefixRevealed(r.Start, r.End)
+			break
+		}
+	}
+	if b.quotePrefixMode {
+		b.prefixIndent = e.quotePrefixShift(l)
+	}
 	st := istyle{}
+	if l.kind == kHeading && !l.pending {
+		st.heading = true
+	}
 	if header {
 		st.bold = true
 	}
@@ -464,8 +521,17 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	}
 	switch {
 	case l.pending || l.isLine() || l.id < 0:
-		b.textRun(l.start, l.end, st)
-		b.finish(l.end)
+		if l.isLine() && b.quotePrefixMode && quoteFirst.End > quoteFirst.Start {
+			if b.quotePrefixRevealed(quoteFirst.Start, quoteFirst.End) {
+				b.marker(quoteFirst.Start, quoteFirst.End, st)
+			} else {
+				b.prefixSpacer(l.start, b.prefixIndent)
+			}
+			b.finish(l.end)
+		} else {
+			b.textRun(l.start, l.end, st)
+			b.finish(l.end)
+		}
 	default:
 		ins := e.p.doc.Inlines(l.id)
 		b.alone = aloneImage(ins, e.src)
@@ -473,10 +539,29 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		// A heading's `#`s are chrome, hidden like every other block marker —
 		// but the caret on the line shows them, as Obsidian's live preview
 		// does, so the level can be edited in place.
-		if l.kind == kHeading && !l.pending && at >= l.lineStart && at <= l.end {
+		if l.kind == kHeading && !l.pending && (at >= l.lineStart && at <= l.end || selectionReveals(e, l.lineStart, l.end, false)) {
 			b.marker(l.lineStart, l.start, st)
 		}
+		prefixVisible := false
+		if s, end, ok := containerPrefixRange(l); ok && e.tableOf(l) == nil {
+			prefixVisible = containerPrefixVisible
+			if prefixVisible {
+				b.marker(s, end, st)
+			}
+		}
+		if !prefixVisible && quoteFirst.End > quoteFirst.Start && quoteFirstVisible {
+			b.marker(quoteFirst.Start, quoteFirst.End, st)
+			prefixVisible = true
+		}
+		if b.quotePrefixMode && !prefixVisible {
+			if _, _, calloutHeader := e.calloutHeader(l); !calloutHeader {
+				b.prefixSpacer(l.start, b.prefixIndent)
+			}
+		}
 		b.inlines(ins, l.start, l.end, st)
+		if l.kind == kHeading && e.isFoldedHeading(l) {
+			b.deco(l.end, " …", ui.Span{Color: e.lk.muted, Size: f.Size * 0.9}, nil)
+		}
 	}
 	if start, end, ok := e.inlineMathRange(l, at); ok {
 		// Parsed formulas already have the correct inherited inline style.
@@ -503,8 +588,16 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	case parser.AlignRight:
 		shape.Align = ui.End
 	}
-	if b.alone && !b.revealedAny {
-		shape.Align = ui.Center
+	if b.alone {
+		shape.Align = ui.Start
+		for _, pc := range v.disp.pieces {
+			if pc.obj != nil && pc.obj.block {
+				if pc.obj.alignCenter {
+					shape.Align = ui.Center
+				}
+				break
+			}
+		}
 	}
 	smart := e.lk.smart && l.kind == kPara && l.table == nil && !b.alone && !e.composing
 	var cache *textlayout.Cache
@@ -608,7 +701,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	// on its fence's info string. Then the fence closes the block on screen
 	// as it does in the file — a source that stops at the last line of code
 	// is half a fence.
-	open := e.sourceOpen(l)
+	open := e.codeFenceSourceShown(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStart && b.reveal <= l.infoEnd
 	fenceShown := open || infoLine
 	if fenceShown {
@@ -658,19 +751,27 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		b.codeRun(ln.off+at, ln.off+len(ln.text), plain)
 	}
 	if fenceShown && l.fenced {
-		// The closing fence is chrome, not text: the caret cannot stand in
-		// it, so it maps to the end of the block (a pDeco piece).
+		// The closing fence is part of the source while the block is open.
+		// Keep its real source range so the caret and selections can occupy
+		// this row just as they can occupy the opening fence's info line.
 		if at := lineEndAt(e.src, l.end) + 1; at <= len(e.src) {
 			if end := blockEnd(e.src, l); end > at {
-				b.add(piece{kind: pDeco, s0: l.end - b.base, s1: l.end - b.base,
-					text: "\n" + strings.TrimRight(e.src[at:end], "\r"), span: ui.Span{Color: e.lk.marker}})
+				b.spanAtom(l.end, at, "\n", plain)
+				closeEnd := end
+				if closeEnd > at && e.src[closeEnd-1] == '\r' {
+					closeEnd--
+				}
+				if closeEnd > at {
+					b.add(piece{kind: pText, s0: at - b.base, s1: closeEnd - b.base,
+						text: e.src[at:closeEnd], span: ui.Span{Color: e.lk.marker}})
+				}
 			}
 		}
 	}
 	b.finish(l.end)
 	b.ensure(l.start)
 	v.disp = b.display()
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: inner})
+	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{})
 	v.font = f
 	_, th := v.layout.Size()
 	v.h = th + 2*padY
@@ -699,9 +800,13 @@ func (e *Editor) codeText(l *leaf) string {
 // typeset formula while the caret is in it.
 func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *leafView {
 	caretIn := at >= 0
+	selectionIn := selectionReveals(e, l.lineStart, blockEnd(e.src, l), false)
 	tex := e.codeText(l)
-	obj := e.mathBlockObject(tex, width)
-	if !caretIn {
+	obj := e.mathBlockObject(tex, 0)
+	if selectionIn && !caretIn {
+		return e.markdownBlockSourceView(l, width)
+	}
+	if !caretIn && !selectionIn {
 		v := &leafView{block: obj}
 		if obj == nil {
 			// Nothing to typeset, or TeX the typesetter cannot read: its
@@ -709,7 +814,7 @@ func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *lea
 			return e.linesView(l, width, -1, false, true)
 		}
 		pad := e.lk.size * 0.5
-		v.bx, v.by = (width-obj.w)/2, pad
+		v.bx, v.by = max((width-obj.w)/2, 0), pad
 		v.h = obj.h + 2*pad
 		return v
 	}
@@ -718,9 +823,24 @@ func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *lea
 	if obj != nil {
 		gap := e.lk.size * 0.6
 		v.block = obj
-		v.bx, v.by = (width-obj.w)/2, v.h+gap
+		v.bx, v.by = max((width-obj.w)/2, 0), v.h+gap
 		v.h += obj.h + 2*gap
 	}
+	return v
+}
+
+func (e *Editor) markdownBlockSourceView(l *leaf, width float32) *leafView {
+	f := e.codeFont()
+	b := e.newBuilder(l, -1, false, f.Size, width)
+	end := blockEnd(e.src, l)
+	b.spanRun(l.lineStart, end, ui.Span{Color: e.lk.text})
+	b.finish(end)
+	v := &leafView{disp: b.display(), panel: true, tx: e.lk.size * codePadX, ty: e.lk.size * codePadY, reveal: true}
+	inner := max(width-2*v.tx, 40)
+	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: inner})
+	v.font = f
+	_, h := v.layout.Size()
+	v.h = h + 2*v.ty
 	return v
 }
 
@@ -728,7 +848,9 @@ func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *lea
 // of just an image while the caret is elsewhere.
 func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *leafView {
 	html := e.codeText(l)
-	if obj := e.htmlImageObject(html, width); obj != nil {
+	obj := e.htmlImageObject(html, width)
+	selectionIn := obj == nil && selectionReveals(e, l.lineStart, blockEnd(e.src, l), false)
+	if obj != nil {
 		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = l.start, l.end, imageSyntaxHTML
 		obj.width = obj.w
 		e.applyImagePreview(obj, l.start, l.end)
@@ -741,7 +863,7 @@ func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *lea
 		v.h += obj.h + gap
 		return v
 	}
-	if at < 0 {
+	if at < 0 && !selectionIn {
 		if v := e.htmlTextView(l, width); v != nil {
 			return v
 		}
@@ -806,7 +928,7 @@ func (e *Editor) linesView(l *leaf, width float32, at int, withCompose, panel bo
 // ruleView lays out a thematic break: a line, or its source while the
 // caret is at it.
 func (e *Editor) ruleView(l *leaf, width float32, at int, withCompose bool) *leafView {
-	if at < 0 {
+	if at < 0 && !selectionReveals(e, l.lineStart, blockEnd(e.src, l), false) {
 		return &leafView{h: e.lk.size * 1.2}
 	}
 	f := ui.Font{Family: e.lk.font, Size: e.lk.size, LineHeight: e.lk.lh}
@@ -835,11 +957,20 @@ func (e *Editor) indentOf(conts []cont) float32 {
 			} else {
 				x += e.lk.size * quoteIndent
 			}
+		case cFootnote:
+			x += e.footnoteIndent(c)
 		default:
 			x += e.lk.size * itemIndent
 		}
 	}
 	return x
+}
+
+func (e *Editor) footnoteIndent(c cont) float32 {
+	sp := ui.Span{Text: c.label + ": ", Size: e.lk.size, Color: e.lk.accent}
+	l := ui.ShapeRichTextWith([]ui.Span{sp}, ui.Font{Family: e.lk.font, Size: e.lk.size}, ui.TextShape{})
+	w, _ := l.Size()
+	return max(w, e.lk.size*itemIndent)
 }
 
 // margins returns the room above and below a leaf.
@@ -916,10 +1047,24 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 	prevBottom := float32(0)
 	s := e.lk.size
 	for _, l := range e.leaves {
+		if e.foldHidden(l) {
+			l.y = -1e6
+			continue
+		}
 		if rebuildRail && l.kind == kHeading && !l.pending {
 			e.railLeaves = append(e.railLeaves, l)
 		}
 		ind := e.indentOf(l.conts)
+		prefixOpen := e.containerPrefixOpen(l)
+		if e.quotePrefixOpen(l) {
+			if prefixOpen {
+				ind = 0
+			} else {
+				ind = max(ind-e.quotePrefixShift(l), 0)
+			}
+		} else if prefixOpen {
+			ind = 0
+		}
 		l.x = x + ind
 		l.w = max(width-ind, 60)
 		if l.kind == kBlank {
@@ -928,7 +1073,10 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			// for the text the input method composes on it, which is drawn
 			// in the line's own view while it is being composed.
 			l.h, l.view = s*e.lk.lh, nil
-			if e.composing && e.caret == l.start {
+			if e.quotePrefixOpen(l) {
+				l.view = e.view(l, l.w, false, parser.AlignNone)
+				l.h = max(l.h, l.view.h)
+			} else if e.composing && e.caret == l.start {
 				l.view = e.view(l, l.w, false, parser.AlignNone)
 			}
 			l.y = y
@@ -944,6 +1092,14 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			start := 0
 			if e.opts.HideFrontmatter {
 				start = hideFrontMatterEnd(e.src)
+				// The closing delimiter's own line ending is not a blank
+				// line before the body. Preserve only subsequent empty lines.
+				if start > 0 && start < len(e.src) && e.src[start] == '\r' {
+					start++
+				}
+				if start > 0 && start < len(e.src) && e.src[start] == '\n' {
+					start++
+				}
 			}
 			top = float32(e.newlinesBetween(start, l.start)) * e.lk.size * e.lk.lh
 		} else if tight {
@@ -952,18 +1108,20 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			// Editable blank lines count toward the section gap, rather than
 			// swallowing it or having another full margin added on top.
 			top = 0
-			if l.kind == kHeading && !l.pending && previousBlock != nil && previousBlock.kind != kHeading {
+			if l.kind == kHeading && !l.pending && previousBlock != nil && (previousBlock.kind != kHeading || previousBlock.level == 1) {
 				headingTop, _ := e.margins(l)
 				top = max(0, headingTop-(y-previousBlockEnd))
 			}
-		} else if n := e.blankLines(prev.end, l.start); n > 0 {
+		} else if n := e.blankLines(prev.end, l.start); n > 0 && !e.isFoldedHeading(prev) {
 			// Blank lines are lines: a paragraph break is one blank line, and
-			// every Enter on an empty line leaves one more. They take the
+			// every Enter on an empty line leaves one more. Hidden source
+			// inside a folded heading must not reappear as a vertical gap.
+			// Visible blank lines take the
 			// height of the line they are, so the document's lines and its
 			// look agree — pressing Enter there now shows the new line.
 			top = max(top, float32(n)*e.lk.size*e.lk.lh)
 		}
-		if l.kind == kHeading && previousBlock != nil && previousBlock.kind == kHeading {
+		if l.kind == kHeading && previousBlock != nil && previousBlock.kind == kHeading && previousBlock.level != 1 {
 			// A title followed by a subtitle is one group, not two sections.
 			top = min(top, s*.65)
 		}
@@ -982,7 +1140,7 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		// it moves. Everything else keeps its estimate.
 		show := !virtual ||
 			at <= e.viewBottom+s && at+max(est, s) >= e.viewTop ||
-			e.caret >= leafLo(l) && e.caret <= l.end
+			e.caret >= leafLo(e, l) && e.caret <= l.end
 		switch {
 		case l.kind == kTable:
 			// The cells are laid out below, once the table has its y.
@@ -1012,6 +1170,8 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		l.y = y
 		if l.kind == kTable && show {
 			e.layoutTable(l)
+		} else if l.view != nil {
+			l.horizontal.x = min(l.horizontal.x, max(blockContentWidth(l)-l.w, 0))
 		}
 		y += l.h
 		previousBlock, previousBlockEnd = l, y
@@ -1140,13 +1300,21 @@ func (e *Editor) layoutTable(l *leaf) {
 			}
 		}
 		total := float32(0)
-		minW := e.lk.size * 3
+		minW := e.lk.size * 6
 		for c := range natural {
 			natural[c] = max(natural[c], minW)
 			total += natural[c]
 		}
 		widths := natural
-		if total > l.w {
+		if total < l.w {
+			// Empty and short tables use the document column, rather than
+			// shrinking to a cluster of tiny cells. Keep content proportions.
+			widths = make([]float32, cols)
+			extra := (l.w - total) / float32(max(cols, 1))
+			for c := range natural {
+				widths[c] = natural[c] + extra
+			}
+		} else if total > l.w {
 			// Narrow the columns in proportion, none below the narrowest.
 			widths = make([]float32, cols)
 			room := l.w
@@ -1160,6 +1328,8 @@ func (e *Editor) layoutTable(l *leaf) {
 		}
 		l.geom = g
 	}
+	g.w = g.colX[cols]
+	l.horizontal.x = min(l.horizontal.x, max(g.w-l.w, 0))
 	if cap(g.rowY) < len(t.rows)+1 {
 		g.rowY = make([]float32, len(t.rows)+1)
 	} else {
@@ -1181,13 +1351,12 @@ func (e *Editor) layoutTable(l *leaf) {
 			if c >= cols {
 				break
 			}
-			cell.x = l.x + g.colX[c] + padX
+			cell.x = l.x + g.colX[c] + padX - l.horizontal.x
 			cell.y = l.y + g.rowY[r] + padY
 			cell.w = max(g.colW[c]-2*padX, 10)
 			cell.h = cell.view.h
 		}
 	}
-	g.w = g.colX[cols]
 	l.h = g.rowY[len(t.rows)]
 }
 

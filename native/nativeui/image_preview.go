@@ -3,6 +3,10 @@ package nativeui
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -16,6 +20,8 @@ const (
 
 type imagePreviewState struct {
 	src          string
+	label        string
+	asset        *mdoc.ImageAsset
 	bmp          *ui.Bitmap
 	loading      bool
 	zoom         float32
@@ -29,24 +35,50 @@ func (a *App) openImagePreview(src string) {
 	if src == "" {
 		return
 	}
-	a.imagePreview = imagePreviewState{src: src, open: true, loading: true, zoom: 1}
-	a.imagePreview.bmp = mdoc.LoadImage(src, "", func() {
+	a.imagePreview = imagePreviewState{src: src, label: a.imagePreviewLabel(src), open: true, loading: true, zoom: 1}
+	a.imagePreview.asset = mdoc.LoadImageAsset(src, "", func() {
 		a.onMain(func() {
 			if !a.imagePreview.open || a.imagePreview.src != src {
 				return
 			}
-			a.imagePreview.bmp = mdoc.LoadImage(src, "", nil)
+			if a.imagePreview.asset != nil {
+				a.imagePreview.asset.Advance(time.Now())
+				a.imagePreview.bmp = a.imagePreview.asset.Bitmap()
+			}
 			a.imagePreview.loading = false
 			a.invalidate()
 		})
 	})
+	a.imagePreview.asset.Advance(time.Now())
+	a.imagePreview.bmp = a.imagePreview.asset.Bitmap()
 	if a.imagePreview.bmp != nil {
 		a.imagePreview.loading = false
-	} else if !isRemoteImageSource(src) {
+	} else if !isRemoteImageSource(src) && !strings.HasPrefix(src, "data:") {
+		if _, err := os.Stat(src); err != nil {
+			a.imagePreview.loading = false
+		}
+	}
+	if a.imagePreview.asset == nil {
 		a.imagePreview.loading = false
-		a.notice(fmt.Sprintf("无法解码图片：%s", src))
 	}
 	a.invalidate()
+}
+
+func (a *App) imagePreviewLabel(src string) string {
+	if isRemoteImageSource(src) || strings.HasPrefix(src, "data:") {
+		return src
+	}
+	base := a.docDir()
+	if base == "" {
+		return filepath.ToSlash(src)
+	}
+	if abs, err := filepath.Abs(src); err == nil {
+		src = abs
+	}
+	if rel, err := filepath.Rel(base, src); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(src)
 }
 
 func isRemoteImageSource(src string) bool {
@@ -55,6 +87,7 @@ func isRemoteImageSource(src string) bool {
 
 func (a *App) closeImagePreview() {
 	a.imagePreview.open = false
+	a.imagePreview.asset = nil
 	a.imagePreview.bmp = nil
 	a.imagePreview.loading = false
 	a.restoreEditorFocus = true
@@ -65,6 +98,12 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 	p := &a.imagePreview
 	if !p.open {
 		return
+	}
+	if p.asset != nil {
+		if next, _ := p.asset.Advance(c.Now()); next > 0 {
+			c.After(next)
+		}
+		p.bmp = p.asset.Bitmap()
 	}
 	ui.Overlay(c, func() {
 		// Keep the overlay to one full-window root. Overlay children otherwise
@@ -135,7 +174,7 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 			} else {
 				status := "正在加载图片…"
 				if !p.loading {
-					status = "无法解码此图片格式"
+					status = mdoc.MissingImageMessage(p.label)
 				}
 				ui.Text(c, status).Key("image-preview-status").Absolute().Left(0).Right(0).Top(vh/2 - 12).
 					TextColor(ui.RGB(255, 255, 255)).TextAlign(ui.Center)

@@ -61,6 +61,9 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 	var cards []*card
 	byID := map[int]*card{}
 	for _, l := range e.leaves {
+		if e.foldHidden(l) {
+			continue
+		}
 		x := e.colX
 		for _, c := range l.conts {
 			if isCalloutContainer(c) {
@@ -96,8 +99,11 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 		}
 		headerEditing := false
 		for _, l := range e.leaves {
-			if c, end, ok := e.calloutHeader(l); ok && c.id == v.c.id {
-				headerEditing = e.focused && e.caret >= l.lineStart && e.caret <= end
+			if e.foldHidden(l) {
+				continue
+			}
+			if c, _, ok := e.calloutHeader(l); ok && c.id == v.c.id {
+				headerEditing = e.calloutHeaderSourceOpen(l)
 				break
 			}
 		}
@@ -119,18 +125,39 @@ func (e *Editor) calloutHeader(l *leaf) (cont, int, bool) {
 	}
 	return cont{}, 0, false
 }
+
+// calloutHeaderSourceOpen is shared by the source projection and semantic
+// chrome: the preview title/icon is hidden exactly while the header's source
+// line is under the caret or a real source selection.
+func (e *Editor) calloutHeaderSourceOpen(l *leaf) bool {
+	return e.calloutHeaderSourceOpenAt(l, e.revealCaret())
+}
+
+func (e *Editor) calloutHeaderSourceOpenAt(l *leaf, caret int) bool {
+	_, end, ok := e.calloutHeader(l)
+	if !ok {
+		return false
+	}
+	return caret >= l.lineStart && caret <= end ||
+		selectionTouchesSourceRange(e, l.lineStart, end)
+}
+
 func (e *Editor) projectCalloutHeader(b *builder, l *leaf, at int) {
 	_, end, ok := e.calloutHeader(l)
 	if !ok {
 		return
 	}
+	sourceOpen := e.calloutHeaderSourceOpenAt(l, b.reveal)
 	old := append([]piece(nil), b.pieces...)
 	b.pieces = nil
 	b.text.Reset()
 	b.u16 = 0
-	if at >= l.lineStart && at <= end {
+	if sourceOpen {
 		b.marker(l.lineStart, end, istyle{})
 	} else {
+		if b.quotePrefixMode {
+			b.prefixSpacer(l.start, b.prefixIndent)
+		}
 		// Invisible atom retains the line's source extent and hit target.
 		b.spanAtom(l.start, end, " ", b.span(istyle{}))
 	}

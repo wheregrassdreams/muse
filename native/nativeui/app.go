@@ -26,8 +26,10 @@ import (
 	"github.com/egoist/mygo/ui/shader"
 
 	"muse/appearance"
+	"muse/iconlibrary"
 	"muse/mdedit"
 	"muse/mdoc"
+	"muse/navicons"
 	"muse/scrollui"
 	"muse/services"
 	"muse/vaultsearch"
@@ -113,24 +115,40 @@ var (
 
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
-	documents           *documentRuntime
-	vault               *vaultRuntime
-	pendingLinks        bool
-	workspaceSearch     bool
-	workspaceQuery      string
-	workspaceSearchSel  int
-	workspaceScroll     ui.ScrollState
-	workspaceIndicator  scrollui.Indicator
-	workspaceReveal     bool
-	workspaceSubmit     bool
-	workspaceInputFocus ui.Handle
-	indexedPath         string
-	indexedOffset       int
-	indexedRevision     string
-	win                 *mygo.Window
-	imagePreview        imagePreviewState
-	imageDocument       imageDocumentState
-	restoreEditorFocus  bool
+	documents              *documentRuntime
+	vault                  *vaultRuntime
+	pendingLinks           bool
+	pendingWiki            string
+	workspaceSearch        bool
+	workspaceQuery         string
+	workspaceSearchSel     int
+	workspaceScroll        ui.ScrollState
+	workspaceIndicator     scrollui.Indicator
+	workspaceReveal        bool
+	workspaceSubmit        bool
+	workspaceInputFocus    ui.Handle
+	indexedPath            string
+	indexedOffset          int
+	indexedRevision        string
+	win                    *mygo.Window
+	imagePreview           imagePreviewState
+	linkPreview            wikiLinkPreviewState
+	wikiSuggestionRoot     string
+	wikiSuggestionRevision uint64
+	wikiSuggestionCache    []string
+	wikiSuggestionReady    bool
+	navIconStore           *navicons.Store
+	navIconPickerOpen      bool
+	navIconPickerPath      string
+	navIconPickerQuery     string
+	navIconPickerLastQuery string
+	navIconPickerScroll    ui.ScrollState
+	navIconPickerMu        sync.Mutex
+	navIconPickerResults   []iconlibrary.Icon
+	navIconPickerLoading   bool
+	navIconPickerRequest   uint64
+	imageDocument          imageDocumentState
+	restoreEditorFocus     bool
 
 	folderToggled map[string]time.Time
 
@@ -222,9 +240,6 @@ type App struct {
 	headings []heading
 	dirty    bool
 
-	propertyTitleEditing bool
-	propertyTitleFocused bool
-	propertyTitleDraft   string
 	propertyEditKey      string
 	propertyEditDraft    string
 	propertyEditLocation string
@@ -237,6 +252,10 @@ type App struct {
 	propertySystem       []systemProperty
 	propertyError        string
 	propertyCache        propertyDocumentCache
+	propertyHiddenOpen   bool
+	propertyAddOpen      bool
+	propertyOpenedAt     time.Time
+	propertyBacklinks    propertyBacklinkCache
 
 	// settings
 	settingsOpen      bool
@@ -351,10 +370,13 @@ func (a *App) View(c *ui.Context) {
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
 	closedImagePreview := false
-	if (a.propertyTitleEditing || a.propertyEditKey != "" || a.propertySourceMode) && c.Shortcut(0, ui.KeyEscape) {
+	if a.navIconPickerOpen && c.Shortcut(0, ui.KeyEscape) {
+		a.cancelNavIconSearch()
+		a.navIconPickerOpen = false
+		a.invalidate()
+	}
+	if (a.propertyEditKey != "" || a.propertySourceMode) && c.Shortcut(0, ui.KeyEscape) {
 		switch {
-		case a.propertyTitleEditing:
-			a.propertyTitleEditing = false
 		case a.propertyEditKey != "":
 			a.propertyEditKey, a.propertyEditLocation = "", ""
 		case a.propertySourceMode:
@@ -404,6 +426,7 @@ func (a *App) View(c *ui.Context) {
 		a.workspaceSearchDialog(c)
 	}
 	a.imagePreviewDialog(c)
+	a.wikiLinkPreviewDialog(c)
 }
 
 // windowBG is a single flat color, not a wash: the light side is a neutral
@@ -518,9 +541,15 @@ func (a *App) sidebarToggle(c *ui.Context) {
 	if bar := c.TitleBar(); bar.Left+6 > x {
 		x = bar.Left + 6
 	}
+	tooltip := "显示侧栏"
+	icon := iconPanelLeftClose
+	if a.panelOpen {
+		tooltip = "隐藏侧栏"
+		icon = iconPanelLeftOpen
+	}
 	btn := ui.ButtonBase(c).Key("sidebar-toggle").Absolute().Left(x).
 		Top(a.topLine(c) - 13).Width(26).Height(26).Radius(6).Padding(0).
-		Justify(ui.Center).AlignItems(ui.Center).Label("侧栏").Tooltip("显示或隐藏侧栏")
+		Justify(ui.Center).AlignItems(ui.Center).Label("侧栏").Tooltip(tooltip)
 	if btn.Hovered() {
 		btn.Background(c.Theme().SurfaceHover)
 	}
@@ -531,10 +560,6 @@ func (a *App) sidebarToggle(c *ui.Context) {
 			a.showPanel(a.panel)
 		}
 	})
-	icon := iconPanelLeftOpen
-	if a.panelOpen {
-		icon = iconPanelLeftClose
-	}
 	btn.Children(func() { ui.Icon(c, icon).Size(16, 16).TextColor(iconTint(c.Theme())) })
 }
 
@@ -957,11 +982,11 @@ func (a *App) filesView(c *ui.Context) {
 				} else {
 					ui.Icon(c, iconChevron).Size(12, 12).TextColor(iconTint(t))
 				}
-				ui.Icon(c, iconFolder).Size(14, 14).TextColor(iconTint(t))
+				ui.Icon(c, a.treeIcon(r.path, true)).Size(14, 14).TextColor(iconTint(t))
 			} else {
 				ui.Box(c).Width(12)
-				icon := iconFile
-				if isImageFile(r.path) {
+				icon := a.treeIcon(r.path, false)
+				if isImageFile(r.path) && a.treeIconID(r.path) == "" {
 					icon = iconImage
 				}
 				ui.Icon(c, icon).Size(14, 14).TextColor(iconTint(t))
@@ -985,6 +1010,9 @@ func (a *App) filesView(c *ui.Context) {
 			}
 		})
 		a.fileMenu(c, row, r.path)
+		if a.navIconPickerOpen && a.navIconPickerPath == r.path {
+			a.navIconPickerPopover(c, row)
+		}
 	}).Grow(1).Padding(0, 8).Gap(1).TrackScroll(&a.fileScroll).Scrollbars(showScrollbar)
 }
 
@@ -2101,6 +2129,9 @@ func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 			}
 			m.Separator()
 		}
+		if m.Item("更改图标…").Chosen() {
+			a.openNavIconPicker(path)
+		}
 		if m.Item("复制相对路径").Chosen() {
 			a.copyPath(path, true)
 		}
@@ -2463,7 +2494,7 @@ func (a *App) docDir() string {
 func (a *App) editorOptions() mdedit.Options {
 	return mdedit.Options{
 		DisableSmartTypography:  !a.smartTypography,
-		SoftBreaksAsSpaces:      true,
+		SoftBreaksAsSpaces:      false,
 		PreserveTypedLineBreaks: true,
 		Header:                  a.propertyHeader(),
 		HeaderHeight:            a.propertyHeaderHeight(),
@@ -2479,11 +2510,57 @@ func (a *App) editorOptions() mdedit.Options {
 		Invalidate:              a.invalidate,
 		OnChange:                a.docChanged,
 		OnLink:                  a.openLink,
-		AssetRoot:               a.root,
-		OnImagePreview:          a.openImagePreview,
-		SaveImage:               a.saveImage,
-		OnDropFiles:             a.openDropped,
+		OnWikiLinkHover: func(target string, x, y float32, bounds ui.Rect) {
+			a.hoverWikiLinkAt(target, x, y, bounds)
+		},
+		WikiLinkSuggestions: a.wikiLinkSuggestions,
+		ResolveWikiEmbed:    a.resolveWikiEmbed,
+		CurrentPath:         a.path,
+		ResolveWikiLink:     a.resolveWikiLinkStyle,
+		LinkRevision:        a.editorLinkRevision(),
+		LinkContext:         a.editorLinkContext(),
+		AssetRoot:           a.root,
+		OnImagePreview:      a.openImagePreview,
+		SaveImage:           a.saveImage,
+		OnDropFiles:         a.openDropped,
 	}
+}
+
+func (a *App) editorLinkRevision() uint64 {
+	if a.vault == nil {
+		return 0
+	}
+	return a.vault.linkRevision
+}
+
+func (a *App) editorLinkContext() string {
+	root := ""
+	if a.vault != nil {
+		root = a.vault.root
+	}
+	return filepath.Clean(root) + "\x00" + filepath.Clean(a.path)
+}
+
+func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTargetState {
+	if a.vault == nil || a.vault.index == nil {
+		return mdedit.LinkTargetUnknown
+	}
+	current := ""
+	if currentPath == "" {
+		currentPath = a.path
+	}
+	if currentPath != "" {
+		if rel, err := filepath.Rel(a.vault.root, currentPath); err == nil {
+			current = filepath.ToSlash(rel)
+		}
+	}
+	if _, ok := a.vault.index.Resolve(current, target); ok {
+		return mdedit.LinkTargetValid
+	}
+	if a.resolveWikiImageTargetFrom(currentPath, target) != "" {
+		return mdedit.LinkTargetValid
+	}
+	return mdedit.LinkTargetInvalid
 }
 
 // openDropped opens the first document among files dropped on the editor.
@@ -2530,6 +2607,9 @@ func codeLanguage(path string) string {
 // undo starts over. Windows line endings are kept as \n while editing and
 // written back as they were.
 func (a *App) loadDoc(src string) {
+	a.linkPreview = wikiLinkPreviewState{}
+	a.propertyOpenedAt = time.Now()
+	a.propertyEditKey, a.propertyEditLocation = "", ""
 	a.documentLoaded(src)
 	a.crlf = strings.Contains(src, "\r\n")
 	if a.crlf {
@@ -2626,12 +2706,22 @@ func (a *App) openLink(href string) {
 
 // openWiki opens a `[[wiki link]]` by its target (see resolveWiki).
 func (a *App) openWiki(target string) {
-	if a.indexedLink(target) {
+	a.linkPreview = wikiLinkPreviewState{}
+	if imagePath := a.resolveWikiImageTarget(target); imagePath != "" {
+		a.pendingWiki = ""
+		a.openImagePreview(imagePath)
 		return
 	}
-	if p := resolveWiki(a.root, a.docDir(), a.fileRows(), target); p != "" {
-		a.requestOpen(p)
+	// The vault index is the single authority for note path and anchor
+	// resolution. In particular, do not fall back to a path-only resolver
+	// after an anchor failed to resolve: that would open the note while
+	// silently ignoring the requested heading or block.
+	if a.vault == nil || a.vault.index == nil {
+		a.pendingWiki = target
+		return
 	}
+	a.pendingWiki = ""
+	a.indexedLink(target)
 }
 
 // resolveWiki returns the file a `[[wiki link]]` opens, or "" when none
@@ -2794,14 +2884,14 @@ func (a *App) nav(delta int) {
 	a.openPathNow(path)
 }
 
-// docPath is the document's path as the header reads it: from the workspace's
-// own name down, so that the line names where in the vault it lives.
+// docPath is the document's path within its workspace. The workspace folder
+// itself is the vault root and is not repeated in a vault-relative path.
 func (a *App) docPath() string {
 	if a.imageDocument.open {
 		path := a.imageDocument.path
 		if a.root != "" {
 			if rel, err := filepath.Rel(a.root, path); err == nil && !strings.HasPrefix(rel, "..") {
-				return filepath.Join(filepath.Base(a.root), rel)
+				return filepath.ToSlash(rel)
 			}
 		}
 		return path
@@ -2813,7 +2903,7 @@ func (a *App) docPath() string {
 		return a.path
 	}
 	if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.Join(filepath.Base(a.root), rel)
+		return filepath.ToSlash(rel)
 	}
 	return a.path
 }
@@ -2859,22 +2949,13 @@ func (a *App) location() string {
 	if a.path == "" {
 		return "未保存"
 	}
-	rootName := func() string {
-		if a.root == "" {
-			return ""
-		}
-		return filepath.Base(a.root)
-	}()
 	if a.root != "" {
 		if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
 			dir := filepath.Dir(rel)
 			if dir == "." {
-				return rootName
+				return ""
 			}
-			if rootName == "" {
-				return dir
-			}
-			return filepath.Join(rootName, dir)
+			return filepath.ToSlash(dir)
 		}
 	}
 	return filepath.Dir(a.path)

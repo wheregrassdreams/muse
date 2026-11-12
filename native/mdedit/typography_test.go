@@ -66,8 +66,8 @@ func TestSmartTypographyToggleAndEditingGeometry(t *testing.T) {
 }
 
 func TestMarkdownLinkCodeAndMarkColorsFollowAccent(t *testing.T) {
-	if headingWeight(1) != 600 || headingWeight(6) != 600 {
-		t.Fatalf("heading weights = %d/%d, want 600", headingWeight(1), headingWeight(6))
+	if headingWeight(1) <= headingWeight(6) || headingWeight(6) < 600 {
+		t.Fatalf("page title should be heavier than small headings: %d/%d", headingWeight(1), headingWeight(6))
 	}
 	for _, dark := range []bool{false, true} {
 		var links, inks, codeBGs, marks = map[ui.Color]bool{}, map[ui.Color]bool{}, map[ui.Color]bool{}, map[ui.Color]bool{}

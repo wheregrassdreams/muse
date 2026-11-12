@@ -65,7 +65,7 @@ func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	}
 }
 
-func TestPropertySummaryEditsInPlaceAndTitleCanCancel(t *testing.T) {
+func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 	a := New()
 	a.path = "/tmp/Filename.md"
 	src := "---\nstatus: draft\ntags: [one]\n---\nBody\n"
@@ -94,7 +94,7 @@ func TestPropertySummaryEditsInPlaceAndTitleCanCancel(t *testing.T) {
 		t.Fatalf("inline edit not saved: %q", a.ed.Source())
 	}
 	saved := a.ed.Source()
-	if err := tt.Click("编辑文档标题"); err != nil {
+	if err := tt.Click("编辑属性 status"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -102,49 +102,39 @@ func TestPropertySummaryEditsInPlaceAndTitleCanCancel(t *testing.T) {
 	tt.Type("Cancelled")
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.propertyTitleEditing || a.ed.Source() != saved {
-		t.Fatal("Escape did not cancel title editing")
-	}
-	if err := tt.Click("编辑文档标题"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	tt.Key(ui.Cmd, ui.KeyA)
-	tt.Type("Custom title")
-	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
-	if frontmatter.Title(a.ed.Source(), a.path) != "Custom title" {
-		t.Fatalf("title UI edit failed: %q", a.ed.Source())
+	if a.propertyEditKey != "" || a.ed.Source() != saved {
+		t.Fatal("Escape did not cancel metadata editing")
 	}
 }
 
-func TestDocumentTitleCommitsOnBlur(t *testing.T) {
+func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
 	a.path = "/tmp/Filename.md"
-	a.loadDoc("Body\n")
+	const src = "---\ntitle: Legacy metadata title\ntags: [one]\n---\n# Body H1\n\nBody\n"
+	a.loadDoc(src)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	if err := tt.Click("编辑文档标题"); err != nil {
-		t.Fatal(err)
+	if tt.HasText("Legacy metadata title") {
+		t.Fatal("page still renders a second title outside the body H1")
 	}
-	tt.Frame()
-	tt.Key(ui.Cmd, ui.KeyA)
-	tt.Type("Edited in place")
-	tt.Frame()
-	runtimeShot(t, tt, "title-editing-borderless")
-	if err := tt.Click("信息"); err != nil {
-		t.Fatal(err)
+	if err := tt.Click("编辑文档标题"); err == nil {
+		t.Fatal("dedicated title editing is still available")
 	}
+	if got := a.ed.Headings(); len(got) != 1 || got[0].Text != "Body H1" {
+		t.Fatalf("body H1 was changed: %+v", got)
+	}
+	a.openProperties()
 	tt.Frame()
 	tt.Frame()
-	if a.propertyTitleEditing {
-		t.Fatal("title stayed in edit mode after losing focus")
+	if tt.HasText("Legacy metadata title") || !tt.HasText("Type") || !tt.HasText("Note") {
+		t.Fatal("inspector has a legacy title or lacks the default Type")
 	}
-	if got := frontmatter.Title(a.ed.Source(), a.path); got != "Edited in place" {
-		t.Fatalf("blur did not save title: %q", got)
+	if a.ed.Source() != src {
+		t.Fatal("hiding title UI changed existing YAML or body")
 	}
-	runtimeShot(t, tt, "title-after-blur")
+	runtimeShot(t, tt, "page-h1-without-title-field")
 }
 
 func TestPropertyDisplayPreferencesPersistOutsideMarkdown(t *testing.T) {

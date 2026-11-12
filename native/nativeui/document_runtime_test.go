@@ -24,14 +24,32 @@ func waitDocument(t *testing.T, tt *ui.Tester, check func() bool) {
 	t.Fatal("document service did not reach expected state")
 }
 func runtimeFixture(t *testing.T) (*App, *ui.Tester, string) {
+	return runtimeFixtureWithNotes(t, nil)
+}
+
+func runtimeFixtureWithNotes(t *testing.T, notes map[string]string) (*App, *ui.Tester, string) {
 	t.Helper()
-	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
-	t.Setenv("MUSE_SEARCH_CACHE", t.TempDir())
 	root := t.TempDir()
 	path := filepath.Join(root, "note.md")
 	if err := os.WriteFile(path, []byte("original"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	for rel, source := range notes {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(source), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return runtimeFixtureAt(t, root, path)
+}
+
+func runtimeFixtureAt(t *testing.T, root, path string) (*App, *ui.Tester, string) {
+	t.Helper()
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUSE_CACHE_DIR", t.TempDir())
 	a := New()
 	a.enableDocumentServices()
 	a.setWorkspace(root)
@@ -53,6 +71,39 @@ func runtimeFixture(t *testing.T) (*App, *ui.Tester, string) {
 		return a.vault != nil && a.vault.watch != nil && a.vault.index != nil && (a.vault.search != nil || a.vault.searchErr != nil)
 	})
 	return a, tt, path
+}
+
+func runtimeFixtureCopy(t *testing.T, sourceRoot string) (*App, *ui.Tester, string) {
+	t.Helper()
+	root := t.TempDir()
+	err := filepath.WalkDir(sourceRoot, func(source string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(sourceRoot, source)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		dest := filepath.Join(root, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(dest, 0755)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(dest, data, 0644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeFixtureAt(t, root, filepath.Join(root, "Home.md"))
 }
 func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
@@ -172,6 +223,50 @@ func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 		t.Fatal("alias/heading link did not navigate")
 	}
 }
+
+func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.T) {
+	a, tt, rootNote := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
+	root := filepath.Dir(rootNote)
+	nested := filepath.Join(root, "Projects", "Atlas", "Overview.md")
+	waitDocument(t, tt, func() bool {
+		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		return ok
+	})
+	a.openWorkspaceSearch()
+	a.workspaceQuery = "vaultfixturedeepsearchunique"
+	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 1 })
+	if got := a.vault.hits[0].Path; got != "Projects/Atlas/Overview.md" {
+		t.Fatalf("deep note search result path = %q", got)
+	}
+
+	original, err := os.ReadFile(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(original), "vaultfixturedeepsearchunique", "vaultfixturedeepsearchupdated", 1)
+	if err := os.WriteFile(nested, []byte(updated), 0644); err != nil {
+		t.Fatal(err)
+	}
+	waitDocument(t, tt, func() bool {
+		doc, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		return ok && strings.Contains(doc.Source, "vaultfixturedeepsearchupdated")
+	})
+	a.workspaceQuery = "vaultfixturedeepsearchupdated"
+	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 1 })
+	a.workspaceQuery = "vaultfixturedeepsearchunique"
+	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 0 })
+
+	if err := os.Remove(nested); err != nil {
+		t.Fatal(err)
+	}
+	waitDocument(t, tt, func() bool {
+		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		return !ok
+	})
+	a.workspaceQuery = "vaultfixturedeepsearchupdated"
+	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 0 })
+}
+
 func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
 	a.ed.SetSource("updated")

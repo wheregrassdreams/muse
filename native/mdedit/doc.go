@@ -145,10 +145,11 @@ type leaf struct {
 	// view is the leaf as displayed and laid out (see leafView), geom a
 	// table's grid, and table the table a cell is in. vp is what the view
 	// was made for besides the leaf's own content.
-	view  *leafView
-	vp    viewParams
-	geom  *tableGeom
-	table *leaf
+	view       *leafView
+	vp         viewParams
+	geom       *tableGeom
+	table      *leaf
+	horizontal blockHorizontalScroll
 }
 
 // isText reports whether the leaf is edited as text with inline syntax.

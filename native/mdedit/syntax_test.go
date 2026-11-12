@@ -166,7 +166,7 @@ func TestBoldShortcutBesideCJKPunctuation(t *testing.T) {
 
 func TestBareAutolinksShowAsLinks(t *testing.T) {
 	got := shown(t, "访问 https://example.com 或 www.example.com 或 <https://a.com/?q=\\*>")
-	want := "访问 «a:https://example.com» 或 «a:www.example.com» 或 «a:https://a.com/?q=\\*»"
+	want := "访问 «a:https://example.com ↗» 或 «a:www.example.com ↗» 或 «a:https://a.com/?q=\\* ↗»"
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("shows %q, want %q", got, want)
 	}

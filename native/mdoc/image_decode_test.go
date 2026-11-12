@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"muse/cachepath"
 )
 
 func TestDocumentImageSVGFileAndDataURI(t *testing.T) {
@@ -38,6 +40,7 @@ func TestDocumentImageRejectsMalformedSVG(t *testing.T) {
 }
 
 func TestRemoteImageNotifiesBothNoteAndPreview(t *testing.T) {
+	t.Setenv(cachepath.RootEnv, t.TempDir())
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-release
@@ -61,6 +64,7 @@ func TestRemoteImageNotifiesBothNoteAndPreview(t *testing.T) {
 }
 
 func TestRemoteImageCachedFailureCompletesNewViewer(t *testing.T) {
+	t.Setenv(cachepath.RootEnv, t.TempDir())
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	for i := 0; i < 2; i++ {

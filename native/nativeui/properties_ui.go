@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"muse/frontmatter"
-	"muse/mdoc"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,74 +49,16 @@ func (a *App) propertyDocument() frontmatter.Document {
 	return a.propertyCache.doc
 }
 
-func (a *App) documentTitle(c *ui.Context) {
+// The page title is the first Markdown H1. The header only hosts metadata;
+// existing YAML title values stay intact but have no dedicated title UI.
+func (a *App) documentMetadata(c *ui.Context) {
 	if !a.propertiesEnabled() {
 		return
 	}
-	t := c.Theme()
 	ui.Column(c).FillWidth().Children(func() {
-		ui.Box(c).Height(40).Shrink(0)
+		ui.Box(c).Height(100).Shrink(0)
 		a.propertySummary(c)
-		ui.Box(c).Height(14).Shrink(0)
-		ui.Row(c).Height(56).Shrink(0).FillWidth().AlignItems(ui.Center).Children(func() {
-			if a.propertyTitleEditing {
-				input := ui.TextInputBase(c.Key("document-title-input"), &a.propertyTitleDraft).Grow(1).
-					Height(42).Padding(0, 4).TextColor(mdoc.BodyTextColor(t.Dark)).FocusRing(false).
-					FontSize(25).FontWeight(600).Placeholder(filepath.Base(strings.TrimSuffix(a.path, filepath.Ext(a.path)))).Label("文档标题").
-					AutoFocus().OnSubmit(func() { a.commitDocumentTitle() })
-				if input.Focused() {
-					a.propertyTitleFocused = true
-				} else if a.propertyTitleFocused {
-					a.commitDocumentTitle()
-				}
-				return
-			}
-			label := "未命名"
-			if a.path != "" {
-				label = strings.TrimSuffix(filepath.Base(a.path), filepath.Ext(a.path))
-			}
-			if cached := a.propertyDocument(); cached.Err == nil {
-				for _, f := range cached.Fields {
-					if f.Key == "title" && strings.TrimSpace(f.Value) != "" {
-						label = f.Value
-						break
-					}
-				}
-			}
-			b := ui.ButtonBase(c).Key("document-title").Grow(1).MinWidth(0).Height(42).
-				Padding(0, 4).Justify(ui.Start).AlignItems(ui.Center).Radius(5).Label("编辑文档标题").
-				OnClick(func() {
-					a.propertyTitleDraft = label
-					a.propertyTitleEditing, a.propertyTitleFocused = true, false
-				})
-			if b.Hovered() {
-				b.Background(t.SurfaceHover)
-			}
-			b.Children(func() {
-				ui.Text(c, label).FontSize(25).FontWeight(600).TextColor(mdoc.BodyTextColor(t.Dark)).SingleLine().Ellipsis("…")
-				if b.Hovered() {
-					ui.Icon(c, iconEdit).Size(14, 14).TextColor(t.TextMuted)
-				}
-			})
-		})
 	})
-}
-
-func (a *App) commitDocumentTitle() {
-	title := strings.TrimSpace(a.propertyTitleDraft)
-	var err error
-	if title == "" {
-		err = a.propertyDelete("title")
-	} else {
-		err = a.propertySet("title", title)
-	}
-	if err != nil {
-		a.propertyError = err.Error()
-		return
-	}
-	a.propertyError = ""
-	a.propertyTitleEditing = false
-	a.invalidate()
 }
 
 func (a *App) propertySummary(c *ui.Context) {
@@ -125,27 +66,28 @@ func (a *App) propertySummary(c *ui.Context) {
 	if d.Err != nil {
 		return
 	}
+	quiet := propertyQuietColor(c.Theme())
 	fields := a.orderedProperties(d.Fields)
-	shown := 0
 	visible := make([]frontmatter.Field, 0, len(fields))
 	for _, f := range fields {
-		if f.Key != "title" && !a.propertyPrefs.Fields[f.Key].Hidden {
+		if !propertyOmitted(f.Key) && !strings.EqualFold(f.Key, "type") && !a.propertyPrefs.Fields[f.Key].Hidden {
 			visible = append(visible, f)
 		}
 	}
-	ui.Row(c).Height(30).Shrink(0).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "笔记").FontSize(12).TextColor(c.Theme().TextMuted)
-		for _, f := range fields {
-			pref := a.propertyPrefs.Fields[f.Key]
-			if pref.Hidden || f.Key == "title" || shown >= 4 {
-				continue
-			}
-			ui.Text(c, "·").FontSize(12).TextColor(c.Theme().TextMuted)
-			shown++
-			a.propertySummaryItem(c, f)
+	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, propertyDocumentType(d)).FontSize(13).TextColor(quiet)
+		if links := a.documentBacklinks(); len(links) > 0 {
+			ui.Text(c, "·").FontSize(13).TextColor(quiet)
+			b := ui.ButtonBase(c).Height(32).Padding(0).Label("查看反向链接").OnClick(a.openLinks)
+			b.Children(func() { ui.Textf(c, "%d 反向链接", len(links)).FontSize(13).TextColor(quiet) })
 		}
-		if extra := len(visible) - shown; extra > 0 {
-			a.propertyButton(c, fmt.Sprintf("+%d 项", extra), a.openProperties)
+		for i, f := range visible {
+			if i >= 4 {
+				a.propertyButton(c, fmt.Sprintf("+%d 项", len(visible)-i), a.openProperties)
+				break
+			}
+			ui.Text(c, "·").FontSize(13).TextColor(quiet)
+			a.propertySummaryItem(c, f)
 		}
 	})
 }
@@ -153,7 +95,7 @@ func (a *App) propertySummary(c *ui.Context) {
 func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
 	if !f.Editable {
 		t := c.Theme()
-		ui.Text(c, displayPropertyValue(f)).FontSize(11).TextColor(t.TextMuted).Padding(0, 7).SingleLine().Ellipsis("…")
+		ui.Text(c, displayPropertyValue(f)).FontSize(13).TextColor(propertyQuietColor(t)).Padding(0, 7).SingleLine().Ellipsis("…")
 		return
 	}
 	if a.propertyEditKey == f.Key && a.propertyEditLocation == "summary" {
@@ -161,7 +103,7 @@ func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
 		return
 	}
 	t := c.Theme()
-	b := ui.ButtonBase(c).Height(28).MinWidth(0).MaxWidth(230).Padding(0, 1).Radius(5).Label("编辑属性 " + f.Key)
+	b := ui.ButtonBase(c).Height(36).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label("编辑属性 " + f.Key)
 	if b.Hovered() {
 		b.Background(t.SurfaceHover)
 	}
@@ -169,27 +111,11 @@ func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
 	b.Children(func() {
 		val := displayPropertyValue(f)
 		switch {
-		case f.Key == "tags":
-			vals := strings.Split(val, ",")
-			ui.Row(c).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
-				for i, item := range vals {
-					if i >= 3 {
-						break
-					}
-					item = strings.TrimSpace(item)
-					if item == "" {
-						continue
-					}
-					bg, fg := propertyTagColors(item, t.Dark)
-					ui.Text(c, item).MaxWidth(112).FontSize(12).TextColor(fg).Padding(4, 9).Radius(14).Background(bg).SingleLine().Ellipsis("…")
-				}
-				if len(vals) > 3 {
-					ui.Text(c, "…").FontSize(12).TextColor(t.TextMuted)
-				}
-			})
+		case strings.EqualFold(f.Key, "tags"):
+			a.propertyTags(c, val, 3)
 
 		default:
-			ui.Text(c, val).MaxWidth(160).FontSize(12).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+			ui.Text(c, val).MaxWidth(160).FontSize(13).TextColor(propertyQuietColor(t)).SingleLine().Ellipsis("…")
 		}
 	})
 }
@@ -214,7 +140,7 @@ func displayPropertyValue(f frontmatter.Field) string {
 
 func isNaturalDateProperty(key string) bool {
 	switch strings.ToLower(key) {
-	case "date", "created", "updated", "modified":
+	case "date", "created", "created_at", "creation date", "updated", "modified", "modified_at", "last_modified", "last modified date", "last_opened", "last opened date":
 		return true
 	default:
 		return false
@@ -246,6 +172,9 @@ func (a *App) propertyInlineEditor(c *ui.Context, f frontmatter.Field, location 
 func naturalPropertyDate(value string) string {
 	for _, layout := range []string{time.RFC3339, "2006-01-02", "2006-01-02 15:04:05"} {
 		if d, err := time.Parse(layout, value); err == nil {
+			if layout != "2006-01-02" {
+				return d.Local().Format("2006年1月2日 15:04")
+			}
 			return d.Local().Format("2006年1月2日")
 		}
 	}
@@ -272,9 +201,12 @@ func (a *App) refreshSystemProperties() {
 		{key: "字数", value: fmt.Sprintf("%d 字 · %d 词", chars, len(strings.Fields(body)))},
 	}
 	if st, err := os.Stat(a.path); err == nil {
+		if created := fileCreationTime(st); !created.IsZero() {
+			props = append(props, systemProperty{key: "Creation date", value: created.Local().Format("2006年1月2日 15:04")})
+		}
 		props = append(props,
 			systemProperty{key: "文件大小", value: formatPropertySize(st.Size())},
-			systemProperty{key: "文件修改时间", value: st.ModTime().Format("2006-01-02 15:04")},
+			systemProperty{key: "Last modified date", value: st.ModTime().Local().Format("2006年1月2日 15:04")},
 		)
 	}
 	a.propertySystem = props
@@ -290,50 +222,78 @@ func formatPropertySize(size int64) string {
 func (a *App) propertiesSidebar(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Key("properties-sidebar").Width(propertiesSidebarWidth).Shrink(0).FillHeight().
-		Border(1, t.Border).Background(sidebarColor(t)).Children(func() {
-		ui.Row(c).Height(52).Shrink(0).Padding(0, 12).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "属性").FontSize(15).FontWeight(600)
+		BorderWidth(0, 0, 0, 1).BorderColor(t.Border).Background(t.Background).Children(func() {
+		ui.Row(c).Height(70).Shrink(0).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "属性").FontSize(18).FontWeight(600).TextColor(propertyValueColor(t))
 			ui.Spacer(c)
 			if a.propertySourceMode {
 				a.propertyButton(c, "返回属性", func() { a.propertySourceMode = false; a.invalidate() })
 			} else {
-				a.propertyButton(c, "YAML 源码", func() { a.propertySourceMode = true; a.propertySourceDraft = a.yamlPropertySource(); a.invalidate() })
+				b := ui.ButtonBase(c).Height(34).Padding(0, 14).Radius(17).Background(propertyCardColor(t)).Label("编辑类型")
+				b.OnClick(func() { a.startPropertyEdit(propertyTypeField(a.propertyDocument()), "sidebar") })
+				b.Children(func() { ui.Text(c, "编辑类型").FontSize(13).FontWeight(500).TextColor(propertyValueColor(t)) })
 			}
-			a.propertyButton(c, "关闭", func() { a.propertiesOpen = false; a.invalidate() })
+			menu := a.smallIconTint(c, iconMore, "属性菜单", nil, propertyQuietColor(t))
+			menu.Menu(func(m *ui.Menu) {
+				if m.Item("添加属性").Chosen() {
+					a.propertyAddOpen = !a.propertyAddOpen
+				}
+				if m.Item("YAML 源码").Chosen() {
+					a.openPropertySource()
+				}
+				m.Separator()
+				if m.Item("关闭属性栏").Chosen() {
+					a.propertiesOpen = false
+				}
+			})
 		})
 		if a.propertySourceMode {
 			a.propertySourceEditor(c)
 			return
 		}
 		if a.propertyError != "" {
-			ui.Text(c, a.propertyError).FillWidth().Padding(8, 12).TextColor(ui.Hex("#c34242")).FontSize(12)
+			ui.Text(c, a.propertyError).FillWidth().Padding(8, 20).TextColor(ui.Hex("#c34242")).FontSize(12)
 		}
 		showScroll := a.propertyIndicator.Visible(c.Now(), a.propertyScroll.X, a.propertyScroll.Y)
 		if showScroll {
 			c.After(a.propertyIndicator.Remaining(c.Now()))
 		}
 		ui.Scroll(c).Fill().TrackScroll(&a.propertyScroll).Scrollbars(showScroll).Children(func() {
-			ui.Column(c).FillWidth().Padding(12).Gap(10).Children(func() {
+			ui.Column(c).FillWidth().Padding(0, 18, 24, 18).Gap(10).Children(func() {
 				d := a.propertyDocument()
 				if d.Err != nil {
 					ui.Text(c, "YAML frontmatter 无法解析").FontWeight(600)
-					ui.Text(c, d.Err.Error()).FillWidth().TextColor(t.TextMuted).FontSize(11)
+					ui.Text(c, d.Err.Error()).FillWidth().TextColor(propertyQuietColor(t)).FontSize(12)
+					a.propertyButton(c, "YAML 源码", a.openPropertySource)
 					return
 				}
-				if len(d.Fields) == 0 {
-					ui.Text(c, "还没有属性").TextColor(t.TextMuted)
-				}
-				for _, f := range a.orderedProperties(d.Fields) {
+				a.propertyFieldRow(c, propertyTypeField(d))
+				a.propertyBacklinkCard(c)
+				fields := a.orderedProperties(d.Fields)
+				var hidden []frontmatter.Field
+				for _, f := range fields {
+					if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") {
+						continue
+					}
+					if a.propertyPrefs.Fields[f.Key].Hidden || propertySecondary(f.Key) {
+						hidden = append(hidden, f)
+						continue
+					}
 					a.propertyFieldRow(c, f)
 				}
-				a.propertyAddForm(c)
-				ui.Box(c).FillWidth().Height(1).Background(t.Border)
-				ui.Text(c, "系统信息").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-				for _, p := range a.propertySystem {
-					ui.Column(c).FillWidth().Gap(3).Padding(5, 0).Children(func() {
-						ui.Text(c, p.key+" · 只读").FontSize(10).TextColor(t.TextMuted)
-						ui.Text(c, p.value).FillWidth().FontSize(12).TextColor(t.TextMuted)
-					})
+				if !propertyHasField(d, "tags") {
+					a.propertyFieldRow(c, frontmatter.Field{Key: "tags", Kind: "list", Editable: true})
+				}
+				if !propertyHasField(d, "created") {
+					for _, p := range a.propertySystem {
+						if p.key == "Creation date" {
+							a.propertyReadonlyCard(c, p.key, p.value)
+						}
+					}
+				}
+				a.propertyHiddenSection(c, hidden)
+				if a.propertyAddOpen {
+					a.propertyAddForm(c)
 				}
 			})
 		})
@@ -393,66 +353,43 @@ func (a *App) applyPropertyYAMLSource(draft string) error {
 func (a *App) propertyFieldRow(c *ui.Context, f frontmatter.Field) {
 	t := c.Theme()
 	editing := a.propertyEditKey == f.Key && a.propertyEditLocation == "sidebar"
-	pref := a.propertyPrefs.Fields[f.Key]
-	ui.Column(c).FillWidth().Gap(3).Padding(5, 7).Radius(8).Background(t.Surface).Children(func() {
-		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, f.Key).Grow(1).MinWidth(0).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			ui.Text(c, propertyTypeName(f.Kind)).FontSize(9).TextColor(t.TextMuted)
-			if f.Editable {
-				pinLabel, hideLabel := "置顶", "隐藏"
-				if pref.Pinned {
-					pinLabel = "取消置顶"
-				}
-				if pref.Hidden {
-					hideLabel = "显示"
-				}
-				a.propertyButton(c, pinLabel, func() { a.updatePropertyPreference(f.Key, func(p *fieldDisplayPreference) { p.Pinned = !p.Pinned }) })
-				a.propertyButton(c, hideLabel, func() { a.updatePropertyPreference(f.Key, func(p *fieldDisplayPreference) { p.Hidden = !p.Hidden }) })
-				a.propertyButton(c, "上移", func() { a.moveProperty(f.Key, -1) })
-				a.propertyButton(c, "下移", func() { a.moveProperty(f.Key, 1) })
-			}
-		})
+	ui.Column(c).Key("property-card-"+f.Key).FillWidth().MinHeight(64).Gap(8).Padding(18, 22).Radius(20).Background(propertyCardColor(t)).Children(func() {
 		if editing {
+			ui.Text(c, propertyLabel(f.Key)).FontSize(14).TextColor(propertyQuietColor(t))
 			a.propertyInlineEditor(c, f, "sidebar")
 			return
 		}
-		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-			if f.Kind == "bool" && f.Editable {
-				a.propertyButton(c, f.Value, func() {
-					if f.Value == "true" {
-						a.propertySet(f.Key, "false")
-					} else {
-						a.propertySet(f.Key, "true")
-					}
-				})
-			} else if f.Editable {
-				value := ui.ButtonBase(c).Grow(1).MinWidth(0).Height(26).Padding(0, 3).Justify(ui.Start).Label("编辑属性 " + f.Key)
+		stacked := f.Kind == "date" || isNaturalDateProperty(f.Key) || len([]rune(displayPropertyValue(f))) > 26 || f.Kind == "structure"
+		content := func() {
+			ui.Text(c, propertyLabel(f.Key)).FontSize(14).TextColor(propertyQuietColor(t)).Shrink(0)
+			if f.Editable {
+				value := ui.ButtonBase(c).Key("property-value-" + f.Key).Grow(1).MinWidth(0).MinHeight(28).Padding(0).Justify(ui.Start).Label("编辑属性 " + f.Key)
 				value.OnClick(func() { a.startPropertyEdit(f, "sidebar") })
+				value.ContextMenu(func(m *ui.Menu) { a.propertyFieldMenu(m, f) })
 				value.Children(func() { a.propertyFieldValue(c, f, t) })
 			} else {
 				a.propertyFieldValue(c, f, t)
 			}
-			if f.Editable {
-				a.propertyButton(c, "删除", func() {
-					if err := a.propertyDelete(f.Key); err != nil {
-						a.propertyError = err.Error()
-					}
-				})
-			}
-		})
+		}
+		if stacked {
+			ui.Column(c).FillWidth().Gap(8).Children(content)
+		} else {
+			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(content)
+		}
 	})
 }
 
 func (a *App) propertyFieldValue(c *ui.Context, f frontmatter.Field, t *ui.Theme) {
 	val := displayPropertyValue(f)
-	switch {
-	case f.Key == "tags" || f.Key == "aliases" || f.Kind == "list":
-		ui.Text(c, val).FillWidth().FontSize(11).Padding(2, 5).Radius(8).Background(t.Background).SingleLine().Ellipsis("…")
-	case strings.EqualFold(f.Key, "status"):
-		ui.Text(c, val).FontSize(11).TextColor(t.Accent).Padding(3, 8).Radius(9).Background(t.Accent.Alpha(0.12)).SingleLine().Ellipsis("…")
-	default:
-		ui.Text(c, val).Grow(1).MinWidth(0).FontSize(12).TextColor(t.Text).SingleLine().Ellipsis("…")
+	if val == "" {
+		ui.Text(c, "无数值").FontSize(14).TextColor(propertyEmptyColor(t))
+		return
 	}
+	if strings.EqualFold(f.Key, "tags") {
+		a.propertyTags(c, val, 0)
+		return
+	}
+	ui.Text(c, val).FillWidth().FontSize(15).TextColor(propertyValueColor(t)).Wrap()
 }
 
 func (a *App) propertyAddForm(c *ui.Context) {

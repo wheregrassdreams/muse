@@ -5,11 +5,14 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/cachepath"
 )
 
 // View draws a document with the ui package alone; the headless Tester
@@ -49,16 +52,78 @@ func TestViewRendersTableTasksAndHTML(t *testing.T) {
 }
 
 func TestRenderImageFallsBackWhenMissing(t *testing.T) {
-	d := Parse("![missing](nope.png)\n")
+	base := t.TempDir()
+	d := Parse("![missing](附件/nope.png)\n")
+	var opened string
 	tt := ui.NewTester(func(c *ui.Context) {
-		View(c, d, Options{BaseDir: t.TempDir()})
+		View(c, d, Options{BaseDir: base, OnImagePreview: func(src string) { opened = src }})
 	}, 500, 300)
-	if !tt.HasText("missing") {
+	want := MissingImageMessage("附件/nope.png")
+	if !tt.HasText(want) {
 		t.Fatalf("missing image alt not shown; texts = %v", tt.Texts())
+	}
+	if err := tt.Click(want); err != nil {
+		t.Fatal(err)
+	}
+	if wantPath := filepath.Join(base, "附件", "nope.png"); opened != wantPath {
+		t.Fatalf("missing-image click opened %q, want %q", opened, wantPath)
+	}
+	if dir := os.Getenv("MISSING_IMAGE_SHOTS"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(filepath.Join(dir, "document-preview.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRenderBareAttachmentFallsBackToVaultAssetRoot(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "testdata", "vault-fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(root, "Projects", "Atlas")
+	src := "![Bare attachment](landscape.webp)\n"
+	doc := Parse(src)
+	done := make(chan struct{}, 1)
+	tt := ui.NewTester(func(c *ui.Context) {
+		View(c, doc, Options{
+			BaseDir:   base,
+			AssetRoot: root,
+			OnAsync: func() {
+				select {
+				case done <- struct{}{}:
+				default:
+				}
+			},
+		})
+	}, 520, 320)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("vault-root attachment did not finish loading")
+	}
+	tt.Frame()
+	if want := MissingImageMessage("landscape.webp"); tt.HasText(want) {
+		t.Fatalf("bare vault attachment rendered as missing: %q", tt.Texts())
+	}
+	if got, want := ResolveImageSource("landscape.webp", base, root), filepath.Join(root, "Attachments", "landscape.webp"); got != want {
+		t.Fatalf("bare vault attachment resolved to %q, want %q", got, want)
 	}
 }
 
 func TestRemoteImageLoadsAndCaches(t *testing.T) {
+	t.Setenv(cachepath.RootEnv, t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		_ = png.Encode(w, image.NewRGBA(image.Rect(0, 0, 2, 2)))

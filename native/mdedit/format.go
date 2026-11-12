@@ -622,6 +622,9 @@ func (e *Editor) deleteColumn(t *leaf, lines [][2]int, at int) {
 
 // alignColumn sets the alignment of column at in the delimiter row.
 func (e *Editor) alignColumn(t *leaf, lines [][2]int, at int, cmd string) {
+	if len(lines) < 2 || at < 0 {
+		return
+	}
 	pipes := splitRow(e.src, lines[1])
 	if at+1 >= len(pipes) {
 		return
@@ -635,9 +638,47 @@ func (e *Editor) alignColumn(t *leaf, lines [][2]int, at int, cmd string) {
 	case "alignRight":
 		spec = " --: "
 	}
+	if e.src[pipes[at]+1:pipes[at+1]] == spec {
+		return
+	}
+	state := e.tableNavigationState()
+	hasStructure := state.structure != nil || state.bridge != nil
+	from, to := pipes[at]+1, pipes[at+1]
+	shift := func(off int) int {
+		if off >= to {
+			return off + len(spec) - (to - from)
+		}
+		if off > from {
+			return from + len(spec)
+		}
+		return off
+	}
+	if state.structure != nil {
+		state.structure.lineStart = shift(state.structure.lineStart)
+	}
+	if state.bridge != nil {
+		state.bridge.lineStart = shift(state.bridge.lineStart)
+		state.bridge.selectionAnchor = shift(state.bridge.selectionAnchor)
+	}
 	e.begin(stepEdit)
-	e.replace(pipes[at]+1, pipes[at+1], spec)
-	e.commit(e.caret, e.caret)
+	e.replace(from, to, spec)
+	if e.block != nil {
+		e.blockAnchorOffset = shift(e.blockAnchorOffset)
+		for i := range e.block.ranges {
+			e.block.ranges[i].Start = shift(e.block.ranges[i].Start)
+			e.block.ranges[i].End = shift(e.block.ranges[i].End)
+		}
+		e.block.revision++
+	}
+	state.anchor, state.caret = e.anchor, e.caret
+	e.commit(e.anchor, e.caret)
+	if hasStructure {
+		e.restoreTableNavigation(state)
+		if n := len(e.hist.undo); n > 0 {
+			after := e.tableNavigationState()
+			e.hist.undo[n-1].tableAfter = &after
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -651,11 +692,15 @@ func (e *Editor) Copy() bool {
 		return false
 	}
 	html := parser.Parse(md).HTML()
-	data := transfer.New(transfer.NewItem(
+	reps := []transfer.Representation{
 		transfer.Bytes(transfer.Text, []byte(md)),
 		transfer.Bytes(transfer.Markdown, []byte(md)),
 		transfer.Bytes(transfer.HTML, []byte(html)),
-	))
+	}
+	if e.block != nil {
+		reps = append(reps, transfer.Bytes(rectangleClipboardFormat, encodeRectangleClipboard(e.copyBlockRows())))
+	}
+	data := transfer.New(transfer.NewItem(reps...))
 	if e.opts.WriteClipboard != nil {
 		e.opts.WriteClipboard(data)
 	} else {
@@ -684,6 +729,12 @@ func (e *Editor) Paste(plain bool) {
 		data = e.services.ReadClipboardData(transfer.Markdown, transfer.PNG, transfer.FileList, transfer.HTML, transfer.Text)
 	}
 	if !plain {
+		if b, err := data.Read(rectangleClipboardFormat); err == nil {
+			if rows, ok := decodeRectangleClipboard(b); ok {
+				e.pasteRectangle(rows)
+				return
+			}
+		}
 		if b, err := data.Read(transfer.Markdown); err == nil && len(b) > 0 {
 			e.insertText(string(b))
 			return
@@ -723,7 +774,12 @@ func (e *Editor) Paste(plain bool) {
 		}
 	}
 	if b, err := data.Read(transfer.Text); err == nil && len(b) > 0 {
-		e.insertText(strings.ReplaceAll(string(b), "\r\n", "\n"))
+		text := strings.ReplaceAll(string(b), "\r\n", "\n")
+		if e.blockInput != nil {
+			e.typeBlockInput(text)
+		} else {
+			e.insertText(text)
+		}
 	}
 }
 

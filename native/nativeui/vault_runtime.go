@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"github.com/egoist/mygo/ui"
+	"muse/cachepath"
 	"muse/notestore"
 	"muse/scrollui"
 	"muse/vaultindex"
@@ -26,10 +28,11 @@ type vaultReady struct {
 	err    error
 }
 type vaultRefresh struct {
-	path   string
-	doc    notestore.Document
-	err    error
-	hasDoc bool
+	path         string
+	doc          notestore.Document
+	err          error
+	hasDoc       bool
+	linksChanged bool
 }
 type linkResult struct {
 	path               string
@@ -59,6 +62,7 @@ type vaultRuntime struct {
 	stopped            bool
 	root               string
 	index              *vaultindex.Index
+	linkRevision       uint64
 	search             *vaultsearch.Index
 	searchMu           sync.Mutex
 	watch              *vaultwatch.Watcher
@@ -142,12 +146,21 @@ func (a *App) vaultTick(c *ui.Context) {
 			a.notice("笔记库索引／监听失败：" + ready.err.Error())
 		}
 		v.index, v.search, v.watch = ready.index, ready.search, ready.watch
+		v.linkRevision++
+		if a.ed != nil {
+			a.ed.SetOptions(a.editorOptions())
+		}
 		if ready.search == nil && ready.err != nil {
 			v.searchErr = ready.err
 		}
 		if a.pendingLinks {
 			a.pendingLinks = false
 			a.openLinks()
+		}
+		if a.pendingWiki != "" {
+			target := a.pendingWiki
+			a.pendingWiki = ""
+			a.openWiki(target)
 		}
 		if v.watch != nil && a.path != "" {
 			_ = v.watch.WatchFile(a.path)
@@ -157,6 +170,12 @@ func (a *App) vaultTick(c *ui.Context) {
 	select {
 	case fresh := <-v.refresh:
 		v.refreshing = false
+		if fresh.linksChanged {
+			v.linkRevision++
+			if a.ed != nil {
+				a.ed.SetOptions(a.editorOptions())
+			}
+		}
 		if a.workspaceSearch {
 			v.due = time.Now()
 		}
@@ -284,6 +303,7 @@ func (a *App) vaultTick(c *ui.Context) {
 					v.searchMu.Unlock()
 					cancel()
 				}
+				fresh.linksChanged = idx != nil
 				select {
 				case v.refresh <- fresh:
 				case <-v.closed:
@@ -609,9 +629,13 @@ func (a *App) linksDialog(c *ui.Context) {
 					if len(incoming) == 0 {
 						ui.Text(c, "暂无反向链接")
 					}
-					for _, link := range incoming {
+					for _, link := range groupedBacklinks(incoming) {
 						l := link
-						if ui.Button(c, l.Source).Label("反向链接：" + l.Source).Clicked() {
+						label := l.Source
+						if l.Count > 1 {
+							label += fmt.Sprintf("（%d 处）", l.Count)
+						}
+						if ui.Button(c, label).Label("反向链接：" + label).Clicked() {
 							v.linksOpen = false
 							a.navigateIndexed(l.Source, l.Start)
 						}
@@ -631,6 +655,26 @@ func (a *App) linksDialog(c *ui.Context) {
 			}
 		})
 	})
+}
+
+type backlinkSource struct {
+	Source string
+	Start  int
+	Count  int
+}
+
+func groupedBacklinks(links []vaultindex.Link) []backlinkSource {
+	groups := make([]backlinkSource, 0, len(links))
+	positions := make(map[string]int, len(links))
+	for _, link := range links {
+		if at, ok := positions[link.Source]; ok {
+			groups[at].Count++
+			continue
+		}
+		positions[link.Source] = len(groups)
+		groups = append(groups, backlinkSource{Source: link.Source, Start: link.Start, Count: 1})
+	}
+	return groups
 }
 
 func stopVault(v *vaultRuntime) {
@@ -669,13 +713,9 @@ func openVaultSearch(root string) (*vaultsearch.Index, error) {
 		canonical = resolved
 	}
 	canonical = filepath.Clean(canonical)
-	base := os.Getenv("MUSE_SEARCH_CACHE")
-	if base == "" {
-		base, err = os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		base = filepath.Join(base, "Muse")
+	base, err := cachepath.Root()
+	if err != nil {
+		return nil, err
 	}
 	key := sha256.Sum256([]byte(canonical))
 	dir := filepath.Join(base, "vaultsearch", hex.EncodeToString(key[:]))

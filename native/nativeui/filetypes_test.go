@@ -114,7 +114,7 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	if a.path != "existing.md" || a.ed.Source() != "preserve me" || !a.dirty {
 		t.Fatalf("opening image changed dirty editor document: path=%q source=%q dirty=%v", a.path, a.ed.Source(), a.dirty)
 	}
-	if a.displayName() != "photo.png" || a.docPath() != filepath.Join(filepath.Base(dir), "photo.png") {
+	if a.displayName() != "photo.png" || a.docPath() != "photo.png" {
 		t.Fatalf("image title path=%q display=%q", a.docPath(), a.displayName())
 	}
 	if !tt.HasText("无法解码此图片格式") {

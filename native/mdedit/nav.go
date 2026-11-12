@@ -25,6 +25,9 @@ func (e *Editor) units() []*leaf {
 		out = make([]*leaf, 0, len(e.leaves))
 	}
 	for _, l := range e.leaves {
+		if e.foldHidden(l) {
+			continue
+		}
 		if l.kind == kTable {
 			for _, row := range l.tab.rows {
 				out = append(out, row...)
@@ -36,6 +39,9 @@ func (e *Editor) units() []*leaf {
 	e.unitList, e.unitRev = out, e.rev
 	return e.unitList
 }
+
+// isWordRune supports edit-side decisions unrelated to navigation tokens.
+func isWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // unitIndex returns the index in units of the one holding the caret at
 // off, or -1. A line of its own owns its offset: a leaf may end or begin
@@ -54,7 +60,11 @@ func (e *Editor) unitIndex(us []*leaf, off int) int {
 		if cover >= 0 {
 			continue
 		}
-		if off >= leafLo(u) && off <= u.end {
+		unitEnd := u.end
+		if u.kind == kCode && u.fenced && e.codeFenceSourceShown(u) {
+			unitEnd = blockEnd(e.src, u)
+		}
+		if off >= leafLo(e, u) && off <= unitEnd {
 			if u.kind == kCode && u.fenced && off > u.infoEnd && off < u.start {
 				continue
 			}
@@ -155,13 +165,31 @@ func (e *Editor) revealFor(l *leaf, off int) int {
 	if !e.focused {
 		return -1
 	}
+	if s, end, ok := containerPrefixRange(l); ok && off >= s && off <= end {
+		return off - l.lineStart
+	}
+	for _, r := range quoteSourcePrefixes(e, l) {
+		if off >= r.Start && off <= r.End {
+			return off - l.lineStart
+		}
+	}
 	if off < l.lineStart || off > l.end {
 		if l.kind == kCode && l.fenced && off >= l.infoStart && off <= l.infoEnd {
+			return off - l.lineStart
+		}
+		if l.kind == kCode && l.fenced && e.codeFenceSourceShown(l) && off <= blockEnd(e.src, l) {
 			return off - l.lineStart
 		}
 		return -1
 	}
 	return off - l.lineStart
+}
+
+// codeFenceSourceShown says whether a fenced code block currently exposes
+// its Markdown source, including both fence rows. Its source-backed range
+// then participates in caret mapping and selection just like the code body.
+func (e *Editor) codeFenceSourceShown(l *leaf) bool {
+	return e.sourceOpen(l) || !isMermaid(l) && selectionReveals(e, l.lineStart, blockEnd(e.src, l), false)
 }
 
 // stopOK reports whether the caret can be at off, in the display of its
@@ -239,7 +267,7 @@ func (e *Editor) normalize(off, dir int) int {
 func (e *Editor) gapStop(us []*leaf, off, dir int) int {
 	if dir >= 0 {
 		for _, u := range us {
-			if leafLo(u) >= off {
+			if leafLo(e, u) >= off {
 				if s, ok := e.edgeStop(u, false); ok {
 					return s
 				}
@@ -418,21 +446,32 @@ func (e *Editor) step(off, dir int, word bool) int {
 // the caret's positions of the display, which leave out the inside of an
 // object.
 func (e *Editor) stopStepIn(u *leaf, off, dir int) (int, bool) {
-	stops := e.unitView(u, off).disp.stops()
+	viewOff := off
+	if dir < 0 {
+		if _, end, ok := containerPrefixRange(u); ok && off == end {
+			// Reveal the source prefix while stepping left from the first
+			// content stop. At the content boundary itself the list stays in
+			// its compact view so its marker remains a usable task control.
+			viewOff = end - 1
+		}
+	}
+	stops := e.unitView(u, viewOff).disp.stops()
 	best := -1
 	for _, s := range stops {
 		at := s + u.lineStart
-		if dir > 0 && at > off && (best < 0 || at < best) {
-			best = at
-		}
-		if dir < 0 && at < off && (best < 0 || at > best) {
-			best = at
+		if dir > 0 && at > off || dir < 0 && at < off {
+			// Display stops can belong to zero-source decorations such as an
+			// external-link icon. Ignore those and keep searching in this unit
+			// for the next stop that has a real source mapping.
+			if !e.stopOK(u, at) {
+				continue
+			}
+			if best < 0 || dir > 0 && at < best || dir < 0 && at > best {
+				best = at
+			}
 		}
 	}
 	if best < 0 {
-		return 0, false
-	}
-	if !e.stopOK(u, best) {
 		return 0, false
 	}
 	return e.normalize(best, dir), true
@@ -448,15 +487,50 @@ func (e *Editor) wordStepIn(u *leaf, off, dir int) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	nd := wordStep(v.disp.text, d, dir)
-	if nd == d {
-		return 0, false
+	w := e.wordsForDisplay(v.disp.text)
+	b := w.byteAtUTF16(d, false)
+	var target int
+	var found bool
+	for range w.index.TokenCount() + 1 {
+		if dir > 0 {
+			target, found = w.index.NextStart(b)
+		} else {
+			target, found = w.index.PrevStart(b)
+		}
+		if !found {
+			return 0, false
+		}
+		tok, ok := w.index.WordAt(target)
+		if !ok {
+			return 0, false
+		}
+		nd := w.utf16AtByte(target, dir > 0)
+		end := w.utf16AtByte(tok.End, true)
+		if displayRangeHasSource(&v.disp, nd, end) {
+			break
+		}
+		// NextStart is strict: resume at this decoration's start so a real
+		// token immediately following its end is still considered.
+		b = tok.Start
 	}
+	nd := w.utf16AtByte(target, dir > 0)
 	c := v.disp.dispToSrc(nd, dir > 0) + u.lineStart
 	if dir > 0 && c <= off || dir < 0 && c >= off {
 		return 0, false
 	}
 	return e.normalize(c, dir), true
+}
+
+func displayRangeHasSource(d *display, start, end int) bool {
+	if end <= start {
+		return false
+	}
+	for _, p := range d.pieces {
+		if p.kind == pDeco && start < p.d1 && p.d0 < end {
+			return false
+		}
+	}
+	return d.dispToSrc(end, true) > d.dispToSrc(start, false)
 }
 
 // nearestStop returns the stop at or before rel, or the first one after it.
@@ -473,104 +547,6 @@ func nearestStop(stops []int, rel int) (int, bool) {
 	return best, true
 }
 
-// wordStep returns the display offset of the next word's end (dir > 0) or
-// the previous word's start, from d: an ideograph or a kana is a word of
-// its own.
-func wordStep(text string, d, dir int) int {
-	rs, us := runesWithUnits(text)
-	// k is the rune at display offset d.
-	k := 0
-	for k < len(rs) && us[k] < d {
-		k++
-	}
-	if dir > 0 {
-		for k < len(rs) && !isWordRune(rs[k]) {
-			k++
-		}
-		if k < len(rs) && isIdeograph(rs[k]) {
-			return us[k+1]
-		}
-		for k < len(rs) && isWordRune(rs[k]) && !isIdeograph(rs[k]) {
-			k++
-		}
-		return us[k]
-	}
-	for k > 0 && !isWordRune(rs[k-1]) {
-		k--
-	}
-	if k > 0 && isIdeograph(rs[k-1]) {
-		return us[k-1]
-	}
-	for k > 0 && isWordRune(rs[k-1]) && !isIdeograph(rs[k-1]) {
-		k--
-	}
-	return us[k]
-}
-
-// wordAround returns the display range of the word, or run of other
-// characters, at display offset d.
-func wordAround(text string, d int) (int, int) {
-	rs, us := runesWithUnits(text)
-	if len(rs) == 0 {
-		return 0, 0
-	}
-	k := 0
-	for k < len(rs) && us[k+1] <= d {
-		k++
-	}
-	if k >= len(rs) {
-		k = len(rs) - 1
-	}
-	if isIdeograph(rs[k]) {
-		return us[k], us[k+1]
-	}
-	cls := func(r rune) int {
-		switch {
-		case r == '\n':
-			return 3
-		case isWordRune(r) && !isIdeograph(r):
-			return 0
-		case unicode.IsSpace(r):
-			return 1
-		}
-		return 2
-	}
-	c := cls(rs[k])
-	a, z := k, k+1
-	for a > 0 && cls(rs[a-1]) == c && c != 3 && !isIdeograph(rs[a-1]) {
-		a--
-	}
-	for z < len(rs) && cls(rs[z]) == c && c != 3 && !isIdeograph(rs[z]) {
-		z++
-	}
-	return us[a], us[z]
-}
-
-// runesWithUnits returns the runes of s and the UTF-16 offset of each,
-// with one more for the end.
-func runesWithUnits(s string) ([]rune, []int) {
-	rs := make([]rune, 0, len(s))
-	us := make([]int, 0, len(s)+1)
-	u := 0
-	for _, r := range s {
-		rs = append(rs, r)
-		us = append(us, u)
-		if r >= 0x10000 {
-			u += 2
-		} else {
-			u++
-		}
-	}
-	us = append(us, u)
-	return rs, us
-}
-
-func isWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
-
-func isIdeograph(r rune) bool {
-	return unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r)
-}
-
 // ---------------------------------------------------------------------------
 // Geometry
 
@@ -582,14 +558,14 @@ func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 		return ui.Rect{X: u.x, Y: u.y, W: 1, H: u.h}, true
 	}
 	if t, row, right, ok := e.tableBoundaryAtOffset(off); ok && row+1 < len(t.geom.rowY) {
-		x := t.x
+		x := tableContentX(t)
 		if right {
 			x += t.geom.w
 		}
 		return ui.Rect{X: x, Y: t.y + t.geom.rowY[row], W: 1, H: t.geom.rowY[row+1] - t.geom.rowY[row]}, true
 	}
 	if t, after := e.tableAtEdge(off); t != nil && t.geom != nil && len(t.geom.rowY) > 0 {
-		x := t.x
+		x := tableContentX(t)
 		row := 0
 		if after {
 			x += t.geom.w
@@ -606,7 +582,7 @@ func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 	u := us[i]
 	v := e.unitView(u, off)
 	if v.layout == nil {
-		return ui.Rect{X: u.x, Y: u.y, W: 1, H: u.h}, true
+		return ui.Rect{X: u.x - blockScrollOffset(u), Y: u.y, W: 1, H: u.h}, true
 	}
 	d, ok := v.disp.srcToDisp(off - u.lineStart)
 	if !ok {
@@ -633,7 +609,7 @@ func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 		m := v.font.Metrics()
 		r.Y, r.H = max(ln.Baseline-m.Ascent, ln.Rect.Y), min(m.Ascent+m.Descent, ln.Rect.H)
 	}
-	r.X += u.x + v.tx
+	r.X += unitTextX(u, v)
 	r.Y += u.y + v.ty
 	return r, true
 }
@@ -649,6 +625,30 @@ func lineOf(lines []ui.TextLine, d int, upstream bool) int {
 		}
 	}
 	return len(lines) - 1
+}
+
+// layoutLineHasCaretStop reports whether a rendered row has a caret stop
+// backed by source text. Projection-only rows (such as a link icon) have
+// display geometry but no independent source position, so vertical motion
+// must step over them. Atoms count because their source-backed edges are
+// valid stops even when their display text is an object or replacement.
+func layoutLineHasCaretStop(d display, ln ui.TextLine) bool {
+	for i := range d.pieces {
+		p := &d.pieces[i]
+		if p.kind == pDeco || p.s1 <= p.s0 {
+			continue
+		}
+		if ln.Start == ln.End {
+			if ln.Start >= p.d0 && ln.Start <= p.d1 {
+				return true
+			}
+			continue
+		}
+		if p.d0 < ln.End && p.d1 > ln.Start {
+			return true
+		}
+	}
+	return false
 }
 
 // vertical moves the caret up (dir < 0) or down lines, keeping its x.
@@ -736,11 +736,20 @@ func (e *Editor) vertical(dir int, extend bool) {
 		d, _ := v.disp.srcToDisp(e.caret - u.lineStart)
 		lines := v.layout.Lines()
 		k := lineOf(lines, d, e.upstream)
-		if k+dir >= 0 && k+dir < len(lines) {
-			ln := lines[k+dir]
+		for target := k + dir; target >= 0 && target < len(lines); target += dir {
+			ln := lines[target]
+			if !layoutLineHasCaretStop(v.disp, ln) {
+				continue
+			}
 			off := e.hitUnit(u, v, e.goalX, u.y+v.ty+ln.Rect.Y+ln.Rect.H/2)
-			e.setCaretKeepGoal(off, extend)
-			return
+			// A display row may contain source text, but nearest-hit mapping
+			// can still land on a neighboring projection edge. Only consume
+			// this row when the resulting offset really belongs to it.
+			mapped, ok := v.disp.srcToDisp(off - u.lineStart)
+			if ok && lineOf(lines, mapped, false) == target {
+				e.setCaretKeepGoal(off, extend)
+				return
+			}
 		}
 	}
 	// A cell: the cell above or below in the same column.
@@ -782,7 +791,11 @@ func (e *Editor) vertical(dir int, extend bool) {
 	if li < 0 {
 		return
 	}
-	if li+dir < 0 || li+dir >= len(e.leaves) {
+	next := li + dir
+	for next >= 0 && next < len(e.leaves) && e.foldHidden(e.leaves[next]) {
+		next += dir
+	}
+	if next < 0 || next >= len(e.leaves) {
 		// Past the first or last line: to the start or end, as text views
 		// go, unless a block of code, math or a table ends the document,
 		// where a new paragraph comes for the caret.
@@ -796,12 +809,15 @@ func (e *Editor) vertical(dir int, extend bool) {
 		}
 		return
 	}
-	e.enterLeaf(li+dir, dir, extend)
+	e.enterLeaf(next, dir, extend)
 }
 
 // enterLeaf moves the caret into leaf li from above (dir > 0) or below, at
 // the goal's x: its first line or its last.
 func (e *Editor) enterLeaf(li, dir int, extend bool) {
+	for li >= 0 && li < len(e.leaves) && e.foldHidden(e.leaves[li]) {
+		li += dir
+	}
 	if li < 0 || li >= len(e.leaves) {
 		if dir < 0 {
 			e.setCaretKeepGoal(e.firstStop(), extend)
@@ -917,7 +933,7 @@ func (e *Editor) hitUnit(u *leaf, v *leafView, x, y float32) int {
 			return s
 		}
 	}
-	d := v.layout.IndexAt(ui.Point{X: x - u.x - v.tx, Y: y - u.y - v.ty})
+	d := v.layout.IndexAt(ui.Point{X: x - unitTextX(u, v), Y: y - u.y - v.ty})
 	d = min(d, ui.UTF16Len(v.disp.text))
 	off := v.disp.dispToSrc(d, true) + u.lineStart
 	e.upstream = false
@@ -948,7 +964,7 @@ func (e *Editor) hitTest(x, y float32) int {
 				row := tableRowIndexAt(l, y)
 				return e.tableRowBoundary(l, row, false)
 			}
-			if x > l.x+l.geom.w {
+			if x > l.x+tableViewportWidth(l) {
 				row := tableRowIndexAt(l, y)
 				return e.tableRowBoundary(l, row, true)
 			}
@@ -977,23 +993,29 @@ func (e *Editor) hitTest(x, y float32) int {
 // leafAtPoint returns the leaf the point's y is on: the last one starting
 // above it, or the nearer of two when the point falls between them.
 func (e *Editor) leafAtPoint(y float32) *leaf {
-	if len(e.leaves) == 0 {
+	visible := make([]*leaf, 0, len(e.leaves))
+	for _, l := range e.leaves {
+		if !e.foldHidden(l) {
+			visible = append(visible, l)
+		}
+	}
+	if len(visible) == 0 {
 		return nil
 	}
 	li := 0
-	for k, l := range e.leaves {
+	for k, l := range visible {
 		if y >= l.y {
 			li = k
 		}
 	}
 	// Between two leaves, the nearer.
-	if li+1 < len(e.leaves) {
-		l, n := e.leaves[li], e.leaves[li+1]
+	if li+1 < len(visible) {
+		l, n := visible[li], visible[li+1]
 		if y > l.y+l.h && n.y-y < y-(l.y+l.h) {
 			li++
 		}
 	}
-	return e.leaves[li]
+	return visible[li]
 }
 
 // objectAt returns the source range of the object the pointer at x hit: the
@@ -1038,7 +1060,9 @@ func (e *Editor) gapPhantomAt(y float32) (int, bool) {
 	e.layoutIfNeeded()
 	var prev, next *leaf
 	for _, l := range e.leaves {
-		if l.isLine() || l.view == nil {
+		// Tables draw through geom rather than a text view, but still own
+		// the document edge used to measure and map the following source gap.
+		if l.isLine() || l.view == nil && l.kind != kTable {
 			continue
 		}
 		if y >= l.y && y <= l.y+l.h {
@@ -1050,24 +1074,31 @@ func (e *Editor) gapPhantomAt(y float32) (int, bool) {
 			next = l
 		}
 	}
-	if prev == nil || next == nil || next.start <= prev.end {
+	if prev == nil || next == nil {
 		return 0, false
 	}
-	n := strings.Count(e.src[prev.end:next.start], "\n")
+	prevEnd := blockEnd(e.src, prev)
+	nextStart := next.lineStart
+	if nextStart <= prevEnd {
+		return 0, false
+	}
+	n := strings.Count(e.src[prevEnd:nextStart], "\n")
 	if n < 2 {
 		return 0, false
 	}
 	lineH := e.lk.size * e.lk.lh
 	k := int((y - (prev.y + prev.h)) / lineH)
 	k = max(0, min(k, n-2))
-	at := prev.end + 1 + k
-	if at >= next.start {
+	at := prevEnd + 1 + k
+	if at >= nextStart {
 		return 0, false
 	}
 	return at, true
 }
 
 func (e *Editor) setCaretAtPoint(off int, y float32, extend bool) {
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	if l := e.leafAtPoint(y); e.phantom != nil && off == e.phantom.at && l != nil && l.kind != kPhantom {
 		e.dropPhantom()
 	}
@@ -1118,8 +1149,91 @@ func (e *Editor) wordRangeAt(off int) (int, int) {
 	if !ok {
 		return off, off
 	}
-	a, z := wordAround(v.disp.text, d)
+	w := e.wordsForDisplay(v.disp.text)
+	r, ok := w.index.WordAt(w.byteAtUTF16(d, false))
+	if !ok {
+		return off, off
+	}
+	a, z := w.utf16AtByte(r.Start, false), w.utf16AtByte(r.End, true)
+	if !displayRangeHasSource(&v.disp, a, z) {
+		return off, off
+	}
 	return v.disp.dispToSrc(a, false) + u.lineStart, v.disp.dispToSrc(z, true) + u.lineStart
+}
+
+func (e *Editor) wordEndAt(off int) int {
+	e.layoutIfNeeded()
+	us := e.units()
+	i := e.unitIndex(us, off)
+	if i < 0 {
+		return off
+	}
+	u := us[i]
+	v := e.unitView(u, off)
+	if v.layout == nil || v.empty {
+		return off
+	}
+	d, ok := v.disp.srcToDisp(off - u.lineStart)
+	if !ok {
+		return off
+	}
+	w := e.wordsForDisplay(v.disp.text)
+	z, ok := displayWordEnd(w, &v.disp, w.byteAtUTF16(d, false), false)
+	if !ok {
+		return off
+	}
+	return v.disp.dispToSrc(z, true) + u.lineStart
+}
+
+func (e *Editor) nextWordEndAt(off int) int {
+	e.layoutIfNeeded()
+	us := e.units()
+	i := e.unitIndex(us, off)
+	if i < 0 {
+		return off
+	}
+	u := us[i]
+	v := e.unitView(u, off)
+	if v.layout == nil || v.empty {
+		return off
+	}
+	d, ok := v.disp.srcToDisp(off - u.lineStart)
+	if !ok {
+		return off
+	}
+	w := e.wordsForDisplay(v.disp.text)
+	z, ok := displayWordEnd(w, &v.disp, w.byteAtUTF16(d, false), true)
+	if !ok {
+		return off
+	}
+	return v.disp.dispToSrc(z, true) + u.lineStart
+}
+
+func displayWordEnd(w *displayWordIndex, d *display, off int, next bool) (int, bool) {
+	var end int
+	var ok bool
+	if next {
+		end, ok = w.index.NextEnd(off)
+	} else {
+		end, ok = w.index.WordEnd(off)
+	}
+	for n := 0; ok && n < w.index.TokenCount(); n++ {
+		if end <= 0 {
+			return 0, false
+		}
+		r, found := w.index.WordAt(end - 1)
+		if !found {
+			return 0, false
+		}
+		startU16, endU16 := w.utf16AtByte(r.Start, false), w.utf16AtByte(r.End, true)
+		if displayRangeHasSource(d, startU16, endU16) {
+			return endU16, true
+		}
+		// r.End already lies past the rejected decoration. WordEnd includes
+		// a real token beginning exactly there; NextEnd would skip it.
+		end, ok = w.index.WordEnd(r.End)
+	}
+	return 0, false
 }
 
 // blockRangeAt returns the source range of the leaf (or cell) at off.
@@ -1232,6 +1346,11 @@ func (e *Editor) sourceChip(l *leaf) ui.Rect {
 		// A table's own box starts with its header row: the control goes
 		// above it, where it covers nothing.
 		y = l.y - h + 2
+		if l.kind == kTable && l.geom != nil {
+			// The top border belongs to column handles. Keep the source
+			// control in the outer corner instead of covering the last one.
+			x = l.x + tableViewportWidth(l) + 6
+		}
 	}
 	return ui.Rect{X: x, Y: y, W: w, H: h}
 }
@@ -1269,6 +1388,9 @@ func (e *Editor) sourceChipAt(x, y float32) *leaf {
 // showsChip reports whether a block shows its source control: while the
 // pointer is on the block, or while the block shows its source.
 func (e *Editor) showsChip(l *leaf) bool {
+	if e.tableHandleDrag != nil {
+		return false
+	}
 	if e.sourceOK && l.lineStart == e.sourceAt {
 		return true
 	}

@@ -1,11 +1,34 @@
 package mdedit
 
 import (
+	"math"
 	"strings"
 	"testing"
 
 	"muse/frontmatter"
 )
+
+func TestHiddenFrontmatterDoesNotAddAClosingDelimiterBlankLine(t *testing.T) {
+	for _, blanks := range []int{0, 1, 2} {
+		src := "---\ntitle: preserved\n---\n" + strings.Repeat("\n", blanks) + "# Body\n"
+		h := newHarness(t, src)
+		opts := h.e.Options()
+		opts.HideFrontmatter = true
+		h.e.SetOptions(opts)
+		h.frame()
+		var heading *leaf
+		for _, l := range h.e.leaves {
+			if l.kind == kHeading {
+				heading = l
+				break
+			}
+		}
+		want := h.e.padTop + float32(blanks)*h.e.lk.size*h.e.lk.lh
+		if heading == nil || math.Abs(float64(heading.y-want)) > .1 || h.e.Source() != src {
+			t.Fatalf("%d body blanks: hidden metadata changed body start/source; heading=%+v wantY=%v", blanks, heading, want)
+		}
+	}
+}
 
 func TestHideFrontmatterKeepsSourceOffsetsAndBodyCaret(t *testing.T) {
 	src := "---\ntitle: note\ntags: [one]\n---\n# Body\nText.\n"

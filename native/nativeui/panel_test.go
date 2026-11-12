@@ -1,6 +1,9 @@
 package nativeui
 
 import (
+	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -125,6 +128,7 @@ func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 	if !ok {
 		t.Fatal("no sidebar toggle")
 	}
+	captureSidebarToggle(t, tt, "sidebar-open")
 	if open.X < 2 || open.X > 16 {
 		t.Fatalf("the toggle sits at %.1f, want the window's left edge at 6", open.X)
 	}
@@ -138,6 +142,7 @@ func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 	if !ok {
 		t.Fatal("the toggle went away with the panel")
 	}
+	captureSidebarToggle(t, tt, "sidebar-closed")
 	if folded.X != open.X {
 		t.Fatalf("the toggle moved from %.1f to %.1f when the panel folded", open.X, folded.X)
 	}
@@ -149,6 +154,25 @@ func TestTheSidebarToggleKeepsItsSeat(t *testing.T) {
 	}
 	if !a.panelOpen {
 		t.Fatal("the toggle did not bring the panel back")
+	}
+}
+
+func captureSidebarToggle(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	dir := os.Getenv("MUSE_SIDEBAR_TOGGLE_SHOTS")
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(dir, name+".png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := png.Encode(f, tt.Image()); err != nil {
+		t.Fatal(err)
 	}
 }
 

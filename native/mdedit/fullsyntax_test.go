@@ -66,7 +66,7 @@ func TestFullSyntaxFixture(t *testing.T) {
 		"«s:删除线»",
 		"«mk:高亮»",
 		"«code:行内代码»",
-		"«a:链接»",
+		"«a:链接 ↗»",
 		"«b:注意：»",
 		"«b:重点»",
 		"«s:删除：»",

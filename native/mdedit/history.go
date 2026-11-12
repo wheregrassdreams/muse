@@ -3,6 +3,8 @@ package mdedit
 import (
 	"strings"
 	"time"
+
+	"muse/textnav"
 )
 
 // change is an edit of the source: at at, old became new.
@@ -27,6 +29,8 @@ type step struct {
 	changes                   []change
 	before, after             [2]int
 	tableBefore               *tableNavigationState
+	tableAfter                *tableNavigationState
+	blockBefore, blockAfter   *blockHistoryState
 	phBefore, phAfter         *phantom
 	kind                      stepKind
 	at                        time.Time
@@ -48,6 +52,7 @@ func (e *Editor) begin(kind stepKind) {
 		return
 	}
 	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: append([]int(nil), e.typedBreaks...), at: time.Now()}
+	e.hist.open.blockBefore = e.blockHistoryState()
 	if e.tableSelection != nil || e.tableBridge != nil {
 		state := e.tableNavigationState()
 		e.hist.open.tableBefore = &state
@@ -63,6 +68,7 @@ func (e *Editor) replace(from, to int, text string) {
 	if old == text {
 		return
 	}
+	e.shiftImageAlignments(from, to, len(text))
 	if e.hist.open == nil {
 		e.begin(stepEdit)
 	}
@@ -74,6 +80,8 @@ func (e *Editor) replace(from, to int, text string) {
 		}
 	}
 	e.src = e.src[:from] + text + e.src[to:]
+	textnav.WarmUpIfNeeded(text)
+	e.resetFolds()
 	e.moveTypedBreaks(from, to, text)
 	e.rev++
 	// The input method's offsets move with the edit, not from a reading of
@@ -116,8 +124,10 @@ func (e *Editor) commit(anchor, caret int) {
 	e.hist.open = nil
 	e.tableNavigation = nil
 	e.tableSelection = nil
-	e.tableSelectDrag = nil
+	e.tableHandleDrag = nil
 	e.tableBridge = nil
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	e.anchor, e.caret = anchor, caret
 	if e.phantom != nil && e.rev != e.parsed {
 		// Text came in around the phantom: it is no longer empty.
@@ -139,6 +149,7 @@ func (e *Editor) commit(anchor, caret int) {
 		return
 	}
 	s.after = [2]int{e.anchor, e.caret}
+	s.blockAfter = e.blockHistoryState()
 	s.phAfter = e.phantom
 	s.breaksAfter = append([]int(nil), e.typedBreaks...)
 	e.hist.redo = nil
@@ -199,6 +210,9 @@ func (e *Editor) changed() {
 
 // Undo takes back the last step.
 func (e *Editor) Undo() bool {
+	if e.hist.open != nil {
+		e.commit(e.caret, e.caret)
+	}
 	e.inlineMathOK = false
 	n := len(e.hist.undo)
 	if n == 0 {
@@ -216,11 +230,15 @@ func (e *Editor) Undo() bool {
 	if s.tableBefore != nil {
 		e.restoreTableNavigation(*s.tableBefore)
 	}
+	e.restoreBlockHistory(s.blockBefore)
 	return true
 }
 
 // Redo makes the last step undone again.
 func (e *Editor) Redo() bool {
+	if e.hist.open != nil {
+		e.commit(e.caret, e.caret)
+	}
 	e.inlineMathOK = false
 	n := len(e.hist.redo)
 	if n == 0 {
@@ -235,18 +253,25 @@ func (e *Editor) Redo() bool {
 	e.hist.undo = append(e.hist.undo, s)
 	e.typedBreaks = append([]int(nil), s.breaksAfter...)
 	e.restore(s.after, s.phAfter)
+	if s.tableAfter != nil {
+		e.restoreTableNavigation(*s.tableAfter)
+	}
+	e.restoreBlockHistory(s.blockAfter)
 	return true
 }
 
 // restore puts the selection and the phantom back as a step had them.
 func (e *Editor) restore(sel [2]int, ph *phantom) {
+	e.resetFolds()
 	e.rev++
 	e.u16ix.rev = 0
 	e.phantom = ph
 	e.tableNavigation = nil
 	e.tableSelection = nil
-	e.tableSelectDrag = nil
+	e.tableHandleDrag = nil
 	e.tableBridge = nil
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	e.modal.blockInsert = nil
 	e.parsed = 0
 	// Undo and redo replaced the source as a whole: any edit kept for the

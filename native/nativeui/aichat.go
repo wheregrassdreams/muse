@@ -399,6 +399,8 @@ func (a *App) aiTextPart(c *ui.Context, text string) {
 		SoftBreaksAsSpaces: true,
 		ContentWidth:       a.aiContentWidth(),
 		BaseDir:            a.docDir(),
+		AssetRoot:          a.root,
+		OnImagePreview:     a.openImagePreview,
 		Padding:            0,
 		IndentStep:         14,
 	})

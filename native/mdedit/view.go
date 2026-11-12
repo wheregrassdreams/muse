@@ -5,12 +5,17 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
+
+	"muse/mdoc"
 )
 
 // laid is what the last layout was made of: the layout is done again only
 // when it changes.
 type laid struct {
 	rev        uint64
+	folds      uint64
+	inclusive  bool
+	linewise   bool
 	caret      int
 	anchor     int
 	reveal     int
@@ -18,6 +23,7 @@ type laid struct {
 	colX, colW float32
 	look       lookKey
 	assets     uint64
+	blockRev   uint64
 	phantom    *phantom
 	focused    bool
 	// scrollY and viewH are part of the layout of a virtualized document
@@ -43,18 +49,26 @@ func (e *Editor) layoutIfNeeded() {
 		e.viewTop, e.viewBottom = e.scroll.Y-e.viewH, e.scroll.Y+2*e.viewH
 	}
 	virtual := e.virtualLayout()
+	blockRev := uint64(0)
+	if e.block != nil {
+		blockRev = e.block.revision
+	}
 	k := laid{
-		rev:     e.rev,
-		caret:   e.caret,
-		anchor:  e.anchor,
-		reveal:  e.revealCaret(),
-		compose: e.compose,
-		colX:    e.colX,
-		colW:    e.colW,
-		look:    e.lk.key(),
-		assets:  e.assetGen.Load(),
-		phantom: e.phantom,
-		focused: e.focused,
+		rev:       e.rev,
+		folds:     e.foldRevision,
+		inclusive: e.selectionInclusive,
+		linewise:  e.selectionLinewise,
+		caret:     e.caret,
+		anchor:    e.anchor,
+		reveal:    e.revealCaret(),
+		compose:   e.compose,
+		colX:      e.colX,
+		colW:      e.colW,
+		look:      e.lk.key(),
+		assets:    e.assetGen.Load(),
+		blockRev:  blockRev,
+		phantom:   e.phantom,
+		focused:   e.focused,
 	}
 	if virtual {
 		k.scrollY, k.viewH = e.scroll.Y, e.viewH
@@ -120,6 +134,7 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	e.layoutIfNeeded()
 	e.pruneViews()
 	e.scrollIntoView()
+	e.advanceVisibleImageAssets(c)
 
 	h := max(e.docH, e.viewH)
 	showBar := e.scrollIndicator.Visible(c.Now(), e.scroll.X, e.scroll.Y)
@@ -127,6 +142,7 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 		c.After(e.scrollIndicator.Remaining(c.Now()))
 	}
 	sc := ui.Scroll(c).Fill().Scrollbars(showBar).TrackScroll(&e.scroll).Bind(&e.scrollHandle)
+	tablePointer := ui.Point{X: -1, Y: -1}
 	sc.Children(func() {
 		ui.Column(c).FillWidth().Height(h).Shrink(0).Children(func() {
 			label := e.opts.Label
@@ -140,6 +156,11 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 				Role(ui.RoleTextField).Label(label).
 				HandleTextInput(e).Cursor(e.cursor).
 				HandleInput(e.input).Draw(e.paint).ContextMenu(e.menu)
+			if px, py, over := el.PointerPosition(); over {
+				// Read the native surface every frame: scrolling under a
+				// stationary mouse changes its document-space cell, too.
+				tablePointer = ui.Point{X: px, Y: py}
+			}
 			if files := el.DroppedFiles(); len(files) > 0 {
 				if x, y, ok := el.PointerPosition(); ok {
 					e.setCaret(e.hitTest(x, y), false)
@@ -153,14 +174,23 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 
 		})
 	})
+	if e.dragging {
+		// Momentum can move the document without a pointer-move event. Read
+		// the pointer in the stable viewport, then project it through the
+		// current scroll. A cached document Y can otherwise appear outside
+		// the viewport and start a self-sustaining selection autoscroll.
+		px, py, _ := sc.PointerPosition()
+		e.pointerX, e.pointerY = px, py+e.scroll.Y
+	}
 	if e.autoScroll() {
 		c.After(16 * time.Millisecond)
 	}
 	// The rail floats over the document's right edge, and follows the pointer
 	// there as an overlay does.
 	e.railView(c, b)
-	e.tableEdgesView(c, b)
+	e.tableEdgesView(c, b, tablePointer)
 	e.mathPreviewView(c, b)
+	e.wikiSuggestionsView(c, b)
 	if e.railAnim {
 		// The lens and the preview are on their way to somewhere: frames
 		// move them, as CSS transitions would.
@@ -183,6 +213,56 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	return sc
 }
 
+// advanceVisibleImageAssets advances animated assets on the UI thread and
+// schedules the next repaint. Nested wiki embeds share the same frame clock.
+func (e *Editor) advanceVisibleImageAssets(c *ui.Context) {
+	now := c.Now()
+	var nextFrame time.Duration
+	seen := make(map[*mdoc.ImageAsset]struct{})
+	var visit func(*Editor)
+	visit = func(editor *Editor) {
+		if editor == nil {
+			return
+		}
+		visibleTop := editor.scroll.Y - 48
+		visibleBottom := editor.scroll.Y + editor.viewH + 48
+		advance := func(o *object) {
+			if o == nil {
+				return
+			}
+			if o.asset != nil {
+				if _, ok := seen[o.asset]; !ok {
+					seen[o.asset] = struct{}{}
+					next, _ := o.asset.Advance(now)
+					if next > 0 && (nextFrame == 0 || next < nextFrame) {
+						nextFrame = next
+					}
+				}
+				o.refreshAssetBitmap()
+			}
+			if o.embed != nil {
+				visit(o.embed)
+			}
+		}
+		for _, leaf := range editor.leaves {
+			if leaf.y+leaf.h < visibleTop || leaf.y > visibleBottom {
+				continue
+			}
+			if leaf.view == nil {
+				continue
+			}
+			advance(leaf.view.block)
+			for i := range leaf.view.disp.pieces {
+				advance(leaf.view.disp.pieces[i].obj)
+			}
+		}
+	}
+	visit(e)
+	if nextFrame > 0 {
+		c.After(nextFrame)
+	}
+}
+
 // scrollIntoView scrolls the caret into view after it moved, or a source
 // offset to the top for ScrollToOffset.
 func (e *Editor) scrollIntoView() {
@@ -190,6 +270,7 @@ func (e *Editor) scrollIntoView() {
 		return
 	}
 	if e.hasScrollTo {
+		e.revealHorizontalCaret(e.scrollTo)
 		e.hasScrollTo = false
 		e.wantReveal = false
 		if r, ok := e.caretRect(e.scrollTo); ok {
@@ -205,6 +286,7 @@ func (e *Editor) scrollIntoView() {
 	if !e.wantReveal {
 		return
 	}
+	e.revealHorizontalCaret(e.selectionFocus())
 	e.wantReveal = false
 	r, ok := e.caretRect(e.selectionFocus())
 	if !ok {

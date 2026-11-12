@@ -32,8 +32,8 @@ func TestBearTypographyAccentAndNeutralCode(t *testing.T) {
 	if got, want := BodyTextColor(true), ui.Hex("#d6d6d2"); got != want {
 		t.Fatalf("dark body = %v, want %v", got, want)
 	}
-	if got, want := HeadingWeight(1), 600; got != want {
-		t.Fatalf("heading weight = %d, want %d", got, want)
+	if HeadingWeight(1) <= HeadingWeight(3) || HeadingSize(1, 16) < 36 {
+		t.Fatal("page H1 must carry a stronger title hierarchy than section headings")
 	}
 	if got := InlineLinkColor(false); got != InlineLinkColorFor(ui.Color{}, false) {
 		t.Fatalf("default link color %v differs from default palette %v", got, InlineLinkColorFor(ui.Color{}, false))

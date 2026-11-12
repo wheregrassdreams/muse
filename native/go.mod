@@ -6,10 +6,13 @@ require (
 	github.com/anyproto/tantivy-go v1.0.6
 	github.com/egoist/mygo v0.8.3
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/go-ego/gse v1.3.1
+	github.com/go-text/typesetting v0.3.5
 	github.com/gofrs/flock v0.13.0
 	github.com/luo-studio/go-tex v0.0.0-20260508062349-60635a3613c5
 	github.com/tdewolff/canvas v0.0.0-20260406091912-5d4f7059846e
 	github.com/yuin/goldmark v1.8.6
+	gopkg.in/yaml.v3 v3.0.1
 	tuios.dev/sketch v0.4.0
 )
 
@@ -26,18 +29,17 @@ require (
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-fonts/latin-modern v0.3.3 // indirect
-	github.com/go-text/typesetting v0.3.5
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/srwiley/scanx v0.0.0-20190309010443-e94503791388 // indirect
 	github.com/tdewolff/font v0.0.0-20260314002930-9f995dac393e // indirect
 	github.com/tdewolff/minify/v2 v2.24.11 // indirect
 	github.com/tdewolff/parse/v2 v2.8.11 // indirect
+	github.com/vcaesar/cedar v0.50.1 // indirect
 	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/knuth v0.5.5 // indirect
 	modernc.org/token v1.1.0 // indirect
 	star-tex.org/x/tex v0.7.1 // indirect

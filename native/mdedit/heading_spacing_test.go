@@ -52,7 +52,7 @@ func TestHeadingSectionGapCountsEditableBlankLines(t *testing.T) {
 	}
 }
 
-func TestHeadingSpacingKeepsDocumentStartAndTitleGroupCompact(t *testing.T) {
+func TestHeadingSpacingKeepsDocumentStartAndSeparatesTitleFromSections(t *testing.T) {
 	for _, src := range []string{"# 文档标题\n## 小标题\n正文", "\n\n# 文档标题\n## 小标题\n正文"} {
 		h := paragraphEditingHarness(t, src)
 		var headings []*leaf
@@ -69,8 +69,8 @@ func TestHeadingSpacingKeepsDocumentStartAndTitleGroupCompact(t *testing.T) {
 			t.Fatal("section margin inflated document top")
 		}
 		gap := headings[1].y - (headings[0].y + headings[0].h)
-		if gap > h.e.lk.size*.65+.1 {
-			t.Fatalf("title/subtitle group separated: %v", gap)
+		if gap < h.e.lk.size*2 || gap > h.e.lk.size*4 {
+			t.Fatalf("page title and first section need a distinct section gap: %v", gap)
 		}
 		h.want(src)
 	}

@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+// MissingImageMessage is the shared, user-facing state for an image source
+// that could not be loaded by a document renderer or the image preview.
+func MissingImageMessage(src string) string {
+	src = strings.TrimSpace(strings.ReplaceAll(src, "\\", "/"))
+	if src == "" {
+		return "找不到图片。"
+	}
+	return "找不到“" + src + "”。"
+}
+
 type attachmentPaths struct {
 	at    time.Time
 	names map[string]string
@@ -26,6 +36,9 @@ func ResolveImageSource(src, base, root string) string {
 	if abs, err := filepath.Abs(local); err == nil {
 		local = abs
 	}
+	if root != "" && !pathWithinRoot(local, root) {
+		return ""
+	}
 	if st, err := os.Stat(local); err == nil && !st.IsDir() {
 		return local
 	}
@@ -33,6 +46,9 @@ func ResolveImageSource(src, base, root string) string {
 		return local
 	}
 	rel := resolveImagePath(src, root)
+	if !pathWithinRoot(rel, root) {
+		return ""
+	}
 	if st, err := os.Stat(rel); err == nil && !st.IsDir() {
 		return rel
 	}
@@ -74,4 +90,33 @@ func ResolveImageSource(src, base, root string) string {
 		return p
 	}
 	return local
+}
+
+// pathWithinRoot checks both lexical traversal and existing symlink targets.
+// A note inside a vault must not be able to use an image path to read outside
+// the vault. Missing paths are checked lexically so they still get the normal
+// missing-image placeholder rather than being treated as a valid attachment.
+func pathWithinRoot(path, root string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	if !pathUnder(absRoot, absPath) {
+		return false
+	}
+	resolvedRoot, rootErr := filepath.EvalSymlinks(absRoot)
+	resolvedPath, pathErr := filepath.EvalSymlinks(absPath)
+	if rootErr == nil && pathErr == nil {
+		return pathUnder(resolvedRoot, resolvedPath)
+	}
+	return true
+}
+
+func pathUnder(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

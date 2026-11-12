@@ -143,7 +143,7 @@ func pictureControl(h *harness, p *leaf) ui.Rect {
 	if !h.e.sourceOpen(p) {
 		for _, hit := range h.e.imageHits {
 			if hit.leaf != nil && hit.leaf.lineStart == p.lineStart {
-				_, source, _ := imageToolRects(hit.box, h.e.lk.size)
+				_, source, _, _ := imageToolRects(hit.box, h.e.lk.size)
 				return source
 			}
 		}

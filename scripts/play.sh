@@ -1,7 +1,6 @@
 #!/bin/sh
-# Runs Muse on a playground note: every kind of content in one document, and
-# the document starts over on every launch, so nothing edited there is kept
-# by accident.
+# Runs Muse on a copied multi-note vault with nested folders and image assets.
+# The vault starts over on every launch, so edits are disposable.
 #
 #   sh scripts/play.sh              build, open it, rebuild and reopen on save
 #   sh scripts/play.sh --build-only build it and leave the note ready
@@ -15,16 +14,19 @@ cd "$(dirname "$0")/.."
 . scripts/signing.sh
 
 out=native/.mygo/play
-fixture=native/testdata/playground.md
-note_abs=$(pwd)/$out/playground.md
+fixture=native/testdata/vault-fixture
+vault_abs=$(pwd)/$out/vault
+cache_abs=$(pwd)/$out/cache
+note_abs=$vault_abs/Home.md
 mode=${1:-watch}
 
-# A fresh copy for every launch: the playground is a fixed input, not a note
-# to keep. Edits made in it are gone when the window opens again.
+# A fresh copy for every launch: the fixture vault is fixed test input, not a
+# note library to keep. Edits made in it are gone when the window opens again.
 reset() {
   mkdir -p "$out"
-  cp "$fixture" "$out/playground.md.tmp"
-  mv "$out/playground.md.tmp" "$out/playground.md"
+  rm -rf "$vault_abs"
+  mkdir -p "$vault_abs"
+  cp -R "$fixture"/. "$vault_abs"/
 }
 
 build() {
@@ -41,16 +43,16 @@ build() {
 # The editor resolves its resources from its own directory, so it starts
 # there; exec keeps the pid the one to stop.
 launch() {
-  ( cd native && MUSE_OPEN="$note_abs" exec ./.mygo/play/Muse ) &
+  ( cd native && MUSE_WORKSPACE="$vault_abs" MUSE_OPEN="$note_abs" MUSE_CACHE_DIR="${MUSE_CACHE_DIR:-$cache_abs}" exec ./.mygo/play/Muse ) &
   pid=$!
 }
 
 # The files whose change means a rebuild; the fixture is one of them, so
 # editing it brings the note back with what was written.
 sources() {
-  find native/mdedit native/nativeui native/mdoc native/services native/doc \
+  find native/mdedit native/nativeui native/mdoc native/cachepath native/services native/doc \
     native/cmd native/frontmatter native/notestore native/vaultindex native/vaultsearch native/vaultwatch native/scrollui native/main.go "$fixture" \
-    -newer "$1" \( -name '*.go' -o -name '*.md' \) -print -quit 2>/dev/null
+    -newer "$1" \( -name '*.go' -o -name '*.md' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) -print -quit 2>/dev/null
 }
 
 pid=
@@ -64,7 +66,7 @@ stop() {
 reset
 build
 if [ "$mode" = --build-only ]; then
-  echo "playground ready: $note_abs"
+  echo "vault ready: $vault_abs"
   exit 0
 fi
 

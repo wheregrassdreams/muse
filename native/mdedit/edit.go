@@ -86,6 +86,11 @@ func (e *Editor) typeText(text string) {
 	if text == "" {
 		return
 	}
+	defer e.updateWikiSuggestions()
+	if e.blockInput != nil {
+		e.typeBlockInput(text)
+		return
+	}
 	if e.typeTableBlock(text) {
 		return
 	}
@@ -154,7 +159,9 @@ func (e *Editor) typeText(text string) {
 			if e.skipCloser(ch) {
 				return
 			}
-			if e.autoPair(ch, inCode) {
+			lineStart := lineStartAt(e.src, e.caret)
+			inInlineCode := oddBacktickRun(e.src[lineStart:e.caret])
+			if !(ch == '[' && (inCode || inInlineCode)) && e.autoPair(ch, inCode) {
 				return
 			}
 		}
@@ -352,6 +359,11 @@ func blockFor(text, cont string) (string, int, bool) {
 
 // deleteSelection deletes the selection, as one step of undo.
 func (e *Editor) deleteSelection() {
+	if e.block != nil {
+		e.deleteBlock()
+		e.block = nil
+		return
+	}
 	if e.tableSelection != nil && e.tableBridge == nil && e.applyTableSelection("d") {
 		return
 	}
@@ -482,6 +494,15 @@ func (e *Editor) backspace(word bool) {
 	}
 	prev := e.step(off, -1, word)
 	if prev >= off {
+		return
+	}
+	uPair := e.unitAt(off)
+	inCode := uPair != nil && (uPair.kind == kCode || uPair.kind == kMath || uPair.kind == kHTML || uPair.kind == kRaw)
+	if !word && !inCode && off < len(e.src) && e.src[prev:off] == "[" && e.src[off:off+1] == "]" {
+		e.begin(stepDelete)
+		e.replace(prev, off+1, "")
+		e.commit(prev, prev)
+		e.tidyEmpty()
 		return
 	}
 	if !word {

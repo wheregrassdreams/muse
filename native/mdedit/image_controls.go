@@ -31,6 +31,7 @@ func (e *Editor) applyImagePreview(obj *object, from, to int) {
 	if d == nil || d.hit.obj == nil || d.hit.obj.sourceFrom != from || d.hit.obj.sourceTo != to || obj == nil {
 		return
 	}
+	obj.refreshAssetBitmap()
 	if obj.bmp != nil {
 		bw, bh := obj.bmp.Size()
 		if bw > 0 && bh > 0 {
@@ -159,6 +160,7 @@ func (e *Editor) resizeImageSource(hit imageHit, width float32) {
 		}
 		tag := whole[i : end+1]
 		attrs := []struct{ name, value string }{{"width", strconv.Itoa(int(width))}}
+		o.refreshAssetBitmap()
 		if strings.Contains(strings.ToLower(tag), "height") && o.bmp != nil {
 			bw, bh := o.bmp.Size()
 			if bw > 0 {
@@ -273,10 +275,53 @@ func (e *Editor) imageAt(x, y float32) (imageHit, bool) {
 	return imageHit{}, false
 }
 
-func imageToolRects(box ui.Rect, size float32) (preview, source, grip ui.Rect) {
+func imageToolRects(box ui.Rect, size float32) (preview, source, align, grip ui.Rect) {
 	button := max(size*1.4, 22)
-	preview = ui.Rect{X: box.X + box.W - button*2 - 4, Y: box.Y + 4, W: button, H: button}
+	preview = ui.Rect{X: box.X + box.W - button*3 - 6, Y: box.Y + 4, W: button, H: button}
+	align = ui.Rect{X: box.X + box.W - button*2 - 4, Y: box.Y + 4, W: button, H: button}
 	source = ui.Rect{X: box.X + box.W - button - 2, Y: box.Y + 4, W: button, H: button}
 	grip = ui.Rect{X: box.X + box.W - button, Y: box.Y + box.H - button, W: button, H: button}
 	return
+}
+
+func (e *Editor) imageAlignCenter(sourceFrom int) bool {
+	if e.imageAlignments == nil {
+		return true
+	}
+	center, exists := e.imageAlignments[sourceFrom]
+	return !exists || center
+}
+
+func (e *Editor) toggleImageAlignment(hit imageHit) {
+	if hit.obj == nil || !hit.obj.block || hit.obj.sourceFrom < 0 {
+		return
+	}
+	if e.imageAlignments == nil {
+		e.imageAlignments = make(map[int]bool)
+	}
+	e.imageAlignments[hit.obj.sourceFrom] = !hit.obj.alignCenter
+	e.views = make(map[viewKey]*leafView)
+	for _, l := range e.leaves {
+		l.view = nil
+		l.vp = viewParams{}
+	}
+	e.leavesLaid = false
+	e.invalidate()
+}
+
+func (e *Editor) shiftImageAlignments(from, to, inserted int) {
+	if len(e.imageAlignments) == 0 {
+		return
+	}
+	shift := inserted - (to - from)
+	next := make(map[int]bool, len(e.imageAlignments))
+	for at, centered := range e.imageAlignments {
+		switch {
+		case at >= to:
+			next[at+shift] = centered
+		case at < from:
+			next[at] = centered
+		}
+	}
+	e.imageAlignments = next
 }

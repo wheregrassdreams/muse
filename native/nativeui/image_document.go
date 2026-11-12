@@ -24,7 +24,6 @@ func (a *App) openImageDocument(path string, record bool) {
 	bmp := mdoc.LoadImage(path, "", nil)
 	a.imageDocument = imageDocumentState{path: path, bmp: bmp, open: true}
 	a.propertiesOpen = false
-	a.propertyTitleEditing = false
 	a.propertyEditKey, a.propertyEditLocation = "", ""
 	a.selectedPath = path
 	a.propertiesOpen = false

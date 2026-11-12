@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/png"
@@ -8,8 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"muse/mdoc"
 )
 
 func writePreviewPNG(t *testing.T) string {
@@ -42,6 +46,11 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	a.ed.Focus()
 	a.openImagePreview(path)
 	tt := ui.NewTester(a.View, 900, 600)
+	deadline := time.Now().Add(2 * time.Second)
+	for a.imagePreview.bmp == nil && time.Now().Before(deadline) {
+		tt.Frame()
+		time.Sleep(10 * time.Millisecond)
+	}
 	tt.Frame()
 	if !a.imagePreview.open || a.imagePreview.bmp == nil {
 		t.Fatalf("image preview did not load %q: %+v", path, a.imagePreview)
@@ -102,6 +111,69 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	tt.Frame()
 	if !a.ed.Focused() {
 		t.Fatal("closing the preview did not restore editor focus")
+	}
+}
+
+func TestImagePreviewUsesSharedMissingImageMessage(t *testing.T) {
+	dir := t.TempDir()
+	a := New()
+	a.path = filepath.Join(dir, "note.md")
+	src := filepath.Join(dir, "附件", "missing.png")
+	a.openImagePreview(src)
+	tt := ui.NewTester(a.View, 900, 600)
+	tt.Frame()
+	want := mdoc.MissingImageMessage("附件/missing.png")
+	if !tt.HasText(want) {
+		t.Fatalf("missing-image preview = %q, want %q", tt.Texts(), want)
+	}
+	if a.imagePreview.bmp != nil || a.imagePreview.loading {
+		t.Fatalf("missing image state = %+v, want a settled not-found state", a.imagePreview)
+	}
+	if dir := os.Getenv("MISSING_IMAGE_SHOTS"); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(filepath.Join(dir, "image-preview.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestFullImagePreviewAdvancesAnimatedGIFFrames(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "testdata", "vault-fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(root, "Attachments", "animation.gif")
+	a := New()
+	a.root, a.path = root, filepath.Join(root, "Home.md")
+	a.openImagePreview(src)
+	tt := ui.NewTester(a.View, 900, 600)
+	deadline := time.Now().Add(2 * time.Second)
+	for a.imagePreview.bmp == nil && time.Now().Before(deadline) {
+		tt.Frame()
+		time.Sleep(10 * time.Millisecond)
+	}
+	tt.Frame()
+	if a.imagePreview.asset == nil || a.imagePreview.bmp == nil {
+		t.Fatalf("GIF full preview asset did not load: %+v", a.imagePreview)
+	}
+	if next, _ := a.imagePreview.asset.Advance(tt.Now()); next <= 0 {
+		t.Fatal("GIF asset did not report an animation frame deadline")
+	}
+	first := append([]byte(nil), tt.Image().Pix...)
+	tt.Advance(750 * time.Millisecond)
+	second := tt.Image().Pix
+	if bytes.Equal(first, second) {
+		t.Fatal("full-screen GIF preview did not repaint with a later frame")
 	}
 }
 

@@ -162,7 +162,7 @@ func TestImageHoverDragCancelCommitAndUndo(t *testing.T) {
 		}
 	}
 	hit = h.e.imageHits[0]
-	_, _, grip := imageToolRects(hit.box, h.e.lk.size)
+	_, _, _, grip := imageToolRects(hit.box, h.e.lk.size)
 	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
 	startWidth := hit.obj.w
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
@@ -180,7 +180,7 @@ func TestImageHoverDragCancelCommitAndUndo(t *testing.T) {
 		t.Fatal("cancel did not restore the original image view")
 	}
 	hit = h.e.imageHits[0]
-	_, _, grip = imageToolRects(hit.box, h.e.lk.size)
+	_, _, _, grip = imageToolRects(hit.box, h.e.lk.size)
 	x, y = grip.X+grip.W/2, grip.Y+grip.H/2
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerMove, Button: 0, X: x + 40, Y: y + 20})
@@ -234,7 +234,7 @@ func TestImageHoverPreviewPassesResolvedPathWithoutChangingSource(t *testing.T) 
 		t.Fatal("no rendered image region")
 	}
 	hit := h.e.imageHits[0]
-	preview, _, _ := imageToolRects(hit.box, h.e.lk.size)
+	preview, _, _, _ := imageToolRects(hit.box, h.e.lk.size)
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: preview.X + preview.W/2, Y: preview.Y + preview.H/2})
 	if got != filepath.Join(dir, "sample file.png") {
 		t.Fatalf("preview callback got %q", got)
@@ -242,4 +242,97 @@ func TestImageHoverPreviewPassesResolvedPathWithoutChangingSource(t *testing.T) 
 	if h.e.Source() != src {
 		t.Fatal("opening preview changed Markdown source")
 	}
+}
+
+func TestStandaloneImageAlignmentSurvivesSourceReveal(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		left       bool
+		wantCenter bool
+	}{
+		{name: "centered", wantCenter: true},
+		{name: "left aligned", left: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sample.png")
+			var encoded bytes.Buffer
+			bitmap := image.NewRGBA(image.Rect(0, 0, 120, 60))
+			for y := 0; y < 60; y++ {
+				for x := 0; x < 120; x++ {
+					bitmap.Set(x, y, color.RGBA{R: 80, G: 130, B: 190, A: 255})
+				}
+			}
+			if err := png.Encode(&encoded, bitmap); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, encoded.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+			h := newHarness(t, "![sample](missing.png)")
+			opts := h.e.Options()
+			opts.BaseDir = dir
+			h.e.SetOptions(opts)
+			h.e.SetSource("![sample](sample.png)")
+			h.frame()
+			h.frame()
+			if len(h.e.imageHits) == 0 {
+				t.Fatal("standalone image has no hit box")
+			}
+			hit := h.e.imageHits[0]
+			if tc.left {
+				h.tt.Move(hit.box.X+hit.box.W/2, hit.box.Y+hit.box.H/2)
+				h.frame()
+				hit = h.e.imageHits[0]
+				_, _, align, _ := imageToolRects(hit.box, h.e.lk.size)
+				h.tt.ClickAt(align.X+align.W/2, align.Y+align.H/2)
+				h.frame()
+				hit = h.e.imageHits[0]
+			}
+			before, ok := standaloneImageX(hit.leaf)
+			if !ok {
+				t.Fatal("image object has no layout rectangle")
+			}
+			h.e.toggleSource(hit.leaf)
+			h.frame()
+			hit = h.e.imageHits[0]
+			h.shot("standalone-image-source-" + strings.ReplaceAll(tc.name, " ", "-"))
+			after, ok := standaloneImageX(hit.leaf)
+			if !ok {
+				t.Fatal("revealed image object has no layout rectangle")
+			}
+			if after != before {
+				t.Fatalf("source reveal moved image horizontally: before %.1f after %.1f", before, after)
+			}
+			if tc.wantCenter && before < h.e.colW/3 {
+				t.Fatalf("centered image was not placed near the center: x=%.1f column=%.1f", before, h.e.colW)
+			}
+			if !tc.wantCenter && before > h.e.colW/4 {
+				t.Fatalf("left-aligned image was not placed near the left edge: x=%.1f column=%.1f", before, h.e.colW)
+			}
+			if got := hit.obj.alignCenter; got != tc.wantCenter {
+				t.Fatalf("alignment mode = %v, want centered=%v; source=%d alignments=%v", got, tc.wantCenter, hit.obj.sourceFrom, h.e.imageAlignments)
+			}
+			h.e.toggleSource(hit.leaf)
+			h.frame()
+			hit = h.e.imageHits[0]
+			collapsed, ok := standaloneImageX(hit.leaf)
+			if !ok || collapsed != before {
+				t.Fatalf("source collapse moved image horizontally: before %.1f after %.1f (ok=%v)", before, collapsed, ok)
+			}
+			h.tt.Move(hit.box.X+hit.box.W/2, hit.box.Y+hit.box.H/2)
+			h.frame()
+			h.shot("standalone-image-controls-" + strings.ReplaceAll(tc.name, " ", "-"))
+		})
+	}
+}
+
+func standaloneImageX(l *leaf) (float32, bool) {
+	if l == nil || l.view == nil || l.view.layout == nil {
+		return 0, false
+	}
+	for _, obj := range l.view.layout.Objects() {
+		return obj.Rect.X, true
+	}
+	return 0, false
 }

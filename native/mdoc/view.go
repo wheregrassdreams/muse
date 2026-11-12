@@ -6,8 +6,6 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -44,6 +42,9 @@ type Options struct {
 	ContentWidth float32
 	// BaseDir resolves relative image paths; "" uses the working directory.
 	BaseDir string
+	// AssetRoot is an optional vault root used after BaseDir lookup fails.
+	// Bare attachment names can then resolve to a file elsewhere in the vault.
+	AssetRoot string
 	// OnTask is called when a task-list checkbox is clicked, with the item's
 	// index in the list and its new checked state. Nil leaves the boxes
 	// read-only.
@@ -55,6 +56,9 @@ type Options struct {
 	// OnAsync is called on a worker goroutine when a remote image has loaded,
 	// so the view can repaint.
 	OnAsync func()
+	// OnImagePreview opens an image's preview when a missing-image fallback
+	// is clicked. The path is resolved relative to BaseDir when possible.
+	OnImagePreview func(path string)
 	// OnCopyCode is called from a code block's context menu.
 	OnCopyCode func(text string)
 	// CellEdit marks the one table cell drawn as a text input instead of text.
@@ -120,6 +124,7 @@ type rstyle struct {
 	preserveSoftBreaks bool
 	first              bool
 	afterHeading       bool
+	heading            bool
 	width              float32
 }
 
@@ -141,7 +146,7 @@ func renderBlocks(c *ui.Context, blocks []Block, depth int, s rstyle) {
 	for i, b := range blocks {
 		bs := s
 		bs.first = i == 0
-		bs.afterHeading = i > 0 && blocks[i-1].Kind == Heading
+		bs.afterHeading = i > 0 && blocks[i-1].Kind == Heading && blocks[i-1].Level != 1
 		renderBlock(c, b, depth, bs)
 	}
 }
@@ -150,6 +155,7 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 	t := c.Theme()
 	switch b.Kind {
 	case Heading:
+		s.heading = true
 		// The column supplies the ordinary block gap; headings add only the
 		// remaining room so short sections do not acquire oversized gaps.
 		pad := max(HeadingTopMargin(b.Level, s.o.BodyFontSize)-s.o.BodyFontSize*0.6, 0)
@@ -158,13 +164,13 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 		}
 		if spansHaveMath(b.Inlines) {
 			ui.Column(c).Padding(pad, 0, 0, 0).Children(func() {
-				renderInlineMath(c, b.Inlines, s, HeadingSize(b.Level, s.o.BodyFontSize), HeadingWeight(b.Level), 1.35)
+				renderInlineMath(c, b.Inlines, s, HeadingSize(b.Level, s.o.BodyFontSize), HeadingWeight(b.Level), HeadingLineHeight(b.Level))
 			})
 			return
 		}
 		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
 			FontSize(HeadingSize(b.Level, s.o.BodyFontSize)).
-			FontWeight(HeadingWeight(b.Level)).Wrap().LineHeight(1.35).
+			FontWeight(HeadingWeight(b.Level)).Wrap().LineHeight(HeadingLineHeight(b.Level)).
 			Padding(pad, 0, 0, 0)
 	case Paragraph:
 		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
@@ -317,7 +323,7 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 	if cols == 0 {
 		return
 	}
-	ui.Column(c).FillWidth().Border(1, MarkdownRuleColor(t.Dark)).Radius(4).Clip().Children(func() {
+	ui.Column(c).FillWidth().Border(1, TableRuleColor(t.Dark)).Radius(5).Clip().Children(func() {
 		for ri, row := range b.Rows {
 			head := ri == 0
 			ui.Row(c).AlignItems(ui.Stretch).Children(func() {
@@ -336,10 +342,7 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 					}
 					box := ui.Column(c).Grow(1).MinHeight(34).
 						Padding(7, 13).BorderWidth(0, right, bottom, 0).
-						BorderColor(MarkdownRuleColor(t.Dark))
-					if head {
-						box.Background(CodePanelColor(t.Dark))
-					}
+						BorderColor(TableRuleColor(t.Dark))
 					if e := s.o.CellEdit; e != nil && e.Row == ri && e.Col == ci {
 						box.Children(func() {
 							inp := ui.TextInputBase(c, e.Value).AutoFocus().FillWidth().
@@ -400,27 +403,29 @@ func cellAlign(a []Align, i int) ui.Align {
 	return ui.Start
 }
 
-// renderImage draws a standalone image from the document's folder. Remote
-// images are not fetched: Typora can, a native renderer without a network
-// stack shows the alt text instead.
+// renderImage draws a standalone image from the document's folder or URL.
+// File and network reads happen in ImageAsset loaders, outside this draw.
 func renderImage(c *ui.Context, b Block, s rstyle) {
 	t := c.Theme()
-	if isRemoteImage(b.Src) {
-		if bmp := remoteBitmap(b.Src, s.o.OnAsync); bmp != nil {
-			drawImage(c, bmp, s, b.ImgWidth, b.ImgHeight)
-		} else {
-			imagePlaceholder(c, b.Alt, t)
-		}
+	path := ResolveImageSource(b.Src, s.o.BaseDir, s.o.AssetRoot)
+	var asset *ImageAsset
+	if path != "" {
+		asset = LoadImageAsset(path, "", s.o.OnAsync)
+	}
+	if asset == nil {
+		imagePlaceholder(c, b.Src, b.Src, t, s.o.OnImagePreview)
 		return
 	}
-	path := resolveImagePath(b.Src, s.o.BaseDir)
-	if path == "" {
-		imagePlaceholder(c, b.Alt, t)
-		return
+	next, _ := asset.Advance(c.Now())
+	if next > 0 {
+		c.After(next)
 	}
-	bmp := loadBitmap(path)
+	bmp := asset.Bitmap()
 	if bmp == nil {
-		imagePlaceholder(c, b.Alt, t)
+		if path == "" {
+			path = b.Src
+		}
+		imagePlaceholder(c, b.Src, path, t, s.o.OnImagePreview)
 		return
 	}
 	drawImage(c, bmp, s, b.ImgWidth, b.ImgHeight)
@@ -452,13 +457,16 @@ func drawImage(c *ui.Context, bmp *ui.Bitmap, s rstyle, wantW, wantH float32) {
 	})
 }
 
-func imagePlaceholder(c *ui.Context, alt string, t *ui.Theme) {
-	if strings.TrimSpace(alt) == "" {
-		alt = "图片"
+func imagePlaceholder(c *ui.Context, source, resolved string, t *ui.Theme, onPreview func(string)) {
+	row := ui.Row(c).FillWidth().Padding(12).Radius(4).Background(t.Surface)
+	if onPreview != nil {
+		if resolved == "" {
+			resolved = source
+		}
+		row.OnClick(func() { onPreview(resolved) }).Cursor(ui.CursorPointer)
 	}
-	ui.Row(c).FillWidth().Padding(12).Radius(4).Background(t.Surface).
-		Justify(ui.Center).Children(func() {
-		ui.Text(c, "🖼 "+alt).FontSize(13).TextColor(t.TextMuted)
+	row.Children(func() {
+		ui.Text(c, MissingImageMessage(source)).FontSize(13).TextColor(t.TextMuted)
 	})
 }
 
@@ -510,18 +518,7 @@ func remoteBitmap(src string, done func()) *ui.Bitmap {
 				notify()
 			}
 		}
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Get(src)
-		if err != nil {
-			fail()
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			fail()
-			return
-		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+		data, err := fetchRemoteImageData(src)
 		if err != nil {
 			fail()
 			return
@@ -605,6 +602,9 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 			u.Text = " "
 		}
 		u.Color = BodyTextColor(t.Dark)
+		if s.heading {
+			u.Color = HeadingTextColor(t.Dark)
+		}
 		if s.muted {
 			u.Color = s.body(c).Mix(t.TextMuted, 0.25)
 		}

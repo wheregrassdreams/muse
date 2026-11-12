@@ -41,6 +41,9 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	bars := map[int]*bar{}
 	var order []int
 	for _, l := range e.leaves {
+		if e.foldHidden(l) {
+			continue
+		}
 		x := e.colX
 		for _, c := range l.conts {
 			if c.kind == cQuote && !isCalloutContainer(c) {
@@ -68,17 +71,30 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 			continue
 		}
 		e.paintMarkers(p, l, ox, oy)
-		switch l.kind {
-		case kTable:
-			e.paintTable(p, l, ox, oy, t)
-			for _, row := range l.tab.rows {
-				for _, cell := range row {
-					e.paintUnit(p, cell, ox, oy)
+		drawBlock := func() {
+			switch l.kind {
+			case kTable:
+				e.paintTable(p, l, ox, oy, t)
+				for _, row := range l.tab.rows {
+					for _, cell := range row {
+						e.paintUnit(p, cell, ox, oy)
+					}
+				}
+			default:
+				e.paintUnit(p, l, ox, oy)
+				if l.kind == kHeading {
+					e.paintFoldChevron(p, l, ox, oy)
 				}
 			}
-		default:
-			e.paintUnit(p, l, ox, oy)
 		}
+		if blockContentWidth(l) > blockViewport(l).W {
+			clip := blockViewport(l)
+			clip.X, clip.Y = clip.X+ox, clip.Y+oy
+			p.Clip(clip, 0, drawBlock)
+		} else {
+			drawBlock()
+		}
+		e.paintBlockHorizontalBar(p, l, ox, oy)
 	}
 	for _, l := range e.leaves {
 		if !e.gridBlock(l) || !e.showsChip(l) {
@@ -103,7 +119,13 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		sp := ui.Span{Text: e.opts.Placeholder, Color: e.lk.muted.Alpha(0.6), Size: e.lk.size}
 		p.RichText(ox+x, oy+e.padTop+e.lk.size*e.lk.lh/2-e.lk.size*0.7, w, sp)
 	}
-	e.paintCaret(p, ox, oy)
+	if l := e.horizontalOwner(e.selectionFocus()); l != nil && blockContentWidth(l) > blockViewport(l).W {
+		clip := blockViewport(l)
+		clip.X, clip.Y, clip.W = clip.X+ox-2, clip.Y+oy, clip.W+4
+		p.Clip(clip, 0, func() { e.paintCaret(p, ox, oy) })
+	} else {
+		e.paintCaret(p, ox, oy)
+	}
 }
 
 // paintUnit draws a leaf or a cell: its panel, what is found and selected
@@ -112,26 +134,35 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 	a, z := e.textSelectionForUnit(u)
 	v := u.view
 	if v == nil {
+		e.paintBlockRowRect(p, u, nil, ox, oy)
 		// A blank line has no text and no view: nothing to draw — but a
 		// selection across it covers the line, and shows as covering it.
-		if a != z && a <= u.start && z >= u.end {
+		if e.selectionCoversBlankLine(u, a, z) {
 			p.Fill(ui.Rect{X: ox + u.x, Y: oy + u.y, W: u.w, H: u.h}, e.lk.selection, 2)
 		}
 		return
 	}
 	x, y := ox+u.x, oy+u.y
+	contentX := x - blockScrollOffset(u)
 	box := ui.Rect{X: x, Y: y, W: u.w, H: u.h}
 	if v.panel {
 		p.Fill(box, e.lk.panel, 6)
 	}
+	e.paintBlockRowRect(p, u, v, ox, oy)
 	if v.layout != nil && len(v.disp.codeBoxes) > 0 {
-		e.paintInlineCodeBoxes(p, v, x+v.tx, y+v.ty)
+		var ranges []Range
+		if e.block != nil {
+			ranges = e.SelectionRanges()
+		} else if a != z {
+			ranges = []Range{{Start: a, End: z}}
+		}
+		e.paintInlineCodeBoxes(p, u, v, contentX+v.tx, y+v.ty, ranges)
 	}
 	if u.kind == kRule && v.layout == nil {
 		p.Fill(ui.Rect{X: x, Y: y + u.h/2 - 0.75, W: u.w, H: 1.5}, e.lk.border.Alpha(1), 0)
 	}
 	if v.layout != nil {
-		lx, ly := x+v.tx, y+v.ty
+		lx, ly := contentX+v.tx, y+v.ty
 		for i, h := range e.highlights {
 			col := ui.RGBA(250, 204, 21, 0.35)
 			if i == e.current {
@@ -140,7 +171,7 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 			e.fillRange(p, u, v, h.Start, h.End, lx, ly, col)
 		}
 		structural := e.tableSelection != nil && u.table != nil && e.tableSelection.lineStart == u.table.lineStart
-		if a != z && !structural {
+		if a != z && !structural && e.block == nil {
 			sel := e.lk.selection
 			if !e.focused {
 				sel = sel.Alpha(0.6)
@@ -151,11 +182,11 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 			v.layout.Draw(p, lx, ly, e.lk.text)
 		}
 		e.paintObjects(p, u, v, lx, ly)
-	} else if a != z && a <= leafLo(u) && z >= u.end && !(e.tableSelection != nil && u.table != nil && e.tableSelection.lineStart == u.table.lineStart) {
+	} else if a != z && a <= leafLo(e, u) && z >= u.end && !(e.tableSelection != nil && u.table != nil && e.tableSelection.lineStart == u.table.lineStart) {
 		p.Fill(box, e.lk.selection, 4)
 	}
 	if v.block != nil {
-		r := ui.Rect{X: x + v.bx, Y: y + v.by, W: v.block.w, H: v.block.h}
+		r := ui.Rect{X: contentX + v.bx, Y: y + v.by, W: v.block.w, H: v.block.h}
 		e.paintObject(p, v.block, r)
 		if v.block.imagePath != "" {
 			e.imageHits = append(e.imageHits, imageHit{obj: v.block, box: ui.Rect{X: r.X - e.elemRect.X, Y: r.Y - e.elemRect.Y, W: r.W, H: r.H}, leaf: u})
@@ -176,10 +207,67 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 	}
 }
 
-// paintInlineCodeBoxes paints one background per revealed inline code or
-// math range. Delimiters keep their own muted text style over this shared
-// shape, instead of drawing separate rounded span backgrounds.
-func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, v *leafView, x, y float32) {
+func (e *Editor) selectionCoversBlankLine(u *leaf, a, z int) bool {
+	if u == nil || a == z {
+		return false
+	}
+	start, end := e.sourceLineRange(u.start)
+	if end < len(e.src) {
+		end++ // The linewise range owns the line break ending this blank line.
+	}
+	return start < end && a <= start && z >= end
+}
+
+func (e *Editor) paintBlockRowRect(p *ui.Painter, u *leaf, v *leafView, ox, oy float32) {
+	b := e.block
+	if b == nil || u == nil || u.table != nil || u.kind == kTable {
+		return
+	}
+	col := e.lk.selection
+	if !e.focused {
+		col = col.Alpha(0.6)
+	}
+	fill := func(y, h float32) {
+		if y+h/2+0.1 < b.top || y+h/2-0.1 > b.bottom {
+			return
+		}
+		p.Fill(ui.Rect{X: ox + b.left, Y: oy + y, W: max(b.right-b.left, 1), H: max(h, 1)}, col, 2)
+	}
+	if v == nil || v.layout == nil {
+		fill(u.y, u.h)
+		return
+	}
+	for _, line := range v.layout.Lines() {
+		fill(u.y+v.ty+line.Rect.Y, line.Rect.H)
+	}
+}
+
+func (e *Editor) paintFoldChevron(p *ui.Painter, h *leaf, ox, oy float32) {
+	if h == nil || e.foldHover != h.lineStart || e.foldHeadingAt(e.pointerX, e.pointerY) != h {
+		return
+	}
+	x, y, size, ok := e.foldChevronRect(h)
+	if !ok {
+		return
+	}
+	stroke := e.lk.muted.Alpha(0.82)
+	path := ui.Path{}
+	if e.isFoldedHeading(h) {
+		path.MoveTo(ox+x+size*0.38, oy+y+size*0.22)
+		path.LineTo(ox+x+size*0.68, oy+y+size*0.5)
+		path.LineTo(ox+x+size*0.38, oy+y+size*0.78)
+	} else {
+		path.MoveTo(ox+x+size*0.22, oy+y+size*0.38)
+		path.LineTo(ox+x+size*0.5, oy+y+size*0.68)
+		path.LineTo(ox+x+size*0.78, oy+y+size*0.38)
+	}
+	p.StrokePath(&path, max(1.2, e.lk.size*0.075), stroke)
+}
+
+// paintInlineCodeBoxes paints one background per inline code or math range.
+// Source delimiters keep their own muted text style over this shared shape,
+// instead of drawing separate rounded span backgrounds.
+func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, u *leaf, v *leafView, x, y float32, ranges []Range) {
 	lines := v.layout.Lines()
 	for _, box := range v.disp.codeBoxes {
 		for _, r := range v.layout.SelectionRects(box.range_) {
@@ -195,12 +283,43 @@ func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, v *leafView, x, y float32) 
 				}
 			}
 			h := box.size*1.32 + 2*box.padY
-			p.Fill(ui.Rect{
+			pill := ui.Rect{
 				X: x + r.X - padX,
 				Y: y + baseline - box.size*0.98 - box.padY,
 				W: r.W + 2*padX,
 				H: h,
-			}, e.lk.codeBg, max(3, e.lk.size/5))
+			}
+			p.Fill(pill, e.lk.codeBg, max(3, e.lk.size/5))
+			for _, selectionRange := range ranges {
+				lo, hi := u.lineStart, u.end
+				if selectionRange.Start >= hi || selectionRange.End <= lo {
+					continue
+				}
+				da := v.disp.looseDisp(max(selectionRange.Start, lo) - lo)
+				dz := v.disp.looseDisp(min(selectionRange.End, hi) - lo)
+				selected := ui.TextInputRange{Start: max(da, box.range_.Start), End: min(dz, box.range_.End)}
+				if selected.End > selected.Start {
+					selection := e.lk.selection
+					if !e.focused {
+						selection = selection.Alpha(0.6)
+					}
+					for _, sr := range v.layout.SelectionRects(selected) {
+						if math.Abs(float64(sr.Y+sr.H/2-(r.Y+r.H/2))) > float64(max(sr.H, r.H)/2) {
+							continue
+						}
+						textLeft, textRight := x+sr.X, x+sr.X+sr.W
+						if e.block != nil {
+							p.Fill(ui.Rect{X: textLeft, Y: pill.Y, W: sr.W, H: pill.H}, selection, max(3, e.lk.size/5))
+						}
+						if selected.Start <= box.range_.Start && textLeft > pill.X {
+							p.Fill(ui.Rect{X: pill.X, Y: pill.Y, W: textLeft - pill.X, H: pill.H}, selection, max(3, e.lk.size/5))
+						}
+						if selected.End >= box.range_.End && pill.X+pill.W > textRight {
+							p.Fill(ui.Rect{X: textRight, Y: pill.Y, W: pill.X + pill.W - textRight, H: pill.H}, selection, max(3, e.lk.size/5))
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -288,6 +407,12 @@ func (e *Editor) paintDiagramBar(p *ui.Painter, track, thumb ui.Rect, hot bool) 
 // unit.
 func (e *Editor) fillRange(p *ui.Painter, u *leaf, v *leafView, a, z int, lx, ly float32, col ui.Color) {
 	lo, hi := u.lineStart, u.end
+	// A source-open fenced-code view can draw the closing fence after the
+	// parser's code leaf ends. Those source-backed pieces are still part of
+	// this view and must receive the same selection paint as the code body.
+	for _, pc := range v.disp.pieces {
+		hi = max(hi, u.lineStart+pc.s1)
+	}
 	if z < lo || a > hi || v.empty {
 		return
 	}
@@ -334,6 +459,9 @@ func (e *Editor) paintObjects(p *ui.Painter, u *leaf, v *leafView, lx, ly float3
 		for i := range v.disp.pieces {
 			pc := &v.disp.pieces[i]
 			if pc.obj != nil && pc.d0 == o.Index {
+				if pc.obj.spacer {
+					break
+				}
 				r := o.Rect
 				r.X += lx
 				r.Y += ly
@@ -351,17 +479,27 @@ func (e *Editor) paintImageTools(p *ui.Painter, hit imageHit, ox, oy float32) {
 	box := hit.box
 	box.X += e.elemRect.X
 	box.Y += e.elemRect.Y
-	preview, source, grip := imageToolRects(box, e.lk.size)
-	for i, item := range []struct {
+	preview, source, align, grip := imageToolRects(box, e.lk.size)
+	items := []struct {
 		r     ui.Rect
 		label string
-	}{{preview, "↗"}, {source, "</>"}} {
+	}{{preview, "↗"}}
+	if hit.obj != nil && hit.obj.block {
+		items = append(items, struct {
+			r     ui.Rect
+			label string
+		}{align, map[bool]string{true: "↔", false: "↤"}[hit.obj.alignCenter]})
+	}
+	items = append(items, struct {
+		r     ui.Rect
+		label string
+	}{source, "</>"})
+	for _, item := range items {
 		p.Fill(item.r, e.lk.panel, 5)
 		p.Stroke(item.r, e.lk.border, 5, 1)
 		sp := ui.Span{Text: item.label, Size: e.lk.size * 0.7, Color: e.lk.text}
 		w, h := p.MeasureText(item.r.W-4, sp)
 		p.RichText(item.r.X+(item.r.W-w)/2, item.r.Y+(item.r.H-h)/2, item.r.W-4, sp)
-		_ = i
 	}
 	// A quiet L mark at the lower-right corner is the image resize affordance.
 	col := e.lk.text.Alpha(0.72)
@@ -372,20 +510,45 @@ func (e *Editor) paintImageTools(p *ui.Painter, hit imageHit, ox, oy float32) {
 // paintObject draws an image or a formula in r, or a placeholder for an
 // image not loaded.
 func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
+	o.refreshAssetBitmap()
+	if o.embedBlocked != "" {
+		p.Fill(r, e.lk.panel, 7)
+		p.Stroke(r, e.lk.border, 7, 1)
+		pad := e.lk.size * 0.65
+		sp := ui.Span{Text: o.embedBlocked, Size: e.lk.size * 0.82, Color: e.lk.muted}
+		_, h := p.MeasureText(max(r.W-2*pad, 1), sp)
+		p.RichText(r.X+pad, r.Y+(r.H-h)/2, max(r.W-2*pad, 1), sp)
+		return
+	}
+	if o.embed != nil {
+		pad := e.lk.size * 0.55
+		p.Fill(r, e.lk.panel, 7)
+		p.Stroke(r, e.lk.border.Alpha(0.7), 7, 1)
+		inner := ui.Rect{X: r.X + pad, Y: r.Y + pad, W: max(r.W-2*pad, 1), H: max(r.H-2*pad, 1)}
+		p.Clip(inner, 4, func() { o.embed.paint(p, inner) })
+		return
+	}
+	if o.footnote {
+		sp := ui.Span{Text: o.alt, Size: e.lk.size * 0.78, Color: e.lk.accent}
+		ascent := ui.Font{Family: e.lk.font, Size: sp.Size}.Metrics().Ascent
+		p.RichText(r.X, r.Y-ascent-e.lk.size*0.4, r.W, sp)
+		return
+	}
 	if o.bmp != nil {
 		p.Image(o.bmp, r, ui.Contain)
 		return
 	}
 	p.Fill(r, e.lk.panel, 6)
-	p.Stroke(r, e.lk.border, 6, 1)
-	label := "🖼 " + o.alt
-	if o.alt == "" {
-		label = "🖼 图片"
+	source := o.imageDest
+	if source == "" {
+		source = o.imagePath
 	}
-	sp := ui.Span{Text: label, Size: e.lk.size * 0.8, Color: e.lk.muted}
-	w, h := p.MeasureText(r.W-16, sp)
+	sp := ui.Span{Text: mdoc.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
+	pad := e.lk.size * 0.8
+	textW := max(r.W-2*pad, 0)
+	_, h := p.MeasureText(textW, sp)
 	p.Clip(r, 6, func() {
-		p.RichText(r.X+max((r.W-w)/2, 8), r.Y+(r.H-h)/2, r.W-16, sp)
+		p.RichText(r.X+pad, r.Y+(r.H-h)/2, textW, sp)
 	})
 }
 
@@ -416,13 +579,16 @@ func (e *Editor) paintMarkers(p *ui.Painter, l *leaf, ox, oy float32) {
 	}
 	for _, k := range l.firstOf {
 		c := l.conts[k]
+		if (c.kind == cItem || c.kind == cFootnote) && e.containerPrefixOpen(l) {
+			continue
+		}
 		x0 := e.colX + e.indentOf(l.conts[:k])
 		w := e.indentOf(l.conts[k : k+1])
 		switch c.kind {
 		case cItem:
 			e.paintItemMarker(p, c, ox+x0, oy+baseline, w)
 		case cFootnote:
-			sp := ui.Span{Text: "[^" + c.label + "]", Size: e.lk.size * 0.75, Color: e.lk.accent}
+			sp := ui.Span{Text: c.label + ":", Size: e.lk.size, Color: e.lk.accent}
 			fm := ui.Font{Family: e.lk.font, Size: sp.Size}.Metrics()
 			p.RichText(ox+x0, oy+baseline-fm.Ascent, w, sp)
 		}
@@ -476,13 +642,13 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 	if g == nil {
 		return
 	}
-	x, y := ox+l.x, oy+l.y
+	x, y := ox+tableContentX(l), oy+l.y
 	h := g.rowY[len(g.rowY)-1]
 	box := ui.Rect{X: x, Y: y, W: g.w, H: h}
 	const radius = 4
-	line := mdoc.MarkdownRuleColor(e.lk.dark)
+	line := mdoc.TableRuleColor(e.lk.dark)
 	if s := e.tableStructureSelection(l); s != nil {
-		selection := e.lk.selection
+		selection := e.lk.selection.Alpha(0.4)
 		if !e.focused {
 			selection = selection.Alpha(0.6)
 		}
@@ -498,9 +664,7 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 			selected.W = g.colX[last+1] - g.colX[first]
 		}
 		p.Fill(selected, selection, radius)
-	} else if len(g.rowY) > 1 {
-		header := ui.Rect{X: x, Y: y, W: g.w, H: g.rowY[1]}
-		p.Clip(box, radius, func() { p.Fill(header, e.lk.panel, 0) })
+		p.Stroke(selected, e.lk.accent.Alpha(0.6), radius, 1.5)
 	}
 	for i, ry := range g.rowY {
 		if i == 0 || i == len(g.rowY)-1 {

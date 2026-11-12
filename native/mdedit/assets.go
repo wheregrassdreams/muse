@@ -55,10 +55,26 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 // line of its own: a paragraph of just an image.
 func (e *Editor) imageObject(dest, alt string, width float32, alone bool) *object {
 	resolved := mdoc.ResolveImageSource(dest, e.opts.BaseDir, e.opts.AssetRoot)
-	bmp := mdoc.LoadImage(resolved, "", e.assetLoaded)
-	obj := &object{bmp: bmp, alt: alt, block: alone, imagePath: resolved}
+	asset := mdoc.LoadImageAsset(resolved, "", e.assetLoaded)
+	bmp := asset.Bitmap()
+	// Keep the established immediate static preview while the ImageAsset
+	// finishes loading. Once the asset is ready, paintObject switches to its
+	// UI-thread-owned bitmap; animated images then continue advancing there.
+	if bmp == nil && !strings.HasPrefix(strings.ToLower(resolved), "http://") && !strings.HasPrefix(strings.ToLower(resolved), "https://") && !strings.HasPrefix(strings.ToLower(resolved), "data:") {
+		bmp = mdoc.LoadImage(resolved, "", nil)
+	}
+	obj := &object{asset: asset, bmp: bmp, alt: alt, block: alone, imagePath: resolved}
 	if bmp == nil {
-		obj.w = min(max(width, 80), 260)
+		// A missing image is rendered as a paragraph-like fallback block. Keep
+		// it full width even when its source occurred inline; the surrounding
+		// text then wraps before and after the fallback instead of being squeezed
+		// into a narrow image-sized chip.
+		obj.imageDest = dest
+		if width > 0 {
+			obj.w = width
+		} else {
+			obj.w = 80
+		}
 		obj.h = e.lk.size * 2.4
 		obj.descent = obj.h * 0.25
 		return obj
@@ -94,6 +110,7 @@ func (e *Editor) htmlImageObject(html string, width float32) *object {
 // its width and height or a zoom, scaled down to the width.
 func (e *Editor) sizedImage(dest, alt string, sz imgSize, width float32, alone bool) *object {
 	obj := e.imageObject(dest, alt, width, alone)
+	obj.refreshAssetBitmap()
 	if obj.bmp == nil || sz == (imgSize{}) {
 		return obj
 	}
@@ -121,6 +138,14 @@ func (e *Editor) sizedImage(dest, alt string, sz imgSize, width float32, alone b
 	}
 	obj.w, obj.h = fw, fh
 	return obj
+}
+
+func (o *object) refreshAssetBitmap() {
+	if o != nil && o.asset != nil {
+		if bmp := o.asset.Bitmap(); bmp != nil {
+			o.bmp = bmp
+		}
+	}
 }
 
 // assetLoaded is called on another goroutine when an image has loaded:

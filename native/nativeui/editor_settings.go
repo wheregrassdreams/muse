@@ -65,4 +65,5 @@ func (a *App) keymapSettings(c *ui.Context) {
 			b.OnClick(func() { a.setEditorKeymap(v.mode) }).Children(func() { ui.Text(c, v.name) })
 		}
 	})
+	settingsRow(c, "源码展开偏好", "光标靠近语法标记或选中语法时展开源码；表格保留结构视图，显式折叠的标题节保持折叠，图片和图形保留对象预览与显式源码控件。当前策略暂不支持自定义。", func() {})
 }

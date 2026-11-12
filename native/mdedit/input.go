@@ -1,6 +1,7 @@
 package mdedit
 
 import (
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -13,6 +14,15 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	defer e.invalidate()
 	switch ev.Kind {
 	case ui.InputKeyDown:
+		if e.wikiSuggestionKey(ev.Key, ev.Mods) {
+			return true
+		}
+		if e.tableHandleDrag != nil {
+			if ev.Key == ui.KeyEscape {
+				e.finishTableHandleDrag(true)
+			}
+			return true
+		}
 		if e.modalKey(ev.Key, ev.Mods) {
 			if ev.Key == ui.KeyEscape {
 				e.mathPreviewHidden = true
@@ -20,6 +30,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 			return true
 		}
 		if e.key(ev.Key, ev.Mods) {
+			e.updateWikiSuggestions()
 			e.blinkStart = time.Now()
 			return true
 		}
@@ -33,6 +44,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		}
 		e.compose = ""
 		e.typeText(ev.Text)
+		e.updateWikiSuggestions()
 		e.blinkStart = time.Now()
 		return true
 	case ui.InputCompose:
@@ -54,12 +66,36 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		}
 		return e.command(ev.Text)
 	case ui.InputPointerDown:
-		return e.press(ev)
+		if ev.Button == 0 {
+			if i, ok := e.wikiSuggestionIndexAt(ev.X, ev.Y); ok {
+				e.acceptWikiSuggestion(i)
+				return true
+			}
+		}
+		// A visible block scrollbar is an overlay interaction, not a text
+		// press. Route it before finishing block input or clearing its state so
+		// dragging the thumb preserves selections, source mode and caret.
+		if ev.Button == 0 {
+			e.layoutIfNeeded()
+			if l, ok := e.horizontalBarAt(ev.X, ev.Y); ok {
+				e.pressBlockHorizontal(l, ev.X)
+				return true
+			}
+		}
+		e.finishBlockInput()
+		e.block = nil
+		handled := e.press(ev)
+		e.updateWikiSuggestions()
+		return handled
 	case ui.InputPointerMove:
 		return e.drag(ev)
 	case ui.InputScroll:
-		return e.scrollDiagram(ev)
+		return e.scrollBlock(ev)
 	case ui.InputPointerUp:
+		if e.horizontalDrag != nil {
+			e.horizontalDrag = nil
+			return true
+		}
 		if e.imageDrag != nil {
 			d := e.imageDrag
 			e.imageDrag = nil
@@ -124,12 +160,16 @@ func (e *Editor) command(cmd string) bool {
 
 // SelectAll selects the whole document.
 func (e *Editor) SelectAll() {
+	e.finishBlockInput()
+	e.block = nil
 	e.tableSelection = nil
 	e.tableBridge = nil
 	e.tableNavigation = nil
-	e.tableSelectDrag = nil
+	e.tableHandleDrag = nil
 	e.dropPhantom()
 	e.anchor, e.caret = 0, len(e.src)
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	e.wantReveal = false
 	e.invalidate()
 }
@@ -151,7 +191,7 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 			dir = -1
 		}
 		if m == 0 && (shift || e.tableSelection != nil || e.tableBridge != nil) {
-			e.moveHorizontal(dir, shift)
+			e.nativeHorizontal(dir, shift)
 			return true
 		}
 		switch {
@@ -174,7 +214,11 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 				e.setCaret(z, false)
 			}
 		default:
-			e.setCaret(e.step(e.caret, dir, false), shift)
+			if e.anchor == e.caret {
+				e.nativeHorizontal(dir, shift)
+			} else {
+				e.setCaret(e.step(e.caret, dir, false), shift)
+			}
 		}
 		e.hasGoal = false
 		e.upstream = false
@@ -198,7 +242,7 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		if m != 0 {
 			return false
 		}
-		e.vertical(dir, shift)
+		e.nativeVertical(dir, shift)
 		return true
 	case ui.KeyHome, ui.KeyEnd:
 		if m == ui.Ctrl || m == ui.Cmd {
@@ -386,8 +430,13 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	}
 	e.layoutIfNeeded()
 	x, y := ev.X, ev.Y
+	e.pointerX, e.pointerY = x, y
+	if h := e.foldChevronAt(x, y); h != nil {
+		e.toggleFold(h)
+		return true
+	}
 	if hit, ok := e.imageAt(x, y); ok {
-		preview, source, grip := imageToolRects(hit.box, e.lk.size)
+		preview, source, align, grip := imageToolRects(hit.box, e.lk.size)
 		switch {
 		case preview.Contains(x, y):
 			if e.opts.OnImagePreview != nil {
@@ -399,9 +448,17 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 				e.toggleSource(hit.leaf)
 			}
 			return true
+		case align.Contains(x, y) && hit.obj != nil && hit.obj.block:
+			e.toggleImageAlignment(hit)
+			return true
 		case grip.Contains(x, y):
 			e.imageDrag = &imageResizeDrag{hit: hit, startX: x, startY: y, startWidth: hit.obj.w, previewWidth: hit.obj.w}
 			return true
+		default:
+			if hit.obj != nil && hit.obj.bmp == nil && e.opts.OnImagePreview != nil {
+				e.opts.OnImagePreview(hit.obj.imagePath)
+				return true
+			}
 		}
 	}
 	if l, v, box, contentW, ok := e.diagramBarAt(x, y); ok {
@@ -439,13 +496,38 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		e.invalidate()
 		return true
 	}
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	off := e.hitTest(x, y)
+	if target, bounds := e.wikiLinkHoverAt(x, y, off); target != "" || e.opts.OnWikiLinkHover != nil && e.wikiHover != "" {
+		e.setWikiHover(target, x, y, bounds)
+	}
+	link := e.linkAt(off)
+	if strings.HasPrefix(link, "wiki:") && ev.Mods&ui.Shift == 0 {
+		if r, ok := e.linkRangeAt(off); ok && e.pointInLink(x, y, r) {
+			if e.opts.OnLink != nil {
+				e.opts.OnLink(link)
+			}
+			return true
+		}
+	}
 	if ev.Mods&ui.Cmd != 0 {
-		if url := e.linkAt(off); url != "" {
+		if url := link; url != "" {
 			if e.opts.OnLink != nil {
 				e.opts.OnLink(url)
 			}
 			return true
+		}
+	}
+	if e.Keymap() == "vim" && e.modal.mode != "Insert" && ev.Mods&ui.Shift == 0 {
+		// A fresh pointer press leaves an old visual selection and starts from
+		// Vim Normal. A drag will enter Visual below, using the same inclusive
+		// anchor/head model as the v command.
+		e.modal.mode = "Normal"
+		if ev.Clicks <= 1 {
+			if _, _, object := e.objectAt(off); !object {
+				off = e.vimPointerOffset(off, x, y)
+			}
 		}
 	}
 	// Below the last leaf, a paragraph comes after a block that is not
@@ -518,6 +600,10 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 // or drags a diagram's scroll bar.
 func (e *Editor) drag(ev ui.InputEvent) bool {
 	e.pointerX, e.pointerY = ev.X, ev.Y
+	if e.horizontalDrag != nil {
+		e.dragBlockHorizontal(ev.X)
+		return true
+	}
 	if e.imageDrag != nil {
 		if ev.Button != 0 {
 			return false
@@ -555,6 +641,12 @@ func (e *Editor) drag(ev ui.InputEvent) bool {
 // element.
 func (e *Editor) dragTo(x, y float32) {
 	off := e.hitTest(x, y)
+	if e.Keymap() == "vim" && (e.modal.mode == "Normal" || e.modal.mode == "Visual") && e.dragUnit == 0 {
+		off = e.vimPointerOffset(off, x, y)
+		e.modal.mode = "Visual"
+		e.selectionInclusive = true
+		e.selectionLinewise = false
+	}
 	// Pointer motion owns its own anchor/head, rather than retaining a
 	// structural focus created by an earlier keyboard selection.
 	e.clearTableSelection()
@@ -608,10 +700,46 @@ func (e *Editor) autoScroll() bool {
 // diagram's source control), the grab shape over a diagram, the default
 // over its scroll bar, an I-beam over the text.
 func (e *Editor) hover(x, y float32) {
+	upstream := e.upstream
+	defer func() { e.upstream = upstream }()
 	e.pointerX, e.pointerY = x, y
+	target, bounds := e.wikiLinkHoverAt(x, y, e.hitTest(x, y))
+	e.setWikiHover(target, x, y, bounds)
+	foldHover := -1
+	if h := e.foldHeadingAt(x, y); h != nil {
+		foldHover = h.lineStart
+	}
+	if foldHover != e.foldHover {
+		e.foldHover = foldHover
+		e.invalidate()
+	}
+	if e.foldChevronAt(x, y) != nil {
+		if e.cursor != ui.CursorPointer {
+			e.cursor = ui.CursorPointer
+			e.invalidate()
+		}
+		return
+	}
+	if _, ok := e.horizontalBarAt(x, y); ok {
+		if e.cursor != ui.CursorDefault {
+			e.cursor = ui.CursorDefault
+			e.invalidate()
+		}
+		return
+	}
+	hoverLink := Range{}
+	off := e.hitTest(x, y)
+	if r, ok := e.linkRangeAt(off); ok && e.pointInLink(x, y, r) {
+		hoverLink = r
+	}
+	if hoverLink != e.hoverLink {
+		e.hoverLink = hoverLink
+		e.leavesLaid = false
+		e.invalidate()
+	}
 	if hit, ok := e.imageAt(x, y); ok {
-		preview, source, grip := imageToolRects(hit.box, e.lk.size)
-		if preview.Contains(x, y) || source.Contains(x, y) {
+		preview, source, align, grip := imageToolRects(hit.box, e.lk.size)
+		if preview.Contains(x, y) || source.Contains(x, y) || hit.obj != nil && hit.obj.block && align.Contains(x, y) || hit.obj != nil && hit.obj.bmp == nil && e.opts.OnImagePreview != nil {
 			e.cursor = ui.CursorPointer
 		} else if grip.Contains(x, y) {
 			e.cursor = ui.CursorResizeNWSE
@@ -807,6 +935,9 @@ func (e *Editor) taskBoxAt(x, y float32) (cont, bool) {
 			if c.kind != cItem || c.task == parser.NoTask {
 				continue
 			}
+			if e.itemPrefixOpen(l) {
+				continue
+			}
 			x0 := e.colX + e.indentOf(l.conts[:k])
 			w := e.indentOf(l.conts[k : k+1])
 			if x >= x0 && x <= x0+w {
@@ -847,12 +978,69 @@ func (e *Editor) linkAt(off int) string {
 				return in.Dest
 			}
 		case parser.Text:
-			if target, ok := wikiAt(e.src, in.Start, in.End, off); ok {
-				return "wiki:" + target
+			for _, w := range wikiLinks(e.src, in.Start, in.End) {
+				if w.from <= off && off <= w.to {
+					if w.embed {
+						return ""
+					}
+					return "wiki:" + w.target
+				}
 			}
 		}
 	}
 	return ""
+}
+
+func (e *Editor) linkRangeAt(off int) (Range, bool) {
+	u := e.unitAt(off)
+	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
+		return Range{}, false
+	}
+	for _, in := range e.p.doc.Inlines(u.id) {
+		if in.Kind == parser.Link && in.Start <= off && off <= in.End {
+			return Range{Start: in.Start, End: in.End}, true
+		}
+		if in.Kind == parser.Text {
+			for _, w := range wikiLinks(e.src, in.Start, in.End) {
+				if !w.embed && w.from <= off && off <= w.to {
+					return Range{Start: w.from, End: w.to}, true
+				}
+			}
+		}
+	}
+	return Range{}, false
+}
+
+func (e *Editor) pointInLink(x, y float32, link Range) bool {
+	_, ok := e.linkRectAt(x, y, link)
+	return ok
+}
+
+// linkRectAt returns the display rectangle of the visible link fragment under
+// the pointer, in editor-local coordinates. Hover previews use it as an anchor
+// so their panel can avoid covering the link that opened them.
+func (e *Editor) linkRectAt(x, y float32, link Range) (ui.Rect, bool) {
+	l := e.leafAtPoint(y)
+	if l == nil || l.view == nil || l.view.layout == nil || link.Start >= l.end || link.End <= l.lineStart {
+		return ui.Rect{}, false
+	}
+	v := l.view
+	local := ui.Point{X: x - l.x - v.tx, Y: y - l.y - v.ty}
+	for _, p := range v.disp.pieces {
+		start, end := p.s0+l.lineStart, p.s1+l.lineStart
+		isIcon := p.kind == pDeco && start == link.End && strings.Contains(p.text, "↗")
+		if !isIcon && (p.kind == pDeco || end <= link.Start || start >= link.End) {
+			continue
+		}
+		for _, r := range v.layout.SelectionRects(ui.TextInputRange{Start: p.d0, End: p.d1}) {
+			if r.Contains(local.X, local.Y) {
+				r.X += l.x + v.tx
+				r.Y += l.y + v.ty
+				return r, true
+			}
+		}
+	}
+	return ui.Rect{}, false
 }
 
 // menu builds the editor's context menu.

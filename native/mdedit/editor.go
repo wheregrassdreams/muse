@@ -13,10 +13,22 @@ import (
 	"muse/mdoc"
 	"muse/scrollui"
 	"muse/textlayout"
+	"muse/textnav"
 )
 
 // Options configure an editor. The app sets them before building the
 // editor and changes them as its settings change.
+type LinkTargetState uint8
+
+const (
+	// LinkTargetUnknown means the caller has no current resolution result.
+	LinkTargetUnknown LinkTargetState = iota
+	// LinkTargetValid means an indexed target exists.
+	LinkTargetValid
+	// LinkTargetInvalid means the resolver checked the current index and found no target.
+	LinkTargetInvalid
+)
+
 type Options struct {
 	// FontSize is the body text's size in DIPs (16 when 0), LineHeight its
 	// line height as a multiple of it (1.75 when 0).
@@ -61,6 +73,25 @@ type Options struct {
 	OnChange func()
 	// OnLink opens a link the user Cmd-clicked (Ctrl-clicked).
 	OnLink func(url string)
+	// WikiLinkSuggestions returns vault-relative targets for the partial
+	// text after [[. The editor owns filtering presentation and selection.
+	WikiLinkSuggestions func(query string) []string
+	// OnWikiLinkHover reports a wiki target, pointer coordinates and the visible
+	// link fragment's bounds in editor-local coordinates. An empty target ends
+	// the hover. Embedded links are excluded.
+	OnWikiLinkHover func(target string, x, y float32, linkBounds ui.Rect)
+	// ResolveWikiEmbed loads a target note using the source document's path as
+	// its resolution context. The returned path must identify that note.
+	ResolveWikiEmbed func(currentPath, target string) (path, source string, ok bool)
+	// CurrentPath is the absolute path of this editor's Markdown source.
+	CurrentPath string
+	// ResolveWikiLink reports the current index status of a wiki link target.
+	// A nil callback or an unavailable index means LinkTargetUnknown.
+	ResolveWikiLink func(currentPath, target string) LinkTargetState
+	// LinkRevision changes when the target index changes; it refreshes cached link styles.
+	LinkRevision uint64
+	// LinkContext identifies the current document/workspace context for relative wiki resolution.
+	LinkContext string
 	// OnImagePreview opens an image preview for its resolved local path or URL.
 	OnImagePreview func(pathOrURL string)
 	// Code makes the document code rather than Markdown, as a .json or a
@@ -86,8 +117,14 @@ type Editor struct {
 	// paintMu keeps a frame's leaves and parser snapshot together. MyGo calls
 	// Draw after the app's View callback returns, so an app edit can otherwise
 	// replace the parser while paint is still walking the previous leaves.
-	paintMu                        sync.Mutex
-	modal                          modalState
+	paintMu sync.Mutex
+	modal   modalState
+	// folded is presentation state keyed by a heading's source line start.
+	// A source edit clears it so offsets can never fold an unrelated section.
+	folded                         map[int]bool
+	foldRevision                   uint64
+	foldCacheRevision              uint64
+	foldSectionsCache              []foldSection
 	opts                           Options
 	inlineMathStart, inlineMathEnd int
 	inlineMathOK                   bool
@@ -124,13 +161,23 @@ type Editor struct {
 	rev, parsed uint64
 
 	// The selection: its anchor and its caret, byte offsets of the source.
-	anchor, caret int
+	anchor, caret      int
+	selectionInclusive bool
+	selectionLinewise  bool
+	block              *blockSelection
+	blockAnchorOffset  int
+	blockInput         *blockInput
+	graphemeRevision   uint64
+	graphemeBoundaries []int
+	graphemeBuilds     uint64
+	wordIndexCache     []*displayWordIndex
+	wordIndexCacheCost int
 	// tableSelection owns the active structural variant. anchor/caret retain
 	// the dormant text endpoints; structural source ranges are derived.
 	tableNavigation []tableNavigationStep
 	tableNavigating bool
 	tableSelection  *tableSelection
-	tableSelectDrag *tableSelectDrag
+	tableHandleDrag *tableHandleDrag
 	tableBridge     *tableContentBridge
 	// phantom is the empty paragraph the caret is in, if it is in one.
 	phantom *phantom
@@ -156,6 +203,9 @@ type Editor struct {
 	assetGen        atomic.Uint64
 	imageHits       []imageHit
 	imageDrag       *imageResizeDrag
+	// imageAlignments stores per-image presentation overrides by source offset.
+	// Standalone images default to centered; false is an explicit left alignment.
+	imageAlignments map[int]bool
 
 	// The element's size and where the column of text is in it.
 	elemW, viewH float32
@@ -199,13 +249,14 @@ type Editor struct {
 	frozenAt  int
 	pointerX  float32
 	pointerY  float32
-	hoverLink string
+	hoverLink Range
 	// diagDrag is a diagram's scroll bar being dragged, if one is; diagPan
 	// is the pointer dragging a rendered diagram itself sideways.
-	diagDrag   *diagDrag
-	diagPan    *diagPan
-	services   ui.Services
-	lastChange time.Time
+	diagDrag       *diagDrag
+	diagPan        *diagPan
+	horizontalDrag *blockHorizontalDrag
+	services       ui.Services
+	lastChange     time.Time
 
 	// highlights are ranges of the source drawn as found, as a search's
 	// matches; current is the one chosen.
@@ -241,6 +292,14 @@ type Editor struct {
 	// hoverBlock is the start of the block the pointer is on, or -1: a
 	// block shows its source control there (see sourceChip).
 	hoverBlock int
+	// foldHover is the source offset of the heading under the pointer, or -1.
+	// Its control is shown only while this heading owns the pointer.
+	foldHover       int
+	wikiPopup       wikiSuggestionState
+	wikiHover       string
+	wikiHoverBounds ui.Rect
+	wikiEmbeds      map[string]*wikiEmbedCache
+	wikiEmbedStack  []string
 	// sourceAt is the block the source control was last used on, while it
 	// shows its Markdown source instead of the block it draws, and sourceOK
 	// says it does. The caret leaving the block stops it.
@@ -303,7 +362,7 @@ type phantom struct {
 func New(src string, opts Options) *Editor {
 	e := &Editor{opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
 		railHover: -1, railActive: -1,
-		hoverBlock: -1}
+		hoverBlock: -1, foldHover: -1}
 	// The window's theme comes with the first frame; until then, the light
 	// one, so that a document opened before it lays out.
 	e.setLook(ui.LightTheme())
@@ -321,6 +380,10 @@ func (e *Editor) SetOptions(opts Options) {
 	codeChanged := opts.Code != e.opts.Code
 	frontmatterChanged := opts.HideFrontmatter != e.opts.HideFrontmatter
 	imageBaseChanged := opts.BaseDir != e.opts.BaseDir || opts.AssetRoot != e.opts.AssetRoot
+	linkRevisionChanged := opts.LinkRevision != e.opts.LinkRevision
+	linkContextChanged := opts.LinkContext != e.opts.LinkContext
+	currentPathChanged := opts.CurrentPath != e.opts.CurrentPath
+	embedResolverChanged := (opts.ResolveWikiEmbed == nil) != (e.opts.ResolveWikiEmbed == nil)
 	if codeChanged || frontmatterChanged {
 		e.rev++
 		if codeChanged {
@@ -349,6 +412,13 @@ func (e *Editor) SetOptions(opts Options) {
 		e.hasGoal = false
 		e.wantReveal = true
 	}
+	if linkContextChanged || currentPathChanged {
+		e.wikiEmbeds = nil
+	}
+	if linkRevisionChanged || linkContextChanged || currentPathChanged || embedResolverChanged {
+		e.leavesLaid = false
+		e.invalidate()
+	}
 }
 
 // Options returns the editor's options.
@@ -369,12 +439,23 @@ func (e *Editor) Source() string { return e.src }
 // SetSource replaces the document, as opening another file does: the
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
+	e.finishBlockInput()
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
 	e.mathPreviewHidden = false
+	textnav.WarmUpIfNeeded(src)
 	e.inlineMathOK = false
+	e.hoverLink = Range{}
+	e.foldHover = -1
 	e.typedBreaks = nil
+	e.resetFolds()
+	e.selectionInclusive = false
+	e.selectionLinewise = false
+	e.block, e.blockInput = nil, nil
+	e.tableHandleDrag = nil
+	e.horizontalDrag = nil
 	e.src = src
+	e.imageAlignments = nil
 	e.p.clear()
 	e.rev++
 	e.u16ix.rev = 0
@@ -397,6 +478,9 @@ func (e *Editor) SetSource(src string) {
 	}
 	e.caret = e.firstStop()
 	e.anchor = e.caret
+	for _, l := range e.leaves {
+		l.horizontal = blockHorizontalScroll{}
+	}
 }
 
 // sync parses the source again when it changed, and makes the leaves.
@@ -412,10 +496,12 @@ func (e *Editor) sync() {
 		}
 	}
 	if e.opts.Code != "" {
+		old := e.leaves
 		e.arenaCur ^= 1
 		a := &e.arena[e.arenaCur]
 		a.reset()
 		e.leaves = []*leaf{codeDocLeaf(a, e.src, e.opts.Code)}
+		carryViews(e.leafSrc, e.src, old, e.leaves)
 		e.leafSrc = e.src
 		e.parsed = e.rev
 		e.p.clear()
@@ -509,6 +595,15 @@ func (e *Editor) sync() {
 // document laid out after every keystroke would look up the view of every
 // leaf, hashing all of its text to find it.
 func carryViews(oldSrc, src string, old, next []*leaf) {
+	for i := 0; i < min(len(old), len(next)); i++ {
+		o, l := old[i], next[i]
+		if o.kind == l.kind && o.lineStart == l.lineStart && (l.kind == kCode || l.kind == kMath || l.kind == kTable) {
+			// The horizontal origin is presentation state. Keep it while an
+			// existing block is edited in place, then let layout clamp it to
+			// that block's new content width.
+			l.horizontal = o.horizontal
+		}
+	}
 	if len(old) != len(next) {
 		return
 	}
@@ -517,6 +612,7 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 		if !sameLeaf(o, l) || !sameText(oldSrc, src, o, l) {
 			continue
 		}
+		l.horizontal = o.horizontal
 		l.view, l.vp, l.geom = o.view, o.vp, o.geom
 		// The height is an estimate until the leaf is shaped again: it is
 		// what the leaf took where it was last laid out.
@@ -635,7 +731,15 @@ func insertPhantom(leaves []*leaf, p *phantom) []*leaf {
 
 // leafLo returns the first offset the caret can take in a leaf: a fenced
 // code block's info string comes before its lines.
-func leafLo(l *leaf) int {
+func leafLo(e *Editor, l *leaf) int {
+	if s, _, ok := containerPrefixRange(l); ok {
+		return s
+	}
+	for _, r := range quoteSourcePrefixes(e, l) {
+		if r.Start < l.start {
+			return r.Start
+		}
+	}
 	if l.kind == kHeading {
 		return l.lineStart
 	}
@@ -654,6 +758,9 @@ func (e *Editor) leafIndex(off int) int {
 	// that ends where it starts, so it is found before that leaf is taken.
 	line, cover := -1, -1
 	for i, l := range e.leaves {
+		if e.foldHidden(l) {
+			continue
+		}
 		if l.isLine() {
 			if line < 0 && off == l.start {
 				line = i
@@ -663,7 +770,7 @@ func (e *Editor) leafIndex(off int) int {
 		if cover >= 0 {
 			continue
 		}
-		if off >= leafLo(l) && off <= l.end {
+		if off >= leafLo(e, l) && off <= l.end {
 			if l.kind == kCode && l.fenced && off > l.infoEnd && off < l.start {
 				continue
 			}
@@ -706,8 +813,36 @@ func (e *Editor) selection() (int, int) {
 			return a, z
 		}
 	}
+	if e.block != nil {
+		rs := e.blockRanges()
+		if len(rs) == 0 {
+			return e.caret, e.caret
+		}
+		return rs[0].Start, rs[len(rs)-1].End
+	}
+	if e.selectionLinewise {
+		aa, _ := e.sourceLineRange(e.anchor)
+		ca, cz := e.sourceLineRange(e.caret)
+		if cz < len(e.src) {
+			cz++
+		}
+		if aa <= ca {
+			return aa, cz
+		}
+		_, az := e.sourceLineRange(e.anchor)
+		if az < len(e.src) {
+			az++
+		}
+		return ca, az
+	}
 	if e.anchor < e.caret {
+		if e.selectionInclusive {
+			return e.anchor, e.nextGraphemeBoundary(e.caret)
+		}
 		return e.anchor, e.caret
+	}
+	if e.selectionInclusive {
+		return e.caret, e.nextGraphemeBoundary(e.anchor)
 	}
 	return e.caret, e.anchor
 }
@@ -715,7 +850,7 @@ func (e *Editor) selection() (int, int) {
 // textSelectionRange is the text envelope. textSelectionForUnit excludes the
 // structures embedded in it; a dedicated structure has no active text envelope.
 func (e *Editor) textSelectionRange() (int, int) {
-	if e.tableSelection != nil {
+	if e.tableSelection != nil || e.block != nil {
 		return 0, 0
 	}
 	return e.selection()
@@ -729,6 +864,16 @@ func (e *Editor) SelectionRange() Range {
 
 // SelectedText returns the source the selection holds.
 func (e *Editor) SelectedText() string {
+	if e.block != nil {
+		var selected strings.Builder
+		for i, r := range e.SelectionRanges() {
+			if i > 0 {
+				selected.WriteByte('\n')
+			}
+			selected.WriteString(e.src[r.Start:r.End])
+		}
+		return selected.String()
+	}
 	if e.tableBridge == nil {
 		if s := e.tableSelection; s != nil {
 			if t := e.tableSelectionLeaf(); t != nil {
@@ -760,6 +905,9 @@ func (e *Editor) revealCaret() int {
 // firstStop returns the first offset the caret can take.
 func (e *Editor) firstStop() int {
 	for _, l := range e.leaves {
+		if e.foldHidden(l) {
+			continue
+		}
 		if s, ok := e.edgeStop(l, false); ok {
 			return s
 		}
@@ -770,6 +918,9 @@ func (e *Editor) firstStop() int {
 // lastStop returns the last offset the caret can take.
 func (e *Editor) lastStop() int {
 	for i := len(e.leaves) - 1; i >= 0; i-- {
+		if e.foldHidden(e.leaves[i]) {
+			continue
+		}
 		if s, ok := e.edgeStop(e.leaves[i], true); ok {
 			return s
 		}
@@ -809,6 +960,9 @@ func (e *Editor) setCaret(off int, extend bool) {
 		e.mathPreviewHidden = false
 	}
 	off = max(0, min(off, len(e.src)))
+	if e.Keymap() == "vim" && e.modal.mode == "Normal" && !extend {
+		off = e.vimNormalOffset(off)
+	}
 	if e.phantom != nil && !(off == e.phantom.at && e.leafIsPhantom(off)) {
 		e.dropPhantom()
 	}
@@ -857,13 +1011,18 @@ func (e *Editor) setPhantom(p *phantom) {
 // Select selects a range of the source, as a search's match, and scrolls
 // to it.
 func (e *Editor) Select(start, end int) {
+	e.finishBlockInput()
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
 	e.clearTableSelection()
 	e.dropPhantom()
 	start = max(0, min(start, len(e.src)))
 	end = max(start, min(end, len(e.src)))
+	e.expandFoldsForRange(start, end)
 	e.anchor, e.caret = start, end
+	e.block, e.blockInput = nil, nil
+	e.selectionInclusive = false
+	e.selectionLinewise = false
 	e.wantReveal = true
 	e.hasGoal = false
 	e.invalidate()
@@ -876,7 +1035,9 @@ func (e *Editor) ScrollToOffset(off int) {
 	defer e.paintMu.Unlock()
 	e.clearTableSelection()
 	e.dropPhantom()
-	off = e.normalize(max(0, min(off, len(e.src))), 1)
+	off = max(0, min(off, len(e.src)))
+	e.expandFoldsAt(off)
+	off = e.normalize(off, 1)
 	e.anchor, e.caret = off, off
 	e.scrollTo, e.hasScrollTo, e.scrollCenter = off, true, false
 	e.invalidate()
@@ -945,5 +1106,5 @@ func (e *Editor) clearTableSelection() {
 	e.tableSelection = nil
 	e.tableBridge = nil
 	e.tableNavigation = nil
-	e.tableSelectDrag = nil
+	e.tableHandleDrag = nil
 }

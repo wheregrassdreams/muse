@@ -11,18 +11,42 @@ func requireMathCodeStyle(t *testing.T, h *harness, start, end int) {
 	t.Helper()
 	l := h.e.leafAt(start)
 	covered := start
+	displayStart, displayEnd := -1, 0
 	for _, p := range l.view.disp.pieces {
 		a, z := p.s0+l.lineStart, p.s1+l.lineStart
 		if z <= start || a >= end {
 			continue
 		}
-		if p.kind != pText || p.span.Font != h.e.lk.mono || p.span.Background != h.e.lk.codeBg {
+		if p.kind != pText || p.span.Font != h.e.lk.mono || p.span.Color != h.e.lk.codeText || p.span.Background.A != 0 {
 			t.Fatalf("math source %d..%d lost code style: %+v", a, z, p)
 		}
+		if displayStart < 0 {
+			displayStart = p.d0
+		} else {
+			displayStart = min(displayStart, p.d0)
+		}
+		displayEnd = max(displayEnd, p.d1)
 		covered = max(covered, z)
 	}
 	if covered < end {
 		t.Fatalf("source styled through %d, want %d", covered, end)
+	}
+	boxFound := false
+	for _, box := range l.view.disp.codeBoxes {
+		if box.range_.Start <= displayStart && box.range_.End >= displayEnd {
+			boxFound = true
+			for _, r := range l.view.layout.SelectionRects(box.range_) {
+				padX := h.e.lk.size * 0.2
+				x := int(l.x + l.view.tx + r.X - padX + 1)
+				y := int(l.y + l.view.ty + r.Y + r.H/2)
+				if pixel := h.tt.Image().RGBAAt(x, y); !sameRGB(pixel, h.e.lk.codeBg) {
+					t.Fatalf("math source shared background missing at %d,%d: pixel=%v want=%v", x, y, pixel, h.e.lk.codeBg)
+				}
+			}
+		}
+	}
+	if !boxFound {
+		t.Fatalf("math source %d..%d has no shared code background box", start, end)
 	}
 }
 
