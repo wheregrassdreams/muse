@@ -104,6 +104,31 @@ func TestSurfaceEditsSourceBackedPlainParagraphThroughSession(t *testing.T) {
 	if got, want := session.Source(), "hello!"; got != want {
 		t.Fatalf("source after native block edit = %q, want %q", got, want)
 	}
+	if result, err := session.Dispatch(editor.InputEvent{Kind: editor.InputUndo}); err != nil || !result.Changed {
+		t.Fatalf("undo block edit: result=%+v err=%v", result, err)
+	}
+	if got, want := session.Source(), "hello"; got != want {
+		t.Fatalf("source after undo = %q, want %q", got, want)
+	}
+}
+
+func TestSurfaceEditsHeadingTextWithoutReplacingMarkdownMarker(t *testing.T) {
+	session := editor.NewSession("# title")
+	if err := session.SetSelection(editor.Selection{Anchor: len(session.Source()), Head: len(session.Source())}); err != nil {
+		t.Fatal(err)
+	}
+	surface := NewSurface(session, Options{})
+	tester := ui.NewTester(func(c *ui.Context) { surface.Render(c) }, 640, 480)
+	tester.Frame()
+	if err := tester.Click("title"); err != nil {
+		t.Fatalf("click heading: %v", err)
+	}
+	tester.Frame()
+	tester.Type("!")
+	tester.Frame()
+	if got, want := session.Source(), "# title!"; got != want {
+		t.Fatalf("source after heading edit = %q, want %q", got, want)
+	}
 }
 
 func TestSourceDiffKeepsUTF8Boundaries(t *testing.T) {
@@ -114,5 +139,13 @@ func TestSourceDiffKeepsUTF8Boundaries(t *testing.T) {
 	}
 	if got := old[len(old)-suffix:]; got != "" {
 		t.Fatalf("suffix = %q, want empty", got)
+	}
+	old, updated = "a猫", "b猫"
+	prefix, suffix = sourceDiff(old, updated)
+	if got := updated[len(updated)-suffix:]; got != "猫" {
+		t.Fatalf("suffix = %q, want complete CJK rune", got)
+	}
+	if got := old[prefix : len(old)-suffix]; got != "a" {
+		t.Fatalf("changed source segment = %q, want a", got)
 	}
 }
