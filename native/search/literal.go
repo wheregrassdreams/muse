@@ -1,4 +1,4 @@
-package vaultsearch
+package search
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 		return nil, nil
 	}
 	if !utf8.ValidString(query) {
-		return nil, errors.New("vaultsearch: query is not valid UTF-8")
+		return nil, errors.New("search: query is not valid UTF-8")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -32,10 +32,10 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
-		return nil, errors.New("vaultsearch: index is closed")
+		return nil, errors.New("search: index is closed")
 	}
 	if s.poisoned {
-		return nil, errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+		return nil, errors.New("search: index transaction is incomplete; close and reopen to rebuild")
 	}
 	if s.literalReady {
 		return literalCachedLocked(ctx, s, query, limit, overlays)
@@ -46,7 +46,7 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 			return nil, err
 		}
 		if _, duplicate := shadow[d.ID]; duplicate {
-			return nil, fmt.Errorf("vaultsearch: duplicate overlay ID %q", d.ID)
+			return nil, fmt.Errorf("search: duplicate overlay ID %q", d.ID)
 		}
 		shadow[d.ID] = d
 	}
@@ -88,7 +88,7 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 			result, err := s.engine.SearchJson(tantivy.NewSearchContextBuilder().
 				SetQueryFromJson(ptrQuery(qb.Build())).SetDocsLimit(uintptr(nativeCount)).Build())
 			if err != nil {
-				return nil, fmt.Errorf("vaultsearch: read literal snapshots: %w", err)
+				return nil, fmt.Errorf("search: read literal snapshots: %w", err)
 			}
 			docs, readErr := readSearchHits(result, s.engine)
 			result.Free()
@@ -107,7 +107,7 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 			if !volatile {
 				v, ok := stored[entry.id]
 				if !ok {
-					return nil, fmt.Errorf("vaultsearch: missing indexed snapshot %q", entry.id)
+					return nil, fmt.Errorf("search: missing indexed snapshot %q", entry.id)
 				}
 				d = Document{ID: v.ID, Path: v.Path, Source: v.Source, Revision: v.Revision}
 			}

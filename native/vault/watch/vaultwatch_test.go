@@ -1,4 +1,4 @@
-package vaultwatch
+package watch_test
 
 import (
 	"os"
@@ -6,6 +6,17 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	filesystemwatcher "muse/platform/filesystem/watcher"
+	vaultwatch "muse/vault/watch"
+)
+
+type Event = vaultwatch.Event
+type Watcher = vaultwatch.Watcher
+
+const (
+	Removed     = vaultwatch.Removed
+	eventBuffer = 64
 )
 
 func waitEvent(t *testing.T, events <-chan Event, match func(Event) bool) Event {
@@ -30,7 +41,11 @@ func waitEvent(t *testing.T, events <-chan Event, match func(Event) bool) Event 
 func newTempWatcher(t *testing.T) (string, *Watcher) {
 	t.Helper()
 	root := t.TempDir()
-	w, err := New(root)
+	backend, err := filesystemwatcher.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := vaultwatch.New(root, backend)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +138,7 @@ func TestCloseClosesEventsAndWatchFileReturnsClosed(t *testing.T) {
 		t.Fatal("event channel did not close")
 	}
 closed:
-	if err := w.WatchFile(filepath.Join(root, "doc.md")); err != ErrClosed {
+	if err := w.WatchFile(filepath.Join(root, "doc.md")); err != vaultwatch.ErrClosed {
 		t.Fatalf("WatchFile after Close = %v, want ErrClosed", err)
 	}
 }

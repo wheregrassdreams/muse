@@ -1,4 +1,4 @@
-package vaultsearch_test
+package search_test
 
 import (
 	"context"
@@ -10,16 +10,17 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"muse/vaultsearch"
+	"muse/document/types"
+	"muse/search"
 )
 
 func TestSearchChineseEnglishPrefixPathAndLiteralInput(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
-	docs := []vaultsearch.Document{
+	docs := []search.Document{
 		{ID: "quantum", Path: "physics/quantum-mechanics.md", Title: "Quantum Mechanics", Source: "A compact note about particles.", Revision: "1"},
 		{ID: "chinese", Path: "notes/法术.md", Title: "Archive", Source: "法术与修行。", Revision: "1"},
 		{ID: "path-only", Path: "reference/oddfilename.md", Title: "Index Card", Source: "The body is unremarkable.", Revision: "1"},
-		{ID: "typed", Path: "projects/architecture.md", Source: "A body with no type token.", Type: "research", CreatedAt: "2026-11-13T00:00:00Z", Revision: "1"},
+		{ID: "typed", Path: "projects/architecture.md", Source: "A body with no type token.", Metadata: types.Metadata{Type: "research", CreatedAt: "2026-11-13T00:00:00Z"}, Revision: "1"},
 	}
 	if err := i.Reconcile(context.Background(), docs); err != nil {
 		t.Fatal(err)
@@ -53,10 +54,10 @@ func TestSearchChineseEnglishPrefixPathAndLiteralInput(t *testing.T) {
 func TestSearchChineseNgramCoversTitleBodyAndMetadata(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
 	defer i.Close()
-	docs := []vaultsearch.Document{{
+	docs := []search.Document{{
 		ID: "han", Path: "notes/中文路径.md", Title: "中文标题检索",
-		Source: "正文检索内容，包含跨分词片段。", Aliases: []string{"中文别名"},
-		Tags: []string{"元数据标签"}, Type: "研究", Revision: "1",
+		Source: "正文检索内容，包含跨分词片段。", Metadata: types.Metadata{Aliases: []string{"中文别名"},
+			Tags: []string{"元数据标签"}, Type: "研究"}, Revision: "1",
 	}}
 	if err := i.Reconcile(context.Background(), docs); err != nil {
 		t.Fatal(err)
@@ -75,11 +76,11 @@ func TestSearchChineseNgramCoversTitleBodyAndMetadata(t *testing.T) {
 func TestSearchOverlayShadowsDiskAndCanceledAndClosedLifecycle(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
 	ctx := context.Background()
-	disk := vaultsearch.Document{ID: "one", Path: "one.md", Title: "Old title", Source: "oldneedle", Revision: "1"}
-	if err := i.Reconcile(ctx, []vaultsearch.Document{disk}); err != nil {
+	disk := search.Document{ID: "one", Path: "one.md", Title: "Old title", Source: "oldneedle", Revision: "1"}
+	if err := i.Reconcile(ctx, []search.Document{disk}); err != nil {
 		t.Fatal(err)
 	}
-	overlay := vaultsearch.Document{ID: disk.ID, Path: disk.Path, Title: "New title", Source: "newneedle", Revision: "2"}
+	overlay := search.Document{ID: disk.ID, Path: disk.Path, Title: "New title", Source: "newneedle", Revision: "2"}
 	if hits, err := i.Search(ctx, "oldneedle", 10, overlay); err != nil || len(hits) != 0 {
 		t.Fatalf("overlay did not shadow stale disk document: %#v, %v", hits, err)
 	}
@@ -102,7 +103,7 @@ func TestSearchOverlayShadowsDiskAndCanceledAndClosedLifecycle(t *testing.T) {
 func TestNeedsReconcileMatchesManifestWithoutMutatingIt(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
 	defer i.Close()
-	docs := []vaultsearch.Document{
+	docs := []search.Document{
 		{ID: "one", Path: "one.md", Title: "One", Source: "one body", Revision: "rev-one"},
 		{ID: "two", Path: "two.md", Title: "Two", Source: "two body", Revision: "rev-two"},
 	}
@@ -115,7 +116,7 @@ func TestNeedsReconcileMatchesManifestWithoutMutatingIt(t *testing.T) {
 	if needed, err := i.NeedsReconcile(docs); err != nil || needed {
 		t.Fatalf("unchanged index NeedsReconcile = %v, %v; want false", needed, err)
 	}
-	changed := append([]vaultsearch.Document(nil), docs...)
+	changed := append([]search.Document(nil), docs...)
 	changed[1].Revision = "rev-two-new"
 	if needed, err := i.NeedsReconcile(changed); err != nil || !needed {
 		t.Fatalf("changed document NeedsReconcile = %v, %v; want true", needed, err)
@@ -123,7 +124,7 @@ func TestNeedsReconcileMatchesManifestWithoutMutatingIt(t *testing.T) {
 	if needed, err := i.NeedsReconcile(docs[:1]); err != nil || !needed {
 		t.Fatalf("deleted document NeedsReconcile = %v, %v; want true", needed, err)
 	}
-	if _, err := i.NeedsReconcile([]vaultsearch.Document{docs[0], docs[0]}); err == nil {
+	if _, err := i.NeedsReconcile([]search.Document{docs[0], docs[0]}); err == nil {
 		t.Fatal("duplicate document IDs were accepted")
 	}
 }
@@ -131,7 +132,7 @@ func TestNeedsReconcileMatchesManifestWithoutMutatingIt(t *testing.T) {
 func TestSearchSnippetIsSingleLineAndBounded(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
 	source := strings.Repeat("prefix words\r\n", 20) + "needle " + strings.Repeat("tail words\n", 20)
-	if err := i.Reconcile(context.Background(), []vaultsearch.Document{{ID: "long", Path: "long.md", Source: source, Revision: "1"}}); err != nil {
+	if err := i.Reconcile(context.Background(), []search.Document{{ID: "long", Path: "long.md", Source: source, Revision: "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := i.Search(context.Background(), "needle", 10)
@@ -149,14 +150,14 @@ func TestSearchSnippetIsSingleLineAndBounded(t *testing.T) {
 func TestApplyUpsertWinsDeleteAndDoesNotMutateInput(t *testing.T) {
 	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
 	ctx := context.Background()
-	doc := vaultsearch.Document{ID: "same", Path: "same.md", Title: "Title", Source: "applyneedle"}
-	if err := i.Apply(ctx, []vaultsearch.Document{doc}, nil); err != nil {
+	doc := search.Document{ID: "same", Path: "same.md", Title: "Title", Source: "applyneedle"}
+	if err := i.Apply(ctx, []search.Document{doc}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if doc.Revision != "" {
 		t.Fatalf("Apply mutated caller's upsert Revision: %q", doc.Revision)
 	}
-	if err := i.Apply(ctx, []vaultsearch.Document{doc}, []string{"same"}); err != nil {
+	if err := i.Apply(ctx, []search.Document{doc}, []string{"same"}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := i.Search(ctx, "applyneedle", 10)
@@ -169,16 +170,16 @@ func TestSameDirectoryOpenCannotRecoverActiveIndex(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache")
 	i := acceptanceIndex(t, dir)
 	ctx := context.Background()
-	if err := i.Reconcile(ctx, []vaultsearch.Document{{ID: "live", Path: "live.md", Source: "activeindexneedle", Revision: "1"}}); err != nil {
+	if err := i.Reconcile(ctx, []search.Document{{ID: "live", Path: "live.md", Source: "activeindexneedle", Revision: "1"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := vaultsearch.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
+	if _, err := search.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
 		t.Fatalf("second Open error = %v, want index in use", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "dirty.marker"), []byte("interrupted"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := vaultsearch.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
+	if _, err := search.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
 		t.Fatalf("Open with active dirty marker error = %v, want index in use", err)
 	}
 	hits, err := i.Search(ctx, "activeindexneedle", 10)
@@ -195,7 +196,7 @@ func TestUnknownManifestVersionIsQuarantinedBeforeRebuild(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache")
 	i := acceptanceIndex(t, dir)
 	ctx := context.Background()
-	if err := i.Reconcile(ctx, []vaultsearch.Document{{ID: "old", Path: "old.md", Source: "manifestoldneedle", Revision: "1"}}); err != nil {
+	if err := i.Reconcile(ctx, []search.Document{{ID: "old", Path: "old.md", Source: "manifestoldneedle", Revision: "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := i.Close(); err != nil {
@@ -205,7 +206,7 @@ func TestUnknownManifestVersionIsQuarantinedBeforeRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	i = acceptanceIndex(t, dir)
-	if err := i.Reconcile(ctx, []vaultsearch.Document{{ID: "new", Path: "new.md", Source: "manifestnewneedle", Revision: "1"}}); err != nil {
+	if err := i.Reconcile(ctx, []search.Document{{ID: "new", Path: "new.md", Source: "manifestnewneedle", Revision: "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if hits, err := i.Search(ctx, "manifestoldneedle", 10); err != nil || len(hits) != 0 {
@@ -239,9 +240,9 @@ func TestPartialBatchFailurePoisonsAndRebuildsOnOpen(t *testing.T) {
 	i := acceptanceIndex(t, dir)
 	// The upsert batch cap is 1024, so this exercises cancellation after the
 	// first batch has committed and before the second batch starts.
-	docs := make([]vaultsearch.Document, 1025)
+	docs := make([]search.Document, 1025)
 	for n := range docs {
-		docs[n] = vaultsearch.Document{ID: fmt.Sprintf("doc-%03d", n), Path: fmt.Sprintf("%03d.md", n), Source: fmt.Sprintf("batchtoken-%03d", n), Revision: "r1"}
+		docs[n] = search.Document{ID: fmt.Sprintf("doc-%03d", n), Path: fmt.Sprintf("%03d.md", n), Source: fmt.Sprintf("batchtoken-%03d", n), Revision: "r1"}
 	}
 	// One initial check, one per input document, one before dirty-marker
 	// creation, and one at the start of each native batch.

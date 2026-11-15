@@ -1,4 +1,4 @@
-package vaultindex
+package index
 
 import (
 	"os"
@@ -6,7 +6,10 @@ import (
 	"strings"
 	"unicode"
 
-	"muse/frontmatter"
+	"muse/document"
+	"muse/document/frontmatter"
+	"muse/document/types"
+	"muse/vault/links"
 )
 
 var blockRE = regexp.MustCompile(`\^([A-Za-z0-9_-]+)\s*$`)
@@ -16,11 +19,13 @@ func readDocument(abs, rel string) (*Document, error) {
 	if e != nil {
 		return nil, e
 	}
-	return parseDocument(rel, string(b)), nil
+	d := parseDocument(rel, string(b))
+	d.Revision = document.RevisionOf(d.Source)
+	return d, nil
 }
 
 func parseDocument(path, source string) *Document {
-	d := &Document{Path: cleanPath(path), Source: source, Type: "note"}
+	d := &Document{Path: cleanPath(path), Source: source, Type: string(types.DefaultNoteType)}
 	metadata := frontmatter.Parse(source)
 	if metadata.Err == nil {
 		for _, field := range metadata.Fields {
@@ -63,13 +68,13 @@ func parseDocument(path, source string) *Document {
 					// Heading text is sliced from the masked copy of the whole
 					// document. Keep only the short heading string so indexed notes
 					// do not retain a second full-size source buffer each.
-					d.Headings = append(d.Headings, Heading{Text: strings.Clone(text), Slug: slugify(text), Offset: baseOffset + offset + indent})
+					d.Headings = append(d.Headings, links.Heading{Text: strings.Clone(text), Slug: links.Slugify(text), Offset: baseOffset + offset + indent})
 				}
 			}
 		}
 		if m := blockRE.FindStringSubmatch(strings.TrimSpace(line)); len(m) == 2 {
 			// Regexp submatches also point into the masked document buffer.
-			d.Blocks = append(d.Blocks, BlockID{ID: strings.Clone(m[1]), Offset: baseOffset + offset + strings.Index(line, strings.TrimSpace(line))})
+			d.Blocks = append(d.Blocks, links.BlockID{ID: strings.Clone(m[1]), Offset: baseOffset + offset + strings.Index(line, strings.TrimSpace(line))})
 		}
 		offset += len(line)
 	}
@@ -178,8 +183,8 @@ func maskBytes(b []byte, a, z int) {
 	}
 }
 
-func parseLinks(path, source, visible string, base int) []Link {
-	var out []Link
+func parseLinks(path, source, visible string, base int) []links.Link {
+	var out []links.Link
 	for p := 0; p+1 < len(visible); {
 		i := strings.Index(visible[p:], "[[")
 		if i < 0 {
@@ -203,7 +208,7 @@ func parseLinks(path, source, visible string, base int) []Link {
 			label = strings.TrimSpace(inside[k+1:])
 		}
 		if target != "" {
-			out = append(out, Link{Source: path, Target: target, Label: label, Kind: "wiki", Start: base + i, End: base + j + 2})
+			out = append(out, links.Link{Source: path, Target: target, Label: label, Kind: "wiki", Start: base + i, End: base + j + 2})
 		}
 		p = j + 2
 	}
@@ -251,7 +256,7 @@ func parseLinks(path, source, visible string, base int) []Link {
 			if isImage {
 				start, kind = p-1, "image"
 			}
-			out = append(out, Link{Source: path, Target: dest, Label: strings.TrimSpace(source[p+1 : close]), Kind: kind, Start: base + start, End: base + q + 1})
+			out = append(out, links.Link{Source: path, Target: dest, Label: strings.TrimSpace(source[p+1 : close]), Kind: kind, Start: base + start, End: base + q + 1})
 		}
 		p = q
 	}
@@ -362,23 +367,6 @@ func stripClosingHashes(s string) string {
 		s = strings.TrimSpace(strings.TrimSuffix(s, "#"))
 	}
 	return s
-}
-func slugify(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	dash := false
-	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
-			b.WriteRune(r)
-			dash = false
-		} else if unicode.IsSpace(r) {
-			if !dash && b.Len() > 0 {
-				b.WriteByte('-')
-				dash = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }
 func snippet(source string, start, end int) string {
 	lo := start - 48

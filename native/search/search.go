@@ -1,4 +1,4 @@
-package vaultsearch
+package search
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 		return nil, nil
 	}
 	if !utf8.ValidString(query) {
-		return nil, errors.New("vaultsearch: query is not valid UTF-8")
+		return nil, errors.New("search: query is not valid UTF-8")
 	}
 	s, err := i.getState()
 	if err != nil {
@@ -34,10 +34,10 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
-		return nil, errors.New("vaultsearch: index is closed")
+		return nil, errors.New("search: index is closed")
 	}
 	if s.poisoned {
-		return nil, errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+		return nil, errors.New("search: index transaction is incomplete; close and reopen to rebuild")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -48,28 +48,14 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 			return nil, err
 		}
 		if _, duplicate := shadowed[d.ID]; duplicate {
-			return nil, fmt.Errorf("vaultsearch: duplicate overlay ID %q", d.ID)
+			return nil, fmt.Errorf("search: duplicate overlay ID %q", d.ID)
 		}
 		shadowed[d.ID] = struct{}{}
 	}
-	qb := tantivy.NewQueryBuilder()
-	terms := qb.NestedBuilder().
-		Query(tantivy.Should, fieldTitleEN, query, tantivy.PhrasePrefixQuery, 14.0).
-		Query(tantivy.Should, fieldTitleEdge, query, tantivy.EveryTermQuery, 10.0).
-		Query(tantivy.Should, fieldPathEN, query, tantivy.PhrasePrefixQuery, 10.0).
-		Query(tantivy.Should, fieldPathEdge, query, tantivy.EveryTermQuery, 8.0).
-		Query(tantivy.Should, fieldBodyEN, query, tantivy.PhrasePrefixQuery, 1.0).
-		Query(tantivy.Should, fieldMetaEN, query, tantivy.PhrasePrefixQuery, 4.0)
-	if hanQuery := hanOnly(query); hanQuery != "" {
-		terms.Query(tantivy.Should, fieldTitleHanNG, hanQuery, tantivy.EveryTermQuery, 8.0).
-			Query(tantivy.Should, fieldPathHanNG, hanQuery, tantivy.EveryTermQuery, 6.0).
-			Query(tantivy.Should, fieldBodyHanNG, hanQuery, tantivy.EveryTermQuery, 0.75).
-			Query(tantivy.Should, fieldMetaHanNG, hanQuery, tantivy.EveryTermQuery, 3.0)
-	}
-	qb.BooleanQuery(tantivy.Must, terms, 1.0)
-	result, err := s.engine.SearchJson(tantivy.NewSearchContextBuilder().SetQueryFromJson(ptrQuery(qb.Build())).SetDocsLimit(uintptr(limit + len(overlays))).Build())
+	finalQuery := buildTextQuery(query)
+	result, err := s.engine.SearchJson(tantivy.NewSearchContextBuilder().SetQueryFromJson(ptrQuery(finalQuery)).SetDocsLimit(uintptr(limit + len(overlays))).Build())
 	if err != nil {
-		return nil, fmt.Errorf("vaultsearch: search Tantivy index: %w", err)
+		return nil, fmt.Errorf("search: search Tantivy index: %w", err)
 	}
 	defer result.Free()
 	disk, err := readSearchHits(result, s.engine)
@@ -107,20 +93,39 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 	return hits, nil
 }
 
+func buildTextQuery(query string) tantivy.FinalQuery {
+	qb := tantivy.NewQueryBuilder()
+	terms := qb.NestedBuilder().
+		Query(tantivy.Should, fieldTitleEN, query, tantivy.PhrasePrefixQuery, 14.0).
+		Query(tantivy.Should, fieldTitleEdge, query, tantivy.EveryTermQuery, 10.0).
+		Query(tantivy.Should, fieldPathEN, query, tantivy.PhrasePrefixQuery, 10.0).
+		Query(tantivy.Should, fieldPathEdge, query, tantivy.EveryTermQuery, 8.0).
+		Query(tantivy.Should, fieldBodyEN, query, tantivy.PhrasePrefixQuery, 1.0).
+		Query(tantivy.Should, fieldMetaEN, query, tantivy.PhrasePrefixQuery, 4.0)
+	if hanQuery := hanOnly(query); hanQuery != "" {
+		terms.Query(tantivy.Should, fieldTitleHanNG, hanQuery, tantivy.EveryTermQuery, 8.0).
+			Query(tantivy.Should, fieldPathHanNG, hanQuery, tantivy.EveryTermQuery, 6.0).
+			Query(tantivy.Should, fieldBodyHanNG, hanQuery, tantivy.EveryTermQuery, 0.75).
+			Query(tantivy.Should, fieldMetaHanNG, hanQuery, tantivy.EveryTermQuery, 3.0)
+	}
+	qb.BooleanQuery(tantivy.Must, terms, 1.0)
+	return qb.Build()
+}
+
 // ptrQuery exists to keep QueryBuilder construction readable at the call site.
 func ptrQuery(q tantivy.FinalQuery) *tantivy.FinalQuery { return &q }
 
 func readSearchHits(result *tantivy.SearchResult, engine *tantivy.TantivyContext) ([]storedHit, error) {
 	size, err := result.GetSize()
 	if err != nil {
-		return nil, fmt.Errorf("vaultsearch: read Tantivy result size: %w", err)
+		return nil, fmt.Errorf("search: read Tantivy result size: %w", err)
 	}
 	hits := make([]storedHit, 0, size)
 	fields := []string{fieldID, fieldPath, fieldRevision, fieldSource}
 	for n := uint64(0); n < size; n++ {
 		doc, err := result.Get(n)
 		if err != nil {
-			return nil, fmt.Errorf("vaultsearch: load Tantivy result %d: %w", n, err)
+			return nil, fmt.Errorf("search: load Tantivy result %d: %w", n, err)
 		}
 		var hit storedHit
 		_, convertErr := tantivy.ToModel(doc, engine, fields, func(raw string) (struct{}, error) {
@@ -128,7 +133,7 @@ func readSearchHits(result *tantivy.SearchResult, engine *tantivy.TantivyContext
 		})
 		doc.Free()
 		if convertErr != nil {
-			return nil, fmt.Errorf("vaultsearch: decode Tantivy result %d: %w", n, convertErr)
+			return nil, fmt.Errorf("search: decode Tantivy result %d: %w", n, convertErr)
 		}
 		hit.Score = safeScore(hit.Score)
 		hits = append(hits, hit)
@@ -164,7 +169,7 @@ func overlayScore(d Document, query string) (float64, bool) {
 	} else if strings.Contains(path, q) {
 		score += 8
 	}
-	for _, value := range append(append([]string(nil), d.Aliases...), d.Tags...) {
+	for _, value := range append(append([]string(nil), d.Metadata.Aliases...), d.Metadata.Tags...) {
 		if strings.Contains(strings.ToLower(value), q) {
 			score += 7
 			break

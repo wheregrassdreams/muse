@@ -1,14 +1,21 @@
-// Package vaultsearch provides a persistent full-text index for vault documents.
-package vaultsearch
+// Package search owns the query language, metadata filters, ranking, and
+// persistent full-text execution contracts for notes.
+package search
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"muse/document/types"
+	"muse/search/fields"
+	"muse/search/rank"
+)
 
 // Document is a disk snapshot or a query-time overlay. ID is stable across
 // path changes; Revision identifies the caller's snapshot version.
 type Document struct {
 	ID, Path, Title, Source, Revision string
-	Type, CreatedAt, UpdatedAt        string
-	Aliases, Tags                     []string
+	Metadata                          types.Metadata
 }
 
 // Hit describes a matched document. Start and End are UTF-8 byte offsets into
@@ -22,12 +29,35 @@ type Hit struct {
 // Index is a persistent Tantivy-backed index. Instances are created by Open.
 type Index struct{ state *indexState }
 
+// Corpus is a search-owned port implemented by vault indexes. It exposes an
+// immutable projection and keeps the vault's discovery/link graph private.
+type Corpus interface {
+	SearchDocuments() []Document
+}
+
+// QueryOptions injects query semantics and ranking policies during app
+// composition. Nil registries select the built-in metadata fields and no
+// extra rankers.
+type QueryOptions struct {
+	Fields  *fields.Registry
+	Rankers *rank.Registry
+}
+
 // Open opens or creates an index under dir.
 func Open(dir string) (*Index, error) { return openIndex(dir) }
 
 // Reconcile makes the disk index match docs, skipping unchanged revisions.
 func (i *Index) Reconcile(ctx context.Context, docs []Document) error {
 	return i.reconcile(ctx, docs)
+}
+
+// ReconcileCorpus reconciles from a module that implements the search-owned
+// corpus port, such as vault/index.Index.
+func (i *Index) ReconcileCorpus(ctx context.Context, corpus Corpus) error {
+	if corpus == nil {
+		return errors.New("search: corpus is required")
+	}
+	return i.Reconcile(ctx, corpus.SearchDocuments())
 }
 
 // NeedsReconcile reports whether docs differ from the durable snapshot without
@@ -41,10 +71,11 @@ func (i *Index) Apply(ctx context.Context, upserts []Document, deletes []string)
 	return i.apply(ctx, upserts, deletes)
 }
 
-// Search finds relevant documents. Query text is treated as literal input,
-// never as Tantivy query syntax. Overlays shadow persisted documents by ID.
+// Search finds relevant documents. Plain terms are treated as literal input;
+// recognized typed filters use the search query language. Overlays shadow
+// persisted documents by ID.
 func (i *Index) Search(ctx context.Context, query string, limit int, overlays ...Document) ([]Hit, error) {
-	return i.search(ctx, query, limit, overlays...)
+	return i.SearchQuery(ctx, query, limit, QueryOptions{}, overlays...)
 }
 
 // Literal finds Unicode case-insensitive substring matches and source spans.

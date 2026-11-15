@@ -1,4 +1,4 @@
-package vaultfiles
+package files
 
 import (
 	"os"

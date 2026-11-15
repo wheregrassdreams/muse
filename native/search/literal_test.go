@@ -1,4 +1,4 @@
-package vaultsearch_test
+package search_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"muse/vaultsearch"
+	"muse/search"
 )
 
 func TestLiteralSourceSpansAndOccurrenceLimit(t *testing.T) {
@@ -28,8 +28,8 @@ func TestLiteralSourceSpansAndOccurrenceLimit(t *testing.T) {
 		{"body", " \n ", nil},
 	} {
 		t.Run(tc.source+tc.query, func(t *testing.T) {
-			d := vaultsearch.Document{ID: "one", Path: "one.md", Source: tc.source}
-			if err := i.Reconcile(ctx, []vaultsearch.Document{d}); err != nil {
+			d := search.Document{ID: "one", Path: "one.md", Source: tc.source}
+			if err := i.Reconcile(ctx, []search.Document{d}); err != nil {
 				t.Fatal(err)
 			}
 			hits, err := i.Literal(ctx, tc.query, 100)
@@ -45,11 +45,11 @@ func TestLiteralSourceSpansAndOccurrenceLimit(t *testing.T) {
 			}
 		})
 	}
-	d := vaultsearch.Document{ID: "one", Path: "z.md", Source: "foo foo foo"}
-	if err := i.Reconcile(ctx, []vaultsearch.Document{d}); err != nil {
+	d := search.Document{ID: "one", Path: "z.md", Source: "foo foo foo"}
+	if err := i.Reconcile(ctx, []search.Document{d}); err != nil {
 		t.Fatal(err)
 	}
-	overlay := vaultsearch.Document{ID: "new", Path: "a.md", Source: "foo foo"}
+	overlay := search.Document{ID: "new", Path: "a.md", Source: "foo foo"}
 	hits, err := i.Literal(ctx, "foo", 3, overlay)
 	if err != nil || len(hits) != 3 || hits[0].Path != "a.md" || hits[1].Path != "a.md" || hits[2].Path != "z.md" {
 		t.Fatalf("overlay must participate in global path/occurrence ordering: %v, %v", hits, err)
@@ -57,7 +57,7 @@ func TestLiteralSourceSpansAndOccurrenceLimit(t *testing.T) {
 	if hits[0].Start != 0 || hits[1].Start != 4 || hits[2].Start != 0 {
 		t.Fatal(hits)
 	}
-	hits, err = i.Literal(ctx, "foo", 100, vaultsearch.Document{ID: "one", Path: "z.md", Source: "removed"})
+	hits, err = i.Literal(ctx, "foo", 100, search.Document{ID: "one", Path: "z.md", Source: "removed"})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("overlay did not hide disk snapshot: %v, %v", hits, err)
 	}

@@ -1,6 +1,6 @@
-// Package vaultfiles maintains path-only metadata for files in a vault.
+// Package files maintains path-only metadata for files in a vault.
 // It deliberately does not read or retain file contents.
-package vaultfiles
+package files
 
 import (
 	"os"

@@ -1,4 +1,4 @@
-package vaultsearch
+package search
 
 import (
 	"context"
@@ -303,7 +303,7 @@ func literalCachedLocked(ctx context.Context, s *indexState, query string, limit
 			return nil, err
 		}
 		if _, duplicate := shadow[d.ID]; duplicate {
-			return nil, fmt.Errorf("vaultsearch: duplicate overlay ID %q", d.ID)
+			return nil, fmt.Errorf("search: duplicate overlay ID %q", d.ID)
 		}
 		shadow[d.ID] = d
 	}
@@ -331,7 +331,7 @@ func literalCachedLocked(ctx context.Context, s *indexState, query string, limit
 					}
 					rec, ok := s.manifest.Docs[id]
 					if !ok {
-						return nil, fmt.Errorf("vaultsearch: stale literal order ID %q", id)
+						return nil, fmt.Errorf("search: stale literal order ID %q", id)
 					}
 					stored = literalCandidate{id: id, path: rec.Path, revision: rec.Revision}
 					if projection, ok := s.literalDocs[id]; ok && projection.Path == rec.Path && projection.Revision == rec.Revision {
@@ -388,7 +388,7 @@ func literalCachedLocked(ctx context.Context, s *indexState, query string, limit
 		for _, d := range pending {
 			stored, ok := sources[d.id]
 			if !ok {
-				return fmt.Errorf("vaultsearch: missing indexed source %q", d.id)
+				return fmt.Errorf("search: missing indexed source %q", d.id)
 			}
 			folded, starts, ends := lowercaseOffsets(stored.Source)
 			d.folded, d.starts, d.ends = folded, starts, ends
@@ -458,7 +458,7 @@ func literalCachedLocked(ctx context.Context, s *indexState, query string, limit
 		if !m.overlay {
 			stored, ok := sources[m.id]
 			if !ok {
-				return nil, fmt.Errorf("vaultsearch: missing indexed source %q", m.id)
+				return nil, fmt.Errorf("search: missing indexed source %q", m.id)
 			}
 			source = stored.Source
 		}
@@ -519,7 +519,7 @@ func literalSourcesByID(ctx context.Context, s *indexState, ids []string) (map[s
 		result, err := s.engine.SearchJson(tantivy.NewSearchContextBuilder().
 			SetQueryFromJson(ptrQuery(qb.Build())).SetDocsLimit(uintptr(len(batch))).Build())
 		if err != nil {
-			return nil, fmt.Errorf("vaultsearch: read literal match sources: %w", err)
+			return nil, fmt.Errorf("search: read literal match sources: %w", err)
 		}
 		docs, readErr := readSearchHits(result, s.engine)
 		result.Free()

@@ -1,9 +1,9 @@
-// Package vaultwatch provides a native, recursive filesystem watcher.
+// Package watch provides a native, recursive filesystem watcher.
 //
 // Events are invalidations: consumers should reread the affected path (or
 // rescan the workspace when Event.Overflow is true). The package never reads
 // or mutates application/editor state.
-package vaultwatch
+package watch
 
 import (
 	"errors"
@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 const (
@@ -22,10 +20,37 @@ const (
 	debounce    = 80 * time.Millisecond
 )
 
-var ErrClosed = errors.New("vaultwatch: watcher is closed")
+var ErrClosed = errors.New("vault/watch: watcher is closed")
 
 // Kind describes the resulting state change for a path.
 type Kind string
+
+// Operation is the backend-neutral set of filesystem notifications.
+type Operation uint8
+
+const (
+	Create Operation = 1 << iota
+	Write
+	Remove
+	Rename
+)
+
+// RawEvent is one low-level notification from a platform filesystem adapter.
+type RawEvent struct {
+	Path string
+	Op   Operation
+}
+
+// Backend performs filesystem watch registration and delivers raw events.
+// Implementations belong to platform adapters; this package owns coalescing,
+// recursive coverage, selected-file policy, and overflow signaling.
+type Backend interface {
+	Add(path string) error
+	Remove(path string) error
+	Events() <-chan RawEvent
+	Errors() <-chan error
+	Close() error
+}
 
 const (
 	Changed Kind = "changed"
@@ -50,7 +75,7 @@ type watchRequest struct {
 // file. The event channel is bounded; overflow is reported as a rescan event.
 type Watcher struct {
 	root      string
-	fs        *fsnotify.Watcher
+	backend   Backend
 	events    chan Event
 	requests  chan watchRequest
 	stop      chan struct{}
@@ -62,31 +87,36 @@ type Watcher struct {
 
 // New starts watching root recursively. Newly created directories are added
 // automatically. root must be an existing directory.
-func New(root string) (*Watcher, error) {
+func New(root string, backend Backend) (*Watcher, error) {
+	if backend == nil {
+		return nil, errors.New("vault/watch: filesystem backend is required")
+	}
+	started := false
+	defer func() {
+		if !started {
+			_ = backend.Close()
+		}
+	}()
 	abs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("vaultwatch: resolve root: %w", err)
+		return nil, fmt.Errorf("vault/watch: resolve root: %w", err)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return nil, fmt.Errorf("vaultwatch: stat root: %w", err)
+		return nil, fmt.Errorf("vault/watch: stat root: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("vaultwatch: root is not a directory: %s", abs)
-	}
-	fw, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, fmt.Errorf("vaultwatch: create watcher: %w", err)
+		return nil, fmt.Errorf("vault/watch: root is not a directory: %s", abs)
 	}
 	w := &Watcher{
-		root: abs, fs: fw, events: make(chan Event, eventBuffer),
+		root: abs, backend: backend, events: make(chan Event, eventBuffer),
 		requests: make(chan watchRequest), stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	if err := w.addTree(abs, nil); err != nil {
-		_ = fw.Close()
 		return nil, err
 	}
 	go w.run()
+	started = true
 	return w, nil
 }
 
@@ -107,19 +137,19 @@ func (w *Watcher) SetWake(fn func()) {
 // it again replaces the previously selected external file.
 func (w *Watcher) WatchFile(path string) error {
 	if path == "" {
-		return errors.New("vaultwatch: empty file path")
+		return errors.New("vault/watch: empty file path")
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return fmt.Errorf("vaultwatch: resolve file: %w", err)
+		return fmt.Errorf("vault/watch: resolve file: %w", err)
 	}
 	parent := filepath.Dir(abs)
 	info, err := os.Stat(parent)
 	if err != nil {
-		return fmt.Errorf("vaultwatch: stat file parent: %w", err)
+		return fmt.Errorf("vault/watch: stat file parent: %w", err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("vaultwatch: file parent is not a directory: %s", parent)
+		return fmt.Errorf("vault/watch: file parent is not a directory: %s", parent)
 	}
 	req := watchRequest{path: abs, reply: make(chan error, 1)}
 	select {
@@ -142,7 +172,7 @@ func (w *Watcher) WatchFile(path string) error {
 func (w *Watcher) Close() error {
 	w.closeOnce.Do(func() {
 		close(w.stop)
-		_ = w.fs.Close()
+		_ = w.backend.Close()
 	})
 	<-w.done
 	return nil
@@ -151,7 +181,7 @@ func (w *Watcher) Close() error {
 func (w *Watcher) addTree(root string, known map[string]struct{}) error {
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return fmt.Errorf("vaultwatch: walk %s: %w", path, walkErr)
+			return fmt.Errorf("vault/watch: walk %s: %w", path, walkErr)
 		}
 		if !entry.IsDir() {
 			return nil
@@ -165,8 +195,8 @@ func (w *Watcher) addTree(root string, known map[string]struct{}) error {
 				return nil
 			}
 		}
-		if err := w.fs.Add(path); err != nil {
-			return fmt.Errorf("vaultwatch: watch %s: %w", path, err)
+		if err := w.backend.Add(path); err != nil {
+			return fmt.Errorf("vault/watch: watch %s: %w", path, err)
 		}
 		if known != nil {
 			known[path] = struct{}{}
@@ -178,7 +208,7 @@ func (w *Watcher) addTree(root string, known map[string]struct{}) error {
 func (w *Watcher) run() {
 	defer close(w.done)
 	defer close(w.events)
-	defer w.fs.Close()
+	defer w.backend.Close()
 
 	dirs := make(map[string]struct{})
 	_ = filepath.WalkDir(w.root, func(path string, entry os.DirEntry, err error) error {
@@ -241,7 +271,7 @@ func (w *Watcher) run() {
 			clear(pending)
 		}
 	}
-	addPath := func(path string, op fsnotify.Op) {
+	addPath := func(path string, op Operation) {
 		path, err := filepath.Abs(filepath.Clean(path))
 		if err != nil {
 			return
@@ -249,7 +279,7 @@ func (w *Watcher) run() {
 		if !within(w.root, path) && path != selectedFile {
 			return
 		}
-		deleted := op&(fsnotify.Remove|fsnotify.Rename) != 0
+		deleted := op&(Remove|Rename) != 0
 		kind := Changed
 		if deleted {
 			kind = Removed
@@ -282,7 +312,7 @@ func (w *Watcher) run() {
 			parent := filepath.Dir(req.path)
 			if within(w.root, req.path) {
 				if externalParent != "" {
-					_ = w.fs.Remove(externalParent)
+					_ = w.backend.Remove(externalParent)
 					delete(dirs, externalParent)
 					externalParent = ""
 				}
@@ -291,27 +321,27 @@ func (w *Watcher) run() {
 				continue
 			}
 			if externalParent != "" && externalParent != parent {
-				_ = w.fs.Remove(externalParent)
+				_ = w.backend.Remove(externalParent)
 				delete(dirs, externalParent)
 			}
 			if _, ok := dirs[parent]; !ok {
-				if err := w.fs.Add(parent); err != nil {
-					req.reply <- fmt.Errorf("vaultwatch: watch file parent: %w", err)
+				if err := w.backend.Add(parent); err != nil {
+					req.reply <- fmt.Errorf("vault/watch: watch file parent: %w", err)
 					continue
 				}
 				dirs[parent] = struct{}{}
 			}
 			selectedFile, externalParent = req.path, parent
 			req.reply <- nil
-		case ev, ok := <-w.fs.Events:
+		case ev, ok := <-w.backend.Events():
 			if !ok {
 				return
 			}
-			path, err := filepath.Abs(filepath.Clean(ev.Name))
+			path, err := filepath.Abs(filepath.Clean(ev.Path))
 			if err != nil {
 				continue
 			}
-			if ev.Op&fsnotify.Create != 0 {
+			if ev.Op&Create != 0 {
 				if info, err := os.Stat(path); err == nil && info.IsDir() {
 					if err := w.addTree(path, dirs); err != nil {
 						overflowPending = true
@@ -319,16 +349,16 @@ func (w *Watcher) run() {
 					}
 				}
 			}
-			if ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+			if ev.Op&(Remove|Rename) != 0 {
 				for dir := range dirs {
 					if dir == path || within(path, dir) {
-						_ = w.fs.Remove(dir)
+						_ = w.backend.Remove(dir)
 						delete(dirs, dir)
 					}
 				}
 			}
 			addPath(path, ev.Op)
-		case err, ok := <-w.fs.Errors:
+		case err, ok := <-w.backend.Errors():
 			if !ok {
 				return
 			}

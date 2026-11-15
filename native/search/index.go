@@ -1,4 +1,4 @@
-package vaultsearch
+package search
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	tantivy "github.com/anyproto/tantivy-go"
 	"github.com/gofrs/flock"
+	"muse/document/types"
 )
 
 const (
@@ -56,8 +58,10 @@ type manifest struct {
 }
 
 type manifestRecord struct {
-	Path     string `json:"path"`
-	Revision string `json:"revision"`
+	Path     string         `json:"path"`
+	Title    string         `json:"title,omitempty"`
+	Revision string         `json:"revision"`
+	Metadata types.Metadata `json:"metadata,omitempty"`
 }
 
 // Index serializes mutation and protects the native context lifetime. Tantivy
@@ -89,22 +93,22 @@ type indexState struct {
 
 func openIndex(dir string) (*Index, error) {
 	if strings.TrimSpace(dir) == "" {
-		return nil, errors.New("vaultsearch: empty index directory")
+		return nil, errors.New("search: empty index directory")
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("vaultsearch: resolve index directory: %w", err)
+		return nil, fmt.Errorf("search: resolve index directory: %w", err)
 	}
 	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return nil, fmt.Errorf("vaultsearch: create index directory: %w", err)
+		return nil, fmt.Errorf("search: create index directory: %w", err)
 	}
-	fileLock := flock.New(filepath.Join(abs, ".vaultsearch.lock"))
+	fileLock := flock.New(filepath.Join(abs, ".search.lock"))
 	locked, err := fileLock.TryLock()
 	if err != nil {
-		return nil, fmt.Errorf("vaultsearch: acquire index lock: %w", err)
+		return nil, fmt.Errorf("search: acquire index lock: %w", err)
 	}
 	if !locked {
-		return nil, fmt.Errorf("vaultsearch: index in use: %s", abs)
+		return nil, fmt.Errorf("search: index in use: %s", abs)
 	}
 	opened := false
 	defer func() {
@@ -122,22 +126,22 @@ func openIndex(dir string) (*Index, error) {
 	_, dataErr := os.Stat(dataDir)
 	dataExists := dataErr == nil
 	if dataErr != nil && !errors.Is(dataErr, os.ErrNotExist) {
-		return nil, fmt.Errorf("vaultsearch: inspect Tantivy directory: %w", dataErr)
+		return nil, fmt.Errorf("search: inspect Tantivy directory: %w", dataErr)
 	}
 	_, manifestStatErr := os.Stat(manifestPath)
 	manifestMissing := errors.Is(manifestStatErr, os.ErrNotExist)
 	if manifestStatErr != nil && !manifestMissing {
-		return nil, fmt.Errorf("vaultsearch: inspect manifest: %w", manifestStatErr)
+		return nil, fmt.Errorf("search: inspect manifest: %w", manifestStatErr)
 	}
 	_, dirtyErr := os.Stat(dirtyPath)
 	dirty := dirtyErr == nil
 	if dirtyErr != nil && !errors.Is(dirtyErr, os.ErrNotExist) {
-		return nil, fmt.Errorf("vaultsearch: inspect dirty marker: %w", dirtyErr)
+		return nil, fmt.Errorf("search: inspect dirty marker: %w", dirtyErr)
 	}
 	recovering := dirty || manifestMissing || manifestErr != nil || !dataExists
 	if recovering && !dirty {
 		if err := writeDirtyMarker(dirtyPath); err != nil {
-			return nil, fmt.Errorf("vaultsearch: mark recovery in progress: %w", err)
+			return nil, fmt.Errorf("search: mark recovery in progress: %w", err)
 		}
 	}
 	resetManifest := manifestErr != nil || !dataExists
@@ -154,9 +158,9 @@ func openIndex(dir string) (*Index, error) {
 		if dataExists {
 			quarantine, qErr := quarantineIndexDir(dataDir)
 			if qErr != nil {
-				return nil, fmt.Errorf("vaultsearch: quarantine index after %s: %w", reason, qErr)
+				return nil, fmt.Errorf("search: quarantine index after %s: %w", reason, qErr)
 			}
-			log.Printf("vaultsearch: quarantined index at %s: %s", quarantine, reason)
+			log.Printf("search: quarantined index at %s: %s", quarantine, reason)
 			dataExists = false
 		}
 		resetManifest = true
@@ -165,13 +169,13 @@ func openIndex(dir string) (*Index, error) {
 	if manifestErr != nil {
 		quarantinedManifest := manifestPath + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
 		if err := os.Rename(manifestPath, quarantinedManifest); err != nil {
-			return nil, fmt.Errorf("vaultsearch: quarantine invalid manifest: %w", err)
+			return nil, fmt.Errorf("search: quarantine invalid manifest: %w", err)
 		}
-		log.Printf("vaultsearch: quarantined invalid manifest at %s: %v", quarantinedManifest, manifestErr)
+		log.Printf("search: quarantined invalid manifest at %s: %v", quarantinedManifest, manifestErr)
 	}
 	if !dataExists {
 		if err := os.MkdirAll(dataDir, 0o700); err != nil {
-			return nil, fmt.Errorf("vaultsearch: create Tantivy directory: %w", err)
+			return nil, fmt.Errorf("search: create Tantivy directory: %w", err)
 		}
 	}
 	engine, err := openEngine(dataDir)
@@ -179,29 +183,29 @@ func openIndex(dir string) (*Index, error) {
 		openErr := err
 		if !recovering {
 			if markerErr := writeDirtyMarker(dirtyPath); markerErr != nil {
-				return nil, fmt.Errorf("vaultsearch: mark incompatible-index recovery: %w", markerErr)
+				return nil, fmt.Errorf("search: mark incompatible-index recovery: %w", markerErr)
 			}
 			recovering = true
 		}
 		quarantine := dataDir + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
 		if renameErr := os.Rename(dataDir, quarantine); renameErr != nil {
-			return nil, fmt.Errorf("vaultsearch: Tantivy index is incompatible (%v), quarantine failed: %w", err, renameErr)
+			return nil, fmt.Errorf("search: Tantivy index is incompatible (%v), quarantine failed: %w", err, renameErr)
 		}
 		if mkdirErr := os.MkdirAll(dataDir, 0o700); mkdirErr != nil {
-			return nil, fmt.Errorf("vaultsearch: create replacement Tantivy directory: %w", mkdirErr)
+			return nil, fmt.Errorf("search: create replacement Tantivy directory: %w", mkdirErr)
 		}
 		engine, err = openEngine(dataDir)
 		if err != nil {
-			return nil, fmt.Errorf("vaultsearch: open replacement Tantivy index: %w", err)
+			return nil, fmt.Errorf("search: open replacement Tantivy index: %w", err)
 		}
 		meta.Docs = make(map[string]manifestRecord)
 		if saveErr := writeManifest(manifestPath, meta); saveErr != nil {
 			_ = engine.Close()
-			return nil, fmt.Errorf("vaultsearch: save rebuilt manifest: %w", saveErr)
+			return nil, fmt.Errorf("search: save rebuilt manifest: %w", saveErr)
 		}
-		log.Printf("vaultsearch: quarantined incompatible index at %s: %v", quarantine, openErr)
+		log.Printf("search: quarantined incompatible index at %s: %v", quarantine, openErr)
 	} else if err != nil {
-		return nil, fmt.Errorf("vaultsearch: open Tantivy index: %w", err)
+		return nil, fmt.Errorf("search: open Tantivy index: %w", err)
 	}
 	if meta.Docs == nil {
 		meta.Docs = make(map[string]manifestRecord)
@@ -209,13 +213,13 @@ func openIndex(dir string) (*Index, error) {
 	if manifestMissing || manifestErr != nil || resetManifest {
 		if err := writeManifest(manifestPath, meta); err != nil {
 			_ = engine.Close()
-			return nil, fmt.Errorf("vaultsearch: initialize recovered manifest: %w", err)
+			return nil, fmt.Errorf("search: initialize recovered manifest: %w", err)
 		}
 	}
 	if recovering {
 		if err := clearDirtyMarker(dirtyPath, abs); err != nil {
 			_ = engine.Close()
-			return nil, fmt.Errorf("vaultsearch: finish index recovery: %w", err)
+			return nil, fmt.Errorf("search: finish index recovery: %w", err)
 		}
 	}
 	s := &indexState{dir: abs, dataDir: dataDir, manifest: meta, engine: engine, fileLock: fileLock}
@@ -242,14 +246,14 @@ func readManifest(path string) (manifest, error) {
 		return manifest{Version: 1, Docs: make(map[string]manifestRecord)}, nil
 	}
 	if err != nil {
-		return manifest{}, fmt.Errorf("vaultsearch: read manifest: %w", err)
+		return manifest{}, fmt.Errorf("search: read manifest: %w", err)
 	}
 	var m manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return manifest{}, fmt.Errorf("vaultsearch: decode manifest: %w", err)
+		return manifest{}, fmt.Errorf("search: decode manifest: %w", err)
 	}
 	if m.Version != 1 || m.Docs == nil {
-		return manifest{}, fmt.Errorf("vaultsearch: unsupported or invalid manifest version %d", m.Version)
+		return manifest{}, fmt.Errorf("search: unsupported or invalid manifest version %d", m.Version)
 	}
 	return m, nil
 }
@@ -355,7 +359,7 @@ func openEngine(dir string) (*tantivy.TantivyContext, error) {
 
 func (i *Index) getState() (*indexState, error) {
 	if i == nil || i.state == nil {
-		return nil, errors.New("vaultsearch: index is closed or uninitialized")
+		return nil, errors.New("search: index is closed or uninitialized")
 	}
 	return i.state, nil
 }
@@ -370,7 +374,7 @@ func (i *Index) reconcile(ctx context.Context, docs []Document) error {
 	s.mu.RLock()
 	if s.closed {
 		s.mu.RUnlock()
-		return errors.New("vaultsearch: index is closed")
+		return errors.New("search: index is closed")
 	}
 	previous := make(map[string]literalDoc, len(s.literalDocs))
 	for id, projection := range s.literalDocs {
@@ -384,10 +388,10 @@ func (i *Index) reconcile(ctx context.Context, docs []Document) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return errors.New("vaultsearch: index is closed")
+		return errors.New("search: index is closed")
 	}
 	if s.poisoned {
-		return errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+		return errors.New("search: index transaction is incomplete; close and reopen to rebuild")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -402,14 +406,14 @@ func (i *Index) reconcile(ctx context.Context, docs []Document) error {
 			return err
 		}
 		if _, ok := seen[d.ID]; ok {
-			return fmt.Errorf("vaultsearch: duplicate document ID %q", d.ID)
+			return fmt.Errorf("search: duplicate document ID %q", d.ID)
 		}
 		seen[d.ID] = struct{}{}
 		key := d.Revision
 		if key == "" {
 			key = sourceDigest(d.Source)
 		}
-		if old, ok := s.manifest.Docs[d.ID]; ok && old.Path == d.Path && old.Revision == key {
+		if old, ok := s.manifest.Docs[d.ID]; ok && old.Path == d.Path && old.Title == d.Title && old.Revision == key && reflect.DeepEqual(old.Metadata, d.Metadata) {
 			continue
 		}
 		d.Revision = key
@@ -455,10 +459,10 @@ func (i *Index) needsReconcile(docs []Document) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
-		return false, errors.New("vaultsearch: index is closed")
+		return false, errors.New("search: index is closed")
 	}
 	if s.poisoned {
-		return false, errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+		return false, errors.New("search: index transaction is incomplete; close and reopen to rebuild")
 	}
 	if len(docs) != len(s.manifest.Docs) {
 		return true, nil
@@ -469,7 +473,7 @@ func (i *Index) needsReconcile(docs []Document) (bool, error) {
 			return false, err
 		}
 		if _, ok := seen[d.ID]; ok {
-			return false, fmt.Errorf("vaultsearch: duplicate document ID %q", d.ID)
+			return false, fmt.Errorf("search: duplicate document ID %q", d.ID)
 		}
 		seen[d.ID] = struct{}{}
 		revision := d.Revision
@@ -477,7 +481,7 @@ func (i *Index) needsReconcile(docs []Document) (bool, error) {
 			revision = sourceDigest(d.Source)
 		}
 		old, ok := s.manifest.Docs[d.ID]
-		if !ok || old.Path != d.Path || old.Revision != revision {
+		if !ok || old.Path != d.Path || old.Title != d.Title || old.Revision != revision || !reflect.DeepEqual(old.Metadata, d.Metadata) {
 			return true, nil
 		}
 	}
@@ -522,10 +526,10 @@ func (i *Index) apply(ctx context.Context, upserts []Document, deletes []string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return errors.New("vaultsearch: index is closed")
+		return errors.New("search: index is closed")
 	}
 	if s.poisoned {
-		return errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+		return errors.New("search: index transaction is incomplete; close and reopen to rebuild")
 	}
 	if err := s.applyLocked(ctx, prepared, deletes); err != nil {
 		return err
@@ -550,7 +554,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 			return err
 		}
 		if _, ok := upsertIDs[d.ID]; ok {
-			return fmt.Errorf("vaultsearch: duplicate upsert ID %q", d.ID)
+			return fmt.Errorf("search: duplicate upsert ID %q", d.ID)
 		}
 		upsertIDs[d.ID] = struct{}{}
 	}
@@ -558,7 +562,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 	explicitDeletes := make(map[string]struct{}, len(deletes))
 	for _, id := range deletes {
 		if id == "" {
-			return errors.New("vaultsearch: empty delete ID")
+			return errors.New("search: empty delete ID")
 		}
 		deleteSet[id] = struct{}{}
 		if _, replaced := upsertIDs[id]; !replaced {
@@ -580,7 +584,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 		return err
 	}
 	if err := writeDirtyMarker(filepath.Join(s.dir, dirtyName)); err != nil {
-		return fmt.Errorf("vaultsearch: mark index transaction dirty: %w", err)
+		return fmt.Errorf("search: mark index transaction dirty: %w", err)
 	}
 	s.poisoned = true
 	// Tantivy commits each bounded batch independently. The marker makes a
@@ -591,7 +595,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 		}
 		end := min(at+nativeDeleteBatchSize, len(deleteIDs))
 		if _, err := s.engine.BatchAddAndDeleteDocumentsWithOpstamp(nil, fieldID, deleteIDs[at:end]); err != nil {
-			return fmt.Errorf("vaultsearch: apply Tantivy delete batch %d: %w", at/nativeDeleteBatchSize, err)
+			return fmt.Errorf("search: apply Tantivy delete batch %d: %w", at/nativeDeleteBatchSize, err)
 		}
 	}
 	for at := 0; at < len(upserts); {
@@ -602,10 +606,10 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 		for end < len(upserts) && end-at < nativeUpsertBatchSize {
 			d := upserts[end]
 			size := len(d.Source) + len(d.Title) + len(d.Path)
-			for _, value := range d.Aliases {
+			for _, value := range d.Metadata.Aliases {
 				size += len(value)
 			}
-			for _, value := range d.Tags {
+			for _, value := range d.Metadata.Tags {
 				size += len(value)
 			}
 			if end > at && sourceBytes+size > nativeBatchSourceBytes {
@@ -632,12 +636,12 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 			batchIDs = append(batchIDs, d.ID)
 		}
 		if _, err := s.engine.BatchAddAndDeleteDocumentsWithOpstamp(docs, fieldID, batchIDs); err != nil {
-			return fmt.Errorf("vaultsearch: apply Tantivy upsert batch %d: %w", at/nativeUpsertBatchSize, err)
+			return fmt.Errorf("search: apply Tantivy upsert batch %d: %w", at/nativeUpsertBatchSize, err)
 		}
 		at = end
 	}
 	if err := s.engine.ReloadReader(); err != nil {
-		return fmt.Errorf("vaultsearch: reload committed index: %w", err)
+		return fmt.Errorf("search: reload committed index: %w", err)
 	}
 	next := manifest{Version: 1, Docs: make(map[string]manifestRecord, len(s.manifest.Docs)+len(upserts))}
 	for id, rec := range s.manifest.Docs {
@@ -650,13 +654,13 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 		if revision == "" {
 			revision = sourceDigest(d.Source)
 		}
-		next.Docs[d.ID] = manifestRecord{Path: d.Path, Revision: revision}
+		next.Docs[d.ID] = manifestRecord{Path: d.Path, Title: d.Title, Revision: revision, Metadata: d.Metadata.Clone()}
 	}
 	if err := writeManifest(filepath.Join(s.dir, manifestName), next); err != nil {
-		return fmt.Errorf("vaultsearch: commit succeeded but manifest update failed: %w", err)
+		return fmt.Errorf("search: commit succeeded but manifest update failed: %w", err)
 	}
 	if err := clearDirtyMarker(filepath.Join(s.dir, dirtyName), s.dir); err != nil {
-		return fmt.Errorf("vaultsearch: commit succeeded but dirty marker could not be cleared: %w", err)
+		return fmt.Errorf("search: commit succeeded but dirty marker could not be cleared: %w", err)
 	}
 	s.manifest = next
 	s.poisoned = false
@@ -698,16 +702,16 @@ func makeNativeDocument(engine *tantivy.TantivyContext, d Document) (*tantivy.Do
 	} {
 		if err := add(f.field, f.value); err != nil {
 			doc.Free()
-			return nil, fmt.Errorf("vaultsearch: index %s for %q: %w", f.field, d.ID, err)
+			return nil, fmt.Errorf("search: index %s for %q: %w", f.field, d.ID, err)
 		}
 	}
-	metaValues := append(append([]string(nil), d.Aliases...), d.Tags...)
-	metaValues = append(metaValues, d.Type, d.CreatedAt, d.UpdatedAt)
+	metaValues := append(append([]string(nil), d.Metadata.Aliases...), d.Metadata.Tags...)
+	metaValues = append(metaValues, string(d.Metadata.Type), d.Metadata.CreatedAt, d.Metadata.UpdatedAt)
 	meta := strings.Join(metaValues, "\n")
 	for _, f := range []struct{ field, value string }{{fieldMetaEN, meta}, {fieldMetaHanNG, hanOnly(meta)}} {
 		if err := add(f.field, f.value); err != nil {
 			doc.Free()
-			return nil, fmt.Errorf("vaultsearch: index %s metadata for %q: %w", f.field, d.ID, err)
+			return nil, fmt.Errorf("search: index %s metadata for %q: %w", f.field, d.ID, err)
 		}
 	}
 	return doc, nil
@@ -715,10 +719,10 @@ func makeNativeDocument(engine *tantivy.TantivyContext, d Document) (*tantivy.Do
 
 func validateDocument(d Document) error {
 	if d.ID == "" || d.Path == "" {
-		return errors.New("vaultsearch: document ID and path are required")
+		return errors.New("search: document ID and path are required")
 	}
 	if !utf8.ValidString(d.ID) || !utf8.ValidString(d.Path) || !utf8.ValidString(d.Title) || !utf8.ValidString(d.Source) || !utf8.ValidString(d.Revision) {
-		return fmt.Errorf("vaultsearch: document %q contains invalid UTF-8", d.ID)
+		return fmt.Errorf("search: document %q contains invalid UTF-8", d.ID)
 	}
 	return nil
 }
@@ -757,7 +761,7 @@ func (i *Index) close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return errors.New("vaultsearch: index already closed")
+		return errors.New("search: index already closed")
 	}
 	s.closed = true
 	s.literalDocs = nil
@@ -774,7 +778,7 @@ func wrapCloseError(action string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("vaultsearch: %s: %w", action, err)
+	return fmt.Errorf("search: %s: %w", action, err)
 }
 
 // A conservative guard prevents invalid numeric scores from disrupting sort.
