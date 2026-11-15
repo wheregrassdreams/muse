@@ -4,6 +4,7 @@
 package filetree
 
 import (
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/ui/scrollbar"
@@ -19,23 +20,26 @@ const (
 // Entry is one already ordered and already visible tree row. ID is opaque to
 // this package and should be stable while the row remains the same item.
 type Entry struct {
-	ID        string
-	Label     string
-	Detail    string
-	Kind      EntryKind
-	Depth     int
-	Expanded  bool
-	Selected  bool
-	Focused   bool
-	CanSelect bool
-	CanExpand bool
-	CanOpen   bool
-	CanDrag   bool
-	CanDrop   bool
-	DragIDs   []string
-	DropHint  bool
-	Icon      *ui.SVG
-	IconTint  ui.Color
+	ID             string
+	Label          string
+	Detail         string
+	Kind           EntryKind
+	Depth          int
+	Expanded       bool
+	Selected       bool
+	Focused        bool
+	CanSelect      bool
+	CanExpand      bool
+	CanOpen        bool
+	CanDrag        bool
+	CanDrop        bool
+	DragIDs        []string
+	DragActive     bool
+	ContextActions []Command
+	Previewable    bool
+	DropHint       bool
+	Icon           *ui.SVG
+	IconTint       ui.Color
 }
 
 // Command describes a caller-provided toolbar action such as create, search,
@@ -53,14 +57,26 @@ type ScrollPort struct {
 	Indicator *scrollbar.Indicator
 }
 
+// NativeDropPort is a caller-provided native transfer capability. The panel
+// negotiates/detects transfers through MyGo and returns completed drops; it
+// never chooses a filesystem operation.
+type NativeDropPort struct {
+	Formats    []transfer.Format
+	Operations transfer.Operation
+}
+
 // ViewModel contains presentation rows and capabilities. The caller owns the
 // file catalog, selection policy, expanded-node state, and list/scroll state.
 type ViewModel struct {
-	Entries      []Entry
-	Commands     []Command
-	EmptyMessage string
-	Focused      bool
-	Scroll       ScrollPort
+	Entries            []Entry
+	Commands           []Command
+	EmptyMessage       string
+	Focused            bool
+	PreviewID          string
+	RootContextActions []Command
+	RootCanDrop        bool
+	NativeDrop         NativeDropPort
+	Scroll             ScrollPort
 }
 
 type ActionKind uint8
@@ -71,6 +87,12 @@ const (
 	OpenEntry
 	InvokeCommand
 	DropEntries
+	InvokeContextCommand
+	HoverEntry
+	LeaveEntry
+	StartDrag
+	DropNative
+	ImportFiles
 )
 
 // Action contains presentation intent only. In particular, DropEntries does
@@ -81,11 +103,21 @@ type Action struct {
 	CommandID string
 	ItemIDs   []string
 	Modifiers ui.Modifiers
+	Offer     transfer.Offer
+	Drop      transfer.Drop
+	Paths     []string
+	Bounds    ui.Rect
+}
+
+type RenderResult struct {
+	List        ui.Element
+	HoveredID   string
+	NativeOffer *transfer.Offer
 }
 
 type dragPayload struct{ IDs []string }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult {
 	t := c.Theme()
 	if len(model.Commands) > 0 {
 		ui.Row(c).FillWidth().Height(34).Padding(0, 6).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -112,10 +144,28 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		if message == "" {
 			message = locales.FilesNoEditableText()
 		}
-		ui.Column(c).FillWidth().Grow(1).Center().Padding(20).Children(func() {
+		area := ui.Column(c).FillWidth().Grow(1).Center().Padding(20).Children(func() {
 			ui.Text(c, message).FontSize(12).TextColor(t.TextMuted).Wrap()
 		})
-		return
+		attachContextMenu(area, "", model.RootContextActions, dispatch)
+		if model.RootCanDrop {
+			if payload, ok := ui.Drop[dragPayload](area); ok {
+				dispatchAction(dispatch, Action{Kind: DropEntries, ItemIDs: cloneIDs(payload.IDs)})
+			}
+			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
+				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
+				if drop, ok := ui.DropData(area, opts); ok {
+					dispatchAction(dispatch, Action{Kind: DropNative, Drop: drop})
+				}
+			}
+			if paths := area.DroppedFiles(); len(paths) > 0 {
+				dispatchAction(dispatch, Action{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+			}
+		}
+		if model.PreviewID != "" {
+			dispatchAction(dispatch, Action{Kind: LeaveEntry, ID: model.PreviewID})
+		}
+		return RenderResult{List: area}
 	}
 
 	var localScroll ui.ScrollState
@@ -141,6 +191,9 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	}
 
 	pointerActivated := false
+	hoveredID := ""
+	var hoveredBounds ui.Rect
+	var nativeOffer *transfer.Offer
 	list := ui.List(c, listState, len(model.Entries), func(i int) {
 		entry := model.Entries[i]
 		row := ui.ButtonBase(c).Label(entry.Label).Height(28).FillWidth().Radius(5).Padding(0, 8, 0, 4+float32(max(entry.Depth, 0))*14).
@@ -185,6 +238,16 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		})
 		if entry.CanDrag {
 			row.Drag(dragPayload{IDs: cloneIDs(entry.DragIDs)})
+			if row.Dragging() && !entry.DragActive {
+				ids := cloneIDs(entry.DragIDs)
+				if len(ids) == 0 {
+					ids = []string{entry.ID}
+				}
+				dispatchAction(dispatch, Action{Kind: StartDrag, ID: entry.ID, ItemIDs: ids})
+			}
+		}
+		if entry.Previewable && row.Hovered() {
+			hoveredID, hoveredBounds = entry.ID, row.Bounds()
 		}
 		if entry.CanDrop {
 			if payload, ok := ui.Drop[dragPayload](row); ok {
@@ -193,7 +256,24 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			if _, over := ui.DragOver[dragPayload](row); over {
 				row.Background(t.SurfaceHover)
 			}
+			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
+				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
+				if offer, over := ui.DataDragOver(row, opts); over {
+					nativeOffer = &offer
+					row.Background(t.SurfaceHover)
+				}
+				if drop, ok := ui.DropData(row, opts); ok {
+					dispatchAction(dispatch, Action{Kind: DropNative, ID: entry.ID, Drop: drop})
+				}
+			}
+			if row.FileDragOver() {
+				row.Background(t.SurfaceHover)
+			}
+			if paths := row.DroppedFiles(); len(paths) > 0 {
+				dispatchAction(dispatch, Action{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
+			}
 		}
+		attachContextMenu(row, entry.ID, entry.ContextActions, dispatch)
 		if entry.CanSelect || entry.CanExpand || entry.CanOpen {
 			row.OnClick(func() {
 				pointerActivated = true
@@ -212,6 +292,32 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		}
 	})
 	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(scroll).Scrollbars(showScrollbar).Focusable()
+	attachContextMenu(list, "", model.RootContextActions, dispatch)
+	if model.RootCanDrop {
+		if payload, ok := ui.Drop[dragPayload](list); ok {
+			dispatchAction(dispatch, Action{Kind: DropEntries, ItemIDs: cloneIDs(payload.IDs)})
+		}
+		if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
+			opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
+			if offer, over := ui.DataDragOver(list, opts); over && nativeOffer == nil {
+				nativeOffer = &offer
+			}
+			if drop, ok := ui.DropData(list, opts); ok {
+				dispatchAction(dispatch, Action{Kind: DropNative, Drop: drop})
+			}
+		}
+		if paths := list.DroppedFiles(); len(paths) > 0 {
+			dispatchAction(dispatch, Action{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+		}
+	}
+	if hoveredID != model.PreviewID {
+		if model.PreviewID != "" {
+			dispatchAction(dispatch, Action{Kind: LeaveEntry, ID: model.PreviewID})
+		}
+		if hoveredID != "" {
+			dispatchAction(dispatch, Action{Kind: HoverEntry, ID: hoveredID, Bounds: hoveredBounds})
+		}
+	}
 	if list.Changed() && !pointerActivated && model.Focused && listState.Selected != nil {
 		if i := *listState.Selected; i >= 0 && i < len(model.Entries) {
 			entry := model.Entries[i]
@@ -225,6 +331,21 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			emitDefaultAction(model.Entries[i], dispatch)
 		}
 	}
+	return RenderResult{List: list, HoveredID: hoveredID, NativeOffer: nativeOffer}
+}
+
+func attachContextMenu(element ui.Element, targetID string, actions []Command, dispatch func(Action)) {
+	if len(actions) == 0 {
+		return
+	}
+	element.ContextMenu(func(m *ui.Menu) {
+		for _, command := range actions {
+			command := command
+			if m.Item(command.Label).Disabled(!command.Enabled).Chosen() && command.Enabled {
+				dispatchAction(dispatch, Action{Kind: InvokeContextCommand, ID: targetID, CommandID: command.ID})
+			}
+		}
+	})
 }
 
 func selectedEntry(entries []Entry) int {

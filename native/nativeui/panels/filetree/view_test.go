@@ -99,17 +99,100 @@ func TestToolbarCommandAndDropAction(t *testing.T) {
 	}
 }
 
+func TestRowContextMenuReturnsOpaqueCommand(t *testing.T) {
+	var actions []Action
+	model := ViewModel{Entries: []Entry{{ID: "note", Label: "Roadmap.md", Kind: File, ContextActions: []Command{{ID: "trash", Label: "Move to Trash", Enabled: true}}}}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.RightClickAt(160, 14)
+	if err := tester.ChooseMenuItem("Move to Trash"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != InvokeContextCommand || actions[0].ID != "note" || actions[0].CommandID != "trash" {
+		t.Fatalf("context actions = %+v", actions)
+	}
+}
+
+func TestRootContextMenuUsesEmptyTargetID(t *testing.T) {
+	var actions []Action
+	model := ViewModel{EmptyMessage: "Empty", RootContextActions: []Command{{ID: "new-folder", Label: "New folder", Enabled: true}}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.RightClickAt(160, 60)
+	if err := tester.ChooseMenuItem("New folder"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != InvokeContextCommand || actions[0].ID != "" || actions[0].CommandID != "new-folder" {
+		t.Fatalf("root context actions = %+v", actions)
+	}
+}
+
+func TestPreviewHoverActionsOnlyFireOnEntryTransitions(t *testing.T) {
+	var actions []Action
+	model := ViewModel{Entries: []Entry{{ID: "image", Label: "Photo.png", Kind: File, Previewable: true}}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		Render(c, model, func(a Action) {
+			actions = append(actions, a)
+			if a.Kind == HoverEntry {
+				model.PreviewID = a.ID
+			} else if a.Kind == LeaveEntry {
+				model.PreviewID = ""
+			}
+		})
+	}, 320, 120)
+	tester.Frame()
+	tester.Move(140, 14)
+	tester.Frame()
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != HoverEntry || actions[0].ID != "image" {
+		t.Fatalf("hover actions repeated or missing: %+v", actions)
+	}
+	tester.Move(310, 110)
+	tester.Frame()
+	if len(actions) != 2 || actions[1].Kind != LeaveEntry || actions[1].ID != "image" {
+		t.Fatalf("leave action missing: %+v", actions)
+	}
+}
+
 func TestDragAndDropEmitsGenericAction(t *testing.T) {
 	var actions []Action
 	model := ViewModel{Entries: []Entry{
 		{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanDrop: true},
 		{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true, DragIDs: []string{"note"}},
 	}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester := ui.NewTester(func(c *ui.Context) {
+		Render(c, model, func(a Action) {
+			actions = append(actions, a)
+			if a.Kind == StartDrag && a.ID == "note" {
+				model.Entries[1].DragActive = true
+			}
+		})
+	}, 320, 120)
 	tester.Frame()
 	tester.Press(160, 43)
 	tester.Move(160, 14)
 	tester.Frame()
+	started := false
+	for _, action := range actions {
+		if action.Kind == StartDrag && action.ID == "note" && len(action.ItemIDs) == 1 && action.ItemIDs[0] == "note" {
+			started = true
+		}
+	}
+	if !started {
+		t.Fatalf("drag start contract action missing: %+v", actions)
+	}
+	tester.Frame()
+	starts := 0
+	for _, action := range actions {
+		if action.Kind == StartDrag {
+			starts++
+		}
+	}
+	if starts != 1 {
+		t.Fatalf("start drag dispatched %d times, actions=%+v", starts, actions)
+	}
 	tester.Release(160, 14)
 	tester.Frame()
 	for _, action := range actions {
