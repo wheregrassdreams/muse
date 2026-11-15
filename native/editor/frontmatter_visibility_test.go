@@ -1,11 +1,11 @@
-package mdedit
+package editor
 
 import (
 	"math"
 	"strings"
 	"testing"
 
-	"muse/frontmatter"
+	"muse/document/frontmatter"
 )
 
 func TestHiddenFrontmatterDoesNotAddAClosingDelimiterBlankLine(t *testing.T) {

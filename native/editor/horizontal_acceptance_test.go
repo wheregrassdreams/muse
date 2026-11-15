@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"math"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/scrollui"
+	"muse/ui/scrollbar"
 )
 
 func TestHorizontalAcceptanceTableMovesAsOneClippedObject(t *testing.T) {
@@ -62,7 +62,7 @@ func TestHorizontalAcceptanceTableMovesAsOneClippedObject(t *testing.T) {
 	if !table.horizontal.shown {
 		t.Fatal("actual horizontal movement did not reveal the scrollbar")
 	}
-	h.tt.Advance(scrollui.VisibleFor + time.Second)
+	h.tt.Advance(scrollbar.VisibleFor + time.Second)
 	h.frame()
 	if table.horizontal.shown {
 		t.Fatal("hover kept the block's scrollbar visible after scrolling stopped")

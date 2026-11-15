@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 // EditorOperationKind names editor semantics independently of any keymap.
 // Keymaps and UI controls translate input into these operations; source,
@@ -313,12 +313,12 @@ func (e *Editor) findCharacter(char string, dir int, till bool, count int) bool 
 	m.findChar, m.findDir, m.findTill, m.findValid = modalGrapheme(char), dir, till, true
 	at, ok := e.modalFind(m.findChar, dir, till, count)
 	if !ok {
-		if m.pending != "" {
-			m.pending, m.opCount = "", 0
+		if m.sequence.Pending != "" {
+			m.sequence.Pending, m.sequence.OperatorCount = "", 0
 		}
 		return true
 	}
-	if m.pending == "d" || m.pending == "c" || m.pending == "y" {
+	if m.sequence.Pending == "d" || m.sequence.Pending == "c" || m.sequence.Pending == "y" {
 		a, z := e.caret, e.nextGraphemeBoundary(e.caret)
 		if at < e.caret {
 			a, z = at, e.nextGraphemeBoundary(e.caret)
@@ -328,8 +328,8 @@ func (e *Editor) findCharacter(char string, dir int, till bool, count int) bool 
 		if till && at > e.caret {
 			z = at
 		}
-		op := m.pending
-		m.pending, m.opCount = "", 0
+		op := m.sequence.Pending
+		m.sequence.Pending, m.sequence.OperatorCount = "", 0
 		e.modalApply(op, a, z)
 	} else {
 		e.nativeSetCaret(at, m.mode == "Visual" || m.mode == "Select")
@@ -348,12 +348,12 @@ func (e *Editor) repeatCharacterFind(reverse bool, count int) bool {
 	}
 	at, ok := e.modalFind(m.findChar, dir, m.findTill, count)
 	if !ok {
-		if m.pending != "" {
-			m.pending, m.opCount = "", 0
+		if m.sequence.Pending != "" {
+			m.sequence.Pending, m.sequence.OperatorCount = "", 0
 		}
 		return true
 	}
-	if m.pending == "d" || m.pending == "c" || m.pending == "y" {
+	if m.sequence.Pending == "d" || m.sequence.Pending == "c" || m.sequence.Pending == "y" {
 		a, z := e.caret, e.nextGraphemeBoundary(e.caret)
 		if dir > 0 {
 			if m.findTill {
@@ -364,8 +364,8 @@ func (e *Editor) repeatCharacterFind(reverse bool, count int) bool {
 		} else {
 			a = at
 		}
-		op := m.pending
-		m.pending, m.opCount = "", 0
+		op := m.sequence.Pending
+		m.sequence.Pending, m.sequence.OperatorCount = "", 0
 		e.modalApply(op, a, z)
 	} else {
 		e.nativeSetCaret(at, m.mode == "Visual" || m.mode == "Select")

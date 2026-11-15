@@ -1,15 +1,15 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 	"unsafe"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 // mathScale turns the pixels of a typeset formula into DIPs: mdoc
 // rasterizes at twice the density of a DIP.
-const mathScale = mdoc.MathScale
+const mathScale = markdown.MathScale
 
 // mathObject returns the typeset formula of tex at the size of the text
 // around it, as an inline object, or nil when it cannot be typeset.
@@ -21,7 +21,7 @@ func (e *Editor) mathObject(tex string, size float32, display bool) *object {
 	if display {
 		size *= 1.15
 	}
-	visual := mdoc.RenderMathVisual(tex, float64(size), e.lk.dark, false, e.lk.font)
+	visual := markdown.RenderMathVisual(tex, float64(size), e.lk.dark, false, e.lk.font)
 	if visual == nil || visual.Bitmap() == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 	if tex == "" {
 		return nil
 	}
-	visual := mdoc.RenderMathVisual(tex, float64(e.lk.size*1.2), e.lk.dark, true, e.lk.font)
+	visual := markdown.RenderMathVisual(tex, float64(e.lk.size*1.2), e.lk.dark, true, e.lk.font)
 	if visual == nil || visual.Bitmap() == nil {
 		return nil
 	}
@@ -61,13 +61,13 @@ func (e *Editor) imageObject(dest, alt string, width float32, alone bool) *objec
 	if e.opts.ResolveImage != nil {
 		resolved = e.opts.ResolveImage(dest, e.opts.BaseDir, e.opts.AssetRoot)
 	} else {
-		resolved = mdoc.ResolveImageSource(dest, e.opts.BaseDir, e.opts.AssetRoot)
+		resolved = markdown.ResolveImageSource(dest, e.opts.BaseDir, e.opts.AssetRoot)
 	}
-	var asset *mdoc.ImageAsset
+	var asset *markdown.ImageAsset
 	if strings.HasPrefix(resolved, "data:") {
 		asset = e.dataImageAsset(resolved)
 	} else {
-		asset = mdoc.LoadImageAssetWithSize(resolved, "", e.assetLoaded, e.assetLoaded)
+		asset = markdown.LoadImageAssetWithSizeAndCacheStore(resolved, "", e.opts.ImageCacheStore, e.assetLoaded, e.assetLoaded)
 	}
 	bmp := asset.Bitmap()
 	intrinsic, hasIntrinsic := asset.IntrinsicSize()
@@ -124,14 +124,14 @@ type dataImageAssetKey struct {
 // byte-bounded cache after decode; without this document-local identity map,
 // the assetGen invalidation after loading would parse the view again and start
 // another full Base64 decode immediately.
-func (e *Editor) dataImageAsset(src string) *mdoc.ImageAsset {
+func (e *Editor) dataImageAsset(src string) *markdown.ImageAsset {
 	key := dataImageAssetKey{data: unsafe.StringData(src), len: len(src)}
 	if asset := e.dataImageAssets[key]; asset != nil {
 		return asset
 	}
-	asset := mdoc.LoadImageAssetWithSize(src, "", e.assetLoaded, e.assetLoaded)
+	asset := markdown.LoadImageAssetWithSize(src, "", e.assetLoaded, e.assetLoaded)
 	if e.dataImageAssets == nil {
-		e.dataImageAssets = make(map[dataImageAssetKey]*mdoc.ImageAsset)
+		e.dataImageAssets = make(map[dataImageAssetKey]*markdown.ImageAsset)
 	}
 	e.dataImageAssets[key] = asset
 	return asset
@@ -139,7 +139,7 @@ func (e *Editor) dataImageAsset(src string) *mdoc.ImageAsset {
 
 // htmlImageObject returns the image an HTML block of just an image shows.
 func (e *Editor) htmlImageObject(html string, width float32) *object {
-	src, alt, _, iw, ih, ok := mdoc.HTMLOnlyImage(html)
+	src, alt, _, iw, ih, ok := markdown.HTMLOnlyImage(html)
 	if !ok {
 		return nil
 	}
@@ -233,9 +233,9 @@ func (e *Editor) assetLoaded() {
 
 // sketchOptions is what a diagram needs to be drawn in this page: its
 // colors, and a measure of its labels in this page's font.
-func (e *Editor) sketchOptions() mdoc.SketchOptions {
-	return mdoc.SketchOptions{
-		Theme: &mdoc.SketchTheme{
+func (e *Editor) sketchOptions() markdown.SketchOptions {
+	return markdown.SketchOptions{
+		Theme: &markdown.SketchTheme{
 			Bg:         e.lk.panel,
 			Fg:         e.lk.text,
 			Muted:      e.lk.muted,

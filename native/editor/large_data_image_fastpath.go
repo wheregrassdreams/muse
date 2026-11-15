@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"encoding/base64"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 type largeDataImageInlineCache struct {

@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"reflect"
@@ -7,8 +7,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/appearance"
-	"muse/mdoc"
+	"muse/markdown"
+	appearance "muse/theme"
 )
 
 func TestSmartTypographyToggleAndEditingGeometry(t *testing.T) {
@@ -74,25 +74,25 @@ func TestMarkdownLinkCodeAndMarkColorsFollowAccent(t *testing.T) {
 		for _, accent := range []ui.Color{ui.Hex("#c99a18"), ui.Hex("#3979d1")} {
 			palette := appearance.From(accent, dark)
 			lk := look{
-				dark: dark, accent: accent, text: mdoc.BodyTextColor(dark),
+				dark: dark, accent: accent, text: markdown.BodyTextColor(dark),
 				muted: ui.Hex("#777777"), codeBg: ui.RGBA(0, 0, 0, 14), codeText: palette.Ink,
 				markBg: palette.Soft.Alpha(2.1), mono: "monospace",
 			}
-			if regular := lk.span(istyle{}, 16); regular.Weight != 0 || regular.Color != mdoc.BodyTextColor(dark) {
+			if regular := lk.span(istyle{}, 16); regular.Weight != 0 || regular.Color != markdown.BodyTextColor(dark) {
 				t.Fatalf("dark=%v accent=%v regular body span=%+v", dark, accent, regular)
 			}
 			if bold := lk.span(istyle{bold: true}, 16); bold.Weight != 600 {
 				t.Fatalf("bold weight=%d, want 600", bold.Weight)
 			}
-			if strike := lk.span(istyle{strike: true}, 16); strike.Color == mdoc.BodyTextColor(dark) {
+			if strike := lk.span(istyle{strike: true}, 16); strike.Color == markdown.BodyTextColor(dark) {
 				t.Fatalf("dark=%v strike span is not subdued: %+v", dark, strike)
 			}
 			link := lk.span(istyle{link: true}, 16)
 			code := lk.span(istyle{code: true}, 16)
-			if link.Color != mdoc.InlineLinkColorFor(accent, dark) || !link.Underline {
+			if link.Color != markdown.InlineLinkColorFor(accent, dark) || !link.Underline {
 				t.Fatalf("dark=%v accent=%v link span=%+v", dark, accent, link)
 			}
-			wantBG, wantInk := mdoc.InlineCodeColorsFor(accent, dark)
+			wantBG, wantInk := markdown.InlineCodeColorsFor(accent, dark)
 			if code.Color != wantInk || code.Background != wantBG || code.Font != lk.mono {
 				t.Fatalf("dark=%v accent=%v code style=%+v, want neutral ink=%v bg=%v mono=%q", dark, accent, code, wantInk, wantBG, lk.mono)
 			}

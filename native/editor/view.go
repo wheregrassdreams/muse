@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"math"
@@ -10,9 +10,9 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
+	"muse/editor/internal/parser"
 	"muse/locales"
-	"muse/mdedit/internal/parser"
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 // VaultItemDrag is the in-process drag value shared by the navigation tree
@@ -462,10 +462,10 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	e.frame++
 	e.services = c.Services()
 	e.focused = e.handle.Focused(c)
-	if e.modal.pending == "z" {
+	if e.modal.sequence.Pending == "z" {
 		remaining := 900*time.Millisecond - c.Now().Sub(e.modal.prefixAt)
 		if remaining <= 0 {
-			e.modal.pending, e.modal.prefixAt = "", time.Time{}
+			e.modal.sequence.Pending, e.modal.prefixAt = "", time.Time{}
 		} else {
 			c.After(remaining)
 		}
@@ -664,7 +664,7 @@ func (e *Editor) vaultItemInsertionRect(off int) (ui.Rect, bool) {
 func (e *Editor) advanceVisibleImageAssets(c *ui.Context) {
 	now := c.Now()
 	var nextFrame time.Duration
-	seen := make(map[*mdoc.ImageAsset]struct{})
+	seen := make(map[*markdown.ImageAsset]struct{})
 	var visit func(*Editor)
 	visit = func(editor *Editor) {
 		if editor == nil {

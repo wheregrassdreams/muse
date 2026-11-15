@@ -1,6 +1,6 @@
-package mdedit
+package editor
 
-import "muse/mdoc"
+import "muse/markdown"
 
 // MemoryDiagnostics is a point-in-time estimate of image memory still
 // reachable from an editor. Pixel bytes exclude allocator overhead and GPU
@@ -28,8 +28,8 @@ func (e *Editor) MemoryDiagnostics() MemoryDiagnostics {
 		Leaves:        len(e.leaves),
 		VirtualLayout: e.virtualLayout(),
 	}
-	assets := make(map[*mdoc.ImageAsset]struct{})
-	addAsset := func(asset *mdoc.ImageAsset) {
+	assets := make(map[*markdown.ImageAsset]struct{})
+	addAsset := func(asset *markdown.ImageAsset) {
 		if asset != nil {
 			assets[asset] = struct{}{}
 		}

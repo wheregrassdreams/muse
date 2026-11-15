@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"math"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 // One compact fixture exercises the hierarchy, prose, chrome and editable
@@ -62,10 +62,10 @@ func TestMarkdownStyleFixture(t *testing.T) {
 			h.want(markdownStyleFixture)
 			h.shot("markdown-editor-source-" + name)
 
-			doc := mdoc.Parse(markdownStyleFixture)
+			doc := markdown.Parse(markdownStyleFixture)
 			h.tt = ui.NewTester(func(c *ui.Context) {
 				ui.Themed(c, theme).Fill().Background(theme.Background).Children(func() {
-					mdoc.View(c, doc, mdoc.Options{BodyFontSize: 16})
+					markdown.View(c, doc, markdown.Options{BodyFontSize: 16})
 				})
 			}, 840, 1200)
 			h.frame()

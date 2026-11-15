@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 // foldSection describes the source range hidden by one heading fold.
 type foldSection struct {

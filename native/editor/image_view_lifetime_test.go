@@ -1,9 +1,9 @@
-package mdedit
+package editor
 
 import (
 	"testing"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 func TestVirtualLayoutForMediumImageNoteLoadsImagesOnDemand(t *testing.T) {
@@ -114,11 +114,11 @@ func TestLeafViewImageAssetDetection(t *testing.T) {
 	if view.hasImageAsset() {
 		t.Fatal("placeholder without an asset reported an image asset")
 	}
-	view.disp.pieces[0].obj.asset = &mdoc.ImageAsset{}
+	view.disp.pieces[0].obj.asset = &markdown.ImageAsset{}
 	if !view.hasImageAsset() {
 		t.Fatal("inline image asset was not detected")
 	}
-	view.block = &object{asset: &mdoc.ImageAsset{}}
+	view.block = &object{asset: &markdown.ImageAsset{}}
 	if !view.hasImageAsset() {
 		t.Fatal("block image asset was not detected")
 	}

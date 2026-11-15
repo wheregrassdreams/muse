@@ -1,4 +1,4 @@
-// Package mdedit is Muse's native WYSIWYG Markdown editor: one editing
+// Package editor is Muse's native WYSIWYG Markdown editor: one editing
 // surface for the whole document, drawn by MyGo, with the Markdown source
 // as its only state. The source is parsed after every edit and rendered as
 // Typora renders it: block syntax (#, list markers, >, fences, pipes) is
@@ -9,13 +9,13 @@
 // nothing is ever serialized: what the editor saves is exactly what the
 // user wrote, and an outside change (an AI tool, a file reload) is just
 // another edit of the same string.
-package mdedit
+package editor
 
 import (
 	"slices"
 	"strings"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 // exts is the Markdown the editor reads: GitHub's flavor, footnotes, math,

@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"encoding/base64"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 func TestLargeDataImageSourceStaysAtomicWhenCaretRevealsImage(t *testing.T) {

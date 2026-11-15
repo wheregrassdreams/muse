@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"muse/locales"
@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 const wikiSuggestionLimit = 8

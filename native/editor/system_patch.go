@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 // ReplaceSystemAll updates source managed by the application without adding a
 // separate Undo item. When possible, the patch is folded into the preceding

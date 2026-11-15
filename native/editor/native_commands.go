@@ -1,22 +1,22 @@
-package mdedit
+package editor
 
 import (
 	"sort"
 	"unicode"
 	"unicode/utf8"
 
-	"muse/textnav"
+	"muse/editor/navigation"
 )
 
 // displayWordIndex adapts a display string's UTF-16 coordinates to the
-// UTF-8 byte coordinates owned by textnav. The cache is keyed by exact display
+// UTF-8 byte coordinates owned by navigation. The cache is keyed by exact display
 // text so repeated motion/selection queries never re-tokenize a frame.
 type displayWordIndex struct {
 	text        string
-	index       *textnav.Index
+	index       *navigation.Index
 	byteOffsets []int
 	u16Offsets  []int
-	bigWords    []textnav.Range
+	bigWords    []navigation.Range
 	cost        int
 }
 
@@ -33,7 +33,7 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 			return cached
 		}
 	}
-	w := &displayWordIndex{text: text, index: textnav.New(text)}
+	w := &displayWordIndex{text: text, index: navigation.New(text)}
 	w.byteOffsets = make([]int, 1, utf8.RuneCountInString(text)+1)
 	w.u16Offsets = make([]int, 1, utf8.RuneCountInString(text)+1)
 	byteOff, unitOff := 0, 0
@@ -62,7 +62,7 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 			}
 			at += size
 		}
-		w.bigWords = append(w.bigWords, textnav.Range{Start: start, End: at})
+		w.bigWords = append(w.bigWords, navigation.Range{Start: start, End: at})
 	}
 	w.cost = len(text) + w.index.TokenCount()*24 + len(w.byteOffsets)*16 + len(w.bigWords)*16
 	if w.cost > wordIndexCacheBudget {
@@ -84,7 +84,7 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 
 // bigWordStart returns the next or previous Vim WORD start. A WORD is a
 // contiguous run of non-whitespace display text, including punctuation.
-func (w *displayWordIndex) bigWordStart(off, dir int) (textnav.Range, bool) {
+func (w *displayWordIndex) bigWordStart(off, dir int) (navigation.Range, bool) {
 	if dir > 0 {
 		i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
 		if i < len(w.bigWords) && w.bigWords[i].Start <= off {
@@ -93,7 +93,7 @@ func (w *displayWordIndex) bigWordStart(off, dir int) (textnav.Range, bool) {
 		if i < len(w.bigWords) {
 			return w.bigWords[i], true
 		}
-		return textnav.Range{}, false
+		return navigation.Range{}, false
 	}
 	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].Start >= off })
 	if i > 0 {
@@ -103,11 +103,11 @@ func (w *displayWordIndex) bigWordStart(off, dir int) (textnav.Range, bool) {
 		}
 		return previous, true
 	}
-	return textnav.Range{}, false
+	return navigation.Range{}, false
 }
 
 // bigWordEnd returns the current/next Vim WORD's exclusive display-byte end.
-func (w *displayWordIndex) bigWordEnd(off int, next bool) (textnav.Range, bool) {
+func (w *displayWordIndex) bigWordEnd(off int, next bool) (navigation.Range, bool) {
 	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
 	if next && i < len(w.bigWords) && w.bigWords[i].Start <= off {
 		i++
@@ -115,7 +115,7 @@ func (w *displayWordIndex) bigWordEnd(off int, next bool) (textnav.Range, bool) 
 	if i < len(w.bigWords) {
 		return w.bigWords[i], true
 	}
-	return textnav.Range{}, false
+	return navigation.Range{}, false
 }
 
 func (w *displayWordIndex) byteAtUTF16(off int, end bool) int {

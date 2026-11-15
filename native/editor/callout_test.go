@@ -1,8 +1,8 @@
-package mdedit
+package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 	"strings"
 	"testing"
 )

@@ -1,8 +1,8 @@
-package mdedit
+package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/scrollui"
+	"muse/ui/scrollbar"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +26,7 @@ func TestEditorScrollbarOnlyAfterScrolling(t *testing.T) {
 		t.Fatal("actual scrolling did not show scrollbar")
 	}
 	tt.Move(990, 200)
-	tt.Advance(scrollui.VisibleFor + time.Second)
+	tt.Advance(scrollbar.VisibleFor + time.Second)
 	tt.Frame()
 	if e.scrollIndicator.Visible(now, e.scroll.X, e.scroll.Y) {
 		t.Fatal("hover kept scrollbar alive")

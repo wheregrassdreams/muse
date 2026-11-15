@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"os"
@@ -250,16 +250,16 @@ func TestVimLinewiseModeToggleEscapeAndEmptyLine(t *testing.T) {
 		t.Fatalf("empty-line selection = %q", got)
 	}
 	sendVim(h, "v")
-	if h.e.modal.line || h.e.modal.mode != "Visual" {
+	if h.e.modal.sequence.Linewise || h.e.modal.mode != "Visual" {
 		t.Fatalf("V to v did not leave linewise mode: %#v", h.e.modal)
 	}
 	h.key(0, ui.KeyEscape)
-	if h.e.modal.line || h.e.modal.mode != "Normal" {
+	if h.e.modal.sequence.Linewise || h.e.modal.mode != "Normal" {
 		t.Fatalf("Escape left visual state: %#v", h.e.modal)
 	}
 	sendVim(h, "V")
 	h.key(0, ui.KeyEscape)
-	if h.e.modal.line || h.e.modal.mode != "Normal" {
+	if h.e.modal.sequence.Linewise || h.e.modal.mode != "Normal" {
 		t.Fatalf("Escape left linewise state: %#v", h.e.modal)
 	}
 }

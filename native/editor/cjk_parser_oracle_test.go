@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"muse/mdedit/internal/parser"
-	"muse/mdoc"
+	"muse/editor/internal/parser"
+	"muse/markdown"
 )
 
 func TestInternalParserCJKFlankingMatchesSourceNormalization(t *testing.T) {
@@ -61,7 +61,7 @@ func TestInternalParserCJKFlankingMatchesSourceNormalization(t *testing.T) {
 	}
 
 	for _, src := range inputs {
-		direct, normalized := shape(src), shape(mdoc.CJKFriendly(src))
+		direct, normalized := shape(src), shape(markdown.CJKFriendly(src))
 		if len(direct) != len(normalized) {
 			t.Errorf("shape length differs for %q: direct=%v normalized=%v", src, direct, normalized)
 			continue

@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"encoding/json"
@@ -165,7 +165,7 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	e.block = &b
 	e.blockAnchorOffset = s.anchorOffset
 	e.modal.mode = "BlockVisual"
-	e.modal.line = false
+	e.modal.sequence.Linewise = false
 	e.invalidate()
 }
 

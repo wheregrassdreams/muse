@@ -1,9 +1,9 @@
-package mdedit
+package editor
 
 import (
 	"testing"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 func TestNumericTagsAreNotReferences(t *testing.T) {

@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"os"
@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/transfer"
-	"muse/mdedit/internal/parser"
 	"github.com/egoist/mygo/ui/richtext"
+	"muse/editor/internal/parser"
 )
 
 // Inline formats: a command on a selection wraps it in the format's
@@ -642,7 +642,7 @@ func (e *Editor) alignColumn(t *leaf, lines [][2]int, at int, cmd string) {
 		return
 	}
 	state := e.tableNavigationState()
-	hasStructure := state.structure != nil || state.bridge != nil
+	hasStructure := state.Selection != nil || state.Bridge != nil
 	from, to := pipes[at]+1, pipes[at+1]
 	shift := func(off int) int {
 		if off >= to {
@@ -653,12 +653,12 @@ func (e *Editor) alignColumn(t *leaf, lines [][2]int, at int, cmd string) {
 		}
 		return off
 	}
-	if state.structure != nil {
-		state.structure.lineStart = shift(state.structure.lineStart)
+	if state.Selection != nil {
+		state.Selection.LineStart = shift(state.Selection.LineStart)
 	}
-	if state.bridge != nil {
-		state.bridge.lineStart = shift(state.bridge.lineStart)
-		state.bridge.selectionAnchor = shift(state.bridge.selectionAnchor)
+	if state.Bridge != nil {
+		state.Bridge.LineStart = shift(state.Bridge.LineStart)
+		state.Bridge.SelectionAnchor = shift(state.Bridge.SelectionAnchor)
 	}
 	e.begin(stepEdit)
 	e.replace(from, to, spec)
@@ -670,12 +670,12 @@ func (e *Editor) alignColumn(t *leaf, lines [][2]int, at int, cmd string) {
 		}
 		e.block.revision++
 	}
-	state.anchor, state.caret = e.anchor, e.caret
+	state.TextSelection.Anchor, state.TextSelection.Head = e.anchor, e.caret
 	e.commit(e.anchor, e.caret)
 	if hasStructure {
 		e.restoreTableNavigation(state)
 		if n := len(e.hist.undo); n > 0 {
-			after := e.tableNavigationState()
+			after := e.tableSnapshot()
 			e.hist.undo[n-1].tableAfter = &after
 		}
 	}

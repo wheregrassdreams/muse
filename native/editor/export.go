@@ -1,6 +1,6 @@
-package mdedit
+package editor
 
-import "muse/mdedit/internal/parser"
+import "muse/editor/internal/parser"
 
 // ExportHTML renders Markdown with the editor's Markdown parser for export.
 // The caller owns the surrounding HTML document and its presentation.

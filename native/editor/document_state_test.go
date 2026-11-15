@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"math/rand/v2"

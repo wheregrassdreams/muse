@@ -1,6 +1,6 @@
-package mdedit
+package editor
 
-import "muse/mdedit/internal/parser"
+import "muse/editor/internal/parser"
 
 // parserSource is what the parser reads, and everything the editor derives
 // from the source for it: the document, the source it was built from, the

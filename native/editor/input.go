@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"muse/locales"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.

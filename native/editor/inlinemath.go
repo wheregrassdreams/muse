@@ -1,9 +1,9 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 func (e *Editor) isInlineMathRange(start, end int) bool {

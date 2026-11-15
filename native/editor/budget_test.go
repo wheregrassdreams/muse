@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"os"
@@ -24,7 +24,7 @@ import (
 // in a row. So it runs when it is asked to, and the suite's colour stays
 // about the code:
 //
-//	MUSE_PERF=1 go test ./mdedit -run TestTypingFrameBudget -v
+//	MUSE_PERF=1 go test ./editor -run TestTypingFrameBudget -v
 func TestTypingFrameBudget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("the frame budget is a timing test")

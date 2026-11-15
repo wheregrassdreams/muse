@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"image"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 // shownEditor lays src out in an editor without the focus, where no
@@ -73,7 +73,7 @@ func styledText(e *Editor, d display) string {
 		if sp.Font == e.lk.mono {
 			tags = append(tags, "code")
 		}
-		if sp.Color == mdoc.InlineLinkColorFor(e.lk.accent, e.lk.dark) {
+		if sp.Color == markdown.InlineLinkColorFor(e.lk.accent, e.lk.dark) {
 			tags = append(tags, "a")
 		}
 		tag := strings.Join(tags, ",")

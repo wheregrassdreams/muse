@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import "strings"
 

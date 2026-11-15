@@ -1,11 +1,11 @@
-package mdedit
+package editor
 
 import (
 	"sort"
 	"strconv"
 	"strings"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 // Editing works on the source, as Typora's editing reads: typing goes in

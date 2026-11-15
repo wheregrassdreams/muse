@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"reflect"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/scrollui"
+	"muse/ui/scrollbar"
 )
 
 func scrollControlHarness(t *testing.T, wide bool) (*harness, *leaf) {
@@ -115,7 +115,7 @@ func TestHorizontalBarHoverDoesNotShowOrExtendIt(t *testing.T) {
 	until := table.horizontal.indicator.Remaining(time.Now())
 	track, _ := blockHorizontalBarRects(box, blockContentWidth(table), table.horizontal.x)
 	h.tt.Move(track.X+track.W/2, track.Y+1-h.e.scroll.Y)
-	h.tt.Advance(scrollui.VisibleFor + time.Second)
+	h.tt.Advance(scrollbar.VisibleFor + time.Second)
 	h.frame()
 	if table.horizontal.shown {
 		t.Fatal("hover kept the horizontal scrollbar visible")

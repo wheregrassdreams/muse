@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 // Conformance tests for the editor's Markdown parser (MyGo's
 // ui/markdown/parser), against the CommonMark spec's 652 examples in
@@ -7,7 +7,7 @@ package mdedit
 // The layers are tested separately: the engine with no extensions, the
 // GFM extensions the editor always enables, and the editor's own math
 // dialect, where \[...\] is display math but an escaped \[ must stay text
-// (mdedit masks escaped brackets before parsing; see editMask).
+// (editor masks escaped brackets before parsing; see editMask).
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 type specExample struct {
@@ -95,7 +95,7 @@ func TestGFMSpecHTML(t *testing.T) {
 // TestEditorEscapedBracketsAreNotMath pins the editor's math dialect on
 // the three spec examples that contain escaped brackets. Adding ExtMath
 // makes the bare parser read \[...\] as display math and swallow the rest
-// of the example, so mdedit masks escaped brackets before parsing; what
+// of the example, so editor masks escaped brackets before parsing; what
 // the reader sees must still be the spec's text, not a formula.
 func TestEditorEscapedBracketsAreNotMath(t *testing.T) {
 	for _, ex := range loadSpec(t) {

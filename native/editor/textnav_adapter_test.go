@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"muse/textnav"
+	"muse/editor/navigation"
 )
 
 func TestOpeningChineseDocumentDoesNotLoadWordDictionary(t *testing.T) {
@@ -20,13 +20,13 @@ func TestOpeningChineseDocumentDoesNotLoadWordDictionary(t *testing.T) {
 		}
 		return
 	}
-	if ready, err := textnav.DefaultStatus(); ready || err != nil {
+	if ready, err := navigation.DefaultStatus(); ready || err != nil {
 		t.Fatalf("child test began with dictionary already loaded: ready=%v err=%v", ready, err)
 	}
 	e := New("", Options{})
 	e.SetSource("这篇中文笔记只需要打开和阅读")
 	time.Sleep(50 * time.Millisecond)
-	if ready, err := textnav.DefaultStatus(); ready || err != nil {
+	if ready, err := navigation.DefaultStatus(); ready || err != nil {
 		t.Fatalf("opening a Chinese document warmed the word dictionary: ready=%v err=%v", ready, err)
 	}
 }

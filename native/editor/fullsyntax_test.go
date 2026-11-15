@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 // TestFullSyntaxFixture opens the all-syntax document the way a reader
 // does and checks that each construct reaches the display: styled runs
@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"muse/editor/internal/parser"
 )
 
 func TestFullSyntaxFixture(t *testing.T) {
@@ -100,7 +102,13 @@ func TestFullSyntaxFixture(t *testing.T) {
 	}
 	var diagram bool
 	for _, l := range e.leaves {
-		if l.view != nil && l.view.diagram != nil {
+		v := l.view
+		if v == nil && isMermaid(l) {
+			// Long documents virtualize offscreen blocks. Build this block's
+			// display view directly so the fixture still checks diagram rendering.
+			v = e.viewWith(l, e.opts.MaxWidth, false, parser.AlignNone, -1)
+		}
+		if v != nil && v.diagram != nil {
 			diagram = true
 		}
 	}

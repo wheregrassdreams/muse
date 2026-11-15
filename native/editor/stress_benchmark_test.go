@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"bytes"
@@ -18,9 +18,9 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
-	"muse/mdoc"
-	"muse/textnav"
+	"muse/editor/internal/parser"
+	"muse/editor/navigation"
+	"muse/markdown"
 )
 
 func stressTester(e *Editor) *ui.Tester {
@@ -310,7 +310,7 @@ func BenchmarkStressFirstFrame(b *testing.B) {
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			if os.Getenv("MUSE_STRESS_WARM_TEXTNAV") == "1" {
-				if err := textnav.WarmUp(); err != nil {
+				if err := navigation.WarmUp(); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -422,7 +422,7 @@ func BenchmarkStressBase64FirstFrame(b *testing.B) {
 	settleStart := time.Now()
 	settleDeadline := settleStart.Add(30 * time.Second)
 	for {
-		pending, active := mdoc.ImageDecodeQueueStats()
+		pending, active := markdown.ImageDecodeQueueStats()
 		if pending == 0 && active == 0 {
 			break
 		}
@@ -453,10 +453,10 @@ func BenchmarkStressBase64FirstFrame(b *testing.B) {
 	b.ReportMetric(float64(settleDuration.Nanoseconds()), "image-decode-settle-ns")
 	b.ReportMetric(float64(settledFrame.Nanoseconds()), "settled-frame-ns")
 	b.ReportMetric(float64((newTime+testerTime+frameTime).Nanoseconds())/float64(b.N), "cold-first-frame-ns/op")
-	cacheEntries, cacheBytes := mdoc.ImageAssetCacheStats()
+	cacheEntries, cacheBytes := markdown.ImageAssetCacheStats()
 	b.ReportMetric(float64(cacheEntries), "image-cache-entries")
 	b.ReportMetric(float64(cacheBytes), "image-cache-estimated-bytes")
-	postPending, postActive := mdoc.ImageDecodeQueueStats()
+	postPending, postActive := markdown.ImageDecodeQueueStats()
 	b.ReportMetric(float64(postPending), "post-frame-pending-image-decodes")
 	b.ReportMetric(float64(postActive), "post-frame-active-image-decodes")
 	if postPending != 0 || postActive != 0 || len(src) > 1<<20 && cacheEntries != 0 {
@@ -531,7 +531,7 @@ func BenchmarkStressScrollFrames(b *testing.B) {
 // a 10MiB note with many short paragraphs and editable blank lines.
 func BenchmarkStressProseScrollFrames(b *testing.B) {
 	if os.Getenv("MUSE_STRESS_WARM_TEXTNAV") == "1" {
-		if err := textnav.WarmUp(); err != nil {
+		if err := navigation.WarmUp(); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -693,7 +693,7 @@ func BenchmarkStressHighResolutionImageScroll(b *testing.B) {
 	// fast-scroll backlog is not mislabeled as retained cache memory.
 	time.Sleep(2 * time.Second)
 	t.Frame()
-	decodeJobs, activeDecodeJobs := mdoc.ImageDecodeQueueStats()
+	decodeJobs, activeDecodeJobs := markdown.ImageDecodeQueueStats()
 	runtime.ReadMemStats(&gcEnd)
 	imageViews := 0
 	offscreenImageViews := 0

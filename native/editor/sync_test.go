@@ -1,11 +1,11 @@
-package mdedit
+package editor
 
 import (
 	"fmt"
 	"strings"
 	"testing"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 // docShape is the parse of a document as text, for comparing an editor

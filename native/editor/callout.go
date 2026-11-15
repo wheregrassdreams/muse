@@ -1,12 +1,12 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 
-	"muse/appearance"
+	appearance "muse/theme"
 )
 
 // quoteContainer preserves parser-owned containers and extends alert headers

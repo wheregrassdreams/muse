@@ -1,7 +1,7 @@
-package mdedit
+package editor
 
 import (
-	"muse/scrollui"
+	"muse/ui/scrollbar"
 	"strings"
 	"testing"
 	"time"
@@ -265,7 +265,7 @@ func TestDiagramScrollbarExpiresWhileHovered(t *testing.T) {
 		t.Fatal("scroll did not reveal scrollbar")
 	}
 	h.tt.Move(box.X+10, box.Y+box.H+4)
-	h.tt.Advance(scrollui.VisibleFor + time.Second)
+	h.tt.Advance(scrollbar.VisibleFor + time.Second)
 	h.frame()
 	if l.view.diagBarShown {
 		t.Fatal("hover prevented scrollbar expiration")

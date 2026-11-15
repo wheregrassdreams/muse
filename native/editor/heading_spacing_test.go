@@ -1,8 +1,8 @@
-package mdedit
+package editor
 
 import (
 	"math"
-	"muse/mdoc"
+	"muse/markdown"
 	"testing"
 )
 
@@ -30,7 +30,7 @@ func TestHeadingSectionGapCountsEditableBlankLines(t *testing.T) {
 			}
 		}
 		gap := heading.y - (above.y + above.h)
-		want := max(blankHeight, mdoc.HeadingTopMargin(heading.level, h.e.lk.size))
+		want := max(blankHeight, markdown.HeadingTopMargin(heading.level, h.e.lk.size))
 		if math.Abs(float64(gap-want)) > .1 {
 			t.Fatalf("%d blanks: section gap=%v want=%v", blankCount, gap, want)
 		}

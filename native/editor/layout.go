@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"fmt"
@@ -8,12 +8,12 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 
-	"muse/appearance"
-	"muse/mdoc"
-	"muse/scrollui"
-	"muse/textlayout"
+	"muse/editor/internal/textlayout"
+	"muse/markdown"
+	appearance "muse/theme"
+	"muse/ui/scrollbar"
 )
 
 // look is how the document looks, resolved from the window's theme and the
@@ -80,16 +80,16 @@ func (e *Editor) setLook(t *ui.Theme) {
 	if lk.mono == "" {
 		lk.mono = "monospace"
 	}
-	lk.text = mdoc.BodyTextColor(t.Dark)
+	lk.text = markdown.BodyTextColor(t.Dark)
 	lk.muted = t.TextMuted
 	lk.accent = t.Accent
-	lk.marker = mdoc.MarkdownMarkerColor(t.Dark)
+	lk.marker = markdown.MarkdownMarkerColor(t.Dark)
 	lk.border = t.Border
 	lk.selection = t.Selection
 	lk.caret = t.Accent
-	lk.codeBg, lk.codeText = mdoc.InlineCodeColorsFor(t.Accent, t.Dark)
-	lk.panel = mdoc.CodePanelColor(t.Dark)
-	lk.quoteBar = mdoc.MarkdownRuleColor(t.Dark)
+	lk.codeBg, lk.codeText = markdown.InlineCodeColorsFor(t.Accent, t.Dark)
+	lk.panel = markdown.CodePanelColor(t.Dark)
+	lk.quoteBar = markdown.MarkdownRuleColor(t.Dark)
 	// Palette.Soft is intentionally faint; lift it enough for Markdown marks
 	// to remain visible at paragraph scale across every accent preset.
 	lk.markBg = appearance.From(t.Accent, t.Dark).Soft.Alpha(2.1)
@@ -100,7 +100,7 @@ func (e *Editor) setLook(t *ui.Theme) {
 func (lk *look) span(st istyle, size float32) ui.Span {
 	s := ui.Span{Color: lk.text}
 	if st.heading {
-		s.Color = mdoc.HeadingTextColor(lk.dark)
+		s.Color = markdown.HeadingTextColor(lk.dark)
 	}
 	if st.muted {
 		s.Color = lk.text.Mix(lk.muted, 0.25)
@@ -122,7 +122,7 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 		s.Underline = true
 	}
 	if st.link {
-		s.Color = mdoc.InlineLinkColorFor(lk.accent, lk.dark)
+		s.Color = markdown.InlineLinkColorFor(lk.accent, lk.dark)
 		s.Underline = true
 		if st.linkInvalid {
 			s.Color = s.Color.Mix(lk.muted, 0.45)
@@ -138,7 +138,7 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.code {
 		s.Font = lk.mono
 		s.Size = size * 0.875
-		codeBg, codeText := mdoc.InlineCodeColorsFor(lk.accent, lk.dark)
+		codeBg, codeText := markdown.InlineCodeColorsFor(lk.accent, lk.dark)
 		if st.codeJoined {
 			// Inline code ranges receive one shared background in paint.go.
 			s.Background = ui.Color{}
@@ -190,9 +190,9 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 }
 
 // headingSize returns the size of the text of a heading of level.
-func (lk *look) headingSize(level int) float32 { return mdoc.HeadingSize(level, lk.size) }
+func (lk *look) headingSize(level int) float32 { return markdown.HeadingSize(level, lk.size) }
 
-func headingWeight(level int) int { return mdoc.HeadingWeight(level) }
+func headingWeight(level int) int { return markdown.HeadingWeight(level) }
 
 // Spacing, in ems of the body text.
 const (
@@ -233,9 +233,9 @@ type leafView struct {
 	font ui.Font
 	// diagram is a Mermaid diagram drawn instead of its code; diagX is how
 	// far it is scrolled sideways when it is wider than the column.
-	diagram       *mdoc.Diagram
+	diagram       *markdown.Diagram
 	diagX         float32
-	diagIndicator scrollui.Indicator
+	diagIndicator scrollbar.Indicator
 	diagBarShown  bool
 	used          uint64
 }
@@ -505,7 +505,7 @@ func (e *Editor) textFont(l *leaf) ui.Font {
 	if l.kind == kHeading && !l.pending {
 		f.Size = e.lk.headingSize(l.level)
 		f.Weight = headingWeight(l.level)
-		f.LineHeight = mdoc.HeadingLineHeight(l.level)
+		f.LineHeight = markdown.HeadingLineHeight(l.level)
 	}
 	return f
 }
@@ -744,9 +744,9 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	open := e.codeFenceSourceShown(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStartOffset() && b.reveal <= l.infoEndOffset()
 	fenceShown := open || infoLine
-	var mermaidDiagram *mdoc.Diagram
+	var mermaidDiagram *markdown.Diagram
 	if !open && !caretIn && isMermaid(l) && !compactCode {
-		if d, ok := mdoc.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
+		if d, ok := markdown.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
 			mermaidDiagram = &d
 		}
 	}
@@ -1143,7 +1143,7 @@ func (e *Editor) margins(l *leaf) (top, bottom float32) {
 		if l.pending {
 			return s * 0.5, s * 0.5
 		}
-		return mdoc.HeadingTopMargin(l.level, s), s * 0.35
+		return markdown.HeadingTopMargin(l.level, s), s * 0.35
 	case kCode, kMath, kTable, kHTML:
 		return s * 0.6, s * 0.6
 	case kRule:

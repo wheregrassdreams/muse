@@ -1,13 +1,13 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 // A leaf shows as display text: the characters drawn, each piece of which
@@ -45,8 +45,8 @@ type piece struct {
 // gives its object replacement character.
 type object struct {
 	bmp                   *ui.Bitmap
-	math                  *mdoc.MathVisual
-	asset                 *mdoc.ImageAsset
+	math                  *markdown.MathVisual
+	asset                 *markdown.ImageAsset
 	imagePending          bool
 	embed                 *Editor
 	embedBlocked          string

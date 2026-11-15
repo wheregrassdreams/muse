@@ -1,6 +1,6 @@
 //go:build !darwin && !linux
 
-package mdedit
+package editor
 
 import "time"
 

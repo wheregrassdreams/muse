@@ -1,8 +1,10 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 	"time"
+
+	tablemodel "muse/editor/blocks/table"
 )
 
 // change is an edit of the source: at at, old became new.
@@ -26,10 +28,8 @@ type step struct {
 	breaksBefore, breaksAfter []int
 	changes                   []change
 	before, after             [2]int
-	tableBefore               *tableNavigationState
-	tableAfter                *tableNavigationState
-	documentRegionBefore      *tableSelection
-	documentRegionAfter       *tableSelection
+	tableBefore               *tablemodel.Snapshot
+	tableAfter                *tablemodel.Snapshot
 	blockBefore, blockAfter   *blockHistoryState
 	phBefore, phAfter         *phantom
 	kind                      stepKind
@@ -53,11 +53,10 @@ func (e *Editor) begin(kind stepKind) {
 	}
 	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: append([]int(nil), e.typedBreaks...), at: time.Now()}
 	e.hist.open.blockBefore = e.blockHistoryState()
-	if e.tableSelection != nil || e.tableBridge != nil {
-		state := e.tableNavigationState()
+	if e.tableSelection != nil || e.tableBridge != nil || e.tableDocumentRegion != nil {
+		state := e.tableSnapshot()
 		e.hist.open.tableBefore = &state
 	}
-	e.hist.open.documentRegionBefore = cloneTableSelection(e.tableDocumentRegion)
 }
 
 // replace replaces the source's bytes [from, to) with text, recorded in the
@@ -134,7 +133,7 @@ func (e *Editor) commit(anchor, caret int) {
 	e.clearVimImageRow()
 	s := e.hist.open
 	e.hist.open = nil
-	e.tableNavigation = nil
+	e.tableController.ResetNavigation()
 	e.tableSelection = nil
 	e.tableHandleDrag = nil
 	e.tableBridge = nil
@@ -162,7 +161,10 @@ func (e *Editor) commit(anchor, caret int) {
 		return
 	}
 	s.after = [2]int{e.anchor, e.caret}
-	s.documentRegionAfter = cloneTableSelection(e.tableDocumentRegion)
+	if e.tableSelection != nil || e.tableBridge != nil || e.tableDocumentRegion != nil {
+		after := e.tableSnapshot()
+		s.tableAfter = &after
+	}
 	s.blockAfter = e.blockHistoryState()
 	s.phAfter = e.phantom
 	s.breaksAfter = append([]int(nil), e.typedBreaks...)
@@ -243,9 +245,8 @@ func (e *Editor) Undo() bool {
 	e.typedBreaks = append([]int(nil), s.breaksBefore...)
 	e.restore(s.before, s.phBefore)
 	if s.tableBefore != nil {
-		e.restoreTableNavigation(*s.tableBefore)
+		e.restoreTableSnapshot(*s.tableBefore)
 	}
-	e.tableDocumentRegion = cloneTableSelection(s.documentRegionBefore)
 	e.restoreBlockHistory(s.blockBefore)
 	return true
 }
@@ -271,9 +272,8 @@ func (e *Editor) Redo() bool {
 	e.typedBreaks = append([]int(nil), s.breaksAfter...)
 	e.restore(s.after, s.phAfter)
 	if s.tableAfter != nil {
-		e.restoreTableNavigation(*s.tableAfter)
+		e.restoreTableSnapshot(*s.tableAfter)
 	}
-	e.tableDocumentRegion = cloneTableSelection(s.documentRegionAfter)
 	e.restoreBlockHistory(s.blockAfter)
 	return true
 }
@@ -289,10 +289,11 @@ func (e *Editor) restore(sel [2]int, ph *phantom) {
 	e.rev++
 	e.u16ix.rev = 0
 	e.phantom = ph
-	e.tableNavigation = nil
+	e.tableController.ResetNavigation()
 	e.tableSelection = nil
 	e.tableHandleDrag = nil
 	e.tableBridge = nil
+	e.tableDocumentRegion = nil
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.modal.blockInsert = nil

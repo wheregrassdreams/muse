@@ -1,8 +1,9 @@
-package mdedit
+package editor
 
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/go-text/typesetting/segmenter"
+	"muse/editor/input"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,9 +15,8 @@ import (
 // modalState implements a deliberately small modal subset, not a Vim emulator.
 // Printable commands are consumed ONLY from text events, never KeyDown.
 type modalState struct {
-	keymap, mode, pending string
-	count, opCount        int
-	line                  bool
+	keymap, mode string
+	sequence     input.Sequence
 	// vimTextVisualActive tracks only lowercase Vim `v` selection origin.
 	vimTextVisualActive   bool
 	register              string
@@ -76,12 +76,12 @@ func (e *Editor) ModeLabel() string {
 		return ""
 	}
 	label := e.Keymap() + " " + e.modal.mode
-	if e.modal.opCount > 0 {
-		label += " " + strconv.Itoa(e.modal.opCount)
+	if e.modal.sequence.OperatorCount > 0 {
+		label += " " + strconv.Itoa(e.modal.sequence.OperatorCount)
 	}
-	label += e.modal.pending
-	if e.modal.count > 0 {
-		label += strconv.Itoa(e.modal.count)
+	label += e.modal.sequence.Pending
+	if e.modal.sequence.Count > 0 {
+		label += strconv.Itoa(e.modal.sequence.Count)
 	}
 	return label
 }
@@ -112,7 +112,7 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 	if k == ui.KeyR && m == ui.Ctrl {
 		e.Redo()
 		e.modal.mode = "Normal"
-		e.modal.line = false
+		e.modal.sequence.Linewise = false
 		e.selectionInclusive = false
 		e.selectionLinewise = false
 		e.anchor = e.caret
@@ -122,11 +122,11 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 		e.caret = e.selectionFocus()
 		if t, row, col, ok := e.tableRegionAtCaret(); ok {
 			e.tableBridge = nil
-			e.tableNavigation = nil
+			e.tableController.ResetNavigation()
 			e.modal.mode = "BlockVisual"
-			e.modal.line = false
-			e.modal.pending = ""
-			e.modal.count = 0
+			e.modal.sequence.Linewise = false
+			e.modal.sequence.Pending = ""
+			e.modal.sequence.Count = 0
 			e.anchor = e.caret
 			e.block = nil
 			e.selectTableCellRegion(t, row, col, row, col)
@@ -136,15 +136,15 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 			return true
 		}
 		e.tableBridge = nil
-		e.tableNavigation = nil
+		e.tableController.ResetNavigation()
 		e.modal.mode = "BlockVisual"
 		e.block = nil
 		e.startBlockSelection()
-		e.modal.line = false
+		e.modal.sequence.Linewise = false
 		e.selectionInclusive = false
 		e.selectionLinewise = false
-		e.modal.pending = ""
-		e.modal.count = 0
+		e.modal.sequence.Pending = ""
+		e.modal.sequence.Count = 0
 		e.anchor = e.caret
 		e.tableSelection = nil
 		e.invalidate()
@@ -162,19 +162,19 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 		if e.vimImageRow != nil && e.caret != e.vimImageRow.lineStart {
 			e.clearVimImageRow()
 		}
-		e.tableNavigation = nil
+		e.tableController.ResetNavigation()
 		e.compose = ""
 		e.composing = false
 		e.modal.mode = "Normal"
 		e.selectionInclusive = false
 		e.selectionLinewise = false
-		e.modal.pending = ""
+		e.modal.sequence.Pending = ""
 		e.modal.awaitingCharDirection, e.modal.awaitingCharTill = 0, false
 		e.modal.awaitingReplacement = false
 		e.modal.prefixAt = time.Time{}
-		e.modal.count = 0
-		e.modal.opCount = 0
-		e.modal.line = false
+		e.modal.sequence.Count = 0
+		e.modal.sequence.OperatorCount = 0
+		e.modal.sequence.Linewise = false
 		e.clearTableSelectionSession()
 		e.modal.blockInsert = nil
 		e.block = nil
@@ -252,8 +252,8 @@ func (e *Editor) modalApply(op string, a, z int) {
 	if a > z {
 		a, z = z, a
 	}
-	e.modal.setTextRegister(e.src[a:z], e.modal.line || e.selectionLinewise)
-	e.modal.line = false
+	e.modal.setTextRegister(e.src[a:z], e.modal.sequence.Linewise || e.selectionLinewise)
+	e.modal.sequence.Linewise = false
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.anchor, e.caret = a, z
@@ -646,13 +646,13 @@ func (e *Editor) modalFind(char string, dir int, till bool, count int) (int, boo
 func (e *Editor) modalReplace(count int, replacement string) {
 	replacement = modalGrapheme(replacement)
 	if replacement == "" {
-		e.modal.pending = ""
+		e.modal.sequence.Pending = ""
 		return
 	}
 	start := e.caret
 	_, lineEnd := e.modalLine(start)
 	if _, _, virtual := e.vimVirtualImageLineRange(); virtual {
-		e.modal.pending = ""
+		e.modal.sequence.Pending = ""
 		return
 	}
 	visual := e.modal.mode == "Visual" || e.modal.mode == "Select"
@@ -682,11 +682,11 @@ func (e *Editor) modalReplace(count int, replacement string) {
 		end = next
 	}
 	if end == start {
-		e.modal.pending = ""
+		e.modal.sequence.Pending = ""
 		return
 	}
 	if strings.Contains(e.src[start:end], "\n") || strings.Contains(e.src[start:end], "|") || replacement == "\n" || replacement == "|" {
-		e.modal.pending = ""
+		e.modal.sequence.Pending = ""
 		return
 	}
 	count = 0
@@ -698,11 +698,11 @@ func (e *Editor) modalReplace(count int, replacement string) {
 	e.replace(start, end, value)
 	e.commit(start, start+len(value)-len(replacement))
 	e.modal.mode = "Normal"
-	e.modal.line = false
+	e.modal.sequence.Linewise = false
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.anchor = e.caret
-	e.modal.pending = ""
+	e.modal.sequence.Pending = ""
 }
 
 func (e *Editor) modalText(s string) bool {
@@ -728,29 +728,26 @@ func (e *Editor) modalText(s string) bool {
 		m.awaitingReplacement = false
 		e.ApplyOperation(EditorOperation{Kind: OperationReplaceCharacter, Count: m.charCount, Character: s})
 		m.charCount = 0
-		m.count = 0
+		m.sequence.Count = 0
 		return true
 	}
 	if m.awaitingCharDirection != 0 {
 		dir, till, count := m.awaitingCharDirection, m.awaitingCharTill, m.charCount
 		m.awaitingCharDirection, m.awaitingCharTill = 0, false
-		m.charCount, m.count = 0, 0
+		m.charCount, m.sequence.Count = 0, 0
 		e.ApplyOperation(EditorOperation{Kind: OperationFindCharacter, Character: s, Direction: dir, Till: till, Count: count})
 		return true
 	}
 	c := s
 	if c != "h" && c != "l" && c != "j" && c != "k" && !(c >= "0" && c <= "9") {
-		e.tableNavigation = nil
+		e.tableController.ResetNavigation()
 	}
-	if c >= "0" && c <= "9" && (c != "0" || m.count > 0) {
-		m.count = min(9999, m.count*10+int(c[0]-'0'))
+	if m.sequence.FeedDigit(rune(c[0])) {
 		return true
 	}
-	n := max(1, m.count)
-	opN := max(1, m.opCount)
-	m.count = 0
-	if m.pending == "g" {
-		m.pending = ""
+	n, opN := m.sequence.ConsumeCounts()
+	if m.sequence.Pending == "g" {
+		m.sequence.Pending = ""
 		if c == "g" {
 			e.nativeSetCaret(0, m.mode == "Visual" || m.mode == "Select")
 		} else if c == "j" || c == "k" {
@@ -762,11 +759,11 @@ func (e *Editor) modalText(s string) bool {
 		}
 		return true
 	}
-	if m.pending == "z" {
+	if m.sequence.Pending == "z" {
 		if time.Since(m.prefixAt) > 900*time.Millisecond {
-			m.pending, m.prefixAt = "", time.Time{}
+			m.sequence.Pending, m.prefixAt = "", time.Time{}
 		} else {
-			m.pending, m.prefixAt = "", time.Time{}
+			m.sequence.Pending, m.prefixAt = "", time.Time{}
 			var op EditorOperation
 			switch c {
 			case "t":
@@ -864,30 +861,30 @@ func (e *Editor) modalText(s string) bool {
 			return true
 		}
 	}
-	if m.pending != "" && c == m.pending {
-		op := m.pending
-		m.pending = ""
+	if m.sequence.Pending != "" && c == m.sequence.Pending {
+		op := m.sequence.Pending
+		m.sequence.Pending = ""
 		a, z := e.modalLine(e.caret)
-		for i := 0; i < n*max(1, m.opCount); i++ {
+		for i := 0; i < n*max(1, m.sequence.OperatorCount); i++ {
 			if z < len(e.src) {
 				z++
-				if i+1 < n*max(1, m.opCount) {
+				if i+1 < n*max(1, m.sequence.OperatorCount) {
 					_, z = e.modalLine(z)
 				}
 			}
 		}
-		m.opCount = 0
-		m.line = true
+		m.sequence.OperatorCount = 0
+		m.sequence.Linewise = true
 		if op == "c" && z > a && e.src[z-1] == '\n' {
 			z--
 		}
 		e.modalApply(op, a, z)
 		return true
 	}
-	extend := m.mode == "Visual" || m.mode == "Select" || m.mode == "BlockVisual" || m.pending != ""
+	extend := m.mode == "Visual" || m.mode == "Select" || m.mode == "BlockVisual" || m.sequence.Pending != ""
 	start := e.caret
 	motion := true
-	for i := 0; i < n*max(1, m.opCount); i++ {
+	for i := 0; i < n*max(1, m.sequence.OperatorCount); i++ {
 		switch c {
 		case "h":
 			e.modalHorizontal(-1, extend)
@@ -895,7 +892,7 @@ func (e *Editor) modalText(s string) bool {
 			e.modalHorizontal(1, extend)
 		case "j":
 			if e.moveTableCellRegion(1, 0) {
-			} else if m.line {
+			} else if m.sequence.Linewise {
 				e.nativeMoveLineSelection(1, 1)
 			} else if m.mode == "BlockVisual" && e.moveTableVisualColumn(1, 1) {
 			} else if !e.moveStructuralRow(1, extend) {
@@ -903,7 +900,7 @@ func (e *Editor) modalText(s string) bool {
 			}
 		case "k":
 			if e.moveTableCellRegion(-1, 0) {
-			} else if m.line {
+			} else if m.sequence.Linewise {
 				e.nativeMoveLineSelection(-1, 1)
 			} else if m.mode == "BlockVisual" && e.moveTableVisualColumn(-1, 1) {
 			} else if !e.moveStructuralRow(-1, extend) {
@@ -920,7 +917,7 @@ func (e *Editor) modalText(s string) bool {
 				if next := e.nextWordEndAcrossUnitsMode(e.caret, bigWord); next > e.caret {
 					z = next
 				}
-			} else if z <= e.caret || m.pending == "" && e.previousGraphemeBoundary(z) <= e.caret {
+			} else if z <= e.caret || m.sequence.Pending == "" && e.previousGraphemeBoundary(z) <= e.caret {
 				// Vim `e` advances to the next word when the caret is already
 				// on the current word's final grapheme, and skips empty source
 				// leaves because they have no rendered word end.
@@ -928,7 +925,7 @@ func (e *Editor) modalText(s string) bool {
 					z = next
 				}
 			}
-			if m.pending == "" && z > e.caret {
+			if m.sequence.Pending == "" && z > e.caret {
 				z = e.previousGraphemeBoundary(z)
 			}
 			e.nativeSetCaret(z, extend)
@@ -940,7 +937,7 @@ func (e *Editor) modalText(s string) bool {
 			e.nativeSetCaret(a, extend)
 		case "$":
 			_, z := e.modalLine(e.caret)
-			if m.pending == "" {
+			if m.sequence.Pending == "" {
 				lineStart, _ := e.modalLine(e.caret)
 				if z > lineStart {
 					z = e.previousGraphemeBoundary(z)
@@ -964,17 +961,17 @@ func (e *Editor) modalText(s string) bool {
 		}
 	}
 	if motion {
-		if m.pending != "" {
-			op := m.pending
-			m.pending = ""
-			m.opCount = 0
+		if m.sequence.Pending != "" {
+			op := m.sequence.Pending
+			m.sequence.Pending = ""
+			m.sequence.OperatorCount = 0
 			e.modalApply(op, start, e.caret)
 		} else if e.Keymap() == "helix" && !extend {
 			e.anchor = start
 		}
 		return true
 	}
-	m.opCount = 0
+	m.sequence.OperatorCount = 0
 	switch c {
 	case "f", "F", "t", "T":
 		if e.Keymap() == "vim" {
@@ -1015,10 +1012,10 @@ func (e *Editor) modalText(s string) bool {
 		}
 	case "z":
 		if e.Keymap() == "vim" {
-			m.pending, m.prefixAt = "z", time.Now()
+			m.sequence.Pending, m.prefixAt = "z", time.Now()
 		}
 	case "g":
-		m.pending = "g"
+		m.sequence.Pending = "g"
 	case "i", "a":
 		focus := e.nativePrepareInsert()
 		if c == "a" && !e.modalEmptyLineAt(focus) {
@@ -1053,7 +1050,7 @@ func (e *Editor) modalText(s string) bool {
 		e.caret = e.selectionFocus()
 		e.tableSelection = nil
 		e.tableBridge = nil
-		m.line = false
+		m.sequence.Linewise = false
 		if e.Keymap() == "helix" {
 			m.mode = "Select"
 			e.selectionInclusive = false
@@ -1070,7 +1067,7 @@ func (e *Editor) modalText(s string) bool {
 		e.tableSelection = nil
 		e.tableBridge = nil
 		m.mode = "Visual"
-		m.line = true
+		m.sequence.Linewise = true
 		e.selectionInclusive = false
 		e.selectionLinewise = true
 		e.nativeSelectLine(e.caret)
@@ -1087,7 +1084,7 @@ func (e *Editor) modalText(s string) bool {
 		}
 		if e.Keymap() == "helix" || extend {
 			a, z := e.selection()
-			if m.line {
+			if m.sequence.Linewise {
 				// V mode keeps its complete source-line range in the native
 				// selection throughout motion, so editing consumes it directly.
 			}
@@ -1099,48 +1096,47 @@ func (e *Editor) modalText(s string) bool {
 				m.mode = "Normal"
 			}
 		} else {
-			m.pending = c
-			m.opCount = n
+			m.sequence.BeginOperator(c, n)
 		}
 	case "p", "P":
 		e.ApplyOperation(EditorOperation{Kind: OperationPutRegister, Count: n, Before: c == "P"})
 	case "u":
 		e.Undo()
 		m.mode = "Normal"
-		m.line = false
+		m.sequence.Linewise = false
 		e.selectionInclusive = false
 		e.selectionLinewise = false
 		e.anchor = e.caret
 	case "x":
 		if a, z, ok := e.vimVirtualImageLineRange(); ok {
-			m.line = true
+			m.sequence.Linewise = true
 			e.modalApply("d", a, z)
 		} else if a, z, ok := e.nativeSubstituteRange(n, false); ok {
-			m.line = false
+			m.sequence.Linewise = false
 			e.modalApply("d", a, z)
 		}
 	case "X":
 		if a, z, ok := e.vimVirtualImageLineRange(); ok {
-			m.line = true
+			m.sequence.Linewise = true
 			e.modalApply("d", a, z)
 		} else if a, z, ok := e.nativeSubstituteRange(n, true); ok {
-			m.line = false
+			m.sequence.Linewise = false
 			e.modalApply("d", a, z)
 		}
 	case "D":
 		if a, z, ok := e.vimVirtualImageLineRange(); ok {
-			m.line = true
+			m.sequence.Linewise = true
 			e.modalApply("d", a, z)
 		} else if a, z, ok := e.nativeLineRemainder(); ok {
-			m.line = false
+			m.sequence.Linewise = false
 			e.modalApply("d", a, z)
 		}
 	case "C":
 		if a, z, ok := e.vimVirtualImageLineRange(); ok {
-			m.line = true
+			m.sequence.Linewise = true
 			e.modalApply("c", a, z)
 		} else if a, z, ok := e.nativeLineRemainder(); ok {
-			m.line = false
+			m.sequence.Linewise = false
 			e.modalApply("c", a, z)
 		}
 	}
@@ -1151,10 +1147,10 @@ func (e *Editor) modalNavigationCommand(s string) bool {
 	if !e.opts.SmoothCursor || e.modal.mode != "Normal" || e.modal.searching {
 		return false
 	}
-	if e.modal.pending == "g" {
+	if e.modal.sequence.Pending == "g" {
 		return s == "g" || s == "j" || s == "k"
 	}
-	if e.modal.pending != "" {
+	if e.modal.sequence.Pending != "" {
 		return false
 	}
 	if e.modal.awaitingCharDirection != 0 {

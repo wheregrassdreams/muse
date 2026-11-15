@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"math"
@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 
-	"muse/appearance"
 	"muse/locales"
-	"muse/mdoc"
+	"muse/markdown"
+	appearance "muse/theme"
 )
 
 const blink = 530 * time.Millisecond
@@ -658,7 +658,7 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 	if source == "" {
 		source = o.imagePath
 	}
-	sp := ui.Span{Text: mdoc.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
+	sp := ui.Span{Text: markdown.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
 	pad := e.lk.size * 0.8
 	textW := max(r.W-2*pad, 0)
 	_, h := p.MeasureText(textW, sp)
@@ -761,7 +761,7 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 	h := g.rowY[len(g.rowY)-1]
 	box := ui.Rect{X: x, Y: y, W: g.w, H: h}
 	const radius = 4
-	line := mdoc.TableRuleColor(e.lk.dark)
+	line := markdown.TableRuleColor(e.lk.dark)
 	if s := e.tableStructureSelection(l); s != nil {
 		selection := e.lk.selection.Alpha(0.4)
 		if !e.focused {

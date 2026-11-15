@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"runtime"
@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 func isSourceRuneBoundary(src string, off int) bool {
@@ -769,7 +769,7 @@ func (e *Editor) vertical(dir int, extend bool) {
 	if e.moveVimImageRow(dir, extend) {
 		return
 	}
-	e.tableNavigation = nil
+	e.tableController.ResetNavigation()
 	focus := e.selectionFocus()
 	if e.tableSelection != nil {
 		e.tableSelection = nil

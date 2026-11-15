@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"strings"
@@ -201,8 +201,8 @@ func TestVimZPrefixDispatchesScrollAndFoldOperations(t *testing.T) {
 		t.Fatal("zR did not open all sections")
 	}
 	modalKeys(h.e, "zv")
-	if h.e.modal.pending != "" {
-		t.Fatalf("zv left prefix pending: %q", h.e.modal.pending)
+	if h.e.modal.sequence.Pending != "" {
+		t.Fatalf("zv left prefix pending: %q", h.e.modal.sequence.Pending)
 	}
 }
 
@@ -211,18 +211,18 @@ func TestVimZPrefixCancelsTimesOutAndIsKeymapLocal(t *testing.T) {
 	e.SetKeymap("vim")
 	e.modalText("z")
 	e.modalKey(ui.KeyEscape, 0)
-	if e.modal.pending != "" {
+	if e.modal.sequence.Pending != "" {
 		t.Fatal("Escape did not cancel z prefix")
 	}
 	e.modalText("z")
 	e.modal.prefixAt = time.Now().Add(-2 * time.Second)
 	e.modalText("t")
-	if e.modal.pending != "" || e.hasScrollTo {
+	if e.modal.sequence.Pending != "" || e.hasScrollTo {
 		t.Fatal("expired z prefix dispatched an operation")
 	}
 	e.SetKeymap("helix")
 	e.modalText("z")
-	if e.modal.pending != "" {
+	if e.modal.sequence.Pending != "" {
 		t.Fatal("z prefix leaked into helix keymap")
 	}
 }

@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"sort"
@@ -10,9 +10,11 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdoc"
-	"muse/scrollui"
-	"muse/textlayout"
+	tablemodel "muse/editor/blocks/table"
+	"muse/editor/internal/textlayout"
+	"muse/markdown"
+	"muse/markdown/images"
+	"muse/ui/scrollbar"
 )
 
 // Options configure an editor. The app sets them before building the
@@ -80,6 +82,8 @@ type Options struct {
 	// BaseDir resolves the relative paths of images.
 	BaseDir   string
 	AssetRoot string
+	// ImageCacheStore is an application supplied store for remote image bytes.
+	ImageCacheStore images.CacheStore
 	// ResolveImage uses the application's shared vault path catalog when set.
 	ResolveImage func(src, base, root string) string
 	// Placeholder shows in an empty document.
@@ -225,7 +229,7 @@ type Editor struct {
 	// tableSelection owns table-cell presentation. anchor/caret retain the
 	// document range, whose outside-table text and table structure are projected
 	// independently.
-	tableNavigation []tableNavigationStep
+	tableController tablemodel.Controller
 	tableNavigating bool
 	tableSelection  *tableSelection
 	// tableDocumentRegion preserves the 2D cell focus when an extended
@@ -253,7 +257,7 @@ type Editor struct {
 
 	lk              look
 	views           map[viewKey]*leafView
-	dataImageAssets map[dataImageAssetKey]*mdoc.ImageAsset
+	dataImageAssets map[dataImageAssetKey]*markdown.ImageAsset
 	dataAssetsRev   uint64
 	typographyCache textlayout.Cache
 	frame           uint64
@@ -282,7 +286,7 @@ type Editor struct {
 	estW, estSize, estLH float32
 
 	scroll          ui.ScrollState
-	scrollIndicator scrollui.Indicator
+	scrollIndicator scrollbar.Indicator
 	scrollHandle    ui.Handle
 	handle          ui.Handle
 	focused         bool
@@ -1099,7 +1103,7 @@ func (e *Editor) setCaret(off int, extend bool) {
 	}
 	e.pageJump = false
 	if !e.tableNavigating {
-		e.tableNavigation = nil
+		e.tableController.ResetNavigation()
 	}
 	if b := e.tableBridge; b != nil {
 		inside := false
@@ -1325,7 +1329,7 @@ func (e *Editor) clearTableSelection() {
 	e.tableSelection = nil
 	e.tableBridge = nil
 	if !e.tableNavigating {
-		e.tableNavigation = nil
+		e.tableController.ResetNavigation()
 	}
 	e.tableHandleDrag = nil
 }

@@ -1,10 +1,10 @@
-package mdedit
+package editor
 
 import (
 	"unicode"
 	"unicode/utf8"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 // Highlight, as Typora writes it: text between == and == is marked. The

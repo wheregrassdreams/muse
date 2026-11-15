@@ -1,11 +1,11 @@
-package mdedit
+package editor
 
 import (
 	"strings"
 	"testing"
 	"time"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 func TestLargeDataImageAssetSurvivesAssetInvalidationWithoutRedecode(t *testing.T) {
@@ -50,7 +50,7 @@ func TestLargeDataImageAssetSurvivesAssetInvalidationWithoutRedecode(t *testing.
 	}
 }
 
-func editorImageAsset(e *Editor) *mdoc.ImageAsset {
+func editorImageAsset(e *Editor) *markdown.ImageAsset {
 	for _, leaf := range e.leaves {
 		if leaf.view == nil {
 			continue

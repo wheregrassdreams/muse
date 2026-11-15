@@ -1,9 +1,9 @@
-package mdedit
+package editor
 
 import (
 	"sort"
 
-	"muse/mdedit/internal/parser"
+	"muse/editor/internal/parser"
 )
 
 func normalizeSourceRevealRanges(in []Range) []Range {

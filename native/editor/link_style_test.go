@@ -1,4 +1,4 @@
-package mdedit
+package editor
 
 import (
 	"reflect"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 const linkStyleFixture = "[网页](https://example.test) [[found|有效]] [[missing|失效]] [[pending|未知]]"
@@ -107,7 +107,7 @@ func TestWikiLinkResolverDistinguishesValidInvalidAndUnknown(t *testing.T) {
 			valid := linkStyleAt(t, h.e, strings.Index(h.e.src, "有效"))
 			invalid := linkStyleAt(t, h.e, strings.Index(h.e.src, "失效"))
 			unknown := linkStyleAt(t, h.e, strings.Index(h.e.src, "未知"))
-			want := mdoc.InlineLinkColorFor(h.e.lk.accent, dark)
+			want := markdown.InlineLinkColorFor(h.e.lk.accent, dark)
 			if valid.Color != want || !valid.Underline || valid.DottedUnderline {
 				t.Fatalf("valid wiki style=%+v, want regular linked underline %v", valid, want)
 			}
@@ -175,7 +175,7 @@ func TestLinkHoverHighlightsOnlyCurrentLink(t *testing.T) {
 	if firstStyle.Color == secondStyle.Color {
 		t.Fatalf("hover did not distinguish the pointed link: first=%+v second=%+v", firstStyle, secondStyle)
 	}
-	baseColor := mdoc.InlineLinkColorFor(h.e.lk.accent, h.e.lk.dark)
+	baseColor := markdown.InlineLinkColorFor(h.e.lk.accent, h.e.lk.dark)
 	x, y = pointForSource(t, h.e, second+2)
 	h.e.hover(x, y)
 	h.frame()
@@ -247,7 +247,7 @@ func TestLinkHoverRemainsReadableInDarkTheme(t *testing.T) {
 	h.e.hover(x, y)
 	h.frame()
 	sp := linkStyleAt(t, h.e, strings.Index(src, "link"))
-	if sp.Color == mdoc.InlineLinkColorFor(h.e.lk.accent, true) {
+	if sp.Color == markdown.InlineLinkColorFor(h.e.lk.accent, true) {
 		t.Fatal("dark-theme link hover did not change the current link")
 	}
 	if contrast := contrastOn(sp.Color, ui.Transparent, theme.Background); contrast < 4.5 {

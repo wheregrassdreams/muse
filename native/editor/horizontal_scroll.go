@@ -1,8 +1,8 @@
-package mdedit
+package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/scrollui"
+	"muse/ui/scrollbar"
 )
 
 // Horizontal scroll belongs to the displayed block, never to source offsets
@@ -10,7 +10,7 @@ import (
 type blockHorizontalScroll struct {
 	x         float32
 	shown     bool
-	indicator *scrollui.Indicator
+	indicator *scrollbar.Indicator
 }
 
 type blockHorizontalDrag struct {
@@ -146,7 +146,7 @@ func (e *Editor) paintBlockHorizontalBar(p *ui.Painter, l *leaf, ox, oy float32)
 	}
 	s := &l.horizontal
 	if s.indicator == nil {
-		s.indicator = &scrollui.Indicator{}
+		s.indicator = &scrollbar.Indicator{}
 	}
 	s.shown = s.indicator.Visible(p.Now(), s.x, 0)
 	if !s.shown && (e.horizontalDrag == nil || e.horizontalDrag.leaf != l) {
