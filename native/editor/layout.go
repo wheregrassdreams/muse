@@ -2,19 +2,25 @@ package editor
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 
 	"muse/editor/internal/textlayout"
 	"muse/markdown"
-	appearance "muse/theme"
+	markdownui "muse/nativeui/components/markdown"
+	"muse/theme"
 	"muse/ui/scrollbar"
 )
+
+func uiMarkdownColor(c color.RGBA) ui.Color {
+	return ui.RGBA(c.R, c.G, c.B, float32(c.A)/255)
+}
 
 // look is how the document looks, resolved from the window's theme and the
 // editor's options as a frame builds.
@@ -80,19 +86,21 @@ func (e *Editor) setLook(t *ui.Theme) {
 	if lk.mono == "" {
 		lk.mono = "monospace"
 	}
-	lk.text = markdown.BodyTextColor(t.Dark)
+	markdownColors := theme.MarkdownColors(t.Dark)
+	lk.text = uiMarkdownColor(markdownColors.Body)
 	lk.muted = t.TextMuted
 	lk.accent = t.Accent
-	lk.marker = markdown.MarkdownMarkerColor(t.Dark)
+	lk.marker = uiMarkdownColor(markdownColors.Marker)
 	lk.border = t.Border
 	lk.selection = t.Selection
 	lk.caret = t.Accent
-	lk.codeBg, lk.codeText = markdown.InlineCodeColorsFor(t.Accent, t.Dark)
-	lk.panel = markdown.CodePanelColor(t.Dark)
-	lk.quoteBar = markdown.MarkdownRuleColor(t.Dark)
+	lk.codeBg = uiMarkdownColor(markdownColors.InlineCodeBackground)
+	lk.codeText = uiMarkdownColor(markdownColors.InlineCodeText)
+	lk.panel = uiMarkdownColor(markdownColors.CodePanel)
+	lk.quoteBar = uiMarkdownColor(markdownColors.Rule)
 	// Palette.Soft is intentionally faint; lift it enough for Markdown marks
 	// to remain visible at paragraph scale across every accent preset.
-	lk.markBg = appearance.From(t.Accent, t.Dark).Soft.Alpha(2.1)
+	lk.markBg = theme.From(t.Accent, t.Dark).Soft.Alpha(2.1)
 	lk.code = editor.DefaultTheme(t)
 }
 
@@ -100,7 +108,7 @@ func (e *Editor) setLook(t *ui.Theme) {
 func (lk *look) span(st istyle, size float32) ui.Span {
 	s := ui.Span{Color: lk.text}
 	if st.heading {
-		s.Color = markdown.HeadingTextColor(lk.dark)
+		s.Color = uiMarkdownColor(theme.MarkdownColors(lk.dark).Heading)
 	}
 	if st.muted {
 		s.Color = lk.text.Mix(lk.muted, 0.25)
@@ -122,14 +130,14 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 		s.Underline = true
 	}
 	if st.link {
-		s.Color = markdown.InlineLinkColorFor(lk.accent, lk.dark)
+		s.Color = theme.From(lk.accent, lk.dark).Link
 		s.Underline = true
 		if st.linkInvalid {
 			s.Color = s.Color.Mix(lk.muted, 0.45)
 			s.DottedUnderline = true
 		}
 		if st.linkHover {
-			s.Color = appearance.From(lk.accent, lk.dark).Hover
+			s.Color = theme.From(lk.accent, lk.dark).Hover
 		}
 	}
 	if st.mark {
@@ -138,7 +146,8 @@ func (lk *look) span(st istyle, size float32) ui.Span {
 	if st.code {
 		s.Font = lk.mono
 		s.Size = size * 0.875
-		codeBg, codeText := markdown.InlineCodeColorsFor(lk.accent, lk.dark)
+		colors := theme.MarkdownColors(lk.dark)
+		codeBg, codeText := uiMarkdownColor(colors.InlineCodeBackground), uiMarkdownColor(colors.InlineCodeText)
 		if st.codeJoined {
 			// Inline code ranges receive one shared background in paint.go.
 			s.Background = ui.Color{}
@@ -233,7 +242,7 @@ type leafView struct {
 	font ui.Font
 	// diagram is a Mermaid diagram drawn instead of its code; diagX is how
 	// far it is scrolled sideways when it is wider than the column.
-	diagram       *markdown.Diagram
+	diagram       *markdownui.Diagram
 	diagX         float32
 	diagIndicator scrollbar.Indicator
 	diagBarShown  bool
@@ -280,7 +289,7 @@ type viewKey struct {
 	linkRev             uint64
 	linkContext         string
 	hoverLink           Range
-	align               parser.Align
+	align               syntax.IncrementalAlign
 }
 
 // viewParams is what a view depends on besides the leaf's text. A leaf
@@ -306,7 +315,7 @@ type viewParams struct {
 	linkRev             uint64
 	linkContext         string
 	hoverLink           Range
-	align               parser.Align
+	align               syntax.IncrementalAlign
 }
 
 func (k *viewKey) params() viewParams {
@@ -377,7 +386,7 @@ func (e *Editor) revealAt(l *leaf) int {
 // view returns the leaf's view at width, as it shows with the caret where
 // it is. The view is kept on the leaf: the leaf the next layout sees with
 // the same content and parameters keeps it (see sameLeaf).
-func (e *Editor) view(l *leaf, width float32, header bool, align parser.Align) *leafView {
+func (e *Editor) view(l *leaf, width float32, header bool, align syntax.IncrementalAlign) *leafView {
 	reveal := e.revealAt(l)
 	if _, end, ok := e.calloutHeader(l); ok && e.caret >= l.lineStart && e.caret <= end {
 		reveal = e.caret - l.lineStart
@@ -389,13 +398,13 @@ func (e *Editor) view(l *leaf, width float32, header bool, align parser.Align) *
 // reveal (relative to the leaf's first line; -1 for elsewhere), from the
 // cache when it has it. It does not keep the view on the leaf: it may be a
 // view for a caret the leaf does not have (see unitView).
-func (e *Editor) viewWith(l *leaf, width float32, header bool, align parser.Align, reveal int) *leafView {
+func (e *Editor) viewWith(l *leaf, width float32, header bool, align syntax.IncrementalAlign, reveal int) *leafView {
 	return e.viewAt(l, width, header, align, reveal, false)
 }
 
 // viewAt returns the leaf's view, and keeps it on the leaf when settle is
 // set.
-func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align, reveal int, settle bool) *leafView {
+func (e *Editor) viewAt(l *leaf, width float32, header bool, align syntax.IncrementalAlign, reveal int, settle bool) *leafView {
 	hoverLink := Range{}
 	if e.hoverLink.End > e.hoverLink.Start && e.hoverLink.Start < l.end && e.hoverLink.End > l.lineStart {
 		hoverLink = e.hoverLink
@@ -511,7 +520,7 @@ func (e *Editor) textFont(l *leaf) ui.Font {
 }
 
 // textView lays out a paragraph, a heading, a table cell or the phantom.
-func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bool, align parser.Align) *leafView {
+func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bool, align syntax.IncrementalAlign) *leafView {
 	f := e.textFont(l)
 	b := e.newBuilder(l, at, withCompose, f.Size, width)
 	b.quoteDepth = quoteDepth(l)
@@ -547,7 +556,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 			st.muted = true
 		}
 	}
-	if task, ok := l.innerItem(); ok && task.task == parser.Checked && l.opensItem() {
+	if task, ok := l.innerItem(); ok && task.task == syntax.IncrementalChecked && l.opensItem() {
 		st.muted, st.strike = true, true
 	}
 	switch {
@@ -606,7 +615,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		parsed := false
 		if l.id >= 0 {
 			for _, in := range e.p.doc.Inlines(l.id) {
-				if in.Kind == parser.Math && in.Start == start && in.End == end {
+				if in.Kind == syntax.IncrementalMath && in.Start == start && in.End == end {
 					parsed = true
 					break
 				}
@@ -621,9 +630,9 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	v := &leafView{disp: b.display()}
 	shape := ui.TextShape{Width: width}
 	switch align {
-	case parser.AlignCenter:
+	case syntax.IncrementalAlignCenter:
 		shape.Align = ui.Center
-	case parser.AlignRight:
+	case syntax.IncrementalAlignRight:
 		shape.Align = ui.End
 	}
 	if b.alone {
@@ -687,16 +696,16 @@ func (e *Editor) lineStarts(id int) []int {
 
 // aloneImage reports whether a paragraph's inlines are one image and
 // nothing else but spaces.
-func aloneImage(ins []parser.Inline, src string) bool {
+func aloneImage(ins []syntax.IncrementalInline, src string) bool {
 	img := false
 	for i := 0; i < len(ins); i = max(ins[i].Next, i+1) {
 		switch ins[i].Kind {
-		case parser.Image:
+		case syntax.IncrementalImage:
 			if img {
 				return false
 			}
 			img = true
-		case parser.Text:
+		case syntax.IncrementalText:
 			if strings.TrimSpace(src[ins[i].Start:ins[i].End]) != "" {
 				return false
 			}
@@ -744,9 +753,9 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	open := e.codeFenceSourceShown(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStartOffset() && b.reveal <= l.infoEndOffset()
 	fenceShown := open || infoLine
-	var mermaidDiagram *markdown.Diagram
+	var mermaidDiagram *markdownui.Diagram
 	if !open && !caretIn && isMermaid(l) && !compactCode {
-		if d, ok := markdown.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
+		if d, ok := markdownui.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
 			mermaidDiagram = &d
 		}
 	}
@@ -1258,13 +1267,13 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			// at rest but still gives the caret a real position while editing.
 			l.h, l.view = s*e.lk.lh, nil
 			if e.quotePrefixOpen(l) {
-				l.view = e.view(l, l.w, false, parser.AlignNone)
+				l.view = e.view(l, l.w, false, syntax.IncrementalAlignNone)
 				l.h = max(l.h, l.view.h)
 			} else if (l.end > l.start && e.caret >= l.start && e.caret <= l.end) || (e.composing && e.caret == l.start) {
 				// Shape source whitespace only while editing that blank line.
 				// This preserves a visible caret position within spaces without
 				// turning whitespace-only Markdown into a paragraph elsewhere.
-				l.view = e.view(l, l.w, false, parser.AlignNone)
+				l.view = e.view(l, l.w, false, syntax.IncrementalAlignNone)
 				l.h = max(l.h, l.view.h)
 			}
 			l.y = y
@@ -1350,7 +1359,7 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 				l.h = est
 				break
 			}
-			view := e.view(l, l.w, false, parser.AlignNone)
+			view := e.view(l, l.w, false, syntax.IncrementalAlignNone)
 			l.h = view.h
 			if view.hasImageAsset() &&
 				(at > e.scroll.Y+e.viewH || at+max(view.h, s) < e.scroll.Y) {
@@ -1614,11 +1623,11 @@ type tableGeom struct {
 	boxW       float32
 }
 
-func alignAt(a []parser.Align, c int) parser.Align {
+func alignAt(a []syntax.IncrementalAlign, c int) syntax.IncrementalAlign {
 	if c < len(a) {
 		return a[c]
 	}
-	return parser.AlignNone
+	return syntax.IncrementalAlignNone
 }
 
 // pruneViews forgets the views no frame has used for a while.

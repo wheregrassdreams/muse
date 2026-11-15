@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/markdown"
+	"muse/theme"
 )
 
 // Overlays share a window-level parent. A handle must keep its identity when
@@ -106,7 +106,8 @@ func (e *Editor) tableSelectionHandle(c *ui.Context, viewport ui.Rect, pointer u
 		if over || hot {
 			c.After(40 * time.Millisecond)
 			el.Draw(func(p *ui.Painter, b ui.Rect) {
-				bg, ink := markdown.TableControlColors(e.lk.dark)
+				colors := theme.MarkdownColors(e.lk.dark)
+				bg, ink := uiMarkdownColor(colors.TableControlBackground), uiMarkdownColor(colors.TableControlInk)
 				col := e.lk.accent.Alpha(0.5)
 				cx, cy := b.X+b.W/2, b.Y+b.H/2
 				if axis == tableRows {

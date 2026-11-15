@@ -1,10 +1,11 @@
 package editor
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/markdown"
-	"time"
+	"muse/theme"
 )
 
 type tableEdgeKey struct {
@@ -90,7 +91,8 @@ func (e *Editor) tableEdgesView(c *ui.Context, viewport ui.Rect, pointer ui.Poin
 				if over || near {
 					c.After(40 * time.Millisecond)
 					el.Draw(func(p *ui.Painter, b ui.Rect) {
-						bg, ink := markdown.TableControlColors(e.lk.dark)
+						colors := theme.MarkdownColors(e.lk.dark)
+						bg, ink := uiMarkdownColor(colors.TableControlBackground), uiMarkdownColor(colors.TableControlInk)
 						p.Fill(b, bg, min(b.W, b.H)/2)
 						cx, cy := b.X+b.W/2, b.Y+b.H/2
 						p.Fill(ui.Rect{X: cx - 4, Y: cy - 1, W: 8, H: 2}, ink, 1)

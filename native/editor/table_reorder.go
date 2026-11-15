@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	tablemodel "muse/editor/blocks/table"
-	"muse/markdown"
+	"muse/theme"
 )
 
 // Handle dragging owns reordering only. Text dragging and keyboard structure
@@ -151,7 +151,7 @@ func (e *Editor) paintTableHandleDrag(p *ui.Painter, viewport ui.Rect, t *leaf) 
 		return
 	}
 	x, y := viewport.X+t.x, viewport.Y+t.y-e.scroll.Y
-	bg, _ := markdown.TableControlColors(e.lk.dark)
+	bg := uiMarkdownColor(theme.MarkdownColors(e.lk.dark).TableControlBackground)
 	ink := e.lk.accent
 	p.Clip(viewport, 0, func() {
 		var thumb ui.Rect

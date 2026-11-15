@@ -1,6 +1,5 @@
-// Package appearance defines shared accent presets and theme-aware colors
-// derived from an accent.
-package appearance
+// Package theme defines shared visual presets and runtime semantic colors.
+package theme
 
 import (
 	"math"
@@ -12,18 +11,19 @@ import (
 // Preset is a named accent color that can be selected in application settings.
 type Preset struct {
 	ID    string
+	Name  string
 	Color ui.Color
 }
 
 // Presets are the built-in accent colors. Red is the default.
 var Presets = []Preset{
-	{ID: "red", Color: ui.Hex("#dc4b50")},
-	{ID: "orange", Color: ui.Hex("#df762f")},
-	{ID: "yellow", Color: ui.Hex("#c99a18")},
-	{ID: "green", Color: ui.Hex("#2e9b68")},
-	{ID: "blue", Color: ui.Hex("#3979d1")},
-	{ID: "purple", Color: ui.Hex("#8960c8")},
-	{ID: "pink", Color: ui.Hex("#d94f8b")},
+	{ID: "red", Name: "红色", Color: ui.Hex("#dc4b50")},
+	{ID: "orange", Name: "橙色", Color: ui.Hex("#df762f")},
+	{ID: "yellow", Name: "黄色", Color: ui.Hex("#c99a18")},
+	{ID: "green", Name: "绿色", Color: ui.Hex("#2e9b68")},
+	{ID: "blue", Name: "蓝色", Color: ui.Hex("#3979d1")},
+	{ID: "purple", Name: "紫色", Color: ui.Hex("#8960c8")},
+	{ID: "pink", Name: "粉色", Color: ui.Hex("#d94f8b")},
 }
 
 // Normalize returns a known preset ID, using red for missing or unknown IDs.

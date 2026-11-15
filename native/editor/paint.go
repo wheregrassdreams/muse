@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 
 	"muse/locales"
-	"muse/markdown"
-	appearance "muse/theme"
+	markdownui "muse/nativeui/components/markdown"
+	"muse/theme"
 )
 
 const blink = 530 * time.Millisecond
@@ -658,7 +658,7 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 	if source == "" {
 		source = o.imagePath
 	}
-	sp := ui.Span{Text: markdown.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
+	sp := ui.Span{Text: markdownui.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
 	pad := e.lk.size * 0.8
 	textW := max(r.W-2*pad, 0)
 	_, h := p.MeasureText(textW, sp)
@@ -714,16 +714,16 @@ func (e *Editor) paintMarkers(p *ui.Painter, l *leaf, ox, oy float32) {
 // the baseline.
 func (e *Editor) paintItemMarker(p *ui.Painter, c cont, x, baseline, w float32) {
 	s := e.lk.size
-	if c.task != parser.NoTask {
+	if c.task != syntax.IncrementalNoTask {
 		box := s * 0.95
 		r := ui.Rect{X: x + w - box - s*0.45, Y: baseline - s*0.82, W: box, H: box}
-		if c.task == parser.Checked {
+		if c.task == syntax.IncrementalChecked {
 			p.Fill(r, e.lk.accent, 3.5)
 			path := ui.Path{}
 			path.MoveTo(r.X+r.W*0.24, r.Y+r.H*0.52)
 			path.LineTo(r.X+r.W*0.43, r.Y+r.H*0.7)
 			path.LineTo(r.X+r.W*0.77, r.Y+r.H*0.32)
-			p.StrokePath(&path, 1.8, appearance.From(e.lk.accent, e.lk.dark).OnAccent)
+			p.StrokePath(&path, 1.8, theme.From(e.lk.accent, e.lk.dark).OnAccent)
 		} else {
 			p.Stroke(r, e.lk.muted.Alpha(0.8), 3.5, 1.3)
 		}
@@ -761,7 +761,7 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 	h := g.rowY[len(g.rowY)-1]
 	box := ui.Rect{X: x, Y: y, W: g.w, H: h}
 	const radius = 4
-	line := markdown.TableRuleColor(e.lk.dark)
+	line := uiMarkdownColor(theme.MarkdownColors(e.lk.dark).TableRule)
 	if s := e.tableStructureSelection(l); s != nil {
 		selection := e.lk.selection.Alpha(0.4)
 		if !e.focused {

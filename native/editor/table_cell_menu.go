@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
-	"muse/markdown"
+	syntax "muse/markdown/syntax"
+	"muse/theme"
 )
 
 type tableCellMenuKey struct {
@@ -54,15 +54,15 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 						return false
 					})
 					button.Menu(func(m *ui.Menu) {
-						align := parser.AlignNone
+						align := syntax.IncrementalAlignNone
 						if col < len(t.tab.align) {
 							align = t.tab.align[col]
 						}
 						for _, item := range []struct {
 							label, cmd string
-							align      parser.Align
-						}{{locales.EditorAlignLeftColumn(), "alignLeft", parser.AlignLeft}, {locales.EditorAlignCenterColumn(), "alignCenter", parser.AlignCenter}, {locales.EditorAlignRightColumn(), "alignRight", parser.AlignRight}} {
-							checked := align == item.align || item.align == parser.AlignLeft && align == parser.AlignNone
+							align      syntax.IncrementalAlign
+						}{{locales.EditorAlignLeftColumn(), "alignLeft", syntax.IncrementalAlignLeft}, {locales.EditorAlignCenterColumn(), "alignCenter", syntax.IncrementalAlignCenter}, {locales.EditorAlignRightColumn(), "alignRight", syntax.IncrementalAlignRight}} {
+							checked := align == item.align || item.align == syntax.IncrementalAlignLeft && align == syntax.IncrementalAlignNone
 							if m.Item(item.label).Checked(checked).Chosen() {
 								e.focusTableMenuCell(t, row, col)
 								e.tableColumnAlignment(t.lineStart, col, item.cmd)
@@ -74,9 +74,9 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 					if button.Hovered() || hot {
 						c.After(40 * time.Millisecond)
 						button.Draw(func(p *ui.Painter, b ui.Rect) {
-							_, ink := markdown.TableControlColors(e.lk.dark)
+							ink := uiMarkdownColor(theme.MarkdownColors(e.lk.dark).TableControlInk)
 							if button.Hovered() {
-								bg, _ := markdown.TableControlColors(e.lk.dark)
+								bg := uiMarkdownColor(theme.MarkdownColors(e.lk.dark).TableControlBackground)
 								p.Fill(b, bg, 5)
 							}
 							for _, dy := range []float32{-4, 0, 4} {
