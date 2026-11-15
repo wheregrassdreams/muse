@@ -3,7 +3,7 @@
 package files
 
 import (
-	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,14 +14,19 @@ import (
 // files below one vault root. Hidden directories and symlinks are excluded.
 type Catalog struct {
 	mu       sync.RWMutex
+	source   Source
 	root     string
 	files    map[string]struct{} // slash-separated vault-relative paths
 	images   map[string]map[string]struct{}
 	revision uint64
 }
 
-func New(root string) *Catalog {
-	c := &Catalog{root: cleanRoot(root), files: make(map[string]struct{}), images: make(map[string]map[string]struct{})}
+func New(source Source) *Catalog {
+	root := ""
+	if source != nil {
+		root = source.Root()
+	}
+	c := &Catalog{source: source, root: cleanRoot(root), files: make(map[string]struct{}), images: make(map[string]map[string]struct{})}
 	return c
 }
 
@@ -37,26 +42,24 @@ func cleanRoot(root string) string {
 // overflow. Normal filesystem events should use Update and Remove.
 func (c *Catalog) Rebuild() error {
 	c.mu.RLock()
-	root := c.root
+	source := c.source
 	c.mu.RUnlock()
+	if err := validateSource(source); err != nil {
+		return err
+	}
 	next := make(map[string]struct{})
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	err := source.Walk(func(entry Entry) error {
+		rel, err := validateEntryPath(entry.Path)
 		if err != nil {
+			return err
+		}
+		if entry.Kind == EntryDirectory && strings.HasPrefix(path.Base(rel), ".") {
+			return ErrSkipDir
+		}
+		if entry.Kind != EntryRegular || hasHiddenComponent(rel) {
 			return nil
 		}
-		if entry.IsDir() {
-			if path != root && strings.HasPrefix(entry.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !hasHiddenComponent(rel) {
-			next[filepath.ToSlash(rel)] = struct{}{}
-		}
+		next[rel] = struct{}{}
 		return nil
 	})
 	if err != nil {
@@ -125,8 +128,11 @@ func (c *Catalog) removeImageLocked(path string) {
 // symlinks, and paths outside the vault.
 func (c *Catalog) Update(path string) {
 	c.mu.RLock()
-	root := c.root
+	root, source := c.root, c.source
 	c.mu.RUnlock()
+	if validateSource(source) != nil {
+		return
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return
@@ -136,8 +142,9 @@ func (c *Catalog) Update(path string) {
 		return
 	}
 	key := filepath.ToSlash(rel)
-	valid := !hasHiddenComponent(rel) && !hasSymlinkComponent(root, rel)
-	if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
+	valid := !hasHiddenComponent(rel)
+	entry, statErr := source.Stat(key)
+	if statErr != nil || entry.Kind != EntryRegular {
 		valid = false
 	}
 	c.mu.Lock()
@@ -153,21 +160,6 @@ func (c *Catalog) Update(path string) {
 		c.removeImageLocked(key)
 		c.revision++
 	}
-}
-
-// hasSymlinkComponent rejects a watched path reached through a symlinked
-// directory. WalkDir does not follow these directories during Rebuild, so the
-// incremental path must enforce the same boundary without scanning the vault.
-func hasSymlinkComponent(root, rel string) bool {
-	current := root
-	for _, part := range strings.Split(filepath.Clean(rel), string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // Remove removes a path and any descendants, allowing a single directory

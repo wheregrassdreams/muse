@@ -26,10 +26,7 @@ func TestCatalogRebuildAndIncrementalUpdates(t *testing.T) {
 	}
 	write(t, root, ".hidden/secret.png")
 	write(t, root, "visible/.secret.png")
-	c := New(root)
-	if err := c.Rebuild(); err != nil {
-		t.Fatal(err)
-	}
+	c := catalogForTest(t, root)
 	want := []string{"a.png", "nested/anim.gif", "nested/modern.webp", "nested/photo.jpg", "note.md"}
 	if got := c.Paths(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Paths() = %#v, want %#v", got, want)
@@ -60,10 +57,7 @@ func TestCatalogDuplicateSelectionAndDirectoryRemoval(t *testing.T) {
 	long := write(t, root, "longer/path/shared.png")
 	short := write(t, root, "x/shared.png")
 	write(t, root, "x/y/shared.png")
-	c := New(root)
-	if err := c.Rebuild(); err != nil {
-		t.Fatal(err)
-	}
+	c := catalogForTest(t, root)
 	if got := c.FindImage("SHARED.PNG"); got != short {
 		t.Fatalf("duplicate selection = %q, want shortest %q (long was %q)", got, short, long)
 	}
@@ -78,10 +72,7 @@ func TestCatalogRejectsMissingOutsideHiddenAndSymlinkPaths(t *testing.T) {
 	outside := t.TempDir()
 	p := write(t, outside, "outside.png")
 	write(t, root, "visible/.secret.png")
-	c := New(root)
-	if err := c.Rebuild(); err != nil {
-		t.Fatal(err)
-	}
+	c := catalogForTest(t, root)
 	c.Update(p)
 	c.Update(filepath.Join(root, ".hidden", "missing.png"))
 	c.Update(filepath.Join(root, "visible", ".secret.png"))
