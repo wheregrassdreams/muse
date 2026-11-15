@@ -140,6 +140,32 @@ func TestFocusedPaneSurvivesOverlayAndRepairsAfterPaneContentCloses(t *testing.T
 	}
 }
 
+func TestFocusedPaneCloseRestoresMostRecentlyFocusedLivePane(t *testing.T) {
+	manager := NewManager(nil)
+	content := map[PaneID]*testContent{}
+	handles := map[PaneID]Handle{}
+	for _, pane := range []PaneID{"first", "second", "third"} {
+		content[pane] = &testContent{}
+		handle, err := manager.Open(content[pane], Placement{Host: "main", Pane: pane, Layer: PaneContent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handles[pane] = handle
+	}
+	// The open order is first, second, third; the focus history is first,
+	// third. Closing third should return to first, not the second pane that
+	// happens to be later in the manager's insertion order.
+	if !manager.Focus(handles["first"]) || !manager.Focus(handles["third"]) {
+		t.Fatal("could not establish pane focus history")
+	}
+	if err := manager.Close(handles["third"]); err != nil {
+		t.Fatal(err)
+	}
+	if pane, ok := manager.FocusedPane("main"); !ok || pane != "first" {
+		t.Fatalf("focused pane after close = %q, %v; want most recently focused live pane first", pane, ok)
+	}
+}
+
 func TestRenderPaneDisplaysOnlyItsActiveContent(t *testing.T) {
 	manager := NewManager(nil)
 	first, second, otherPane := &testContent{}, &testContent{}, &testContent{}

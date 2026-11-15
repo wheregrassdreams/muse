@@ -73,6 +73,7 @@ type Manager struct {
 	order         []Handle
 	focused       Handle
 	focusedPanes  map[HostID]PaneID
+	recentPanes   map[HostID][]PaneID
 	activeContent map[paneKey]Handle
 	modal         Handle
 	fallbackFocus func()
@@ -83,6 +84,7 @@ type Manager struct {
 func NewManager(fallbackFocus func()) *Manager {
 	return &Manager{
 		entries: make(map[Handle]*entry), focusedPanes: make(map[HostID]PaneID),
+		recentPanes:   make(map[HostID][]PaneID),
 		activeContent: make(map[paneKey]Handle), fallbackFocus: fallbackFocus,
 	}
 }
@@ -136,8 +138,12 @@ func (m *Manager) Close(handle Handle) error {
 	if m.modal == handle {
 		m.modal = Handle{}
 	}
+	var paneFallback Handle
 	if e.placement.Layer == PaneContent {
 		m.repairPane(e.placement.Host, e.placement.Pane)
+		if pane := m.focusedPanes[e.placement.Host]; pane != "" {
+			paneFallback = m.activeContent[paneKey{host: e.placement.Host, pane: pane}]
+		}
 	}
 	wasFocused := m.focused == handle
 	if wasFocused {
@@ -151,7 +157,9 @@ func (m *Manager) Close(handle Handle) error {
 		}
 		e.content.Close()
 		if wasFocused && m.focused.IsZero() {
-			if m.Contains(e.restore) {
+			if m.Contains(paneFallback) {
+				m.Focus(paneFallback)
+			} else if m.Contains(e.restore) {
 				m.Focus(e.restore)
 			} else if m.fallbackFocus != nil {
 				m.fallbackFocus()
@@ -175,7 +183,7 @@ func (m *Manager) Focus(handle Handle) bool {
 	m.focused = handle
 	next := m.entries[handle]
 	if next.placement.Layer == PaneContent && next.placement.Pane != "" {
-		m.focusedPanes[next.placement.Host] = next.placement.Pane
+		m.rememberPaneFocus(next.placement.Host, next.placement.Pane)
 		m.activeContent[paneKey{host: next.placement.Host, pane: next.placement.Pane}] = handle
 	}
 	m.mutate(func() {
@@ -218,7 +226,7 @@ func (m *Manager) Place(handle Handle, placement Placement) error {
 	if placement.Layer == ModalOverlay {
 		m.Focus(handle)
 	} else if placement.Layer == PaneContent && m.focused == handle && placement.Pane != "" {
-		m.focusedPanes[placement.Host] = placement.Pane
+		m.rememberPaneFocus(placement.Host, placement.Pane)
 		m.activeContent[paneKey{host: placement.Host, pane: placement.Pane}] = handle
 	}
 	return nil
@@ -322,6 +330,7 @@ func (m *Manager) CloseAll() {
 	m.order = nil
 	m.focused, m.modal = Handle{}, Handle{}
 	clear(m.focusedPanes)
+	clear(m.recentPanes)
 	clear(m.activeContent)
 	m.mutate(func() {
 		if focused != nil {
@@ -363,14 +372,47 @@ func (m *Manager) repairPane(host HostID, pane PaneID) {
 			return
 		}
 	}
+	for i := len(m.recentPanes[host]) - 1; i >= 0; i-- {
+		candidate := m.recentPanes[host][i]
+		if candidate != pane && m.hasPaneContent(host, candidate) {
+			m.rememberPaneFocus(host, candidate)
+			return
+		}
+	}
 	for i := len(m.order) - 1; i >= 0; i-- {
 		e := m.entries[m.order[i]]
 		if e != nil && e.placement.Layer == PaneContent && e.placement.Host == host && e.placement.Pane != "" {
-			m.focusedPanes[host] = e.placement.Pane
+			m.rememberPaneFocus(host, e.placement.Pane)
 			return
 		}
 	}
 	delete(m.focusedPanes, host)
+	delete(m.recentPanes, host)
+}
+
+func (m *Manager) hasPaneContent(host HostID, pane PaneID) bool {
+	for _, handle := range m.order {
+		if e := m.entries[handle]; e != nil && e.placement.Layer == PaneContent && e.placement.Host == host && e.placement.Pane == pane {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) rememberPaneFocus(host HostID, pane PaneID) {
+	if host == "" || pane == "" {
+		return
+	}
+	recent := m.recentPanes[host]
+	for i, existing := range recent {
+		if existing == pane {
+			copy(recent[i:], recent[i+1:])
+			recent = recent[:len(recent)-1]
+			break
+		}
+	}
+	m.recentPanes[host] = append(recent, pane)
+	m.focusedPanes[host] = pane
 }
 
 // mutate defers lifecycle callbacks until the outermost Render has finished.
