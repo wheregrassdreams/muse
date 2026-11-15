@@ -146,14 +146,10 @@ func (t appAgentTools) Execute(_ context.Context, request agent.ToolRequest) age
 
 type appAgentPolicy struct{ app *App }
 
-func (p appAgentPolicy) Enabled(_ config.AssistantSettings, name string) bool {
-	if p.app == nil {
-		return false
-	}
-	group := toolGroup(name)
-	return group == "" || p.app.toolGroupEnabled(group)
+func (p appAgentPolicy) Enabled(settings config.AssistantSettings, name string) bool {
+	return agent.ToolEnabled(settings, name)
 }
-func (p appAgentPolicy) RequiresApproval(name string) bool { return toolNeedsApproval(name) }
+func (p appAgentPolicy) RequiresApproval(name string) bool { return agent.ToolRequiresApproval(name) }
 func (p appAgentPolicy) Permission() agent.Permission {
 	if p.app == nil {
 		return agent.ReadOnly
