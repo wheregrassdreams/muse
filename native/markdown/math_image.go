@@ -2,18 +2,11 @@ package markdown
 
 import (
 	"fmt"
-	"image"
-	"image/color"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/luo-studio/go-tex/tex/layout"
-	"github.com/luo-studio/go-tex/tex/mathstyle"
-	texparser "github.com/luo-studio/go-tex/tex/parser"
-	"github.com/tdewolff/canvas"
-	"github.com/tdewolff/canvas/renderers/rasterizer"
 
-	"muse/markdown/texcanvas"
+	texmath "muse/markdown/math"
 )
 
 // MathDPI is the density formulas are rasterised at: twice a DIP. A bitmap
@@ -39,8 +32,21 @@ type nativeFallbackGlyph struct {
 }
 
 var (
-	mathCache = newMathRenderCache(8 << 20)
-	mathMu    sync.Mutex
+	mathCache = texmath.NewCache[*MathVisual](8<<20, func(_ string, render *MathVisual) int64 {
+		if render == nil {
+			return 0
+		}
+		var weight int64
+		if render.bmp != nil {
+			w, h := render.bmp.Size()
+			weight += int64(w) * int64(h) * 4
+		}
+		// Include retained system-shaped glyph handles in the bounded math
+		// cache estimate; these remain much smaller than formula bitmaps.
+		weight += int64(len(render.fallback)) * 64
+		return weight
+	})
+	mathMu sync.Mutex
 )
 
 // mathBitmap typesets a TeX expression and rasterises it, inverting it for
@@ -52,22 +58,23 @@ func mathBitmap(expr string, size float64, dark bool, display bool) *ui.Bitmap {
 // mathRendered is mathBitmap with baseline and native CJK glyphs.
 func mathRendered(expr string, size float64, dark bool, display bool, fontFamily string) *MathVisual {
 	key := fmt.Sprintf("%s|%.1f|%v|%v|%s", expr, size, dark, display, fontFamily)
-	if r, ok := mathCache.load(key); ok {
+	if r, ok := mathCache.Load(key); ok {
 		return r
 	}
 	mathMu.Lock()
 	defer mathMu.Unlock()
-	if r, ok := mathCache.load(key); ok {
+	if r, ok := mathCache.Load(key); ok {
 		return r
 	}
 	r := &MathVisual{}
-	if img, baseline, fallback, ok := typesetMath(expr, size, display, fontFamily); ok {
+	if raster, ok := texmath.Typeset(expr, size, display); ok {
+		img := raster.Image
 		if dark {
-			img = invertImage(img)
+			img = texmath.InvertColors(img)
 		}
 		r.bmp = ui.NewBitmap(img)
-		r.baseline = baseline
-		for _, g := range fallback {
+		r.baseline = raster.Baseline
+		for _, g := range raster.Fallback {
 			glyphs := ui.Shape(string(g.Rune), ui.Font{Family: fontFamily, Size: float32(size) * float32(g.Scale)})
 			if len(glyphs) == 0 {
 				continue
@@ -79,44 +86,8 @@ func mathRendered(expr string, size float64, dark bool, display bool, fontFamily
 			r.fallback = append(r.fallback, nativeFallbackGlyph{x: float32(g.X), y: float32(g.Y), glyphs: glyphs, color: c})
 		}
 	}
-	mathCache.store(key, r)
+	mathCache.Store(key, r)
 	return r
-}
-
-// typesetMath lays a formula out with go-tex — a port of KaTeX, with KaTeX's
-// own font metrics and glyphs — and rasterises it at MathDPI. display asks
-// for the style of a formula on a line of its own: fractions at full size and
-// the limits of a big operator above and below it.
-//
-// The expression is read as it is; a formula KaTeX's parser will not take is
-// read again with the older normalisation, which is our own approximation
-// (it drops \left and \right, for one) and is only a fallback.
-func typesetMath(expr string, size float64, display bool, fontFamily string) (image.Image, float32, []texcanvas.FallbackGlyph, bool) {
-	nodes, ok := parseTeX(expr)
-	if !ok {
-		if n := normalizeTeX(expr); n != expr {
-			nodes, ok = parseTeX(n)
-		}
-	}
-	if !ok {
-		return nil, 0, nil, false
-	}
-	opts := layout.DefaultOptions()
-	if display {
-		opts.Style = mathstyle.Display
-	} else {
-		opts.Style = mathstyle.Text
-	}
-	// The style has to be in the layout, not in the parser: it changes the
-	// sizes and the placement of the whole box tree.
-	box := layout.Layout(nodes, opts)
-	px := size * MathDPI / 72
-	c, fallback := texcanvas.RenderWithFallback(layout.ToDisplayList(box), texcanvas.Options{FontSize: px, StrokeWidth: 1.5})
-	img := rasterizer.Draw(c, canvas.DPMM(1), canvas.DefaultColorSpace)
-	if img == nil {
-		return nil, 0, nil, false
-	}
-	return img, float32(box.Height * px), fallback, true
 }
 
 // Bitmap returns the rasterized math-font portion of the formula.
@@ -160,35 +131,6 @@ func (r *MathVisual) Draw(p *ui.Painter, dst ui.Rect) {
 			p.Glyphs(g.glyphs, x+g.x*natural, y+g.y*natural, g.color)
 		}
 	})
-}
-
-// parseTeX parses a formula, reporting whether the parser took it.
-func parseTeX(expr string) ([]texparser.Node, bool) {
-	nodes, err := texparser.Parse(expr)
-	if err != nil {
-		return nil, false
-	}
-	return nodes, true
-}
-
-func invertImage(src image.Image) image.Image {
-	b := src.Bounds()
-	dst := image.NewRGBA(b)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			r, g, bl, a := src.At(x, y).RGBA()
-			if a == 0 {
-				continue
-			}
-			dst.Set(x, y, color.RGBA{
-				R: 255 - uint8(r>>8),
-				G: 255 - uint8(g>>8),
-				B: 255 - uint8(bl>>8),
-				A: uint8(a >> 8),
-			})
-		}
-	}
-	return dst
 }
 
 // drawMathBlock shows the typeset formula, capped to the content width. The

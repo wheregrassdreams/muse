@@ -96,7 +96,7 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 				add(inlineRun{bmp: bmp, math: visual, w: iw + 3, h: float32(h) * 72 / MathDPI, pad: 1.5})
 				continue
 			}
-			sp.Text = texToUnicode(sp.Text)
+			sp.Text = TeXToUnicode(sp.Text)
 		}
 		u := uiSpans(c, []Span{sp}, s)[0]
 		if u.Size == 0 {

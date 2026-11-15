@@ -1,6 +1,9 @@
 package markdown
 
-import "github.com/egoist/mygo/ui"
+import (
+	"github.com/egoist/mygo/ui"
+	"muse/markdown/diagrams"
+)
 
 // Diagram is a Mermaid diagram mdoc draws natively: flowcharts, sequence,
 // state, pie, class and Gantt subsets.
@@ -39,8 +42,12 @@ func ParseDiagram(code string) (Diagram, bool) {
 	if g, ok := parseClass(code); ok {
 		return Diagram{width: g.width, height: g.height, draw: g.draw}, true
 	}
-	if g, ok := parsePie(code); ok {
-		return Diagram{width: g.width, height: func() float32 { return 286 }, draw: g.draw}, true
+	if chart, ok := diagrams.ParsePie(code); ok {
+		return Diagram{
+			width:  func() float32 { return diagrams.PieWidth },
+			height: func() float32 { return 286 },
+			draw:   func(p *ui.Painter, r ui.Rect, t *ui.Theme) { drawPie(p, r, t, chart) },
+		}, true
 	}
 	if g, ok := parseState(code); ok {
 		return Diagram{width: g.width, height: g.height, draw: g.draw}, true

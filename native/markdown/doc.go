@@ -3,6 +3,7 @@
 package markdown
 
 import "muse/markdown/syntax"
+import "muse/markdown/render"
 
 type Kind = syntax.Kind
 
@@ -25,6 +26,7 @@ type Item = syntax.Item
 type Block = syntax.Block
 type Align = syntax.Align
 type Doc = syntax.Doc
+type InlineRun = render.InlineRun
 
 const (
 	AlignNone   = syntax.AlignNone
@@ -33,10 +35,11 @@ const (
 	AlignRight  = syntax.AlignRight
 )
 
-func Parse(src string) *Doc          { return syntax.Parse(src) }
-func ParseFile(src []byte) *Doc      { return syntax.ParseFile(src) }
-func ParsePlainText(src string) *Doc { return syntax.ParsePlainText(src) }
-func CJKFriendly(src string) string  { return syntax.CJKFriendly(src) }
+func Parse(src string) *Doc             { return syntax.Parse(src) }
+func ParseFile(src []byte) *Doc         { return syntax.ParseFile(src) }
+func ParsePlainText(src string) *Doc    { return syntax.ParsePlainText(src) }
+func CJKFriendly(src string) string     { return syntax.CJKFriendly(src) }
+func InlineRuns(src string) []InlineRun { return render.InlineRuns(src) }
 
 // spansText is retained inside the renderer for styling and layout code that
 // needs a plain-text projection of styled inline spans.

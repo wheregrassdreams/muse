@@ -14,7 +14,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdoc"
+	"muse/markdown"
 )
 
 func main() {
@@ -35,8 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	doc := mdoc.Parse(string(src))
-	tt := ui.NewTester(func(c *ui.Context) { mdoc.View(c, doc, mdoc.Options{}) }, *width, *height)
+	doc := markdown.Parse(string(src))
+	tt := ui.NewTester(func(c *ui.Context) { markdown.View(c, doc, markdown.Options{}) }, *width, *height)
 	tt.SetDark(*dark)
 	tt.Frame()
 

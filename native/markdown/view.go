@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	"muse/markdown/syntax"
 )
@@ -209,7 +210,7 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 		}
 		ui.Row(c).FillWidth().Justify(ui.Center).Padding(8, 0).Children(func() {
 			ui.RichText(c, ui.Span{
-				Text:   texToUnicode(b.Text),
+				Text:   TeXToUnicode(b.Text),
 				Font:   "Georgia",
 				Italic: true,
 				Size:   s.o.BodyFontSize + 1,
@@ -230,8 +231,8 @@ func renderCode(c *ui.Context, b Block, s rstyle) {
 			renderClass(c, g, s)
 			return
 		}
-		if g, ok := parsePie(b.Text); ok {
-			renderPie(c, g)
+		if chart, ok := diagrams.ParsePie(b.Text); ok {
+			renderPie(c, chart)
 			return
 		}
 		if g, ok := parseState(b.Text); ok {
@@ -588,7 +589,7 @@ func uiSpans(c *ui.Context, spans []Span, s rstyle) []ui.Span {
 			u.Underline = true
 		}
 		if sp.Math {
-			u.Text = texToUnicode(sp.Text)
+			u.Text = TeXToUnicode(sp.Text)
 			u.Font = "Georgia"
 			u.Italic = true
 		}
