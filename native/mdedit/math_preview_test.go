@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"github.com/egoist/mygo/ui"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +70,45 @@ func TestInlineMathPreview(t *testing.T) {
 	}
 	h.e.SetMarkedText(nil, "a", ui.TextInputRange{Start: 1, End: 1})
 	h.shot("inline-math-preview-ime")
+}
+
+func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testing.T) {
+	tex := strings.Repeat(`\unsupported `, 120)
+	src := "A long formula: $" + tex + "$"
+	h := &harness{t: t, e: New(src, Options{FontSize: 16})}
+	var viewport ui.Rect
+	h.tt = ui.NewTester(func(c *ui.Context) {
+		viewport = h.e.scrollHandle.Bounds(c)
+		ui.Column(c).Fill().Children(func() { h.e.View(c).Grow(1) })
+	}, 500, 180)
+	h.frame()
+	h.focus()
+	h.caretAt(len(src) - 2)
+	start := strings.IndexByte(src, '$')
+	h.e.inlineMathStart, h.e.inlineMathEnd, h.e.inlineMathOK = start, len(src), true
+	h.frame()
+
+	startRect, startOK := h.e.caretRect(start)
+	caretRect, caretOK := h.e.caretRect(h.e.caret)
+	if !startOK || !caretOK {
+		t.Fatalf("missing formula/caret geometry: start=%v caret=%v", startOK, caretOK)
+	}
+	startRect.Y += viewport.Y - h.e.scroll.Y
+	caretRect.Y += viewport.Y - h.e.scroll.Y
+	if startRect.Y+startRect.H > viewport.Y {
+		t.Fatalf("fixture did not scroll the formula start out of view: start=%+v viewport=%+v scroll=%v", startRect, viewport, h.e.scroll.Y)
+	}
+	if caretRect.Y+caretRect.H <= viewport.Y || caretRect.Y >= viewport.Y+viewport.H {
+		t.Fatalf("caret is not visible in the viewport: caret=%+v viewport=%+v scroll=%v", caretRect, viewport, h.e.scroll.Y)
+	}
+	anchor, ok := h.e.mathPreviewAnchor(viewport, start)
+	if !ok || anchor != caretRect {
+		t.Fatalf("preview did not follow the visible caret after the formula start scrolled away: anchor=%+v caret=%+v ok=%v", anchor, caretRect, ok)
+	}
+	if _, ok := mathPreviewBounds(viewport, anchor, 240, 48); !ok {
+		t.Fatalf("preview anchor cannot produce a visible card: anchor=%+v viewport=%+v", anchor, viewport)
+	}
+	h.shot("inline-math-preview-after-source-start-scrolls-away")
 }
 
 func TestMathPreviewOffsetViewport(t *testing.T) {

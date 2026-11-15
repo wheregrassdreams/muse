@@ -18,6 +18,45 @@ func TestDefaultASCIIPathDoesNotLoadDictionary(t *testing.T) {
 	}
 }
 
+func TestContainsHanStringSkipsASCIIAndFindsHanAfterUTF8(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want bool
+	}{
+		{text: "ASCII 123 `QUFB`", want: false},
+		{text: "emoji 👩‍💻 then 漢字", want: true},
+		{text: "emoji 👩‍💻 without Han", want: false},
+	} {
+		if got := containsHanString(tc.text); got != tc.want {
+			t.Errorf("containsHanString(%q) = %v, want %v", tc.text, got, tc.want)
+		}
+	}
+}
+
+func TestContainsHanContentSkipsLargeBase64ImagePayload(t *testing.T) {
+	src := "![image](data:image/png;base64," + strings.Repeat("A", 1<<20) + ")"
+	if containsHanContent(src) {
+		t.Fatal("ASCII Base64 payload was treated as Han text")
+	}
+	if !containsHanContent(src + " 后文") {
+		t.Fatal("Han text after an image payload was missed")
+	}
+	if !containsHanContent("标题汉字 " + src) {
+		t.Fatal("Han text before an image payload was missed")
+	}
+}
+
+func TestContainsHanContentStopsImageSkippingAtLineEnd(t *testing.T) {
+	for _, src := range []string{
+		"![image](data:image/png;base64,AAAA\n中文)",
+		"![image](data:image/png;base64,AAAA\r中文)",
+	} {
+		if !containsHanContent(src) {
+			t.Fatalf("Han text after a line break inside a data destination was skipped: %q", src)
+		}
+	}
+}
+
 func TestTokensUseUTF8ByteRangesAndRealChineseWords(t *testing.T) {
 	text := "中文分词，go语言 123 👩‍💻 e\u0301"
 	idx := New(text)

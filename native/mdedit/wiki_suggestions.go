@@ -1,15 +1,24 @@
 package mdedit
 
 import (
+	"muse/locales"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 const wikiSuggestionLimit = 8
+
+// WikiSuggestion keeps a canonical inserted target separate from the title
+// and aliases used to find and identify it in the popup.
+type WikiSuggestion struct {
+	Target  string
+	Title   string
+	Aliases []string
+}
 
 func wikiLucideIcon(shapes string) *ui.SVG {
 	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))
@@ -25,6 +34,7 @@ type wikiSuggestionState struct {
 	query      string
 	start, end int // source range replaced by an accepted target
 	items      []string
+	details    map[string]WikiSuggestion
 	selected   int
 	bounds     ui.Rect
 	dismissed  bool
@@ -39,7 +49,7 @@ func (e *Editor) updateWikiSuggestions() {
 		e.wikiPopup.open = false
 		e.wikiPopup.items = nil
 	}
-	if e.opts.WikiLinkSuggestions == nil || e.opts.Code != "" || e.anchor != e.caret || e.compose != "" || e.phantom != nil || e.block != nil || e.tableSelection != nil {
+	if e.opts.WikiLinkSuggestions == nil && e.opts.WikiLinkSuggestionDetails == nil || e.opts.Code != "" || e.anchor != e.caret || e.compose != "" || e.phantom != nil || e.block != nil || e.tableSelection != nil {
 		close()
 		return
 	}
@@ -74,25 +84,44 @@ func (e *Editor) updateWikiSuggestions() {
 		e.wikiPopup.open = false
 		return
 	}
-	items := e.opts.WikiLinkSuggestions(query)
+	var suggestions []WikiSuggestion
+	if e.opts.WikiLinkSuggestionDetails != nil {
+		suggestions = e.opts.WikiLinkSuggestionDetails(query)
+	} else {
+		for _, target := range e.opts.WikiLinkSuggestions(query) {
+			suggestions = append(suggestions, WikiSuggestion{Target: target})
+		}
+	}
 	type match struct {
 		target string
 		score  int
 		order  int
 	}
-	matches := make([]match, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
-	for order, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" {
+	matches := make([]match, 0, len(suggestions))
+	seen := make(map[string]struct{}, len(suggestions))
+	details := make(map[string]WikiSuggestion, len(suggestions))
+	for order, suggestion := range suggestions {
+		target := strings.TrimSpace(suggestion.Target)
+		if target == "" {
 			continue
 		}
-		if _, ok := seen[item]; ok {
+		if _, ok := seen[target]; ok {
 			continue
 		}
-		seen[item] = struct{}{}
-		if score, ok := wikiSuggestionScore(item, query); ok {
-			matches = append(matches, match{target: item, score: score, order: order})
+		suggestion.Target = target
+		details[target] = suggestion
+		seen[target] = struct{}{}
+		score, matched := wikiSuggestionScore(target, query)
+		for _, candidate := range append([]string{suggestion.Title}, suggestion.Aliases...) {
+			if candidate == "" {
+				continue
+			}
+			if candidateScore, ok := wikiSuggestionScore(candidate, query); ok && (!matched || candidateScore < score) {
+				score, matched = candidateScore, true
+			}
+		}
+		if matched {
+			matches = append(matches, match{target: target, score: score, order: order})
 		}
 	}
 	sort.SliceStable(matches, func(i, j int) bool {
@@ -102,8 +131,10 @@ func (e *Editor) updateWikiSuggestions() {
 		return matches[i].order < matches[j].order
 	})
 	unique := make([]string, 0, min(len(matches), wikiSuggestionLimit))
+	uniqueDetails := make(map[string]WikiSuggestion, min(len(matches), wikiSuggestionLimit))
 	for i := 0; i < len(matches) && i < wikiSuggestionLimit; i++ {
 		unique = append(unique, matches[i].target)
+		uniqueDetails[matches[i].target] = details[matches[i].target]
 	}
 	if len(unique) == 0 {
 		close()
@@ -116,7 +147,7 @@ func (e *Editor) updateWikiSuggestions() {
 	e.wikiPopup = wikiSuggestionState{
 		open: true, query: query,
 		start: lineStart + open + 2, end: e.caret,
-		items: unique, selected: selected,
+		items: unique, details: uniqueDetails, selected: selected,
 	}
 	if old.query == query && old.dismissed && old.dismissKey == query {
 		e.wikiPopup.dismissed = true
@@ -308,11 +339,12 @@ func (e *Editor) wikiSuggestionsView(c *ui.Context, viewport ui.Rect) {
 	ui.Overlay(c, func() {
 		panel := ui.Column(c).Absolute().Left(x).Top(y).Width(width).Gap(2).
 			Padding(5).Radius(8).Background(t.Background).Border(1, t.Border).
-			Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Label("笔记链接建议")
+			Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Label(locales.EditorWikiLinkSuggestions())
 		panel.Children(func() {
 			for i, item := range e.wikiPopup.items {
 				i, item := i, item
-				row := ui.ButtonBase(c).Height(rowH).Radius(5).Padding(0, 9).AlignItems(ui.Center).Justify(ui.Start).Cursor(ui.CursorPointer).Label("链接建议：" + item)
+				detail := e.wikiPopup.details[item]
+				row := ui.ButtonBase(c).Height(rowH).Radius(5).Padding(0, 9).AlignItems(ui.Center).Justify(ui.Start).Cursor(ui.CursorPointer).Label(locales.EditorLinkSuggestionLabel(item))
 				if i == e.wikiPopup.selected {
 					row.Background(t.Accent.Alpha(0.16))
 				} else if row.Hovered() {
@@ -323,7 +355,16 @@ func (e *Editor) wikiSuggestionsView(c *ui.Context, viewport ui.Rect) {
 					ui.Row(c).Width(18).Height(rowH).Shrink(0).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 						ui.Icon(c, icon).Size(14, 14).TextColor(color)
 					})
-					ui.Text(c, item).FontSize(13).TextColor(t.Text).SingleLine().Ellipsis("…")
+					label := detail.Title
+					if label == "" {
+						label = filepath.Base(item)
+					}
+					ui.Column(c).FillWidth().Gap(1).Children(func() {
+						ui.Text(c, label).FontSize(13).TextColor(t.Text).SingleLine().Ellipsis("…")
+						if detail.Title != "" {
+							ui.Text(c, item).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+						}
+					})
 				})
 				row.HandleInput(func(ev ui.InputEvent) bool {
 					if ev.Kind == ui.InputPointerDown && ev.Button == 0 {

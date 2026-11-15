@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 // docShape is the parse of a document as text, for comparing an editor
@@ -35,13 +35,13 @@ func leavesShape(e *Editor) string {
 		fmt.Fprintf(&b, "%d:%d:%d:%d:%d:%d:%d:%t:%t:%t:%t:%t:%t:%d:%d:%d:%q:",
 			l.kind, l.id, l.start, l.end, l.lineStart, l.syntaxStart, l.level,
 			l.fenced, l.pending, l.setext, l.frontMatter, l.whole, l.table != nil,
-			l.fenceEnd, l.infoStart, l.infoEnd, l.lang)
+			l.fenceEndOffset(), l.infoStartOffset(), l.infoEndOffset(), l.language())
 		for _, c := range l.conts {
 			fmt.Fprintf(&b, "c%d,%d,%d,%t,%d,%d,%t,%d,%d,%d,%q;",
 				c.kind, c.id, c.start, c.ordered, c.num, c.marker, c.tight, c.depth, c.task, c.taskAt, c.label)
 		}
 		fmt.Fprintf(&b, "f%v l", l.firstOf)
-		for _, ln := range l.lines {
+		for _, ln := range l.codeLines() {
 			fmt.Fprintf(&b, "%d,%q;", ln.off, ln.text)
 		}
 		if t := l.tab; t != nil {
@@ -95,11 +95,11 @@ func TestIncrementalSyncMatchesFreshParse(t *testing.T) {
 		if e.p.src != e.Source() {
 			t.Fatalf("step %d: parser source is stale", i)
 		}
-		if want := testFullMask(e.Source()); string(e.p.mask) != string(want) {
-			t.Fatalf("step %d: mask = %q, want %q", i, e.p.mask, want)
+		if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
+			t.Fatalf("step %d: mask = %q, want %q", i, e.p.maskedSource(), want)
 		}
-		if e.p.doc.Source() != string(e.p.mask) {
-			t.Fatalf("step %d: parser source = %q, mask = %q", i, e.p.doc.Source(), e.p.mask)
+		if e.p.doc.Source() != e.p.maskedSource() {
+			t.Fatalf("step %d: parser source = %q, mask = %q", i, e.p.doc.Source(), e.p.maskedSource())
 		}
 		fresh := New(e.Source(), Options{})
 		if got, want := docShape(e.p.doc), docShape(fresh.p.doc); got != want {
@@ -124,18 +124,18 @@ func TestSyncAfterUndoKeepsMask(t *testing.T) {
 	e.replace(2, 3, "Y")
 	e.hist.open = nil
 	e.Undo()
-	if want := testFullMask(e.Source()); string(e.p.mask) != string(want) {
-		t.Fatalf("after undo: mask = %q, want %q", e.p.mask, want)
+	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
+		t.Fatalf("after undo: mask = %q, want %q", e.p.maskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != string(e.p.mask) {
-		t.Fatalf("after undo: parser source = %q, mask = %q", got, e.p.mask)
+	if got := e.p.doc.Source(); got != e.p.maskedSource() {
+		t.Fatalf("after undo: parser source = %q, mask = %q", got, e.p.maskedSource())
 	}
 	e.Redo()
-	if want := testFullMask(e.Source()); string(e.p.mask) != string(want) {
-		t.Fatalf("after redo: mask = %q, want %q", e.p.mask, want)
+	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
+		t.Fatalf("after redo: mask = %q, want %q", e.p.maskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != string(e.p.mask) {
-		t.Fatalf("after redo: parser source = %q, mask = %q", got, e.p.mask)
+	if got := e.p.doc.Source(); got != e.p.maskedSource() {
+		t.Fatalf("after redo: parser source = %q, mask = %q", got, e.p.maskedSource())
 	}
 }
 
@@ -189,10 +189,10 @@ func TestSyncRebuildsMaskAfterSeveralEdits(t *testing.T) {
 		t.Fatal("two ranges were not marked for a full reparse")
 	}
 	e.commit(1, 1)
-	if want := testFullMask(e.Source()); string(e.p.mask) != string(want) {
-		t.Fatalf("mask = %q, want %q", e.p.mask, want)
+	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
+		t.Fatalf("mask = %q, want %q", e.p.maskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != string(e.p.mask) {
-		t.Fatalf("parser source = %q, mask = %q", got, e.p.mask)
+	if got := e.p.doc.Source(); got != e.p.maskedSource() {
+		t.Fatalf("parser source = %q, mask = %q", got, e.p.maskedSource())
 	}
 }

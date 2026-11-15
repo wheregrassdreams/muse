@@ -4,7 +4,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 // Highlight, as Typora writes it: text between == and == is marked. The

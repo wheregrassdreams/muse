@@ -53,3 +53,34 @@ func TestFootnoteBearStyleRender(t *testing.T) {
 	}
 	h.shot("footnote-bear-style")
 }
+
+func TestFootnoteReferenceUsesPageJumpNavigation(t *testing.T) {
+	src := "正文 [^1]\n\n" + strings.Repeat("中间段落，用来拉开脚注距离。\n\n", 60) + "[^1]: 脚注定义。\n"
+	h := newHarness(t, src)
+	ref := strings.Index(src, "[^1]")
+	u := h.e.unitAt(ref)
+	if u == nil {
+		t.Fatal("footnote reference has no editor unit")
+	}
+	v := h.e.unitView(u, ref)
+	d0, ok0 := v.disp.srcToDisp(ref - u.lineStart)
+	d1, ok1 := v.disp.srcToDisp(ref + len("[^1]") - u.lineStart)
+	if !ok0 || !ok1 || v.layout == nil {
+		t.Fatalf("footnote display range unavailable: %v/%v, layout=%v", ok0, ok1, v.layout)
+	}
+	rects := v.layout.SelectionRects(ui.TextInputRange{Start: d0, End: d1})
+	if len(rects) == 0 {
+		t.Fatal("footnote reference has no hit box")
+	}
+	box := rects[0]
+	x := u.x + v.tx + box.X + box.W/2
+	y := u.y + v.ty + box.Y + box.H/2 - h.e.scroll.Y
+	h.tt.ClickAt(x, y)
+	definition := strings.LastIndex(src, "[^1]:")
+	if h.e.caret != definition {
+		t.Fatalf("footnote click caret=%d, want definition at %d", h.e.caret, definition)
+	}
+	if h.e.scroll.Y <= 0 {
+		t.Fatalf("footnote click did not reveal its distant definition: scrollY=%v", h.e.scroll.Y)
+	}
+}

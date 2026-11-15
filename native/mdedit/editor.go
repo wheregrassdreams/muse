@@ -13,7 +13,6 @@ import (
 	"muse/mdoc"
 	"muse/scrollui"
 	"muse/textlayout"
-	"muse/textnav"
 )
 
 // Options configure an editor. The app sets them before building the
@@ -43,6 +42,26 @@ type Options struct {
 	// PreserveTypedLineBreaks retains user-created source line boundaries in
 	// this editing session. Focus/caret changes never toggle paragraph wrapping.
 	PreserveTypedLineBreaks bool
+	// VimVirtualImageRows exposes an image's visual height as navigation rows
+	// while keeping every row mapped to that image's single source line.
+	VimVirtualImageRows bool
+	// HeadingMarkerReveal reveals a heading's Markdown prefix when the caret
+	// moves left from the first heading character into its source prefix.
+	HeadingMarkerReveal bool
+	// CursorFade softens the caret's blink transitions. SmoothCursor animates
+	// visual caret movement in Vim and Helix normal mode.
+	CursorFade   bool
+	SmoothCursor bool
+	// HideMouseCursor hides the native pointer while the editor is receiving
+	// keyboard input; the app restores it after the idle interval.
+	HideMouseCursor bool
+	// SmoothPageJumps animates long, explicit in-document navigation jumps.
+	// Ordinary caret movement and small scroll adjustments remain immediate.
+	SmoothPageJumps bool
+	// SearchMatchPulse briefly emphasizes a newly selected current match.
+	SearchMatchPulse bool
+	// VimYankFlash briefly marks ranges yanked through Vim commands.
+	VimYankFlash bool
 	// Font and MonoFont are the families of text and of code: the
 	// theme's font and the system's monospaced one when empty.
 	Font, MonoFont string
@@ -61,6 +80,8 @@ type Options struct {
 	// BaseDir resolves the relative paths of images.
 	BaseDir   string
 	AssetRoot string
+	// ResolveImage uses the application's shared vault path catalog when set.
+	ResolveImage func(src, base, root string) string
 	// Placeholder shows in an empty document.
 	Placeholder string
 	// Label names the editor to assistive technology.
@@ -76,6 +97,9 @@ type Options struct {
 	// WikiLinkSuggestions returns vault-relative targets for the partial
 	// text after [[. The editor owns filtering presentation and selection.
 	WikiLinkSuggestions func(query string) []string
+	// WikiLinkSuggestionDetails optionally adds display titles and aliases while
+	// keeping Target as the stable text inserted into the source.
+	WikiLinkSuggestionDetails func(query string) []WikiSuggestion
 	// OnWikiLinkHover reports a wiki target, pointer coordinates and the visible
 	// link fragment's bounds in editor-local coordinates. An empty target ends
 	// the hover. Embedded links are excluded.
@@ -104,6 +128,8 @@ type Options struct {
 	// OnDropFiles takes the files dropped on the editor that are not
 	// images, as a document to open.
 	OnDropFiles func(paths []string)
+	// OnVaultItemDragOver reports that an in-process tree item is over the editor.
+	OnVaultItemDragOver func()
 	// ReadClipboard and WriteClipboard replace the system's clipboard, as
 	// tests do.
 	ReadClipboard  func() transfer.Data
@@ -134,11 +160,26 @@ type Editor struct {
 
 	src    string
 	leaves []*leaf
+	// visibleLeaves is the layout-ordered subset of leaves that participate in
+	// document geometry. Hidden folded leaves stay in leaves for source access,
+	// but are excluded here so painting can binary-search the viewport.
+	visibleLeaves      []*leaf
+	visibleIndexRev    uint64
+	visibleIndexFolds  uint64
+	visibleIndexReady  bool
+	virtualBaseY       []float32
+	virtualHeightDelta []float32
+	virtualBaseDocH    float32
+	virtualIndexReady  bool
 	// p is what the parser reads, and what the editor derives from the
 	// source for it: the document, the masked source it holds, the comments
 	// that mask hides, where the front matter ends. Only p.set and p.edit
 	// write it (see parsed.go); everything else reads it.
 	p parserSource
+	// largeDataImageCache keeps the tiny synthetic inline projection for a
+	// single huge data image. Its strings reference src, so sync clears it on
+	// every source revision.
+	largeDataImageCache largeDataImageInlineCache
 	// arena holds the leaves of the parse before and the one being built:
 	// a leaf the edit did not change keeps its view, so the leaves of the
 	// parse before have to stay whole while the next is built.
@@ -161,24 +202,38 @@ type Editor struct {
 	rev, parsed uint64
 
 	// The selection: its anchor and its caret, byte offsets of the source.
-	anchor, caret      int
-	selectionInclusive bool
-	selectionLinewise  bool
-	block              *blockSelection
-	blockAnchorOffset  int
-	blockInput         *blockInput
-	graphemeRevision   uint64
-	graphemeBoundaries []int
-	graphemeBuilds     uint64
-	wordIndexCache     []*displayWordIndex
-	wordIndexCacheCost int
-	// tableSelection owns the active structural variant. anchor/caret retain
-	// the dormant text endpoints; structural source ranges are derived.
+	anchor, caret          int
+	smoothCursorFrom       int
+	smoothCursorStart      time.Time
+	smoothCursorActive     bool
+	smoothCursorNavigation bool
+	smoothCursorFromRect   ui.Rect
+	smoothCursorToRect     ui.Rect
+	smoothCursorRectsValid bool
+	smoothCursorFromSet    bool
+	vimImageRow            *vimImageRowCaret
+	selectionInclusive     bool
+	selectionLinewise      bool
+	block                  *blockSelection
+	blockAnchorOffset      int
+	blockInput             *blockInput
+	graphemeRevision       uint64
+	graphemeBoundaries     []int
+	graphemeBuilds         uint64
+	wordIndexCache         []*displayWordIndex
+	wordIndexCacheCost     int
+	// tableSelection owns table-cell presentation. anchor/caret retain the
+	// document range, whose outside-table text and table structure are projected
+	// independently.
 	tableNavigation []tableNavigationStep
 	tableNavigating bool
 	tableSelection  *tableSelection
-	tableHandleDrag *tableHandleDrag
-	tableBridge     *tableContentBridge
+	// tableDocumentRegion preserves the 2D cell focus when an extended
+	// selection leaves its table; anchor/caret alone cannot encode a rectangle.
+	tableDocumentRegion *tableSelection
+	tableVirtualEdit    *tableVirtualEditState
+	tableHandleDrag     *tableHandleDrag
+	tableBridge         *tableContentBridge
 	// phantom is the empty paragraph the caret is in, if it is in one.
 	phantom *phantom
 	// goalX is the x a run of Up and Down keeps the caret at.
@@ -198,6 +253,8 @@ type Editor struct {
 
 	lk              look
 	views           map[viewKey]*leafView
+	dataImageAssets map[dataImageAssetKey]*mdoc.ImageAsset
+	dataAssetsRev   uint64
 	typographyCache textlayout.Cache
 	frame           uint64
 	assetGen        atomic.Uint64
@@ -213,10 +270,9 @@ type Editor struct {
 	padTop       float32
 	padBottom    float32
 	docH         float32
-	// viewTop and viewBottom bound what the last frame showed, in the
-	// content's coordinates: a large document shapes only the leaves near
-	// them (see layoutDoc). They are the top of the document until a frame
-	// has given them a size.
+	// viewTop and viewBottom bound the shaped band in content coordinates:
+	// a large document shapes only leaves near them (see layoutDoc). They
+	// remain fixed while the viewport scrolls inside this band.
 	viewTop, viewBottom float32
 	// estW, estSize and estLH are the width and text size the heights of
 	// the leaves that are not shaped were last estimated at. A layout at
@@ -235,21 +291,28 @@ type Editor struct {
 	wantReveal bool
 	// scrollTo, when set, scrolls an offset to the top of the view at the
 	// next frame; scrollCenter centers it there instead, as the rail does.
-	scrollTo     int
-	hasScrollTo  bool
-	scrollCenter bool
+	scrollTo        int
+	hasScrollTo     bool
+	scrollCenter    bool
+	scrollPlacement CaretLinePlacement
+	pageJump        bool
+	pageJumpAlign   PageJumpAlignment
 
 	// The pointer: a drag selecting by characters, words or blocks, from
 	// the range it started on; the syntax shown is frozen meanwhile, so
 	// that the text does not move under it.
-	dragging  bool
-	dragUnit  int
-	dragFrom  [2]int
-	frozen    bool
-	frozenAt  int
-	pointerX  float32
-	pointerY  float32
-	hoverLink Range
+	dragging bool
+	dragUnit int
+	dragFrom [2]int
+	// tableCellDrag is transient pointer gesture state. The active region itself
+	// remains owned by tableSelection and this capture never enters history.
+	tableCellDrag    *tableCellDragState
+	frozen           bool
+	frozenAt         int
+	pointerX         float32
+	pointerY         float32
+	contextImagePath string
+	hoverLink        Range
 	// diagDrag is a diagram's scroll bar being dragged, if one is; diagPan
 	// is the pointer dragging a rendered diagram itself sideways.
 	diagDrag       *diagDrag
@@ -262,6 +325,21 @@ type Editor struct {
 	// matches; current is the one chosen.
 	highlights []Range
 	current    int
+	// sourceRevealRanges is a sorted, merged index of the active search
+	// highlights. Virtual layout asks whether many small syntax ranges overlap
+	// a match, so keeping this index avoids rescanning every match per leaf.
+	sourceRevealRanges []Range
+	searchRev          uint64
+	// Vim search highlights share the same painter but retain separate
+	// ownership, so cancelling a Vim search cannot erase Cmd+F results.
+	vimHighlights       []Range
+	vimCurrent          int
+	vimHighlightsActive bool
+	searchPulseStart    time.Time
+	searchPulseActive   bool
+	vimYankRanges       []Range
+	vimYankStart        time.Time
+	vimYankActive       bool
 
 	// elemRect is the element's box in the window, as the last frame drew it.
 	elemRect ui.Rect
@@ -275,8 +353,21 @@ type Editor struct {
 	leavesLaid   bool
 	// unitList is the leaves and table cells the caret moves through,
 	// built again when the source changes (see units).
-	unitList []*leaf
-	unitRev  uint64
+	unitList       []*leaf
+	unitRev        uint64
+	unitIndexCache struct {
+		rev, folds uint64
+		off        int
+		first      *leaf
+		length     int
+		index      int
+		valid      bool
+	}
+	// tableEdgeIndex is rebuilt with the parse and lets caret geometry query
+	// table boundary stops without scanning every table on each frame.
+	tableEdgeIndex    []tableEdgePosition
+	tableEdgeIndexRev uint64
+	tableEdgeIndexed  bool
 
 	// The navigation rail: the headings of the parse, in order, and the
 	// first block of each one's section for the preview; railRev is the rev
@@ -374,6 +465,18 @@ func New(src string, opts Options) *Editor {
 func (e *Editor) SetOptions(opts Options) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	if !opts.SmoothCursor {
+		e.smoothCursorActive = false
+		e.smoothCursorRectsValid = false
+		e.smoothCursorFromSet = false
+	}
+	if !opts.SearchMatchPulse {
+		e.searchPulseActive = false
+	}
+	if !opts.VimYankFlash {
+		e.vimYankActive = false
+		e.vimYankRanges = nil
+	}
 	if opts.DisableSmartTypography && !e.opts.DisableSmartTypography {
 		e.typographyCache.Clear()
 	}
@@ -384,12 +487,16 @@ func (e *Editor) SetOptions(opts Options) {
 	linkContextChanged := opts.LinkContext != e.opts.LinkContext
 	currentPathChanged := opts.CurrentPath != e.opts.CurrentPath
 	embedResolverChanged := (opts.ResolveWikiEmbed == nil) != (e.opts.ResolveWikiEmbed == nil)
+	headingMarkerRevealChanged := opts.HeadingMarkerReveal != e.opts.HeadingMarkerReveal
 	if codeChanged || frontmatterChanged {
 		e.rev++
 		if codeChanged {
 			e.parsed = 0
 			e.pending, e.pendingMulti = nil, false
 		}
+	}
+	if !opts.VimVirtualImageRows {
+		e.clearVimImageRow()
 	}
 	e.opts = opts
 	if imageBaseChanged {
@@ -415,7 +522,7 @@ func (e *Editor) SetOptions(opts Options) {
 	if linkContextChanged || currentPathChanged {
 		e.wikiEmbeds = nil
 	}
-	if linkRevisionChanged || linkContextChanged || currentPathChanged || embedResolverChanged {
+	if linkRevisionChanged || linkContextChanged || currentPathChanged || embedResolverChanged || headingMarkerRevealChanged {
 		e.leavesLaid = false
 		e.invalidate()
 	}
@@ -442,8 +549,35 @@ func (e *Editor) SetSource(src string) {
 	e.finishBlockInput()
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	// Opening a document is a lifetime boundary. Incremental edits reuse these
+	// arenas and caches, but carrying them across notes can retain the old
+	// document's views, images, and peak-sized backing arrays indefinitely.
+	e.leafSrc = ""
+	e.leaves, e.visibleLeaves = nil, nil
+	e.views = make(map[viewKey]*leafView)
+	e.imageHits = nil
+	e.wikiEmbeds = nil
+	e.wikiPopup = wikiSuggestionState{}
+	e.wikiHover = ""
+	e.wikiHoverBounds = ui.Rect{}
+	e.railLeaves, e.railNext = nil, nil
+	e.railYs, e.railScales = nil, nil
+	e.railText, e.railDesc = "", ""
+	e.railTextRev, e.railTextIdx = 0, 0
+	e.wordIndexCache, e.wordIndexCacheCost = nil, 0
+	e.tableEdgeIndex = nil
+	e.typographyCache.Clear()
+	e.virtualBaseY, e.virtualHeightDelta = nil, nil
+	e.virtualBaseDocH, e.virtualIndexReady = 0, false
+	e.visibleIndexReady = false
+	e.unitList = nil
+	e.unitIndexCache.first, e.unitIndexCache.valid = nil, false
+	e.arena[0].release()
+	e.arena[1].release()
+	e.clearTableVirtualEdit()
 	e.mathPreviewHidden = false
-	textnav.WarmUpIfNeeded(src)
+	e.clearVimImageRow()
+	e.clearTableSelectionSession()
 	e.inlineMathOK = false
 	e.hoverLink = Range{}
 	e.foldHover = -1
@@ -456,15 +590,19 @@ func (e *Editor) SetSource(src string) {
 	e.horizontalDrag = nil
 	e.src = src
 	e.imageAlignments = nil
+	e.largeDataImageCache = largeDataImageInlineCache{}
 	e.p.clear()
 	e.rev++
-	e.u16ix.rev = 0
+	e.u16ix = u16Index{}
 	e.pending, e.pendingMulti = nil, false
 	e.anchor, e.caret = 0, 0
 	e.phantom = nil
 	e.compose, e.composing = "", false
 	e.hist = history{}
 	e.highlights, e.current = nil, -1
+	e.vimHighlights, e.vimCurrent, e.vimHighlightsActive = nil, -1, false
+	e.vimYankRanges, e.vimYankActive = nil, false
+	e.searchPulseActive = false
 	e.scroll.Y = 0
 	e.hasGoal = false
 	e.railHover = -1
@@ -485,6 +623,14 @@ func (e *Editor) SetSource(src string) {
 
 // sync parses the source again when it changed, and makes the leaves.
 func (e *Editor) sync() {
+	if e.dataAssetsRev != e.rev {
+		clear(e.dataImageAssets)
+		e.dataImageAssets = nil
+		e.dataAssetsRev = e.rev
+	}
+	if cached := &e.largeDataImageCache; cached.valid && cached.rev != e.rev {
+		*cached = largeDataImageInlineCache{}
+	}
 	if e.parsed == e.rev && e.leaves != nil {
 		// The caret may have moved into or out of a comment: the leaves are
 		// built for the comment it is in (its own show, the others do not),
@@ -613,7 +759,7 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 			continue
 		}
 		l.horizontal = o.horizontal
-		l.view, l.vp, l.geom = o.view, o.vp, o.geom
+		l.view, l.geom = o.view, o.geom
 		// The height is an estimate until the leaf is shaped again: it is
 		// what the leaf took where it was last laid out.
 		l.h = o.h
@@ -623,7 +769,7 @@ func carryViews(oldSrc, src string, old, next []*leaf) {
 		for r, row := range l.tab.rows {
 			for c, cell := range row {
 				oc := o.tab.rows[r][c]
-				cell.view, cell.vp = oc.view, oc.vp
+				cell.view = oc.view
 			}
 		}
 	}
@@ -683,7 +829,7 @@ func touchesComment(cmts []cmt, from, to int) bool {
 }
 
 // parserText returns whole lines of the source as the parser reads them.
-func parserText(lines string) string { return mdoc.CJKFriendly(bracketMath(lines)) }
+func parserText(lines string) string { return bracketMath(lines) }
 
 // blockAt returns the index of the leaf whose first line starts at lineStart,
 // or -1: the block a source control was used on, found again by its line.
@@ -744,7 +890,7 @@ func leafLo(e *Editor, l *leaf) int {
 		return l.lineStart
 	}
 	if l.kind == kCode && l.fenced {
-		return l.infoStart
+		return l.infoStartOffset()
 	}
 	return l.start
 }
@@ -771,7 +917,7 @@ func (e *Editor) leafIndex(off int) int {
 			continue
 		}
 		if off >= leafLo(e, l) && off <= l.end {
-			if l.kind == kCode && l.fenced && off > l.infoEnd && off < l.start {
+			if l.kind == kCode && l.fenced && off > l.infoEndOffset() && off < l.start {
 				continue
 			}
 			cover = i
@@ -885,6 +1031,13 @@ func (e *Editor) SelectedText() string {
 	}
 	var selected strings.Builder
 	for _, part := range e.selectionParts() {
+		if part.structure != nil {
+			t := e.tableByLineStart(part.structure.lineStart)
+			if reg := e.tableRegisterForSelection(t, part.structure); reg != nil && reg.region && part.structure.axis != tableWhole {
+				selected.WriteString(reg.markdown())
+				continue
+			}
+		}
 		selected.WriteString(e.src[part.source.Start:part.source.End])
 	}
 	return selected.String()
@@ -907,6 +1060,13 @@ func (e *Editor) firstStop() int {
 	for _, l := range e.leaves {
 		if e.foldHidden(l) {
 			continue
+		}
+		// A recognized whole-document data image starts at a legal caret
+		// boundary. Building its unit view just to discover that boundary
+		// scans and shapes the enormous destination during editor startup.
+		if l.kind == kPara && l.start == 0 && len(e.p.imageInlines) > 0 &&
+			e.p.imageInlines[0].Start == l.start {
+			return l.start
 		}
 		if s, ok := e.edgeStop(l, false); ok {
 			return s
@@ -931,6 +1091,13 @@ func (e *Editor) lastStop() int {
 // setCaret moves the caret to off, keeping the anchor when extend is set,
 // and leaves the phantom unless the caret stays in it.
 func (e *Editor) setCaret(off int, extend bool) {
+	if !extend {
+		e.tableDocumentRegion = nil
+	}
+	if e.pageJump || e.scroll.Scrolling() {
+		e.cancelPageJump()
+	}
+	e.pageJump = false
 	if !e.tableNavigating {
 		e.tableNavigation = nil
 	}
@@ -960,8 +1127,21 @@ func (e *Editor) setCaret(off int, extend bool) {
 		e.mathPreviewHidden = false
 	}
 	off = max(0, min(off, len(e.src)))
+	if off != e.caret {
+		// A virtual destination belongs to the current structural focus. Once
+		// navigation moves the source caret, later puts resolve from that caret.
+		e.clearTableVirtualEdit()
+	}
+	if e.vimImageRow != nil && off != e.vimImageRow.lineStart {
+		e.clearVimImageRow()
+	}
 	if e.Keymap() == "vim" && e.modal.mode == "Normal" && !extend {
 		off = e.vimNormalOffset(off)
+	}
+	if e.smoothCursorNavigation {
+		e.beginSmoothCursorMove(e.caret, off, extend)
+	} else {
+		e.smoothCursorActive = false
 	}
 	if e.phantom != nil && !(off == e.phantom.at && e.leafIsPhantom(off)) {
 		e.dropPhantom()
@@ -1014,7 +1194,8 @@ func (e *Editor) Select(start, end int) {
 	e.finishBlockInput()
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
-	e.clearTableSelection()
+	e.cancelPageJump()
+	e.clearTableSelectionSession()
 	e.dropPhantom()
 	start = max(0, min(start, len(e.src)))
 	end = max(start, min(end, len(e.src)))
@@ -1024,6 +1205,8 @@ func (e *Editor) Select(start, end int) {
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.wantReveal = true
+	e.pageJump = false
+	e.hasScrollTo = false
 	e.hasGoal = false
 	e.invalidate()
 }
@@ -1031,31 +1214,21 @@ func (e *Editor) Select(start, end int) {
 // ScrollToOffset scrolls the source offset off to the top of the view and
 // puts the caret there, as an outline's heading is gone to.
 func (e *Editor) ScrollToOffset(off int) {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	e.clearTableSelection()
-	e.dropPhantom()
-	off = max(0, min(off, len(e.src)))
-	e.expandFoldsAt(off)
-	off = e.normalize(off, 1)
-	e.anchor, e.caret = off, off
-	e.scrollTo, e.hasScrollTo, e.scrollCenter = off, true, false
-	e.invalidate()
+	// Keep the long-standing outline navigation margin (two font sizes below
+	// the viewport top); explicit zt uses the exact top placement operation.
+	e.NavigateToOffset(off, PageJumpTopMargin)
 }
 
 // ScrollY returns how far the document is scrolled, in DIPs: 0 when its
 // first line is at the top of the view, as the header's fade ramps in from.
 func (e *Editor) ScrollY() float32 { return e.scroll.Y }
 
-// scrollToOffsetCentered scrolls off to the middle of the view, as the
-// rail's ticks do.
-func (e *Editor) scrollToOffsetCentered(off int) {
-	e.clearTableSelection()
-	e.dropPhantom()
-	off = e.normalize(max(0, min(off, len(e.src))), 1)
-	e.anchor, e.caret = off, off
-	e.scrollTo, e.hasScrollTo, e.scrollCenter = off, true, true
-	e.invalidate()
+func (e *Editor) cancelPageJump() {
+	if e.scroll.Scrolling() {
+		// ScrollState's one-nanosecond linear animation is its public way to
+		// stop a glide while preserving the ScrollState/Handle binding.
+		e.scroll.ScrollTo(e.scroll.X, e.scroll.Y, ui.Animation{Duration: time.Nanosecond, Ease: ui.Linear})
+	}
 }
 
 // SetHighlights draws ranges of the source as found, current the one
@@ -1063,8 +1236,54 @@ func (e *Editor) scrollToOffsetCentered(off int) {
 func (e *Editor) SetHighlights(rs []Range, current int) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
+	old, oldOK := e.visibleCurrentHighlight()
 	e.highlights, e.current = rs, current
+	e.sourceRevealRanges = normalizeSourceRevealRanges(rs)
+	e.vimHighlightsActive = false
+	e.searchRev++
+	e.noteSearchHighlightChange(old, oldOK)
 	e.invalidate()
+}
+
+func (e *Editor) setVimSearchHighlights(rs []Range, current int) {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	old, oldOK := e.visibleCurrentHighlight()
+	e.vimHighlights, e.vimCurrent, e.vimHighlightsActive = rs, current, true
+	e.sourceRevealRanges = normalizeSourceRevealRanges(rs)
+	e.searchRev++
+	e.noteSearchHighlightChange(old, oldOK)
+	e.invalidate()
+}
+
+func (e *Editor) clearVimSearchHighlights() {
+	e.paintMu.Lock()
+	defer e.paintMu.Unlock()
+	e.vimHighlights, e.vimCurrent, e.vimHighlightsActive = nil, -1, false
+	e.sourceRevealRanges = normalizeSourceRevealRanges(e.highlights)
+	e.searchRev++
+	e.searchPulseActive = false
+	e.invalidate()
+}
+
+func (e *Editor) visibleCurrentHighlight() (Range, bool) {
+	ranges, current := e.highlights, e.current
+	if e.vimHighlightsActive {
+		ranges, current = e.vimHighlights, e.vimCurrent
+	}
+	if current < 0 || current >= len(ranges) {
+		return Range{}, false
+	}
+	return ranges[current], true
+}
+
+func (e *Editor) noteSearchHighlightChange(old Range, oldOK bool) {
+	next, nextOK := e.visibleCurrentHighlight()
+	if !e.opts.SearchMatchPulse || !nextOK || oldOK && old == next {
+		return
+	}
+	e.searchPulseStart = time.Now()
+	e.searchPulseActive = true
 }
 
 // Focus gives the editor the keyboard focus.
@@ -1105,6 +1324,15 @@ type Heading struct {
 func (e *Editor) clearTableSelection() {
 	e.tableSelection = nil
 	e.tableBridge = nil
-	e.tableNavigation = nil
+	if !e.tableNavigating {
+		e.tableNavigation = nil
+	}
 	e.tableHandleDrag = nil
+}
+
+// clearTableSelectionSession ends both the active table selection and any
+// region suspended while its caret was outside the table.
+func (e *Editor) clearTableSelectionSession() {
+	e.clearTableSelection()
+	e.tableDocumentRegion = nil
 }

@@ -2,7 +2,7 @@ package mdedit
 
 import (
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 	"strings"
 	"testing"
 )

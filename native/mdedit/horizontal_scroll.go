@@ -10,7 +10,7 @@ import (
 type blockHorizontalScroll struct {
 	x         float32
 	shown     bool
-	indicator scrollui.Indicator
+	indicator *scrollui.Indicator
 }
 
 type blockHorizontalDrag struct {
@@ -145,6 +145,9 @@ func (e *Editor) paintBlockHorizontalBar(p *ui.Painter, l *leaf, ox, oy float32)
 		return
 	}
 	s := &l.horizontal
+	if s.indicator == nil {
+		s.indicator = &scrollui.Indicator{}
+	}
 	s.shown = s.indicator.Visible(p.Now(), s.x, 0)
 	if !s.shown && (e.horizontalDrag == nil || e.horizontalDrag.leaf != l) {
 		return

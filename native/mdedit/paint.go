@@ -2,13 +2,15 @@ package mdedit
 
 import (
 	"math"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 
 	"muse/appearance"
+	"muse/locales"
 	"muse/mdoc"
 )
 
@@ -32,6 +34,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	t := p.Theme()
 	vis := p.Visible()
 	top, bottom := vis.Y-r.Y-40, vis.Y-r.Y+vis.H+40
+	visible := e.paintVisibleSpan(top, bottom)
 	ox, oy := r.X, r.Y
 	e.paintCallouts(p, ox, oy)
 
@@ -40,10 +43,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	type bar struct{ x, y0, y1 float32 }
 	bars := map[int]*bar{}
 	var order []int
-	for _, l := range e.leaves {
-		if e.foldHidden(l) {
-			continue
-		}
+	for _, l := range visible {
 		x := e.colX
 		for _, c := range l.conts {
 			if c.kind == cQuote && !isCalloutContainer(c) {
@@ -66,10 +66,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		p.Fill(ui.Rect{X: ox + b.x + 1, Y: oy + b.y0 - 2, W: 2, H: b.y1 - b.y0 + 4}, e.lk.quoteBar, 1)
 	}
 
-	for _, l := range e.leaves {
-		if l.y+l.h < top || l.y > bottom {
-			continue
-		}
+	for _, l := range visible {
 		e.paintMarkers(p, l, ox, oy)
 		drawBlock := func() {
 			switch l.kind {
@@ -96,7 +93,10 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		}
 		e.paintBlockHorizontalBar(p, l, ox, oy)
 	}
-	for _, l := range e.leaves {
+	for _, l := range visible {
+		if l.y+l.h < top || l.y > bottom {
+			continue
+		}
 		if !e.gridBlock(l) || !e.showsChip(l) {
 			continue
 		}
@@ -119,6 +119,47 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 		sp := ui.Span{Text: e.opts.Placeholder, Color: e.lk.muted.Alpha(0.6), Size: e.lk.size}
 		p.RichText(ox+x, oy+e.padTop+e.lk.size*e.lk.lh/2-e.lk.size*0.7, w, sp)
 	}
+	if !e.smoothCursorOverlayEnabled() {
+		e.paintCaretLayer(p, ox, oy)
+	}
+}
+
+// paintVisibleSpan finds the laid out leaves that intersect the painter's
+// viewport plus its small paint margin. layoutDoc keeps this slice ordered by
+// y and excludes folded leaves, whose source-order sentinel y is not sorted.
+func (e *Editor) paintVisibleSpan(top, bottom float32) []*leaf {
+	leaves := e.visibleLeaves
+	yAt := func(i int) float32 {
+		if e.virtualIndexReady && len(e.virtualBaseY) == len(leaves) {
+			return e.virtualY(i)
+		}
+		return leaves[i].y
+	}
+	start := sort.Search(len(leaves), func(i int) bool {
+		return yAt(i)+leaves[i].h >= top
+	})
+	end := sort.Search(len(leaves), func(i int) bool {
+		return yAt(i) > bottom
+	})
+	if start >= end {
+		return nil
+	}
+	if e.virtualIndexReady && len(e.virtualBaseY) == len(leaves) {
+		for i := start; i < end; i++ {
+			leaves[i].y = yAt(i)
+		}
+	}
+	return leaves[start:end]
+}
+
+func (e *Editor) smoothCursorOverlayEnabled() bool {
+	return e.opts.SmoothCursor && (e.Keymap() == "vim" || e.Keymap() == "helix") && e.modal.mode == "Normal"
+}
+
+// paintCaretLayer is a separate retained scene element when smooth cursor is
+// enabled, so Painter.After redraws only this small overlay instead of every
+// document leaf.
+func (e *Editor) paintCaretLayer(p *ui.Painter, ox, oy float32) {
 	if l := e.horizontalOwner(e.selectionFocus()); l != nil && blockContentWidth(l) > blockViewport(l).W {
 		clip := blockViewport(l)
 		clip.X, clip.Y, clip.W = clip.X+ox-2, clip.Y+oy, clip.W+4
@@ -132,9 +173,14 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 // in it, its text and its objects.
 func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 	a, z := e.textSelectionForUnit(u)
+	yankOpacity, yankActive := e.vimYankFlashOpacity(p.Now())
 	v := u.view
 	if v == nil {
 		e.paintBlockRowRect(p, u, nil, ox, oy)
+		if yankActive && e.yankFlashTouches(u) {
+			box := ui.Rect{X: ox + u.x, Y: oy + u.y, W: u.w, H: u.h}
+			p.Fill(box, e.lk.accent.Alpha(0.32*yankOpacity), 3)
+		}
 		// A blank line has no text and no view: nothing to draw — but a
 		// selection across it covers the line, and shows as covering it.
 		if e.selectionCoversBlankLine(u, a, z) {
@@ -163,10 +209,17 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 	}
 	if v.layout != nil {
 		lx, ly := contentX+v.tx, y+v.ty
-		for i, h := range e.highlights {
+		highlights, current := e.highlights, e.current
+		if e.vimHighlightsActive {
+			highlights, current = e.vimHighlights, e.vimCurrent
+		}
+		for i, h := range highlights {
 			col := ui.RGBA(250, 204, 21, 0.35)
-			if i == e.current {
-				col = ui.RGBA(250, 150, 20, 0.55)
+			if i == current {
+				pulse, _ := e.searchMatchPulse(p.Now())
+				col = ui.RGBA(250, 150, 20, 0.55+0.12*pulse)
+				e.fillRangePulsed(p, u, v, h.Start, h.End, lx, ly, col, pulse)
+				continue
 			}
 			e.fillRange(p, u, v, h.Start, h.End, lx, ly, col)
 		}
@@ -195,6 +248,17 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 	if v.diagram != nil {
 		e.paintDiagram(p, u, v, ox, oy)
 	}
+	if yankActive {
+		e.paintVimYankFlash(p, u, v, contentX+v.tx, y+v.ty, box, yankOpacity)
+	}
+	if e.vimImageRow != nil && e.vimImageRow.lineStart == u.lineStart && a < z {
+		lineStart, lineEnd := e.sourceLineRange(u.lineStart)
+		if a <= lineEnd && z > lineStart {
+			if image, _, ok := e.vimImageGeometry(u); ok {
+				p.Fill(ui.Rect{X: ox + image.X, Y: oy + image.Y, W: image.W, H: image.H}, e.lk.selection.Alpha(0.28), 4)
+			}
+		}
+	}
 	if v.label != "" && !v.reveal && v.panel {
 		size := e.lk.size
 		sp := ui.Span{Text: v.label, Size: size * 0.7, Color: e.lk.muted.Alpha(0.75)}
@@ -203,6 +267,30 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 		p.RichText(lx, y+size*0.35, 0, sp)
 		if isMermaid(u) {
 			e.paintDiagramToggle(p, u, lx, y)
+		}
+	}
+}
+
+func (e *Editor) yankFlashTouches(u *leaf) bool {
+	lo, hi := leafLo(e, u), u.end
+	for _, r := range e.vimYankRanges {
+		if r.Start < hi && r.End > lo {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Editor) paintVimYankFlash(p *ui.Painter, u *leaf, v *leafView, lx, ly float32, box ui.Rect, opacity float32) {
+	col := e.lk.accent.Alpha(0.32 * opacity)
+	for _, r := range e.vimYankRanges {
+		if r.Start >= u.end || r.End <= leafLo(e, u) {
+			continue
+		}
+		if v.layout != nil {
+			e.fillRange(p, u, v, r.Start, r.End, lx, ly, col)
+		} else {
+			p.Fill(box, col, 3)
 		}
 	}
 }
@@ -328,9 +416,9 @@ func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, u *leaf, v *leafView, x, y 
 // shows its source, or brings its diagram back, a faint pill under it
 // while the pointer is there.
 func (e *Editor) paintDiagramToggle(p *ui.Painter, l *leaf, labelX, top float32) {
-	action := "源码"
+	action := locales.EditorSourceAction()
 	if l.view != nil && l.view.diagram == nil {
-		action = "图表"
+		action = locales.EditorChartAction()
 	}
 	size := e.lk.size * 0.7
 	sp := ui.Span{Text: action, Size: size, Color: e.lk.accent}
@@ -406,6 +494,10 @@ func (e *Editor) paintDiagramBar(p *ui.Painter, track, thumb ui.Rect, hot bool) 
 // fillRange fills the part of the source range [a, z) that shows in a
 // unit.
 func (e *Editor) fillRange(p *ui.Painter, u *leaf, v *leafView, a, z int, lx, ly float32, col ui.Color) {
+	e.fillRangePulsed(p, u, v, a, z, lx, ly, col, 0)
+}
+
+func (e *Editor) fillRangePulsed(p *ui.Painter, u *leaf, v *leafView, a, z int, lx, ly float32, col ui.Color, pulse float32) {
 	lo, hi := u.lineStart, u.end
 	// A source-open fenced-code view can draw the closing fence after the
 	// parser's code leaf ends. Those source-backed pieces are still part of
@@ -424,7 +516,12 @@ func (e *Editor) fillRange(p *ui.Painter, u *leaf, v *leafView, a, z int, lx, ly
 	for _, r := range v.layout.SelectionRects(ui.TextInputRange{Start: da, End: dz}) {
 		r.X += lx
 		r.Y += ly
-		p.Fill(r, col, 2)
+		padX, padY := 2*pulse, pulse
+		r.X -= padX
+		r.Y -= padY
+		r.W += 2 * padX
+		r.H += 2 * padY
+		p.Fill(r, col, 2+2*pulse)
 	}
 }
 
@@ -534,11 +631,29 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 		p.RichText(r.X, r.Y-ascent-e.lk.size*0.4, r.W, sp)
 		return
 	}
+	if o.math != nil {
+		o.math.Draw(p, r)
+		return
+	}
 	if o.bmp != nil {
 		p.Image(o.bmp, r, ui.Contain)
 		return
 	}
 	p.Fill(r, e.lk.panel, 6)
+	if o.imagePending {
+		label := o.alt
+		if label == "" {
+			label = locales.EditorImageLoading()
+		}
+		sp := ui.Span{Text: label, Size: e.lk.size * 0.8, Color: e.lk.muted}
+		pad := e.lk.size * 0.8
+		textW := max(r.W-2*pad, 0)
+		_, h := p.MeasureText(textW, sp)
+		p.Clip(r, 6, func() {
+			p.RichText(r.X+pad, r.Y+(r.H-h)/2, textW, sp)
+		})
+		return
+	}
 	source := o.imageDest
 	if source == "" {
 		source = o.imagePath
@@ -654,6 +769,16 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 		}
 		selected := box
 		switch s.axis {
+		case tableCells:
+			r, ok := e.tableSelectionCellRegion(s)
+			if ok {
+				top, left, bottom, right := r.bounds()
+				top = max(0, min(top, len(g.rowY)-2))
+				bottom = max(top, min(bottom, len(g.rowY)-2))
+				left = max(0, min(left, len(g.colX)-2))
+				right = max(left, min(right, len(g.colX)-2))
+				selected = ui.Rect{X: x + g.colX[left], Y: y + g.rowY[top], W: g.colX[right+1] - g.colX[left], H: g.rowY[bottom+1] - g.rowY[top]}
+			}
 		case tableRows:
 			first, last := s.first, s.last
 			selected.Y = y + g.rowY[first]
@@ -663,8 +788,16 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 			selected.X = x + g.colX[first]
 			selected.W = g.colX[last+1] - g.colX[first]
 		}
-		p.Fill(selected, selection, radius)
-		p.Stroke(selected, e.lk.accent.Alpha(0.6), radius, 1.5)
+		if s.axis == tableCells {
+			clip := ui.Rect{X: ox + l.x, Y: y, W: tableViewportWidth(l), H: h}
+			p.Clip(clip, 0, func() {
+				p.Fill(selected, selection, radius)
+				p.Stroke(selected, e.lk.accent.Alpha(0.6), radius, 1.5)
+			})
+		} else {
+			p.Fill(selected, selection, radius)
+			p.Stroke(selected, e.lk.accent.Alpha(0.6), radius, 1.5)
+		}
 	}
 	for i, ry := range g.rowY {
 		if i == 0 || i == len(g.rowY)-1 {
@@ -694,6 +827,17 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 	if !e.focused {
 		return
 	}
+	var nextRedraw time.Duration
+	defer func() {
+		if nextRedraw > 0 {
+			p.After(nextRedraw)
+		}
+	}()
+	scheduleRedraw := func(after time.Duration) {
+		if after > 0 && (nextRedraw == 0 || after < nextRedraw) {
+			nextRedraw = after
+		}
+	}
 	if e.compose == "" {
 		if _, _, _, boundary := e.tableBoundaryAtOffset(e.caret); boundary {
 			if r, ok := e.caretRect(e.caret); ok {
@@ -709,9 +853,24 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 	}
 	phase := p.Now().Sub(e.blinkStart)
 	if phase < 30*time.Second {
-		p.After(blink - phase%blink)
+		untilTransition := blink - phase%blink
+		if e.opts.CursorFade {
+			if _, fading := caretFadeOpacity(phase); fading {
+				// Painter callbacks are the editor's animation clock. Keep the
+				// caret repainting during the short opacity ramp, not just at
+				// the on/off boundary.
+				scheduleRedraw(16 * time.Millisecond)
+			} else {
+				scheduleRedraw(untilTransition)
+			}
+		} else {
+			scheduleRedraw(untilTransition)
+		}
 	}
-	if e.compose == "" && phase%(2*blink) >= blink {
+	caretAlpha := float32(1)
+	if e.opts.CursorFade && e.compose == "" {
+		caretAlpha, _ = caretFadeOpacity(phase)
+	} else if e.compose == "" && phase%(2*blink) >= blink {
 		return
 	}
 	if e.anchor != e.caret && e.compose == "" && !e.blockCaret() {
@@ -724,10 +883,31 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 	if !ok {
 		return
 	}
+	if e.compose == "" && smoothCursorNeedsFrames(e.opts.SmoothCursor, e.smoothCursorActive) {
+		from, fromOK := e.smoothCursorFromRect, e.smoothCursorFromSet
+		if !fromOK {
+			from, fromOK = e.caretRect(e.smoothCursorFrom)
+		}
+		if fromOK {
+			target := r
+			if visual, active := e.smoothCursorRects(p.Now(), from, r); active {
+				r = visual
+				e.smoothCursorFromRect = from
+				e.smoothCursorToRect = target
+				e.smoothCursorRectsValid = true
+				p.AnimationFrameRate(smoothCursorFrameRate)
+			} else {
+				e.smoothCursorRectsValid = false
+			}
+		} else {
+			e.smoothCursorActive = false
+			e.smoothCursorRectsValid = false
+		}
+	}
 	if e.blockCaret() && e.compose == "" {
 		r = e.blockCaretRect(r)
 		box := ui.Rect{X: ox + r.X, Y: oy + r.Y, W: r.W, H: r.H}
-		p.Fill(box, e.lk.caret.Alpha(1), 0)
+		p.Fill(box, e.lk.caret.Alpha(caretAlpha), 0)
 		// Repaint the shaped text through the caret box so the glyph itself
 		// takes a contrasting foreground on the opaque caret background.
 		if us := e.units(); len(us) > 0 {
@@ -736,14 +916,14 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 				v := e.unitView(u, e.caret)
 				if v.layout != nil {
 					if d, ok := v.disp.srcToDisp(e.caret - u.lineStart); ok {
-						if sp, ok := blockCaretGlyph(v.disp, d, blockCaretTextColor(e.lk.caret)); ok {
+						if sp, ok := blockCaretGlyph(v.disp, d, blockCaretTextColor(e.lk.caret).Alpha(caretAlpha)); ok {
 							glyph := ui.ShapeRichText([]ui.Span{sp}, v.font, 0)
 							lines, glyphLines := v.layout.Lines(), glyph.Lines()
 							if len(lines) > 0 && len(glyphLines) > 0 {
 								ln := lines[lineOf(lines, d, e.upstream)]
 								y := oy + u.y + v.ty + ln.Baseline - glyphLines[0].Baseline
 								p.Clip(box, 0, func() {
-									p.TextLayout(glyph, box.X, y, blockCaretTextColor(e.lk.caret))
+									p.TextLayout(glyph, box.X, y, blockCaretTextColor(e.lk.caret).Alpha(caretAlpha))
 								})
 							}
 						}
@@ -754,7 +934,34 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32) {
 		return
 	}
 	h := r.H
-	p.Fill(ui.Rect{X: ox + r.X - 0.75, Y: oy + r.Y, W: 1.75, H: h}, e.lk.caret, 0.5)
+	p.Fill(ui.Rect{X: ox + r.X - 0.75, Y: oy + r.Y, W: 1.75, H: h}, e.lk.caret.Alpha(caretAlpha), 0.5)
+}
+
+// caretFadeOpacity returns the caret opacity during the short fade windows at
+// the beginning and middle of the blink cycle. Away from those boundaries the
+// caret is fully visible or hidden. The matching easing on both edges avoids a
+// mechanical hard cut while preserving the existing blink period.
+func caretFadeOpacity(phase time.Duration) (float32, bool) {
+	const fade = 120 * time.Millisecond
+	// A caret relocation resets blinkStart. Keep that freshly moved caret fully
+	// visible instead of restarting the cycle at zero opacity on every keypress.
+	if phase < fade {
+		return 1, false
+	}
+	cycle := phase % (2 * blink)
+	if cycle < fade {
+		t := float32(cycle) / float32(fade)
+		return t * t * (3 - 2*t), true
+	}
+	if cycle >= blink && cycle < blink+fade {
+		t := float32(cycle-blink) / float32(fade)
+		t = 1 - t*t*(3-2*t)
+		return t, true
+	}
+	if cycle >= blink+fade {
+		return 0, false
+	}
+	return 1, false
 }
 
 func (e *Editor) paintTableBoundaryCaret(p *ui.Painter, ox, oy float32, r ui.Rect) {

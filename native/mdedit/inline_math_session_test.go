@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 )
 
 func requireMathCodeStyle(t *testing.T, h *harness, start, end int) {
@@ -17,8 +18,26 @@ func requireMathCodeStyle(t *testing.T, h *harness, start, end int) {
 		if z <= start || a >= end {
 			continue
 		}
-		if p.kind != pText || p.span.Font != h.e.lk.mono || p.span.Color != h.e.lk.codeText || p.span.Background.A != 0 {
+		if p.kind != pText || p.span.Font != h.e.lk.mono || p.span.Background.A != 0 {
 			t.Fatalf("math source %d..%d lost code style: %+v", a, z, p)
+		}
+		if a != covered {
+			t.Fatalf("math source byte mapping has a gap or overlap at %d, next piece starts at %d", covered, a)
+		}
+		if got, want := p.text, h.e.src[a:z]; got != want {
+			t.Fatalf("math source piece changed source bytes at %d..%d: got %q want %q", a, z, got, want)
+		}
+		if p.span.Color != h.e.lk.codeText {
+			matched := false
+			for kind := editor.TokenKeyword; kind <= editor.TokenInvalid; kind++ {
+				if p.span.Color == h.e.lk.code.TokenColor(kind) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				t.Fatalf("math source has an unrecognized syntax color at %d..%d: %+v", a, z, p.span.Color)
+			}
 		}
 		if displayStart < 0 {
 			displayStart = p.d0

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/go-text/typesetting/segmenter"
@@ -16,29 +17,48 @@ import (
 // Shape keeps native shaping, with optional Knuth-Plass paragraph breaks and
 // bounded glue adjustment. Unsupported/oversized paragraphs use native wrapping.
 func Shape(spans []ui.Span, font ui.Font, shape ui.TextShape, smart bool) *Layout {
-	base := ui.ShapeRichTextWith(spans, font, shape)
-	out := &Layout{TextLayout: base}
+	var base *ui.TextLayout
+	native := func() *Layout {
+		if base == nil {
+			base = ui.ShapeRichTextWith(spans, font, shape)
+		}
+		return &Layout{TextLayout: base}
+	}
 	if !smart || shape.Width <= 0 || shape.Align != ui.Start || shape.Direction == ui.RightToLeft {
-		return out
+		return native()
 	}
-	var text strings.Builder
-	for _, sp := range spans {
-		text.WriteString(sp.Text)
+	// Reject oversized paragraphs before copying their text or allocating a
+	// rune slice. The Knuth-Plass path is bounded to 4096 runes; paragraphs
+	// beyond that limit already use the native layout above.
+	runeCount, ok := boundedRuneCount(spans, 4096)
+	if !ok {
+		return native()
 	}
-	runes := []rune(text.String())
-	// Bound both allocation and the quadratic search of potential line breaks.
-	if len(runes) < 2 || len(runes) > 4096 {
-		return out
+	textString := ""
+	if len(spans) == 1 {
+		textString = spans[0].Text
+	} else {
+		var text strings.Builder
+		for _, sp := range spans {
+			text.WriteString(sp.Text)
+		}
+		textString = text.String()
+	}
+	runes := []rune(textString)
+	// Bound the quadratic search of potential line breaks.
+	if runeCount < 2 {
+		return native()
 	}
 	for _, r := range runes {
 		// Hard breaks and bidi paragraphs stay entirely on the native path.
 		if r == '\r' || r == '\t' || r == '\u2028' || r == '\u2029' || unicode.In(r, unicode.Arabic, unicode.Hebrew) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
-			return out
+			return native()
 		}
 	}
-	if strings.ContainsRune(text.String(), '\n') {
+	if strings.ContainsRune(textString, '\n') {
+		out := native()
 		start := 0
-		for _, part := range strings.Split(text.String(), "\n") {
+		for _, part := range strings.Split(textString, "\n") {
 			end := start + utf16Length(part)
 			chunk := Shape(sliceSpans(spans, start, end, nil), font, shape, true)
 			if len(chunk.segments) == 0 {
@@ -64,17 +84,24 @@ func Shape(spans []ui.Span, font ui.Font, shape ui.TextShape, smart bool) *Layou
 		em = 16
 	}
 	measure := ui.ShapeRichTextWith(spans, font, ui.TextShape{})
-	if lines := measure.Lines(); len(lines) != 1 || lines[0].RTL {
-		return out
+	measureLines := measure.Lines()
+	if len(measureLines) != 1 || measureLines[0].RTL {
+		return native()
 	}
+	// Smart segments supply all wrapped geometry. Keep the unwrapped native
+	// layout only for source grapheme boundaries; shaping a second wrapped
+	// layout here would be discarded by Lines, CaretAt, and the other segment
+	// methods below.
+	out := &Layout{TextLayout: measure}
 	compressed := make(map[int]float32)
 	addPunctuationCompression(compressed, runes, units, spans, 0, len(runes), measure, em)
-	if len(base.Lines()) < 2 {
-		return trackedLine(base, compressed, spans)
+	measureWidth, _ := measure.Size()
+	if measureWidth <= shape.Width {
+		return trackedLine(measure, compressed, spans)
 	}
 	tokens := paragraphTokens(runes, units, spans, measure, em)
 	if len(tokens) < 2 || len(tokens) > 512 {
-		return out
+		return native()
 	}
 	// Keep a short tail together so an isolated character or tiny code
 	// fragment cannot become the final line. This is a box constraint,
@@ -111,16 +138,16 @@ func Shape(spans []ui.Span, font ui.Font, shape ui.TextShape, smart bool) *Layou
 	// Glue capacities already encode the maximum acceptable adjustment.
 	breaks := knuth.KnuthLinebreak(items, float64(shape.Width), 1, 0)
 	if len(breaks) < 2 {
-		return out
+		return native()
 	}
 	start := 0
 	for i, br := range breaks {
 		if br.Position < 0 || br.Position >= len(ends) {
-			return &Layout{TextLayout: base}
+			return native()
 		}
 		end := ends[br.Position]
 		if end <= start {
-			return &Layout{TextLayout: base}
+			return native()
 		}
 		trim := end
 		for trim > start && unicode.IsSpace(runes[trim-1]) {
@@ -132,7 +159,7 @@ func Shape(spans []ui.Span, font ui.Font, shape ui.TextShape, smart bool) *Layou
 		// Each chosen line is reshaped in context, rather than assuming that
 		// widths measured in the whole paragraph are additive (kerning/padding).
 		if contentWidth > shape.Width+0.5 {
-			return &Layout{TextLayout: base}
+			return native()
 		}
 		if i < len(breaks)-1 {
 			extra := shape.Width - contentWidth
@@ -155,9 +182,29 @@ func Shape(spans []ui.Span, font ui.Font, shape ui.TextShape, smart bool) *Layou
 		start = end
 	}
 	if start != len(runes) {
-		return &Layout{TextLayout: base}
+		return native()
 	}
 	return out
+}
+
+// boundedRuneCount stops as soon as the smart-layout limit is exceeded, so
+// huge source blocks cost only a short scan before falling back to native
+// wrapping. DecodeRune matches the replacement-rune behavior of []rune for
+// malformed UTF-8.
+func boundedRuneCount(spans []ui.Span, limit int) (int, bool) {
+	n := 0
+	for _, span := range spans {
+		text := span.Text
+		for len(text) > 0 {
+			_, size := utf8.DecodeRuneInString(text)
+			text = text[size:]
+			n++
+			if n > limit {
+				return n, false
+			}
+		}
+	}
+	return n, true
 }
 
 type paragraphToken struct {

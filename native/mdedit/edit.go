@@ -1,10 +1,11 @@
 package mdedit
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 // Editing works on the source, as Typora's editing reads: typing goes in
@@ -367,6 +368,15 @@ func (e *Editor) deleteSelection() {
 	if e.tableSelection != nil && e.tableBridge == nil && e.applyTableSelection("d") {
 		return
 	}
+	if e.deleteMixedCellSelection() {
+		return
+	}
+	// Never let a mixed structural range fall through to deletion of its
+	// one-dimensional source envelope. Unsupported full-row/column mixed
+	// shapes must wait for their structural edit plan rather than eat cells.
+	if e.hasMixedSelectionParts() {
+		return
+	}
 	a, z := e.selection()
 	if a == z {
 		return
@@ -375,6 +385,160 @@ func (e *Editor) deleteSelection() {
 	e.replace(a, z, "")
 	e.commit(a, a)
 	e.tidyEmpty()
+}
+
+func (e *Editor) hasMixedSelectionParts() bool {
+	hasText, hasStructure := false, false
+	for _, part := range e.selectionParts() {
+		if part.structure == nil {
+			hasText = true
+		} else {
+			hasStructure = true
+		}
+	}
+	return hasText && hasStructure
+}
+
+// deleteMixedCellSelection removes external text ranges and a partial cell
+// rectangle as one undo step. Structural row/column/table projections remain
+// owned by applyTableSelection; they must not fall through to source-envelope
+// deletion, which would include unselected cells.
+func (e *Editor) deleteMixedCellSelection() bool {
+	parts := e.selectionParts()
+	var hasText, regionPart bool
+	for _, part := range parts {
+		if part.structure == nil {
+			hasText = true
+		} else if part.structure.cellRegion {
+			regionPart = true
+		}
+	}
+	if !hasText || !regionPart {
+		return false
+	}
+	type sourceEdit struct {
+		from, to int
+		text     string
+	}
+	var edits []sourceEdit
+	for _, part := range parts {
+		if part.structure == nil {
+			edits = append(edits, sourceEdit{from: part.source.Start, to: part.source.End})
+			continue
+		}
+		s := part.structure
+		t := e.tableByLineStart(s.lineStart)
+		region, ok := e.tableSelectionCellRegion(s)
+		if t == nil || !ok {
+			return false
+		}
+		top, left, bottom, right := region.bounds()
+		lines := e.tableLines(t)
+		if s.axis == tableWhole {
+			z := blockEnd(e.src, t)
+			edits = append(edits, sourceEdit{from: t.lineStart, to: z})
+			continue
+		}
+		if s.axis == tableRows {
+			lineIndex := func(row int) int {
+				if row == 0 {
+					return 0
+				}
+				return row + 1
+			}
+			first, last := lineIndex(s.first), lineIndex(s.last)
+			if first < 0 || last >= len(lines) || first > last {
+				return false
+			}
+			a, z := lines[first][0], lines[last][1]
+			if z < len(e.src) {
+				z++
+			}
+			edits = append(edits, sourceEdit{from: a, to: z})
+			continue
+		}
+		if s.axis == tableColumns {
+			if s.first < 0 || s.last >= t.tab.cols() || t.tab.cols() <= s.last-s.first+1 {
+				return false
+			}
+			var b strings.Builder
+			for li, ln := range lines {
+				if li > 0 {
+					b.WriteByte('\n')
+				}
+				pipes := splitRow(e.src, ln)
+				if len(pipes) < 2 {
+					b.WriteString(e.src[ln[0]:ln[1]])
+					continue
+				}
+				b.WriteString(e.src[ln[0] : pipes[0]+1])
+				written := 0
+				for c := 0; c < t.tab.cols(); c++ {
+					if c >= s.first && c <= s.last {
+						continue
+					}
+					if written > 0 {
+						b.WriteString(" |")
+					}
+					value := ""
+					if li == 1 {
+						value = " --- "
+						switch alignAt(t.tab.align, c) {
+						case parser.AlignLeft:
+							value = " :-- "
+						case parser.AlignCenter:
+							value = " :-: "
+						case parser.AlignRight:
+							value = " --: "
+						}
+					} else {
+						row := 0
+						if li > 1 {
+							row = li - 1
+						}
+						if row < len(t.tab.rows) && c < len(t.tab.rows[row]) {
+							cell := t.tab.rows[row][c]
+							value = e.src[cell.start:cell.end]
+						}
+					}
+					b.WriteByte(' ')
+					b.WriteString(value)
+					written++
+				}
+				if written > 0 {
+					b.WriteString(" |")
+				}
+				if pipes[len(pipes)-1]+1 < ln[1] {
+					b.WriteString(e.src[pipes[len(pipes)-1]+1 : ln[1]])
+				}
+			}
+			edits = append(edits, sourceEdit{from: lines[0][0], to: lines[len(lines)-1][1], text: b.String()})
+			continue
+		}
+		if s.axis != tableCells || left == 0 && right == t.tab.cols()-1 || top == 0 && bottom == len(t.tab.rows)-1 {
+			return false
+		}
+		for row := top; row <= bottom; row++ {
+			for col := left; col <= right && col < len(t.tab.rows[row]); col++ {
+				cell := t.tab.rows[row][col]
+				edits = append(edits, sourceEdit{from: cell.start, to: cell.end})
+			}
+		}
+	}
+	if len(edits) == 0 {
+		return false
+	}
+	sort.Slice(edits, func(i, j int) bool { return edits[i].from > edits[j].from })
+	caret := e.selectionFocus()
+	e.begin(stepEdit)
+	for _, edit := range edits {
+		if edit.from >= 0 && edit.to >= edit.from && edit.to <= len(e.src) {
+			e.replace(edit.from, edit.to, edit.text)
+		}
+	}
+	e.commit(caret, caret)
+	e.tidyEmpty()
+	return true
 }
 
 // tidyEmpty makes the empty paragraph a deletion leaves behind a phantom,
@@ -488,11 +652,14 @@ func (e *Editor) backspace(word bool) {
 	// before it, delete backward normally without consuming syntax ahead.
 	beforeHeadingContent := u.kind == kHeading && off < u.start
 	_, tableEdge := e.tableAtEdge(off)
-	if first, ok := e.edgeStop(u, false); ok && off <= first && !tableEdge && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStart && off <= u.infoEnd && off > u.infoStart) {
+	if first, ok := e.edgeStop(u, false); ok && off <= first && !tableEdge && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStartOffset() && off <= u.infoEndOffset() && off > u.infoStartOffset()) {
 		e.backspaceAtStart(u)
 		return
 	}
 	prev := e.step(off, -1, word)
+	if u.kind == kBlank && u.end > u.start && off > u.start {
+		prev = e.previousGraphemeBoundary(off)
+	}
 	if prev >= off {
 		return
 	}
@@ -514,7 +681,9 @@ func (e *Editor) backspace(word bool) {
 	}
 	e.replace(prev, off, "")
 	e.commit(prev, prev)
-	e.tidyEmpty()
+	if u.kind != kBlank || u.end == u.start {
+		e.tidyEmpty()
+	}
 }
 
 // backspaceAtStart handles Backspace at the start of a unit: a heading
@@ -533,8 +702,8 @@ func (e *Editor) backspaceAtStart(u *leaf) {
 			e.removeBlock(l)
 			return
 		}
-		if l.kind == kCode && l.fenced && e.caret != l.infoStart {
-			e.setCaret(l.infoEnd, false)
+		if l.kind == kCode && l.fenced && e.caret != l.infoStartOffset() {
+			e.setCaret(l.infoEndOffset(), false)
 			return
 		}
 		e.setCaret(e.step(e.caret, -1, false), false)
@@ -670,6 +839,7 @@ func (e *Editor) deleteForward(word bool) {
 	if u == nil {
 		return
 	}
+	blankText := u.kind == kBlank && u.end > u.start
 	if last, ok := e.edgeStop(u, true); ok && off >= last {
 		l := e.leafOf(u)
 		if e.isCell(u) || l.kind == kCode || l.kind == kMath || l.kind == kHTML || l.kind == kRaw {
@@ -707,13 +877,18 @@ func (e *Editor) deleteForward(word bool) {
 		return
 	}
 	next := e.step(off, 1, word)
+	if blankText && off < u.end {
+		next = e.nextGraphemeBoundary(off)
+	}
 	if next <= off {
 		return
 	}
 	e.begin(stepDelete)
 	e.replace(off, next, "")
 	e.commit(off, off)
-	e.tidyEmpty()
+	if !blankText {
+		e.tidyEmpty()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -775,12 +950,12 @@ func (e *Editor) enter(shift bool) {
 	cont := e.contPrefix(l)
 	switch l.kind {
 	case kCode, kMath, kHTML, kRaw:
-		if l.kind == kCode && l.fenced && off >= l.infoStart && off <= l.infoEnd {
+		if l.kind == kCode && l.fenced && off >= l.infoStartOffset() && off <= l.infoEndOffset() {
 			// From the info string into the code.
-			if len(l.lines) == 0 {
+			if len(l.codeLines()) == 0 {
 				e.begin(stepEdit)
-				e.replace(l.infoEnd, l.infoEnd, "\n"+cont)
-				c := l.infoEnd + 1 + len(cont)
+				e.replace(l.infoEndOffset(), l.infoEndOffset(), "\n"+cont)
+				c := l.infoEndOffset() + 1 + len(cont)
 				e.commit(c, c)
 				return
 			}
@@ -882,7 +1057,7 @@ func (e *Editor) enter(shift bool) {
 // lineContentStart returns where the content of the line holding off
 // starts in a leaf of lines.
 func (e *Editor) lineContentStart(l *leaf, off int) int {
-	for _, ln := range l.lines {
+	for _, ln := range l.codeLines() {
 		if off >= ln.off && off <= ln.off+len(ln.text) {
 			return ln.off
 		}
@@ -1215,7 +1390,7 @@ func (e *Editor) tab(shift bool) bool {
 // spaces at the caret.
 func (e *Editor) indentCode(l *leaf, shift bool) {
 	unit := "    "
-	if strings.EqualFold(l.lang, "go") || strings.EqualFold(l.lang, "makefile") {
+	if strings.EqualFold(l.language(), "go") || strings.EqualFold(l.language(), "makefile") {
 		unit = "\t"
 	}
 	a, z := e.selection()
@@ -1227,8 +1402,8 @@ func (e *Editor) indentCode(l *leaf, shift bool) {
 	}
 	e.begin(stepEdit)
 	anchor, caret := e.anchor, e.caret
-	for i := len(l.lines) - 1; i >= 0; i-- {
-		ln := l.lines[i]
+	for i := len(l.codeLines()) - 1; i >= 0; i-- {
+		ln := l.codeLines()[i]
 		if ln.off > z || ln.off+len(ln.text) < a {
 			continue
 		}

@@ -1,9 +1,35 @@
 package mdedit
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
+
+	"muse/textnav"
 )
+
+func TestOpeningChineseDocumentDoesNotLoadWordDictionary(t *testing.T) {
+	const childEnv = "MUSE_TEXTNAV_WARMUP_TEST_CHILD"
+	if os.Getenv(childEnv) != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestOpeningChineseDocumentDoesNotLoadWordDictionary$")
+		cmd.Env = append(os.Environ(), childEnv+"=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("isolated dictionary warmup check failed: %v\n%s", err, output)
+		}
+		return
+	}
+	if ready, err := textnav.DefaultStatus(); ready || err != nil {
+		t.Fatalf("child test began with dictionary already loaded: ready=%v err=%v", ready, err)
+	}
+	e := New("", Options{})
+	e.SetSource("这篇中文笔记只需要打开和阅读")
+	time.Sleep(50 * time.Millisecond)
+	if ready, err := textnav.DefaultStatus(); ready || err != nil {
+		t.Fatalf("opening a Chinese document warmed the word dictionary: ready=%v err=%v", ready, err)
+	}
+}
 
 func TestWordIndexDisplayAdapterKeepsUTF16AndByteOffsetsDistinct(t *testing.T) {
 	e := New("👩‍💻 e\u0301中文", Options{})

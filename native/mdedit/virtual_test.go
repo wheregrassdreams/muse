@@ -72,6 +72,90 @@ func TestVirtualLayoutFirstFrame(t *testing.T) {
 	}
 }
 
+func TestVirtualLayoutFirstFrameForMediumNote(t *testing.T) {
+	ed := New(proseSource(80), Options{FontSize: 16})
+	if !ed.virtualLayout() {
+		t.Fatal("an 80-paragraph note did not use viewport-first layout")
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { ed.View(c).Grow(1) })
+	}, 1000, 700)
+	tt.Frame()
+	tt.Frame()
+	if n, total := shapedLeaves(ed), len(ed.leaves); n >= total/2 {
+		t.Fatalf("first frame shaped %d of %d leaves in a medium note", n, total)
+	}
+	if paragraphLeaf(t, ed, 0).view == nil || paragraphLeaf(t, ed, 79).view != nil {
+		t.Fatal("the initial frame did not prioritize the viewport over distant content")
+	}
+}
+
+func TestVirtualLayoutKeepsVeryShortNoteExact(t *testing.T) {
+	ed := New("# Short\n\nOne paragraph.\n", Options{})
+	if ed.virtualLayout() {
+		t.Fatal("a short note should retain exact whole-document layout")
+	}
+}
+
+func TestVirtualLayoutReusesShapedBandForSmallScroll(t *testing.T) {
+	e := New(proseSource(1200), Options{FontSize: 16})
+	e.viewH = 700
+	e.colW = 720
+	e.layoutIfNeeded()
+	if !e.virtualLayout() {
+		t.Fatal("large document did not use virtual layout")
+	}
+	coverageTop, coverageBottom := e.viewTop, e.viewBottom
+	if coverageBottom <= coverageTop {
+		t.Fatalf("invalid shaped band [%v, %v]", coverageTop, coverageBottom)
+	}
+
+	e.scroll.Y = 100
+	e.layoutIfNeeded()
+	if e.laidKey.scrollY != e.scroll.Y {
+		t.Fatalf("cached layout scroll key is %v, want %v", e.laidKey.scrollY, e.scroll.Y)
+	}
+	if e.viewTop != coverageTop || e.viewBottom != coverageBottom {
+		t.Fatalf("small scroll rebuilt layout band to [%v, %v], want reuse of [%v, %v]", e.viewTop, e.viewBottom, coverageTop, coverageBottom)
+	}
+
+	e.scroll.Y = coverageBottom
+	e.layoutIfNeeded()
+	if e.viewBottom == coverageBottom {
+		t.Fatalf("viewport outside shaped band did not trigger relayout: bottom remains %v", e.viewBottom)
+	}
+}
+
+func TestVirtualLayoutPrunesStaleOffscreenViews(t *testing.T) {
+	h := newHarness(t, "")
+	h.e.SetSource(proseSource(1200))
+	h.frame()
+
+	stale := paragraphLeaf(t, h.e, 1)
+	if stale.view == nil {
+		t.Fatal("nearby paragraph was not shaped")
+	}
+	stale.view.used = 0
+
+	far := paragraphLeaf(t, h.e, 900)
+	h.e.ScrollToOffset(far.start)
+	for i := 0; i < 4; i++ {
+		h.frame()
+	}
+	if far.view == nil {
+		t.Fatal("scrolled-to paragraph was not shaped")
+	}
+
+	h.e.frame = 360
+	h.e.pruneViews()
+	if stale.view != nil {
+		t.Fatal("stale offscreen paragraph still retains its shaped view")
+	}
+	if far.view == nil {
+		t.Fatal("pruning detached a view in the current viewport")
+	}
+}
+
 // TestVirtualLayoutHeightChange checks that a taller window shapes the
 // leaves its new viewport brings in. A window that only grows taller
 // does not change the column's width, so nothing but the viewport itself

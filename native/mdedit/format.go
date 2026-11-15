@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/transfer"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 	"github.com/egoist/mygo/ui/richtext"
 )
 
@@ -692,6 +692,28 @@ func (e *Editor) Copy() bool {
 		return false
 	}
 	html := parser.Parse(md).HTML()
+	parts := e.selectionParts()
+	var htmlParts []string
+	hasStructure := false
+	for _, part := range parts {
+		if part.structure == nil {
+			htmlParts = append(htmlParts, parser.Parse(e.src[part.source.Start:part.source.End]).HTML())
+			continue
+		}
+		t := e.tableByLineStart(part.structure.lineStart)
+		reg := e.tableRegisterForSelection(t, part.structure)
+		if reg == nil || !reg.region || part.structure.axis == tableWhole {
+			htmlParts = append(htmlParts, parser.Parse(e.src[part.source.Start:part.source.End]).HTML())
+			continue
+		}
+		// Markdown uses the rectangle's first row as its header. HTML keeps
+		// source table header semantics through the register's sourceHeader.
+		htmlParts = append(htmlParts, reg.html())
+		hasStructure = true
+	}
+	if hasStructure {
+		html = strings.Join(htmlParts, "\n")
+	}
 	reps := []transfer.Representation{
 		transfer.Bytes(transfer.Text, []byte(md)),
 		transfer.Bytes(transfer.Markdown, []byte(md)),
@@ -837,7 +859,7 @@ func linkDest(p string) string {
 
 func isImagePath(p string) bool {
 	switch strings.ToLower(filepath.Ext(p)) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif":
 		return true
 	}
 	return false

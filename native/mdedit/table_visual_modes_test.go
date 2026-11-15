@@ -166,6 +166,72 @@ func TestVimVisualTableYAndPUseValidRowRegister(t *testing.T) {
 	}
 }
 
+func TestVimVisualTableDeleteThenPutRestoresSelectedRow(t *testing.T) {
+	const src = "| name | value |\n| --- | ---: |\n| alpha | 1 |\n| beta | 2 |\n| gamma | 3 |"
+	h := newHarness(t, src)
+	h.e.SetKeymap("vim")
+	table := documentTestTable(t, h.e)
+	h.caretAt(table.tab.rows[1][0].start)
+	sendVim(h, "Vj")
+	sendVim(h, "d")
+	sendVim(h, "p")
+	h.e.layoutIfNeeded()
+	tables := 0
+	for _, leaf := range h.e.leaves {
+		if leaf.kind == kTable {
+			tables++
+			if len(leaf.tab.rows) != 4 {
+				t.Fatalf("Vjd p created %d table rows, source=%q", len(leaf.tab.rows), h.e.Source())
+			}
+			for i, want := range []string{"gamma", "alpha", "beta"} {
+				cell := leaf.tab.rows[i+1][0]
+				if got := h.e.src[cell.start:cell.end]; got != want {
+					t.Fatalf("pasted row %d = %q, want %q; source=%q", i, got, want, h.e.Source())
+				}
+			}
+		}
+	}
+	if tables != 1 {
+		t.Fatalf("Vjd p left %d tables, want one: %q", tables, h.e.Source())
+	}
+}
+
+func TestVimVisualTableFullColumnDeleteThenPutKeepsStructure(t *testing.T) {
+	const src = "| name | value |\n| --- | ---: |\n| alpha | 1 |\n| beta | 2 |"
+	h := newHarness(t, src)
+	h.e.SetKeymap("vim")
+	table := documentTestTable(t, h.e)
+	h.caretAt(table.tab.rows[1][0].start)
+	if !h.e.modalKey(ui.KeyV, ui.Ctrl) {
+		t.Fatal("Ctrl+v did not enter table column selection")
+	}
+	h.frame()
+	if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorRow != 1 || s.anchorCol != 0 || s.focusRow != 1 || s.focusCol != 0 {
+		t.Fatalf("Ctrl+v did not start at the current cell: %+v", s)
+	}
+	// Extend from the first body cell through the header and the final body row,
+	// producing the complete first column rectangle.
+	sendVim(h, "k2j")
+	if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorCol != 0 || s.focusCol != 0 || s.anchorRow != 1 || s.focusRow != 2 {
+		t.Fatalf("motions did not create a full-height column rectangle: %+v", s)
+	}
+	sendVim(h, "d")
+	sendVim(h, "p")
+	h.e.layoutIfNeeded()
+	tables := 0
+	for _, leaf := range h.e.leaves {
+		if leaf.kind == kTable {
+			tables++
+			if leaf.tab.cols() != 2 || len(leaf.tab.rows) != 3 {
+				t.Fatalf("d p lost column structure: cols=%d rows=%d source=%q", leaf.tab.cols(), len(leaf.tab.rows), h.e.Source())
+			}
+		}
+	}
+	if tables != 1 {
+		t.Fatalf("d p produced %d tables, want one: %q", tables, h.e.Source())
+	}
+}
+
 func TestVimCtrlVColumnChangeUsesTableMultiInsertPath(t *testing.T) {
 	h := newHarness(t, "| name | value |\n| --- | ---: |\n| alpha | 1 |\n| beta | 2 |")
 	h.e.SetKeymap("vim")
@@ -225,57 +291,35 @@ func TestVimTableDeleteAllColumnsRemovesWholeTableAndUndoRestoresShape(t *testin
 	}
 }
 
-func TestVimCtrlVInTableSelectsCurrentStructuralColumn(t *testing.T) {
+func TestVimCtrlVInTableSelectsCurrentCell(t *testing.T) {
 	h := newHarness(t, "| name | value |\n| --- | ---: |\n| alpha | 1 |\n| beta | 2 |")
 	h.e.SetKeymap("vim")
 	table := documentTestTable(t, h.e)
 	cell := table.tab.rows[1][1]
 	h.caretAt(cell.start)
 	h.key(ui.Ctrl, ui.KeyV)
-	if h.e.modal.mode != "BlockVisual" || h.e.tableSelection == nil || h.e.tableSelection.axis != tableColumns || h.e.tableSelection.first != 1 || h.e.tableSelection.last != 1 {
-		t.Fatalf("Ctrl+V in cell did not start the current structural column: mode=%q selection=%+v", h.e.modal.mode, h.e.tableSelection)
-	}
-	if h.e.tableSelection.activeRow != 1 {
-		t.Fatalf("column focus row=%d, want 1", h.e.tableSelection.activeRow)
+	if h.e.modal.mode != "BlockVisual" || h.e.tableSelection == nil || h.e.tableSelection.axis != tableCells || h.e.tableSelection.anchorRow != 1 || h.e.tableSelection.anchorCol != 1 || h.e.tableSelection.focusRow != 1 || h.e.tableSelection.focusCol != 1 {
+		t.Fatalf("Ctrl+V in cell did not start at the current cell: mode=%q selection=%+v", h.e.modal.mode, h.e.tableSelection)
 	}
 }
 
-func TestVimCtrlVHorizontalBridgeReplaysAtActiveRow(t *testing.T) {
+func TestVimCtrlVCellRegionExpandsInTwoDimensions(t *testing.T) {
 	h := newHarness(t, "| A | B | C |\n| --- | --- | --- |\n| one | two | three |\n| four | five | six |\n| seven | eight | nine |")
 	h.e.SetKeymap("vim")
 	table := documentTestTable(t, h.e)
 	h.caretAt(table.tab.rows[1][1].start)
 	h.key(ui.Ctrl, ui.KeyV)
 	sendVim(h, "j")
-	if s := h.e.tableSelection; s == nil || s.axis != tableColumns || s.activeRow != 2 {
-		t.Fatalf("j did not move the column focus to row 2: %+v", s)
+	if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorRow != 1 || s.focusRow != 2 || s.anchorCol != 1 || s.focusCol != 1 {
+		t.Fatalf("j did not extend the cell region to row 2: %+v", s)
 	}
-	states := []tableNavigationState{h.e.tableNavigationState()}
-	for i := 0; i < 100; i++ {
-		if !h.e.modalText("l") {
-			t.Fatal("rightward table bridge motion was not handled")
-		}
-		states = append(states, h.e.tableNavigationState())
-		if s := h.e.tableSelection; s != nil {
-			if s.axis != tableColumns || s.first != 1 || s.last != 2 || s.activeRow != 2 {
-				t.Fatalf("column promotion lost active row/range: %+v", s)
-			}
-			break
-		}
-		if b := h.e.tableBridge; b == nil || b.axis != tableColumns || b.row != 2 {
-			t.Fatalf("column bridge left active row 2: %+v", b)
-		}
-		if i == 99 {
-			t.Fatal("rightward bridge did not promote the adjacent column")
-		}
+	sendVim(h, "l")
+	if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorRow != 1 || s.focusRow != 2 || s.anchorCol != 1 || s.focusCol != 2 {
+		t.Fatalf("l did not extend the same region to column 2: %+v", s)
 	}
-	for i := len(states) - 2; i >= 0; i-- {
-		if !h.e.modalText("h") {
-			t.Fatal("leftward table bridge reversal was not handled")
-		}
-		if got := h.e.tableNavigationState(); !sameTableNavigationState(got, states[i]) {
-			t.Fatalf("opposite h did not restore navigation step %d exactly\nwant: %+v\n got: %+v", i, states[i], got)
-		}
+	sendVim(h, "k")
+	if s := h.e.tableSelection; s == nil || s.anchorRow != 1 || s.focusRow != 1 || s.anchorCol != 1 || s.focusCol != 2 {
+		t.Fatalf("k changed the anchor or horizontal extent: %+v", s)
 	}
 }
 
@@ -285,4 +329,64 @@ func (e *Editor) srcLineTableOffset(off int) int {
 		return -1
 	}
 	return row
+}
+
+func TestVimVisualHeaderRowExtendsDownAndBack(t *testing.T) {
+	h := newHarness(t, "| Local file | Source page | Creator / source | License |\n| --- | --- | --- | --- |\n| attachment | source | creator | license |\n| next | next | next | next |")
+	h.e.SetKeymap("vim")
+	table := documentTestTable(t, h.e)
+	h.caretAt(table.tab.rows[0][1].start + 1)
+	sendVim(h, "V")
+	if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 0 {
+		t.Fatalf("V on header did not select the header row: %+v", s)
+	}
+	sendVim(h, "j")
+	if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 1 || s.anchor != 0 || s.active != 1 {
+		t.Fatalf("Vj from header omitted the header row: %+v", s)
+	}
+	h.shot("header-row-visual-vj")
+	sendVim(h, "k")
+	if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 0 {
+		t.Fatalf("Vk did not shrink back to the header row: %+v", s)
+	}
+}
+
+func TestVimCtrlVHeaderCellExtendsIntoBodyAndBack(t *testing.T) {
+	h := newHarness(t, "| A | B | C |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |")
+	h.e.SetKeymap("vim")
+	table := documentTestTable(t, h.e)
+	h.caretAt(table.tab.rows[0][1].start)
+	h.key(ui.Ctrl, ui.KeyV)
+	sendVim(h, "j")
+	if s := h.e.tableSelection; s == nil || s.anchorRow != 0 || s.focusRow != 1 || s.axis != tableCells {
+		t.Fatalf("Ctrl+Vj from header omitted header cells: %+v", s)
+	}
+	sendVim(h, "k")
+	if s := h.e.tableSelection; s == nil || s.anchorRow != 0 || s.focusRow != 0 {
+		t.Fatalf("Ctrl+Vk did not return to header cell: %+v", s)
+	}
+}
+
+func TestPointerPlacedHeaderCaretSelectsHeaderAndNextRow(t *testing.T) {
+	h := newHarness(t, "| Local file | Source page | Creator / source | License |\n| --- | --- | --- | --- |\n| attachment | source | creator | license |\n| next | next | next | next |")
+	h.e.SetKeymap("vim")
+	h.e.layoutIfNeeded()
+	table := documentTestTable(t, h.e)
+	x := table.x + (table.geom.colX[1]+table.geom.colX[2])/2
+	y := table.y + (table.geom.rowY[0]+table.geom.rowY[1])/2
+	row, col, inside := tableCellIndexAt(table, x, y)
+	if !inside || row != 0 || col != 1 {
+		t.Fatalf("header point mapped to cell (%d,%d), inside=%v", row, col, inside)
+	}
+	h.tt.Press(x, y-h.e.scroll.Y)
+	h.tt.Release(x, y-h.e.scroll.Y)
+	_, row, col = cellAt(table, h.e.caret)
+	if row != 0 || col != 1 {
+		t.Fatalf("pointer placed caret in table cell (%d,%d), want header (0,1), offset=%d", row, col, h.e.caret)
+	}
+	sendVim(h, "Vj")
+	s := h.e.tableSelection
+	if s == nil || s.axis != tableRows || s.first != 0 || s.last != 1 || s.anchor != 0 || s.active != 1 {
+		t.Fatalf("pointer-placed header caret omitted header row from Vj: %+v focus=%d", s, h.e.selectionFocus())
+	}
 }

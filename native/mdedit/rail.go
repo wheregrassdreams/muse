@@ -1,6 +1,8 @@
 package mdedit
 
 import (
+	"muse/locales"
+	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -83,7 +85,7 @@ func (e *Editor) railView(c *ui.Context, b ui.Rect) {
 	e.railRect = strip
 	ui.Overlay(c, func() {
 		rail := ui.Box(c).Absolute().Left(strip.X).Top(strip.Y).Width(strip.W).Height(strip.H).
-			Label("标题导航").Cursor(ui.CursorPointer).Draw(e.paintRail)
+			Label(locales.EditorHeadingNavigation()).Cursor(ui.CursorPointer).Draw(e.paintRail)
 		// The pointer's moves over the rail ask for frames (PointerPosition),
 		// but its leaving does not: View asks for one while a tick is
 		// hovered, so that the preview goes when the pointer does.
@@ -172,14 +174,8 @@ func (e *Editor) railCurrent() int {
 		return n - 1
 	}
 	line := e.scroll.Y + e.viewH/2
-	cur := 0
-	for i, l := range e.railLeaves {
-		if l.y > line {
-			break
-		}
-		cur = i
-	}
-	return cur
+	i := sort.Search(n, func(i int) bool { return e.virtualYFor(e.railLeaves[i]) > line })
+	return max(i-1, 0)
 }
 
 // railJump brings heading i to the middle of the view, and the caret
@@ -188,7 +184,7 @@ func (e *Editor) railJump(i int) {
 	if i < 0 || i >= len(e.railLeaves) {
 		return
 	}
-	e.scrollToOffsetCentered(e.railLeaves[i].start)
+	e.NavigateToOffset(e.railLeaves[i].start, PageJumpCenter)
 	e.Focus()
 }
 
@@ -250,19 +246,63 @@ func railExcerpt(text string) string {
 // highlighted one, and the color whether it is the one the view is in.
 func (e *Editor) paintRail(p *ui.Painter, r ui.Rect) {
 	e.railRect = r
-	for i, y := range e.railYs {
-		if i >= len(e.railLeaves) || i >= len(e.railScales) {
+	n := min(len(e.railYs), min(len(e.railLeaves), len(e.railScales)))
+	dense := e.railPitch < railTickHeight
+	for i := 0; i < n; {
+		w, col := e.railTickStyle(i)
+		end := i + 1
+		if dense {
+			end = railRunEnd(e.railYs[:n], e.railScales[:n], i, e.railActive, e.railHover)
+		}
+		top := r.Y + e.railYs[i] - railTickHeight/2
+		bottom := r.Y + e.railYs[end-1] + railTickHeight/2
+		p.Fill(ui.Rect{X: r.X + r.W - w, Y: top, W: w, H: bottom - top}, col, railTickHeight/2)
+		i = end
+	}
+}
+
+func (e *Editor) railTickStyle(i int) (float32, ui.Color) {
+	col := e.lk.marker
+	switch {
+	case i == e.railActive:
+		col = e.lk.text
+	case i == e.railHover:
+		col = e.lk.muted
+	}
+	return railTickWidth * e.railScales[i], col
+}
+
+// railRunEnd coalesces overlapping ticks with the same visible style. Dense
+// rails use subpixel spacing, so the opaque rounded rectangles form one
+// continuous run; submitting every heading separately wastes paint and
+// raster time without adding detail.
+func railRunEnd(ys, scales []float32, start, active, hover int) int {
+	if start < 0 || start >= len(ys) || start >= len(scales) {
+		return start
+	}
+	w := railTickWidth * scales[start]
+	style := railStyleKind(start, active, hover)
+	bottom := ys[start] + railTickHeight/2
+	end := start + 1
+	for end < len(ys) && end < len(scales) {
+		nextWidth := railTickWidth * scales[end]
+		if nextWidth != w || railStyleKind(end, active, hover) != style || ys[end]-railTickHeight/2 > bottom {
 			break
 		}
-		w := railTickWidth * e.railScales[i]
-		col := e.lk.marker
-		switch {
-		case i == e.railActive:
-			col = e.lk.text
-		case i == e.railHover:
-			col = e.lk.muted
-		}
-		p.Fill(ui.Rect{X: r.X + r.W - w, Y: r.Y + y - railTickHeight/2, W: w, H: railTickHeight}, col, railTickHeight/2)
+		bottom = max(bottom, ys[end]+railTickHeight/2)
+		end++
+	}
+	return end
+}
+
+func railStyleKind(i, active, hover int) uint8 {
+	switch {
+	case i == active:
+		return 1
+	case i == hover:
+		return 2
+	default:
+		return 0
 	}
 }
 
@@ -291,7 +331,7 @@ func (e *Editor) railPreview(c *ui.Context, b ui.Rect) {
 		Shadow(0, 6, 18, 0, shade)
 	card.Children(func() {
 		ui.Column(c).GapY(2).Children(func() {
-			ui.Textf(c, "H%d · %s", e.railLeaves[i].level, text).FontSize(14).FontWeight(600).
+			ui.Text(c, locales.EditorHeadingLevelLabel(e.railLeaves[i].level, text)).FontSize(14).FontWeight(600).
 				TextColor(t.Text).SingleLine().Ellipsis("…")
 			if desc := e.railHeadingDesc(i); desc != "" {
 				ui.Text(c, desc).FontSize(12).TextColor(t.TextMuted).MaxLines(2)

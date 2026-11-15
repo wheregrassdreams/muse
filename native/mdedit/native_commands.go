@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"sort"
+	"unicode"
 	"unicode/utf8"
 
 	"muse/textnav"
@@ -15,6 +16,7 @@ type displayWordIndex struct {
 	index       *textnav.Index
 	byteOffsets []int
 	u16Offsets  []int
+	bigWords    []textnav.Range
 	cost        int
 }
 
@@ -46,7 +48,23 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 		w.byteOffsets = append(w.byteOffsets, byteOff)
 		w.u16Offsets = append(w.u16Offsets, unitOff)
 	}
-	w.cost = len(text) + w.index.TokenCount()*24 + len(w.byteOffsets)*16
+	for at := 0; at < len(text); {
+		r, size := utf8.DecodeRuneInString(text[at:])
+		if unicode.IsSpace(r) {
+			at += size
+			continue
+		}
+		start := at
+		for at < len(text) {
+			r, size = utf8.DecodeRuneInString(text[at:])
+			if unicode.IsSpace(r) {
+				break
+			}
+			at += size
+		}
+		w.bigWords = append(w.bigWords, textnav.Range{Start: start, End: at})
+	}
+	w.cost = len(text) + w.index.TokenCount()*24 + len(w.byteOffsets)*16 + len(w.bigWords)*16
 	if w.cost > wordIndexCacheBudget {
 		// A single large paragraph is worth retaining because movement queries
 		// revisit it on every key. Keep it alone; small indexes replace it.
@@ -62,6 +80,42 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 		e.wordIndexCache = e.wordIndexCache[:last]
 	}
 	return w
+}
+
+// bigWordStart returns the next or previous Vim WORD start. A WORD is a
+// contiguous run of non-whitespace display text, including punctuation.
+func (w *displayWordIndex) bigWordStart(off, dir int) (textnav.Range, bool) {
+	if dir > 0 {
+		i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
+		if i < len(w.bigWords) && w.bigWords[i].Start <= off {
+			i++
+		}
+		if i < len(w.bigWords) {
+			return w.bigWords[i], true
+		}
+		return textnav.Range{}, false
+	}
+	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].Start >= off })
+	if i > 0 {
+		previous := w.bigWords[i-1]
+		if previous.Start < off && off < previous.End {
+			return previous, true
+		}
+		return previous, true
+	}
+	return textnav.Range{}, false
+}
+
+// bigWordEnd returns the current/next Vim WORD's exclusive display-byte end.
+func (w *displayWordIndex) bigWordEnd(off int, next bool) (textnav.Range, bool) {
+	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
+	if next && i < len(w.bigWords) && w.bigWords[i].Start <= off {
+		i++
+	}
+	if i < len(w.bigWords) {
+		return w.bigWords[i], true
+	}
+	return textnav.Range{}, false
 }
 
 func (w *displayWordIndex) byteAtUTF16(off int, end bool) int {
@@ -91,6 +145,7 @@ func (w *displayWordIndex) utf16AtByte(off int, end bool) int {
 // The keymaps translate keys into these editor operations. Geometry, source
 // ranges, and history remain owned by the editor rather than by a keymap.
 func (e *Editor) nativeHorizontal(dir int, extend bool) {
+	e.clearVimImageRow()
 	if e.tableVisualLineActive() {
 		e.moveTableVisualLineHorizontal(dir)
 		return
@@ -120,6 +175,9 @@ func (e *Editor) nativeVertical(dir int, extend bool) {
 		}
 	}
 	e.vertical(dir, extend)
+	if e.vimImageRow != nil {
+		return
+	}
 	if !e.hasGoal || dir == 0 {
 		return
 	}
@@ -174,8 +232,9 @@ func (e *Editor) nativeVertical(dir int, extend bool) {
 // nativePrepareInsert transfers a structural or text selection to one source
 // caret before a text command starts an ordinary editing transaction.
 func (e *Editor) nativePrepareInsert() int {
+	e.clearVimImageRow()
 	focus := e.selectionFocus()
-	e.clearTableSelection()
+	e.clearTableSelectionSession()
 	e.caret, e.anchor = focus, focus
 	e.selectionInclusive = false
 	e.selectionLinewise = false

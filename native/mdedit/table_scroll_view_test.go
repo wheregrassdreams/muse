@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
+	"muse/locales"
 )
 
 func wideTableSource() string {
@@ -101,7 +102,7 @@ func TestTableScrollViewportKeepsGridTextAndColumnControlsAligned(t *testing.T) 
 	if _, ok := h.tt.Find("选择第 5 列"); !ok {
 		t.Fatal("hovering visible header did not expose its column handle")
 	}
-	menuRect, ok := h.tt.Find("第1行第5列对齐")
+	menuRect, ok := h.tt.Find(locales.EditorTableCellAlignment(1, 5))
 	if !ok || menuRect.X < table.x || menuRect.X+menuRect.W > table.x+tableViewportWidth(table)+1 {
 		t.Fatalf("visible cell alignment control is missing or outside viewport: %+v", menuRect)
 	}

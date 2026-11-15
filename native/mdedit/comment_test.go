@@ -23,6 +23,16 @@ func shownAway(t *testing.T, src string) []string {
 	return out
 }
 
+func TestCommentRegionsASCIIHasNoResultsOrAllocations(t *testing.T) {
+	src := strings.Repeat("A", 1<<20)
+	if got := commentRegions(src); len(got) != 0 {
+		t.Fatalf("commentRegions returned %v for plain ASCII", got)
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _ = commentRegions(src) }); allocs != 0 {
+		t.Fatalf("commentRegions allocated %g times for plain ASCII", allocs)
+	}
+}
+
 func TestCommentsDrawNothing(t *testing.T) {
 	for _, tc := range []struct{ src, want string }{
 		{"前 %%注释%% 后\n", "前  后"},

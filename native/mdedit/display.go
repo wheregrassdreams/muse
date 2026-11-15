@@ -5,7 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 
 	"muse/mdoc"
 )
@@ -45,7 +45,9 @@ type piece struct {
 // gives its object replacement character.
 type object struct {
 	bmp                   *ui.Bitmap
+	math                  *mdoc.MathVisual
 	asset                 *mdoc.ImageAsset
+	imagePending          bool
 	embed                 *Editor
 	embedBlocked          string
 	imagePath             string
@@ -133,13 +135,12 @@ type htmlTag struct {
 }
 
 func (b *builder) revealed(s, e int) bool {
-	return b.reveal >= s && b.reveal <= e || selectionReveals(b.e, s, e, b.cell)
+	return sourceRangeRevealed(b.e, s, e, b.cell, b.reveal)
 }
 
 // objectOpen reports whether an object shows its source: the caret is inside
-// it, or the selection covers it. A caret at either side of it does not open
-// it — an object is one unit, and the arrows pass it by without taking it
-// apart. Clicking it selects it, which does open it.
+// it, a selection covers it, or a search match touches it. A caret at either
+// side does not open it — arrows pass an object as one unit.
 func (b *builder) objectOpen(s, e int) bool {
 	if b.e == nil {
 		return false
@@ -149,13 +150,12 @@ func (b *builder) objectOpen(s, e int) bool {
 		// it is written as until the caret leaves the block.
 		return true
 	}
-	if a, z := b.e.anchor, b.e.caret; a != z {
-		if a > z {
-			a, z = z, a
-		}
-		return a < e && z > s
+	if b.e.vimImageRow != nil && b.e.vimImageRow.lineStart == b.base {
+		// A linewise/visual selection of virtual rows keeps the image on
+		// screen; its source range is still selected and edited as one row.
+		return false
 	}
-	return b.reveal > s && b.reveal < e
+	return b.reveal > s && b.reveal < e || sourceRangeTargeted(b.e, s, e, b.cell)
 }
 
 // add appends a piece, inserting the composition where it falls.
@@ -816,7 +816,7 @@ func (b *builder) image(ins []parser.Inline, i int, st istyle) {
 		}
 		b.e.applyImagePreview(obj, in.Start, in.End)
 	}
-	if !b.objectOpen(in.Start, in.End) {
+	if !b.objectOpen(in.Start, in.End) || largeDataImageDestination(in.Dest) {
 		b.atom(in.Start, in.End, "", st, obj)
 		return
 	}
@@ -834,6 +834,25 @@ func (b *builder) image(ins []parser.Inline, i int, st istyle) {
 		b.deco(in.End, "\n", b.span(st), nil)
 	}
 	b.deco(in.End, "", b.span(st), obj)
+}
+
+const maxRevealedDataImageBytes = 64 << 10
+
+// Large Base64 image sources are opaque payloads, not useful text to shape in
+// the editor. Keep them as one image atom even when the caret enters their
+// Markdown syntax; the source range still maps to the object and can be
+// replaced or deleted as a unit.
+func largeDataImageDestination(dest string) bool {
+	const prefix = "data:image/"
+	if len(dest) <= maxRevealedDataImageBytes || len(dest) < len(prefix) ||
+		!strings.EqualFold(dest[:len(prefix)], prefix) {
+		return false
+	}
+	headerEnd := strings.IndexByte(dest[:min(len(dest), 256)], ',')
+	if headerEnd < 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(dest[:headerEnd]), ";base64")
 }
 
 // footnoteRef adds a reference to a footnote: its label raised, or its
@@ -1105,9 +1124,9 @@ func utf16ByteOffset(s string, u int) int {
 	return len(s)
 }
 
-// plainText returns the text of inlines, as parser.PlainText does, with
-// the characters mdoc.CJKFriendly swapped taken back: a Text inline that
-// is the parsed source as it is reads the editor's source instead.
+// plainText returns the text of inlines, as parser.PlainText does. When a
+// Text inline is the parsed source as written, it reads from the editor's
+// source so inline masking and source-preserving display stay in step.
 func (e *Editor) plainText(ins []parser.Inline) string {
 	parsed := e.p.doc.Source()
 	marks := allHighlights(e.src, ins, 0, len(ins))
@@ -1189,7 +1208,25 @@ func (b *builder) mathSource(start, end int, st istyle) {
 	inner.codeJoined = true
 	boxStart := b.u16
 	b.codeMarker(start, start+cs, st)
-	b.textRun(start+cs, start+ce, inner)
+	tex := b.src[start+cs : start+ce]
+	at := 0
+	for _, tok := range latexSourceTokens(tex) {
+		tokStart, tokEnd := max(0, tok.start), min(len(tex), tok.end)
+		if tokEnd <= tokStart || tokStart < at {
+			continue
+		}
+		b.textRun(start+cs+at, start+cs+tokStart, inner)
+		tokenStyle := inner
+		if color := b.e.lk.code.TokenColor(tok.kind); color.A != 0 {
+			tokenStyle.color = color
+		}
+		ts := b.e.lk.code.Tokens[tok.kind]
+		tokenStyle.bold = ts.Bold
+		tokenStyle.italic = ts.Italic
+		b.textRun(start+cs+tokStart, start+cs+tokEnd, tokenStyle)
+		at = tokEnd
+	}
+	b.textRun(start+cs+at, start+ce, inner)
 	b.codeMarker(start+ce, end, st)
 	b.codeBoxes = append(b.codeBoxes, inlineCodeBox{
 		range_: ui.TextInputRange{Start: boxStart, End: b.u16},

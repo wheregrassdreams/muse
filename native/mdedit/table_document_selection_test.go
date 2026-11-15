@@ -82,8 +82,8 @@ func TestDocumentSelectionUsesTableStructure(t *testing.T) {
 		}
 		for _, row := range table.tab.rows {
 			for _, cell := range row {
-				if cell.vp.selection != [2]int{} {
-					t.Fatalf("table structure also received text selection: %+v", cell.vp.selection)
+				if cell.view != nil && cell.view.params.selection != [2]int{} {
+					t.Fatalf("table structure also received text selection: %+v", cell.view.params.selection)
 				}
 			}
 		}

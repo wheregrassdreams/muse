@@ -1,6 +1,6 @@
 package mdedit
 
-import "github.com/egoist/mygo/ui/markdown/parser"
+import "muse/mdedit/internal/parser"
 
 // parserSource is what the parser reads, and everything the editor derives
 // from the source for it: the document, the source it was built from, the
@@ -14,11 +14,15 @@ import "github.com/egoist/mygo/ui/markdown/parser"
 // between them — which is what keeps a fast path from drifting away from the
 // full one. Nothing else writes these fields.
 type parserSource struct {
-	doc      *parser.Document
-	src      string
-	mask     []byte
-	comments []cmt
-	fm       int
+	doc *parser.Document
+	src string
+	// mask is a mutable parser-text copy, made on the first incremental edit
+	// only when masking changed the source. Before then doc.Source is enough.
+	mask         []byte
+	maskIsSource bool
+	comments     []cmt
+	imageInlines []parser.Inline
+	fm           int
 }
 
 // clear drops what the parser read: a new source, or one the editor does
@@ -35,10 +39,41 @@ func (p *parserSource) set(src string, fm int) {
 	if p.doc == nil {
 		p.doc = parser.New(exts)
 	}
-	p.comments = commentRegions(src)
-	masked := parserText(blankComments(maskFrontMatter(src, fm), p.comments))
-	p.src, p.fm, p.mask = src, fm, []byte(masked)
-	p.doc.Set(masked)
+	p.imageInlines = nil
+	p.comments = nil
+	masked := ""
+	if fm == 0 {
+		p.imageInlines, _ = largeDataImageOnlySource(src)
+		if len(p.imageInlines) > 0 {
+			masked = src
+		}
+	}
+	if len(p.imageInlines) == 0 {
+		p.comments = commentRegions(src)
+		maskedSource := blankComments(maskFrontMatter(src, fm), p.comments)
+		masked = parserText(maskedSource)
+	}
+	p.src, p.fm = src, fm
+	if masked == src {
+		p.mask, p.maskIsSource = nil, true
+	} else {
+		p.mask, p.maskIsSource = nil, false
+	}
+	if len(p.imageInlines) > 0 {
+		p.doc.SetSingleLine(masked)
+	} else {
+		p.doc.Set(masked)
+	}
+}
+
+func (p *parserSource) maskedSource() string {
+	if p.doc != nil {
+		return p.doc.Source()
+	}
+	if p.maskIsSource {
+		return p.src
+	}
+	return string(p.mask)
 }
 
 // edit advances across one change of the source. src is the source after the
@@ -62,6 +97,23 @@ func (p *parserSource) edit(src string, pe *pendingEdit) bool {
 		!commentsStay(p.src, src, pe.from, pe.to, len(pe.text)) {
 		return false
 	}
+	if p.maskIsSource {
+		if pe.from < 0 || pe.from > pe.to || pe.to > len(p.src) {
+			return false
+		}
+		end := pe.to + len(src) - len(p.src)
+		if end < pe.from || end > len(src) {
+			return false
+		}
+		newFrom, newTo := lineStartAt(src, pe.from), lineEndAt(src, end)
+		if line := src[newFrom:newTo]; parserText(line) != line {
+			return false
+		}
+		p.doc.Edit(pe.from, pe.to, pe.text)
+		p.src = src
+		p.imageInlines = nil
+		return true
+	}
 	delta := len(pe.text) - (pe.to - pe.from)
 	for i := range p.comments {
 		if c := &p.comments[i]; c.from >= pe.to {
@@ -71,7 +123,11 @@ func (p *parserSource) edit(src string, pe *pendingEdit) bool {
 	}
 	// The lines the edit rewrote are masked again, at the comments' new
 	// place: the comments moved before the mask is edited.
-	next, from, to, repl, ok := editMask(p.mask, src, pe.from, pe.to, p.fm, p.comments)
+	mask := p.mask
+	if mask == nil {
+		mask = []byte(p.doc.Source())
+	}
+	next, from, to, repl, ok := editMask(mask, src, pe.from, pe.to, p.fm, p.comments)
 	if !ok {
 		for i := range p.comments {
 			if c := &p.comments[i]; c.from >= pe.to {
@@ -84,5 +140,6 @@ func (p *parserSource) edit(src string, pe *pendingEdit) bool {
 	p.mask = next
 	p.doc.Edit(from, to, repl)
 	p.src = src
+	p.imageInlines = nil
 	return true
 }

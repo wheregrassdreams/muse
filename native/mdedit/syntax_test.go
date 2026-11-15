@@ -122,9 +122,12 @@ func TestEmphasisBesideCJKPunctuation(t *testing.T) {
 	}
 }
 
-func TestCJKFriendlyLeavesTheSourceAlone(t *testing.T) {
+func TestCJKEmphasisLeavesTheParserSourceAlone(t *testing.T) {
 	src := "## **注意：**事项\n\n```\n**注意：**中文\n```\n\n`**注意：**中文` ![**图：**说明](x.png)\n"
 	e := shownEditor(t, src)
+	if got := e.p.doc.Source(); got != src {
+		t.Fatalf("parser source = %q, want original source %q", got, src)
+	}
 	if got := e.Headings(); len(got) != 1 || got[0].Text != "注意：事项" {
 		t.Fatalf("headings = %+v", got)
 	}
@@ -134,7 +137,7 @@ func TestCJKFriendlyLeavesTheSourceAlone(t *testing.T) {
 			code = l
 		}
 	}
-	if code == nil || len(code.lines) != 1 || code.lines[0].text != "**注意：**中文" {
+	if code == nil || len(code.codeLines()) != 1 || code.codeLines()[0].text != "**注意：**中文" {
 		t.Fatalf("code lines = %+v", code)
 	}
 	last := blocks(e)[len(blocks(e))-1]
@@ -206,7 +209,7 @@ func TestTabIndentedCodeInContainers(t *testing.T) {
 				code = l
 			}
 		}
-		if code == nil || len(code.lines) != 1 || code.lines[0].text != c.line || e.src[code.lines[0].off:code.lines[0].off+len(c.line)] != c.line {
+		if code == nil || len(code.codeLines()) != 1 || code.codeLines()[0].text != c.line || e.src[code.codeLines()[0].off:code.codeLines()[0].off+len(c.line)] != c.line {
 			t.Errorf("%q: code = %+v", c.src, code)
 		}
 	}
@@ -298,8 +301,7 @@ func TestInlineImageTagRevealsAtCaret(t *testing.T) {
 func TestParserSourceFollowsEdits(t *testing.T) {
 	h := newHarness(t, "---\ntitle: 测试\n---\n\n**注意：**这是**重点**内容。\n\n> **提示：**引用\n")
 	rng := rand.New(rand.NewPCG(1, 2))
-	pieces := []string{"**", "：", "中", "\n", "（", "）", " ", "a", "~~", "\n\n", "> ", "*"}
-	swapped := 0
+	pieces := []string{"**", "：", "中", "\n", "（", "）", " ", "a", "~~", "\n\n", "> ", "*", `\[`, `\]`}
 	for i := 0; i < 400; i++ {
 		src := h.e.Source()
 		at := rng.IntN(len(src) + 1)
@@ -315,12 +317,7 @@ func TestParserSourceFollowsEdits(t *testing.T) {
 		h.e.sync()
 		if want := parserText(maskFrontMatter(h.e.src, h.e.p.fm)); h.e.p.doc.Source() != want {
 			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.src, h.e.p.doc.Source(), want)
-		} else if want != h.e.src {
-			swapped++
 		}
-	}
-	if swapped < 100 {
-		t.Fatalf("only %d edits left characters to swap", swapped)
 	}
 }
 

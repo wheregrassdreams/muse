@@ -1,11 +1,11 @@
 package mdedit
 
 import (
-	"fmt"
+	"muse/locales"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 	"muse/mdoc"
 )
 
@@ -20,7 +20,7 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 	if e.dragging || e.tableHandleDrag != nil {
 		return
 	}
-	for _, t := range e.leaves {
+	for _, t := range e.paintVisibleSpan(e.scroll.Y-32, e.scroll.Y+viewport.H+32) {
 		if t.kind != kTable || e.foldHidden(t) || t.tab == nil || t.geom == nil {
 			continue
 		}
@@ -43,7 +43,7 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 				}
 				ui.Overlay(c, func() {
 					button := ui.ButtonBase(c.Key(tableCellMenuKey{e, t.lineStart, row, col})).Absolute().Left(r.X).Top(r.Y).Width(r.W).Height(r.H).Padding(0).Radius(5).
-						Label(fmt.Sprintf("第%d行第%d列对齐", row+1, col+1)).Tooltip("列对齐")
+						Label(locales.EditorTableCellAlignment(row+1, col+1)).Tooltip(locales.EditorTableColumnAlignment())
 					button.HandleInput(func(ev ui.InputEvent) bool {
 						if ev.Kind == ui.InputScroll {
 							return e.scrollTableOverlay(t, ev)
@@ -61,9 +61,10 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 						for _, item := range []struct {
 							label, cmd string
 							align      parser.Align
-						}{{"左对齐（此列）", "alignLeft", parser.AlignLeft}, {"居中（此列）", "alignCenter", parser.AlignCenter}, {"右对齐（此列）", "alignRight", parser.AlignRight}} {
+						}{{locales.EditorAlignLeftColumn(), "alignLeft", parser.AlignLeft}, {locales.EditorAlignCenterColumn(), "alignCenter", parser.AlignCenter}, {locales.EditorAlignRightColumn(), "alignRight", parser.AlignRight}} {
 							checked := align == item.align || item.align == parser.AlignLeft && align == parser.AlignNone
 							if m.Item(item.label).Checked(checked).Chosen() {
+								e.focusTableMenuCell(t, row, col)
 								e.tableColumnAlignment(t.lineStart, col, item.cmd)
 							}
 						}
@@ -87,6 +88,21 @@ func (e *Editor) tableCellMenusView(c *ui.Context, viewport ui.Rect, pointer ui.
 			}
 		}
 	}
+}
+
+// focusTableMenuCell gives menu actions the same table-cell focus semantics as
+// Vim and pointer navigation. An existing region containing the menu cell is
+// retained; choosing a menu outside it moves the active region to that cell.
+func (e *Editor) focusTableMenuCell(t *leaf, row, col int) {
+	// An ordinary text selection belongs to the document text layer. Do not
+	// replace it with a structural cell selection just because a table menu ran.
+	if e.anchor != e.caret && e.tableSelection == nil && e.tableBridge == nil {
+		return
+	}
+	if e.tableSelection != nil && e.tableSelection.lineStart == t.lineStart && e.tableSelectionContainsCell(t, row, col) {
+		return
+	}
+	e.selectTableCellRegion(t, row, col, row, col)
 }
 
 func (e *Editor) tableColumnAlignment(lineStart, col int, cmd string) {

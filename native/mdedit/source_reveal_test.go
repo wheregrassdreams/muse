@@ -1,6 +1,7 @@
 package mdedit
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -19,6 +20,231 @@ func TestSelectionRevealsEditableSource(t *testing.T) {
 	h.frame()
 	if h.shows("**bold**") {
 		t.Fatalf("cleared selection left source revealed: %q", h.e.leaves[0].view.disp.text)
+	}
+}
+
+func TestSearchHighlightsRevealOnlyMatchedInlineSource(t *testing.T) {
+	const src = "**bold** and ~~strike~~ tail"
+	h := newHarness(t, src)
+	h.caretAt(len(h.e.src))
+	h.frame()
+	if h.shows("**bold**") || h.shows("~~strike~~") {
+		t.Fatalf("fixture started with inline syntax visible: %q", h.e.leaves[0].view.disp.text)
+	}
+
+	// A non-current match must reveal the same hidden source as a caret or
+	// selection, while an unrelated hidden span remains in preview form.
+	h.e.SetHighlights([]Range{{Start: strings.Index(src, "bold"), End: strings.Index(src, "bold") + len("bold")}}, -1)
+	if !sourceRangeTargeted(h.e, 0, len(src), false) {
+		t.Fatalf("highlight range index was not active: %+v", h.e.sourceRevealRanges)
+	}
+	h.frame()
+	if !h.shows("**bold**") {
+		t.Fatalf("highlighted match did not reveal its Markdown delimiters: %q", h.e.leaves[0].view.disp.text)
+	}
+	if h.shows("~~strike~~") {
+		t.Fatalf("unmatched inline syntax was revealed: %q", h.e.leaves[0].view.disp.text)
+	}
+
+	strike := strings.Index(src, "strike")
+	h.e.SetHighlights([]Range{{Start: strike, End: strike + len("strike")}}, 0)
+	h.frame()
+	if h.shows("**bold**") || !h.shows("~~strike~~") {
+		t.Fatalf("incremental match replacement kept stale reveal state: %q", h.e.leaves[0].view.disp.text)
+	}
+
+	h.e.SetHighlights(nil, -1)
+	h.e.setVimSearchHighlights([]Range{{Start: strike, End: strike + len("strike")}}, 0)
+	h.frame()
+	if !h.shows("~~strike~~") || h.shows("**bold**") {
+		t.Fatalf("Vim match did not share targeted reveal behavior: %q", h.e.leaves[0].view.disp.text)
+	}
+}
+
+func TestVirtualSearchHighlightRevealsVisibleMatch(t *testing.T) {
+	var parts []string
+	for i := 0; i < 40; i++ {
+		parts = append(parts, "ordinary paragraph")
+	}
+	parts[0] = "**search target**"
+	src := strings.Join(parts, "\n\n")
+	h := newHarness(t, src)
+	if !h.e.virtualLayout() {
+		t.Fatal("fixture did not activate virtual layout")
+	}
+	h.e.anchor, h.e.caret = len(src), len(src)
+	h.e.wantReveal = false
+	h.frame()
+	h.e.SetHighlights([]Range{{Start: 2, End: len("**search target")}}, -1)
+	h.frame()
+	var visibleMatch *leaf
+	for _, l := range h.e.leaves {
+		if strings.Contains(src[l.lineStart:min(l.end, len(src))], "search target") {
+			visibleMatch = l
+			break
+		}
+	}
+	if visibleMatch == nil || visibleMatch.view == nil {
+		t.Fatal("search target was not shaped in the virtual viewport")
+	}
+	if !strings.Contains(visibleMatch.view.disp.text, "**search target**") {
+		t.Fatalf("visible virtual search match did not reveal source: %q", visibleMatch.view.disp.text)
+	}
+}
+
+func TestVirtualSearchRevealIsAppliedWhenOffscreenMatchEntersViewport(t *testing.T) {
+	var parts []string
+	for i := 0; i < 40; i++ {
+		parts = append(parts, "ordinary paragraph")
+	}
+	parts[30] = "**search target**"
+	src := strings.Join(parts, "\n\n")
+	h := newHarness(t, src)
+	h.e.anchor, h.e.caret = len(src), len(src)
+	h.e.wantReveal = false
+	h.frame()
+	var target *leaf
+	for _, l := range h.e.leaves {
+		if strings.Contains(src[l.lineStart:min(l.end, len(src))], "search target") {
+			target = l
+			break
+		}
+	}
+	if target == nil || target.view != nil {
+		t.Fatalf("fixture target should be outside the shaped viewport: %+v", target)
+	}
+	h.e.SetHighlights([]Range{{Start: target.start + 2, End: target.start + 15}}, -1)
+	h.frame()
+	if target.view != nil {
+		t.Fatal("offscreen search result was eagerly shaped")
+	}
+	h.e.scroll.Y = target.y
+	h.frame()
+	if target.view == nil || !strings.Contains(target.view.disp.text, "**search target**") {
+		t.Fatalf("offscreen match did not reveal source when virtual scrolling reached it: view=%+v scroll=%.1f targetY=%.1f view=[%.1f,%.1f] stale=%v", target.view, h.e.scroll.Y, target.y, h.e.viewTop, h.e.viewBottom, h.e.sourceRevealStale(target))
+	}
+}
+
+func TestVirtualSearchHeightCorrectionUsesIndexedDeltas(t *testing.T) {
+	longTarget := "<https://example.com/" + strings.Repeat("segment/", 100) + ">"
+	parts := []string{"[findme](" + longTarget + ")"}
+	for i := 0; i < 40; i++ {
+		parts = append(parts, "ordinary paragraph")
+	}
+	src := strings.Join(parts, "\n\n")
+	h := newHarness(t, src)
+	h.e.anchor, h.e.caret = len(src), len(src)
+	h.e.wantReveal = false
+	h.frame()
+	if !h.e.virtualIndexReady {
+		t.Fatal("fixture did not initialize virtual height index")
+	}
+	target := h.e.leaves[0]
+	oldHeight := target.h
+	oldNextY := h.e.virtualY(1)
+	baseDocH := h.e.virtualBaseDocH
+	match := strings.Index(src, "findme")
+	h.e.SetHighlights([]Range{{Start: match, End: match + len("findme")}}, -1)
+	h.frame()
+	if target.h <= oldHeight {
+		t.Fatalf("revealing the long link source did not increase height: old=%v new=%v view=%q", oldHeight, target.h, target.view.disp.text)
+	}
+	delta := target.h - oldHeight
+	if math.Abs(float64(h.e.virtualY(1)-oldNextY-delta)) > 0.05 {
+		t.Fatalf("following leaf did not move by indexed height delta: before=%v after=%v delta=%v", oldNextY, h.e.virtualY(1), delta)
+	}
+	if want := h.e.virtualBaseDocH + h.e.virtualHeightPrefix(len(h.e.visibleLeaves)); math.Abs(float64(h.e.docH-want)) > 0.05 || math.Abs(float64(h.e.docH-baseDocH-delta)) > 0.05 {
+		t.Fatalf("document extent did not use indexed correction: before=%v got=%v want=%v", baseDocH, h.e.docH, want)
+	}
+	h.e.scroll.Y = max(h.e.virtualY(len(h.e.visibleLeaves)-10)-h.e.viewH/2, 0)
+	h.frame()
+	previousY := float32(-1)
+	for i, leaf := range h.e.visibleLeaves {
+		y := h.e.virtualY(i)
+		if y < previousY {
+			t.Fatalf("virtual geometry is not ordered after height correction: leaf=%d y=%v previous=%v", i, y, previousY)
+		}
+		previousY = y
+		if y+leaf.h > h.e.scroll.Y && y < h.e.scroll.Y+h.e.viewH && math.Abs(float64(leaf.y-y)) > 0.05 {
+			t.Fatalf("visible leaf %d cached y=%v differs from indexed y=%v", i, leaf.y, y)
+		}
+		if leaf.kind == kPara && y+leaf.h > h.e.scroll.Y && y < h.e.scroll.Y+h.e.viewH && leaf.view == nil {
+			t.Fatalf("visible leaf %d remained unshaped after scrolling through indexed correction", i)
+		}
+	}
+}
+
+func TestSearchHighlightRevealsFencedCodeSource(t *testing.T) {
+	const src = "before\n\n```go\nx := 1\n```\n\nafter"
+	h := newHarness(t, src)
+	var code *leaf
+	for _, l := range h.e.leaves {
+		if l.kind == kCode {
+			code = l
+			break
+		}
+	}
+	if code == nil {
+		t.Fatal("fixture has no code leaf")
+	}
+	h.caretAt(len(src))
+	h.frame()
+	if strings.Contains(code.view.disp.text, "```go") {
+		t.Fatalf("fixture unexpectedly exposed code fence: %q", code.view.disp.text)
+	}
+	match := strings.Index(src, "x := 1")
+	h.e.SetHighlights([]Range{{Start: match, End: match + len("x := 1")}}, 0)
+	h.frame()
+	if !strings.Contains(code.view.disp.text, "```go") {
+		t.Fatalf("search match inside code block did not reveal fence source: %q", code.view.disp.text)
+	}
+}
+
+func TestSearchHighlightRevealsHTMLBlockSource(t *testing.T) {
+	const src = "<section>\ncontent\n</section>\n\nafter"
+	h := newHarness(t, src)
+	var html *leaf
+	for _, l := range h.e.leaves {
+		if l.kind == kHTML {
+			html = l
+			break
+		}
+	}
+	if html == nil {
+		t.Fatal("fixture has no HTML leaf")
+	}
+	h.e.anchor, h.e.caret = len(src), len(src)
+	h.e.wantReveal = false
+	h.frame()
+	h.e.SetHighlights([]Range{{Start: strings.Index(src, "content"), End: strings.Index(src, "content") + len("content")}}, 0)
+	h.frame()
+	if !strings.Contains(html.view.disp.text, "<section>") {
+		t.Fatalf("search match inside HTML block did not reveal its source: %q", html.view.disp.text)
+	}
+}
+
+func TestSearchHighlightRevealsInlineSourceInsideTableCell(t *testing.T) {
+	const src = "| heading |\n| --- |\n| **bold** |\n\nafter"
+	h := newHarness(t, src)
+	var table *leaf
+	for _, l := range h.e.leaves {
+		if l.kind == kTable {
+			table = l
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("fixture has no table")
+	}
+	h.e.anchor, h.e.caret = len(src), len(src)
+	h.e.wantReveal = false
+	h.frame()
+	start := strings.Index(src, "bold")
+	h.e.SetHighlights([]Range{{Start: start, End: start + len("bold")}}, -1)
+	h.frame()
+	cell := table.tab.rows[1][0]
+	if !strings.Contains(cell.view.disp.text, "**bold**") {
+		t.Fatalf("search match did not reveal cell syntax: %q", cell.view.disp.text)
 	}
 }
 

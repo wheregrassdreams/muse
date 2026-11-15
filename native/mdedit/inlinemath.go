@@ -3,7 +3,7 @@ package mdedit
 import (
 	"strings"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 func (e *Editor) isInlineMathRange(start, end int) bool {

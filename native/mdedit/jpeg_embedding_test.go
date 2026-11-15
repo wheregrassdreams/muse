@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestJPEGEmbedsResolveDocumentVaultAndBareAttachmentPaths(t *testing.T) {
@@ -33,9 +34,19 @@ func TestJPEGEmbedsResolveDocumentVaultAndBareAttachmentPaths(t *testing.T) {
 		opts.BaseDir = notes
 		opts.AssetRoot = root
 		h.e.SetOptions(opts)
-		h.frame()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			h.frame()
+			if len(h.e.imageHits) > 0 && h.e.imageHits[0].obj.bmp != nil {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		if len(h.e.imageHits) == 0 || h.e.imageHits[0].obj.bmp == nil {
 			t.Fatalf("JPEG did not render: %s", src)
+		}
+		if got := h.e.imageHits[0].obj; got.w != 120 || got.h != 60 {
+			t.Fatalf("decoded JPEG dimensions were not laid out for %s: got %.1fx%.1f, want 120x60", src, got.w, got.h)
 		}
 	}
 }

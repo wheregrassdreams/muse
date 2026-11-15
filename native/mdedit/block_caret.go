@@ -27,14 +27,8 @@ func (e *Editor) vimNormalOffset(off int) int {
 		// Its source newline boundary remains a valid horizontal caret stop;
 		// treating it as a physical Vim EOL makes `l` jump back to the previous
 		// visible character and stalls across the folded line break.
-		if u := e.unitAt(off); u != nil {
-			v := e.unitView(u, off)
-			rel := off - u.lineStart
-			for _, p := range v.disp.pieces {
-				if p.kind == pAtom && p.s0 == rel && p.s1 > p.s0 && p.text == " " {
-					return off
-				}
-			}
+		if e.vimFoldedSoftBreakAt(off) {
+			return off
 		}
 		return e.normalize(e.previousGraphemeBoundary(end), -1)
 	}
@@ -42,6 +36,27 @@ func (e *Editor) vimNormalOffset(off int) int {
 	// nearest-stop normalization here would pull motions back across atoms
 	// such as inline math and make Visual movement appear stuck.
 	return off
+}
+
+func (e *Editor) vimFoldedSoftBreakAt(off int) bool {
+	if off < 0 || off >= len(e.src) || e.src[off] != '\n' {
+		return false
+	}
+	u := e.unitAt(off)
+	if u == nil {
+		return false
+	}
+	v := e.unitView(u, off)
+	if v == nil {
+		return false
+	}
+	rel := off - u.lineStart
+	for _, p := range v.disp.pieces {
+		if p.kind == pAtom && p.s0 == rel && p.s1 > p.s0 && p.text == " " {
+			return true
+		}
+	}
+	return false
 }
 
 // vimPointerOffset converts the insertion boundary hit by the native text

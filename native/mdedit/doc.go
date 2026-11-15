@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 // exts is the Markdown the editor reads: GitHub's flavor, footnotes, math,
@@ -99,6 +99,12 @@ type line struct {
 // code or math, a table, a rule, raw lines or the phantom paragraph.
 type leaf struct {
 	kind leafKind
+	// Flags describing syntax owned by the leaf.
+	fenced      bool
+	pending     bool
+	setext      bool
+	frontMatter bool
+	whole       bool
 	// id is the leaf's block in the parse; -1 for raw lines and the
 	// phantom.
 	id int
@@ -118,27 +124,10 @@ type leaf struct {
 	// their markers beside it.
 	conts   []cont
 	firstOf []int
-	// lines are a code, math, HTML or raw leaf's.
-	lines []line
-	// A fenced code block's info string, from infoStart to infoEnd on its
-	// opening line, whose fence ends at fenceEnd; the language is the
-	// info string's first word.
-	fenced             bool
-	fenceEnd           int
-	infoStart, infoEnd int
-	lang               string
 	// tab is a table's rows and cells.
 	tab *table
-	// pending marks a heading, item or quotation still being typed: only
-	// its marker, without the space after it, which shows as text until
-	// the space comes, so that typing # does not flash a heading.
-	pending bool
-	// setext marks a heading underlined with = or -.
-	setext bool
-	// frontMatter marks the YAML front matter at the top of a document,
-	// whole a document that is code, all of it this leaf.
-	frontMatter bool
-	whole       bool
+	// details are the cold fields used by code, HTML, raw and similar blocks.
+	details *leafDetails
 
 	// Where the last layout put the leaf, in the editor's content.
 	x, y, w, h float32
@@ -146,10 +135,67 @@ type leaf struct {
 	// table's grid, and table the table a cell is in. vp is what the view
 	// was made for besides the leaf's own content.
 	view       *leafView
-	vp         viewParams
 	geom       *tableGeom
 	table      *leaf
 	horizontal blockHorizontalScroll
+}
+
+// leafDetails keeps line arrays and code-fence metadata out of the common
+// prose leaf. It is allocated only for leaves that need those fields.
+type leafDetails struct {
+	lines              []line
+	lang               string
+	fenceEnd           int
+	infoStart, infoEnd int
+}
+
+func (l *leaf) detail() *leafDetails {
+	if l == nil {
+		return nil
+	}
+	return l.details
+}
+
+func (l *leaf) ensureDetails() *leafDetails {
+	if l.details == nil {
+		l.details = &leafDetails{}
+	}
+	return l.details
+}
+
+func (l *leaf) codeLines() []line {
+	if d := l.detail(); d != nil {
+		return d.lines
+	}
+	return nil
+}
+
+func (l *leaf) language() string {
+	if d := l.detail(); d != nil {
+		return d.lang
+	}
+	return ""
+}
+
+func (l *leaf) fenceEndOffset() int {
+	if d := l.detail(); d != nil {
+		return d.fenceEnd
+	}
+	return 0
+}
+
+func (l *leaf) infoStartOffset() int {
+	if d := l.detail(); d != nil {
+		return d.infoStart
+	}
+	return 0
+}
+
+func (l *leaf) infoEndOffset() int {
+	if d := l.detail(); d != nil {
+		return d.infoEnd
+	}
+	return 0
 }
 
 // isText reports whether the leaf is edited as text with inline syntax.
@@ -270,13 +316,18 @@ func maskFrontMatter(src string, end int) string {
 	if end == 0 {
 		return src
 	}
-	b := []byte(src)
+	var b strings.Builder
+	b.Grow(len(src))
 	for i := 0; i < end; i++ {
-		if b[i] != '\n' && b[i] != '\r' {
-			b[i] = ' '
+		switch src[i] {
+		case '\n', '\r':
+			b.WriteByte(src[i])
+		default:
+			b.WriteByte(' ')
 		}
 	}
-	return string(b)
+	b.WriteString(src[end:])
+	return b.String()
 }
 
 // bracketMath returns src with the [ of a \[ swapped for a letter where
@@ -287,6 +338,11 @@ func maskFrontMatter(src string, end int) string {
 // holding no TeX, as \[1\] or \[注\]. Its result depends on each line
 // alone, and is as long as src.
 func bracketMath(src string) string {
+	// Most documents never use escaped display-math brackets. Avoid walking
+	// every line in a large ordinary document just to discover that.
+	if !strings.Contains(src, `\[`) {
+		return src
+	}
 	var b []byte
 	for ls := 0; ls < len(src); {
 		le := len(src)
@@ -391,36 +447,63 @@ func texLike(s string) bool {
 // again, so editing costs no allocations for the leaves it does not
 // change.
 type leafArena struct {
-	leaves []*leaf
+	// chunks give leaves stable addresses without one heap allocation per
+	// node. The Editor keeps the parse's output order separately.
+	chunks [][]leaf
 	n      int
 }
+
+const leafArenaChunkSize = 256
 
 // reset makes the arena empty, keeping the leaves to fill again. The
 // lines and containers go first: they hold slices of the source, and a
 // source no leaf holds can be freed even while its leaves are kept for
 // their views.
 func (a *leafArena) reset() {
-	for _, l := range a.leaves[:a.n] {
+	for i := 0; i < a.n; i++ {
+		l := a.leafAt(i)
 		clear(l.conts)
-		clear(l.lines)
-		l.conts, l.lines = l.conts[:0], l.lines[:0]
+		l.conts = l.conts[:0]
+		// Arenas can outlive the document that filled them. Drop retained
+		// layouts and table projections for every used leaf, including leaves
+		// the next parse is too small to reuse.
+		l.view, l.geom, l.tab, l.table = nil, nil, nil, nil
+		if d := l.details; d != nil {
+			clear(d.lines)
+			d.lines = d.lines[:0]
+			d.lang = ""
+			d.fenceEnd, d.infoStart, d.infoEnd = 0, 0, 0
+		}
 	}
 	a.n = 0
+}
+
+// release drops the arena's backing chunks at a document boundary. Keeping
+// them is useful between edits to one document, but can pin a large document's
+// peak leaf capacity after the user opens a smaller note.
+func (a *leafArena) release() {
+	a.reset()
+	a.chunks = nil
 }
 
 // get returns an empty leaf. The slices the leaf had keep their room;
 // everything else is cleared, so a stale view or table cannot leak into
 // the new parse.
 func (a *leafArena) get() *leaf {
-	if a.n == len(a.leaves) {
-		a.leaves = append(a.leaves, new(leaf))
+	chunkIndex := a.n / leafArenaChunkSize
+	if chunkIndex == len(a.chunks) {
+		a.chunks = append(a.chunks, make([]leaf, leafArenaChunkSize))
 	}
-	l := a.leaves[a.n]
+	l := a.leafAt(a.n)
 	a.n++
-	conts, lines, firstOf := l.conts[:0], l.lines[:0], l.firstOf[:0]
+	conts, firstOf, details := l.conts[:0], l.firstOf[:0], l.details
 	*l = leaf{}
-	l.conts, l.lines, l.firstOf = conts, lines, firstOf
+	l.conts, l.firstOf, l.details = conts, firstOf, details
 	return l
+}
+
+func (a *leafArena) leafAt(i int) *leaf {
+	return &a.chunks[i/leafArenaChunkSize][i%leafArenaChunkSize]
 }
 
 // setConts fills l's containers with conts, reusing the room it has.
@@ -469,22 +552,22 @@ func sameLeaf(a, b *leaf) bool {
 	if a.kind != b.kind || a.id != b.id || a.level != b.level ||
 		rel(a, a.start) != rel(b, b.start) || rel(a, a.end) != rel(b, b.end) ||
 		rel(a, a.syntaxStart) != rel(b, b.syntaxStart) ||
-		a.fenced != b.fenced || a.lang != b.lang ||
+		a.fenced != b.fenced || a.language() != b.language() ||
 		a.pending != b.pending || a.setext != b.setext ||
 		a.frontMatter != b.frontMatter || a.whole != b.whole ||
 		(a.table != nil) != (b.table != nil) ||
 		(a.tab != nil) != (b.tab != nil) ||
 		len(a.conts) != len(b.conts) || !slices.Equal(a.firstOf, b.firstOf) ||
-		len(a.lines) != len(b.lines) {
+		len(a.codeLines()) != len(b.codeLines()) {
 		return false
 	}
 	// A fence's info string is only where its fence is: an unfenced block
 	// has zeros in those fields, and offsets from the leaf's line would
 	// make them differ for no reason.
 	if a.fenced &&
-		(rel(a, a.fenceEnd) != rel(b, b.fenceEnd) ||
-			rel(a, a.infoStart) != rel(b, b.infoStart) ||
-			rel(a, a.infoEnd) != rel(b, b.infoEnd)) {
+		(rel(a, a.fenceEndOffset()) != rel(b, b.fenceEndOffset()) ||
+			rel(a, a.infoStartOffset()) != rel(b, b.infoStartOffset()) ||
+			rel(a, a.infoEndOffset()) != rel(b, b.infoEndOffset())) {
 		return false
 	}
 	for i, c := range a.conts {
@@ -496,8 +579,8 @@ func sameLeaf(a, b *leaf) bool {
 			return false
 		}
 	}
-	for i, ln := range a.lines {
-		if rel(a, ln.off) != rel(b, b.lines[i].off) || ln.text != b.lines[i].text {
+	for i, ln := range a.codeLines() {
+		if rel(a, ln.off) != rel(b, b.codeLines()[i].off) || ln.text != b.codeLines()[i].text {
 			return false
 		}
 	}
@@ -711,6 +794,7 @@ func codeLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont)
 	l := linesLeaf(a, src, d, c, kCode, conts)
 	l.fenced = b.Fenced
 	if b.Fenced {
+		details := l.ensureDetails()
 		// The opening fence: ``` or ~~~ and the info string after it.
 		p := b.Start
 		for p < len(src) && src[p] == ' ' {
@@ -723,16 +807,16 @@ func codeLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont)
 		for p < len(src) && src[p] == fc {
 			p++
 		}
-		l.fenceEnd = p
+		details.fenceEnd = p
 		e := lineEndAt(src, p)
-		l.infoStart, l.infoEnd = p, e
-		for l.infoStart < e && (src[l.infoStart] == ' ' || src[l.infoStart] == '\t') {
-			l.infoStart++
+		details.infoStart, details.infoEnd = p, e
+		for details.infoStart < e && (src[details.infoStart] == ' ' || src[details.infoStart] == '\t') {
+			details.infoStart++
 		}
-		for l.infoEnd > l.infoStart && (src[l.infoEnd-1] == ' ' || src[l.infoEnd-1] == '\t' || src[l.infoEnd-1] == '\r') {
-			l.infoEnd--
+		for details.infoEnd > details.infoStart && (src[details.infoEnd-1] == ' ' || src[details.infoEnd-1] == '\t' || src[details.infoEnd-1] == '\r') {
+			details.infoEnd--
 		}
-		l.lang = b.Language()
+		details.lang = b.Language()
 	}
 	return l
 }
@@ -745,30 +829,31 @@ func linesLeaf(a *leafArena, src string, d *parser.Document, c int, kind leafKin
 	l.lineStart, l.syntaxStart = lineStartAt(src, b.Start), b.Start
 	setConts(l, conts)
 	n := d.LineCount(c)
+	details := l.ensureDetails()
 	for k := 0; k < n; k++ {
 		text, off := d.Line(c, k)
 		// The parser's line is of the source it was given, which may have
 		// characters swapped (see Editor.mask): the line is the source's.
 		text = src[off : off+len(sourceLine(d.Source(), text, off))]
-		l.lines = append(l.lines, line{off: off, text: strings.TrimSuffix(text, "\r")})
+		details.lines = append(details.lines, line{off: off, text: strings.TrimSuffix(text, "\r")})
 	}
 	if kind == kMath || (kind == kCode && b.Fenced) {
 		// A fenced block's content lines end before its closing fence; a
 		// block opened without content gets the line after its fence, so
 		// the caret has somewhere to be.
-		if len(l.lines) == 0 {
+		if len(details.lines) == 0 {
 			open := lineEndAt(src, b.Start)
 			l.start, l.end = open, open
-			l.lines = nil
+			details.lines = details.lines[:0]
 			return l
 		}
 	}
-	if len(l.lines) == 0 {
+	if len(details.lines) == 0 {
 		l.start, l.end = b.Start, b.Start
 		return l
 	}
-	l.start = l.lines[0].off
-	last := l.lines[len(l.lines)-1]
+	l.start = details.lines[0].off
+	last := details.lines[len(details.lines)-1]
 	l.end = last.off + len(last.text)
 	return l
 }
@@ -949,18 +1034,19 @@ func codeDocLeaf(a *leafArena, src, lang string) *leaf {
 	l := rawLeaf(a, src, 0, len(src), false)
 	l.kind = kCode
 	l.whole = true
+	details := l.ensureDetails()
 	if lang != "text" {
-		l.lang = lang
+		details.lang = lang
 	}
-	if len(l.lines) == 0 {
-		l.lines = []line{{off: 0}}
+	if len(details.lines) == 0 {
+		details.lines = []line{{off: 0}}
 	}
-	if n := len(l.lines); n > 0 && len(src) > 0 && src[len(src)-1] == '\n' && l.lines[n-1].off+len(l.lines[n-1].text) < len(src) {
+	if n := len(details.lines); n > 0 && len(src) > 0 && src[len(src)-1] == '\n' && details.lines[n-1].off+len(details.lines[n-1].text) < len(src) {
 		// The line after the last newline, for the caret.
-		l.lines = append(l.lines, line{off: len(src)})
+		details.lines = append(details.lines, line{off: len(src)})
 	}
-	l.start = l.lines[0].off
-	last := l.lines[len(l.lines)-1]
+	l.start = details.lines[0].off
+	last := details.lines[len(details.lines)-1]
 	l.end = last.off + len(last.text)
 	return l
 }
@@ -969,17 +1055,18 @@ func codeDocLeaf(a *leafArena, src, lang string) *leaf {
 func rawLeaf(a *leafArena, src string, start, end int, front bool) *leaf {
 	l := a.get()
 	l.kind, l.id, l.lineStart, l.syntaxStart, l.frontMatter = kRaw, -1, start, start, front
+	details := l.ensureDetails()
 	for off := start; off <= end && off < len(src); {
 		e := min(lineEndAt(src, off), end)
-		l.lines = append(l.lines, line{off: off, text: strings.TrimSuffix(src[off:e], "\r")})
+		details.lines = append(details.lines, line{off: off, text: strings.TrimSuffix(src[off:e], "\r")})
 		off = e + 1
 	}
-	if len(l.lines) == 0 {
+	if len(details.lines) == 0 {
 		l.start, l.end = start, start
 		return l
 	}
-	l.start = l.lines[0].off
-	last := l.lines[len(l.lines)-1]
+	l.start = details.lines[0].off
+	last := details.lines[len(details.lines)-1]
 	l.end = last.off + len(last.text)
 	return l
 }
@@ -1050,7 +1137,10 @@ func addBlanks(a *leafArena, src string, out []*leaf, from, to int, skipFirst bo
 		if start, depth, ok := blankLine(src, p, e); ok && (p > from || !skipFirst) {
 			bl := a.get()
 			bl.kind, bl.id, bl.lineStart = kBlank, -1, p
-			bl.start, bl.end, bl.syntaxStart = start, start, start
+			// A source blank line may contain spaces or tabs. Keep that source
+			// span on the leaf so caret normalization and shaping retain the
+			// actual insertion position while it remains Markdown-blank.
+			bl.start, bl.end, bl.syntaxStart = start, e, start
 			bl.conts = quoteChain(prev, next, depth, p)
 			out = append(out, bl)
 		}

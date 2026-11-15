@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 type specExample struct {

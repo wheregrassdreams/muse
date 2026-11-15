@@ -3,8 +3,6 @@ package mdedit
 import (
 	"strings"
 	"time"
-
-	"muse/textnav"
 )
 
 // change is an edit of the source: at at, old became new.
@@ -30,6 +28,8 @@ type step struct {
 	before, after             [2]int
 	tableBefore               *tableNavigationState
 	tableAfter                *tableNavigationState
+	documentRegionBefore      *tableSelection
+	documentRegionAfter       *tableSelection
 	blockBefore, blockAfter   *blockHistoryState
 	phBefore, phAfter         *phantom
 	kind                      stepKind
@@ -57,6 +57,7 @@ func (e *Editor) begin(kind stepKind) {
 		state := e.tableNavigationState()
 		e.hist.open.tableBefore = &state
 	}
+	e.hist.open.documentRegionBefore = cloneTableSelection(e.tableDocumentRegion)
 }
 
 // replace replaces the source's bytes [from, to) with text, recorded in the
@@ -68,6 +69,11 @@ func (e *Editor) replace(from, to int, text string) {
 	if old == text {
 		return
 	}
+	// Any source mutation invalidates a transient table destination. Structural
+	// operations install their new virtual cursor only after their transaction.
+	e.clearTableVirtualEdit()
+	e.vimYankActive = false
+	e.vimYankRanges = nil
 	e.shiftImageAlignments(from, to, len(text))
 	if e.hist.open == nil {
 		e.begin(stepEdit)
@@ -80,7 +86,6 @@ func (e *Editor) replace(from, to int, text string) {
 		}
 	}
 	e.src = e.src[:from] + text + e.src[to:]
-	textnav.WarmUpIfNeeded(text)
 	e.resetFolds()
 	e.moveTypedBreaks(from, to, text)
 	e.rev++
@@ -114,18 +119,26 @@ func (e *Editor) replace(from, to int, text string) {
 	for i := range e.highlights {
 		e.highlights[i].Start, e.highlights[i].End = shift(e.highlights[i].Start), shift(e.highlights[i].End)
 	}
+	for i := range e.vimHighlights {
+		e.vimHighlights[i].Start, e.vimHighlights[i].End = shift(e.vimHighlights[i].Start), shift(e.vimHighlights[i].End)
+	}
+	for i := range e.sourceRevealRanges {
+		e.sourceRevealRanges[i].Start, e.sourceRevealRanges[i].End = shift(e.sourceRevealRanges[i].Start), shift(e.sourceRevealRanges[i].End)
+	}
 }
 
 // commit closes the open step with the caret at caret (and the anchor
 // there too, or at anchor when it differs), parses the source and tells
 // the app.
 func (e *Editor) commit(anchor, caret int) {
+	e.clearVimImageRow()
 	s := e.hist.open
 	e.hist.open = nil
 	e.tableNavigation = nil
 	e.tableSelection = nil
 	e.tableHandleDrag = nil
 	e.tableBridge = nil
+	e.tableDocumentRegion = nil
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.anchor, e.caret = anchor, caret
@@ -149,6 +162,7 @@ func (e *Editor) commit(anchor, caret int) {
 		return
 	}
 	s.after = [2]int{e.anchor, e.caret}
+	s.documentRegionAfter = cloneTableSelection(e.tableDocumentRegion)
 	s.blockAfter = e.blockHistoryState()
 	s.phAfter = e.phantom
 	s.breaksAfter = append([]int(nil), e.typedBreaks...)
@@ -210,6 +224,7 @@ func (e *Editor) changed() {
 
 // Undo takes back the last step.
 func (e *Editor) Undo() bool {
+	e.modal.vimTextVisualActive = false
 	if e.hist.open != nil {
 		e.commit(e.caret, e.caret)
 	}
@@ -230,12 +245,14 @@ func (e *Editor) Undo() bool {
 	if s.tableBefore != nil {
 		e.restoreTableNavigation(*s.tableBefore)
 	}
+	e.tableDocumentRegion = cloneTableSelection(s.documentRegionBefore)
 	e.restoreBlockHistory(s.blockBefore)
 	return true
 }
 
 // Redo makes the last step undone again.
 func (e *Editor) Redo() bool {
+	e.modal.vimTextVisualActive = false
 	if e.hist.open != nil {
 		e.commit(e.caret, e.caret)
 	}
@@ -256,6 +273,7 @@ func (e *Editor) Redo() bool {
 	if s.tableAfter != nil {
 		e.restoreTableNavigation(*s.tableAfter)
 	}
+	e.tableDocumentRegion = cloneTableSelection(s.documentRegionAfter)
 	e.restoreBlockHistory(s.blockAfter)
 	return true
 }
@@ -263,6 +281,11 @@ func (e *Editor) Redo() bool {
 // restore puts the selection and the phantom back as a step had them.
 func (e *Editor) restore(sel [2]int, ph *phantom) {
 	e.resetFolds()
+	// Virtual table focus is derived from the parsed source and intentionally
+	// isn't part of history snapshots. Undo/redo restores a source selection;
+	// the next table operation must resolve its position from that restored
+	// selection rather than reusing a post-delete destination from another rev.
+	e.clearTableVirtualEdit()
 	e.rev++
 	e.u16ix.rev = 0
 	e.phantom = ph

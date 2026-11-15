@@ -303,7 +303,6 @@ func (e *Editor) toggleImageAlignment(hit imageHit) {
 	e.views = make(map[viewKey]*leafView)
 	for _, l := range e.leaves {
 		l.view = nil
-		l.vp = viewParams{}
 	}
 	e.leavesLaid = false
 	e.invalidate()

@@ -10,6 +10,26 @@ func testFullMask(src string) []byte {
 	return []byte(parserText(maskFrontMatter(src, frontMatterEnd(src))))
 }
 
+func TestMaskFrontMatterPreservesByteOffsets(t *testing.T) {
+	for _, src := range []string{
+		"---\ntitle: 前言\n---\n正文\n",
+		"---\r\ntitle: 中文\r\n---\r\nbody\r\n",
+		"---\nemoji: 😀\n---\n**内容**",
+	} {
+		end := frontMatterEnd(src)
+		got := maskFrontMatter(src, end)
+		want := []byte(src)
+		for i := 0; i < end; i++ {
+			if want[i] != '\n' && want[i] != '\r' {
+				want[i] = ' '
+			}
+		}
+		if len(got) != len(src) || got != string(want) {
+			t.Fatalf("masked frontmatter = %q, want %q", got, want)
+		}
+	}
+}
+
 // at returns the offset of sub in s.
 func at(t *testing.T, s, sub string) int {
 	t.Helper()

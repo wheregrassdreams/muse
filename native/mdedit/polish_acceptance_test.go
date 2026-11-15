@@ -163,27 +163,43 @@ func TestPolishAcceptanceVisualTableRoundTrip(t *testing.T) {
 	h.e.Select(at, at)
 	h.e.ReplaceText(nil, "v")
 	h.frame()
-	initialRange, initialText := h.e.SelectionRange(), h.e.SelectedText()
+	initialText := h.e.SelectedText()
 	if initialText != "l" {
 		t.Fatalf("initial Visual character = %q, want l", initialText)
 	}
 	moves := 0
 	for ; moves < 100; moves++ {
 		h.e.ReplaceText(nil, "h")
-		if s := h.e.tableSelection; s != nil && s.active == 3 {
-			moves++
+		if s := h.e.tableSelection; s != nil && s.cellRegion {
 			break
 		}
 	}
 	if moves >= 100 {
 		t.Fatal("did not enter previous row structure")
 	}
-	for i := 0; i < moves; i++ {
-		h.e.ReplaceText(nil, "l")
+	s := h.e.tableSelection
+	if s == nil || !s.cellRegion {
+		t.Fatalf("cross-cell Visual motion did not create a cell region: %+v", s)
 	}
-	if h.e.SelectionRange() != initialRange || h.e.SelectedText() != initialText {
-		t.Fatalf("inclusive selection changed through structure bridge: range=%+v text=%q initial=%+v %q", h.e.SelectionRange(), h.e.SelectedText(), initialRange, initialText)
+	for i := 0; i < 20; i++ {
+		s = h.e.tableSelection
+		if s.focusRow == s.anchorRow && s.focusCol == s.anchorCol {
+			return
+		}
+		key := "h"
+		if s.focusCol < s.anchorCol {
+			key = "l"
+		} else if s.focusRow < s.anchorRow {
+			key = "j"
+		} else if s.focusRow > s.anchorRow {
+			key = "k"
+		}
+		h.e.ReplaceText(nil, key)
+		if s := h.e.tableSelection; s == nil || !s.cellRegion {
+			t.Fatalf("reverse motion downgraded the cell region at step %d: %+v", i, s)
+		}
 	}
+	t.Fatalf("reverse motion did not return to the cell anchor: initial text=%q selection=%+v", initialText, h.e.tableSelection)
 }
 
 func TestPolishAcceptanceExternalIconWrapsWithLabel(t *testing.T) {

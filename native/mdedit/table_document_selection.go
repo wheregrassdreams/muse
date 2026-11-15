@@ -8,13 +8,18 @@ type selectionPart struct {
 	structure *tableSelection
 }
 
+func cloneTableSelection(s *tableSelection) *tableSelection {
+	if s == nil {
+		return nil
+	}
+	copy := *s
+	return &copy
+}
+
 func (e *Editor) selectionParts() []selectionPart {
 	a, z := e.selection()
 	if a == z {
 		return nil
-	}
-	if e.tableSelection != nil {
-		return []selectionPart{{source: Range{a, z}, structure: e.tableSelection}}
 	}
 	var parts []selectionPart
 	start := a
@@ -22,11 +27,14 @@ func (e *Editor) selectionParts() []selectionPart {
 		if t.kind != kTable || t.tab == nil {
 			continue
 		}
-		s := e.tableStructureInRange(t, a, z)
+		s := e.tableStructureSelection(t)
 		if s == nil {
 			continue
 		}
-		lo, hi, _ := e.tableSelectionSourceRange(t, s)
+		// The semantic table segment owns the whole source block. Unselected
+		// Markdown cells and delimiters inside that block must not leak out as
+		// ordinary text parts around a row/column/cell projection.
+		lo, hi := t.lineStart, blockEnd(e.src, t)
 		if start < lo {
 			parts = append(parts, selectionPart{source: Range{start, lo}})
 		}
@@ -47,7 +55,12 @@ func (e *Editor) tableStructureSelection(t *leaf) *tableSelection {
 		if s.lineStart == t.lineStart {
 			return s
 		}
-		return nil
+	}
+	if s := e.tableDocumentRegion; s != nil && s.lineStart == t.lineStart {
+		a, z := e.selection()
+		if a < blockEnd(e.src, t) && z > t.lineStart {
+			return s
+		}
 	}
 	if e.block != nil {
 		return nil
@@ -57,33 +70,78 @@ func (e *Editor) tableStructureSelection(t *leaf) *tableSelection {
 }
 
 func (e *Editor) tableStructureInRange(t *leaf, a, z int) *tableSelection {
-	end := blockEnd(e.src, t)
-	// Content selections wholly inside a table remain content selections.
-	if a > t.lineStart && z < end || a >= end || z <= t.lineStart {
+	if t == nil || t.tab == nil || len(t.tab.rows) == 0 {
 		return nil
 	}
-	s := &tableSelection{lineStart: t.lineStart, axis: tableWhole, first: 0, last: len(t.tab.rows) - 1, right: e.caret >= e.anchor}
-	if a > t.lineStart || z < end {
-		s.axis, s.first, s.last = tableRows, -1, -1
-		for row := range t.tab.rows {
-			lo, hi, ok := e.tableSelectionSourceRange(t, &tableSelection{axis: tableRows, first: row, last: row})
-			if ok && a <= lo && z >= hi {
-				if s.first < 0 {
-					s.first = row
-				}
-				s.last = row
-			}
-		}
-		if s.first < 0 {
-			return nil
-		}
+	end := blockEnd(e.src, t)
+	if a >= end || z <= t.lineStart {
+		return nil
 	}
-	s.anchor, s.active = s.first, s.last
-	if !s.right {
-		s.anchor, s.active = s.active, s.anchor
+	if a <= t.lineStart && z >= end {
+		lastRow := len(t.tab.rows) - 1
+		lastCol := max(0, len(t.tab.rows[lastRow])-1)
+		if e.caret < e.anchor {
+			return tableRegionSelection(t, lastRow, lastCol, 0, 0, false)
+		}
+		return tableRegionSelection(t, 0, 0, lastRow, lastCol, true)
 	}
-	s.activeRow = s.active
-	return s
+	// Ranges entirely inside the table remain text selections. A document range
+	// crossing either boundary gets a rectangular structural segment for only
+	// the table intersection (including the complete table case).
+	if a >= t.lineStart && z <= end {
+		return nil
+	}
+	lo, hi := max(a, t.lineStart), min(z, end)
+	if lo >= hi {
+		return nil
+	}
+	anchorRow, anchorCol := 0, 0
+	if lo > t.lineStart {
+		anchorRow, anchorCol = e.tableCellAtRangeBoundary(t, lo)
+	}
+	lastRow := len(t.tab.rows) - 1
+	lastCol := max(0, len(t.tab.rows[lastRow])-1)
+	focusRow, focusCol := lastRow, lastCol
+	if hi < end {
+		focusRow, focusCol = e.tableCellAtRangeBoundary(t, hi-1)
+	}
+	if e.caret < e.anchor {
+		anchorRow, focusRow = focusRow, anchorRow
+		anchorCol, focusCol = focusCol, anchorCol
+	}
+	return tableRegionSelection(t, anchorRow, anchorCol, focusRow, focusCol, e.caret >= e.anchor)
+}
+
+// tableCellAtRangeBoundary maps source offsets through parser-owned cell spans.
+// Pipe and separator characters fall back to the projection's line mapping.
+func (e *Editor) tableCellAtRangeBoundary(t *leaf, off int) (int, int) {
+	if _, row, col := cellAt(t, off); row >= 0 && col >= 0 {
+		return row, col
+	}
+	row, col, ok := e.tablePositionAtSource(t, off)
+	if !ok {
+		return 0, 0
+	}
+	return row, col
+}
+
+func tableRegionSelection(t *leaf, anchorRow, anchorCol, focusRow, focusCol int, right bool) *tableSelection {
+	top, bottom := min(anchorRow, focusRow), max(anchorRow, focusRow)
+	left, rcol := min(anchorCol, focusCol), max(anchorCol, focusCol)
+	axis, first, last := tableCells, top, bottom
+	switch {
+	case top == 0 && left == 0 && bottom == len(t.tab.rows)-1 && rcol == t.tab.cols()-1:
+		axis, first, last = tableWhole, 0, len(t.tab.rows)-1
+	case left == 0 && rcol == t.tab.cols()-1:
+		axis, first, last = tableRows, top, bottom
+	case top == 0 && bottom == len(t.tab.rows)-1:
+		axis, first, last = tableColumns, left, rcol
+	}
+	compatAnchor, compatActive := anchorCol, focusCol
+	if axis == tableRows || axis == tableWhole {
+		compatAnchor, compatActive = anchorRow, focusRow
+	}
+	return &tableSelection{lineStart: t.lineStart, axis: axis, first: first, last: last, anchorRow: anchorRow, anchorCol: anchorCol, focusRow: focusRow, focusCol: focusCol, cellRegion: true, anchor: compatAnchor, active: compatActive, activeRow: focusRow, right: right}
 }
 
 func (e *Editor) textSelectionForUnit(u *leaf) (int, int) {
@@ -91,11 +149,11 @@ func (e *Editor) textSelectionForUnit(u *leaf) (int, int) {
 		return 0, 0
 	}
 	if u.table != nil {
-		if s := e.tableStructureSelection(u.table); s != nil {
-			_, row, col := cellAt(u.table, u.start)
-			if s.axis == tableWhole || s.axis == tableRows && row >= s.first && row <= s.last || s.axis == tableColumns && col >= s.first && col <= s.last {
-				return 0, 0
-			}
+		// A table region owns selection presentation for the entire table. The
+		// rectangle determines which cells are structurally selected; ordinary
+		// source-range highlighting must not leak into the other cells.
+		if e.tableStructureSelection(u.table) != nil {
+			return 0, 0
 		}
 	}
 	return e.textSelectionRange()

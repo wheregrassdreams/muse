@@ -122,11 +122,11 @@ func TestNavigationAcceptanceTableVisualModes(t *testing.T) {
 		} else {
 			h.key(ui.Ctrl, ui.KeyV)
 		}
-		if s := h.e.tableSelection; s == nil || s.axis != axis || s.first != 1 || s.last != 1 || h.e.block != nil {
+		if s := h.e.tableSelection; s == nil || axis == tableRows && (s.axis != tableRows || s.first != 1 || s.last != 1) || axis == tableColumns && (s.axis != tableCells || s.anchorRow != 1 || s.anchorCol != 1 || s.focusRow != 1 || s.focusCol != 1) || h.e.block != nil {
 			t.Fatalf("table visual mode has wrong active shape axis=%d: %s", axis, tableSelectionState(h.e))
 		}
 		h.e.ReplaceText(nil, "j")
-		if s := h.e.tableSelection; s == nil || s.axis != axis || axis == tableRows && (s.first != 1 || s.last != 2) || axis == tableColumns && (s.first != 1 || s.last != 1 || s.activeRow != 2) {
+		if s := h.e.tableSelection; s == nil || axis == tableRows && (s.axis != tableRows || s.first != 1 || s.last != 2) || axis == tableColumns && (s.axis != tableCells || s.anchorRow != 1 || s.anchorCol != 1 || s.focusRow != 2 || s.focusCol != 1) {
 			t.Fatalf("vertical table motion lost semantic range axis=%d: %s", axis, tableSelectionState(h.e))
 		}
 		if axis == tableRows {
@@ -140,22 +140,9 @@ func TestNavigationAcceptanceTableVisualModes(t *testing.T) {
 				}
 			}
 		} else {
-			states := []reversibleSelectionSnapshot{snapshotSelection(h.e, table)}
-			for n := 0; n < 100; n++ {
-				h.e.ReplaceText(nil, "l")
-				states = append(states, snapshotSelection(h.e, table))
-				if h.e.tableSelection != nil {
-					break
-				}
-			}
-			if s := h.e.tableSelection; s == nil || s.axis != tableColumns || s.first != 1 || s.last != 2 || s.activeRow != 2 {
-				t.Fatalf("column content transition lost structure or active row: %s", tableSelectionState(h.e))
-			}
-			for n := len(states) - 2; n >= 0; n-- {
-				h.e.ReplaceText(nil, "h")
-				if got := snapshotSelection(h.e, table); got != states[n] {
-					t.Fatalf("column transition step %d did not reverse exactly:\ngot=%+v\nwant=%+v", n, got, states[n])
-				}
+			h.e.ReplaceText(nil, "l")
+			if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorRow != 1 || s.anchorCol != 1 || s.focusRow != 2 || s.focusCol != 2 {
+				t.Fatalf("cell region did not expand in both dimensions: %s", tableSelectionState(h.e))
 			}
 		}
 		selected := h.e.SelectedText()
@@ -167,7 +154,7 @@ func TestNavigationAcceptanceTableVisualModes(t *testing.T) {
 		}
 		h.e.ReplaceText(nil, "d")
 		table = documentTestTable(t, h.e)
-		if axis == tableRows && len(table.tab.rows) != 2 || axis == tableColumns && table.tab.cols() != 2 {
+		if axis == tableRows && len(table.tab.rows) != 2 || axis == tableColumns && (table.tab.cols() != 3 || len(table.tab.rows) != 4) {
 			t.Fatalf("table visual delete damaged structure axis=%d: %q", axis, h.e.Source())
 		}
 		if !h.e.Undo() || h.e.Source() != src || h.e.tableSelection == nil || h.e.SelectedText() != selected {

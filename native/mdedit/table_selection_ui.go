@@ -1,7 +1,7 @@
 package mdedit
 
 import (
-	"fmt"
+	"muse/locales"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -19,7 +19,7 @@ type tableHandleKey struct {
 }
 
 func (e *Editor) tableSelectionHandlesView(c *ui.Context, viewport ui.Rect, pointer ui.Point) {
-	for _, t := range e.leaves {
+	for _, t := range e.paintVisibleSpan(e.scroll.Y-32, e.scroll.Y+viewport.H+32) {
 		if t.kind != kTable || e.foldHidden(t) || t.tab == nil || t.geom == nil || len(t.geom.rowY) < 2 || len(t.geom.colX) < 2 {
 			continue
 		}
@@ -38,7 +38,7 @@ func (e *Editor) tableSelectionHandlesView(c *ui.Context, viewport ui.Rect, poin
 			if !visibleHandle(r, viewport) {
 				continue
 			}
-			e.tableSelectionHandle(c, viewport, pointer, t, tableRows, row, r, "选择第 %d 行")
+			e.tableSelectionHandle(c, viewport, pointer, t, tableRows, row, r, locales.EditorSelectRow(row+1))
 		}
 		for col := 0; col+1 < len(t.geom.colX); col++ {
 			left := max(t.x, tableContentX(t)+t.geom.colX[col])
@@ -54,7 +54,7 @@ func (e *Editor) tableSelectionHandlesView(c *ui.Context, viewport ui.Rect, poin
 			if !visibleHandle(r, viewport) {
 				continue
 			}
-			e.tableSelectionHandle(c, viewport, pointer, t, tableColumns, col, r, "选择第 %d 列")
+			e.tableSelectionHandle(c, viewport, pointer, t, tableColumns, col, r, locales.EditorSelectColumn(col+1))
 		}
 	}
 }
@@ -66,7 +66,7 @@ func visibleHandle(r, v ui.Rect) bool {
 func (e *Editor) tableSelectionHandle(c *ui.Context, viewport ui.Rect, pointer ui.Point, t *leaf, axis tableAxis, index int, r ui.Rect, label string) {
 	ui.Overlay(c, func() {
 		el := ui.Box(c.Key(tableHandleKey{e, t.lineStart, axis, index})).Absolute().Left(r.X).Top(r.Y).Width(r.W).Height(r.H).
-			Label(labelForIndex(label, index+1)).Cursor(ui.CursorPointer).
+			Label(label).Cursor(ui.CursorPointer).
 			HandleInput(func(ev ui.InputEvent) bool {
 				switch ev.Kind {
 				case ui.InputScroll:
@@ -160,10 +160,6 @@ func tableHoverAxes(t *leaf, x, y float32) (row, col int) {
 		col = c
 	}
 	return row, col
-}
-
-func labelForIndex(format string, oneBased int) string {
-	return fmt.Sprintf(format, oneBased)
 }
 
 func tableRowIndexAt(t *leaf, y float32) int {

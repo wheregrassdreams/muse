@@ -41,6 +41,37 @@ func TestWikiSuggestionsFilterAndAcceptWithKeyboard(t *testing.T) {
 	h.want("[[at]]")
 }
 
+func TestWikiSuggestionsMatchAliasesAndKeepCanonicalTarget(t *testing.T) {
+	h := newHarness(t, "")
+	h.e.opts.WikiLinkSuggestionDetails = func(string) []WikiSuggestion {
+		return []WikiSuggestion{
+			{Target: "Projects/Atlas/Overview", Title: "Project Overview", Aliases: []string{"Atlas launch plan"}},
+			{Target: "Notes/Other", Title: "Other note"},
+		}
+	}
+	h.typ("[")
+	h.typ("[")
+	h.typ("launch")
+	if !h.e.wikiPopup.open || len(h.e.wikiPopup.items) != 1 || h.e.wikiPopup.items[0] != "Projects/Atlas/Overview" {
+		t.Fatalf("alias query did not resolve canonical target: %+v", h.e.wikiPopup)
+	}
+	h.key(0, ui.KeyEnter)
+	h.want("[[Projects/Atlas/Overview]]")
+}
+
+func TestWikiSuggestionPopupShowsTitleAndVaultPath(t *testing.T) {
+	h := newHarness(t, "")
+	h.e.opts.WikiLinkSuggestionDetails = func(string) []WikiSuggestion {
+		return []WikiSuggestion{{Target: "Projects/Atlas/Overview", Title: "Project Overview"}}
+	}
+	h.typ("[")
+	h.typ("[")
+	h.frame()
+	if !h.tt.HasText("Project Overview") || !h.tt.HasText("Projects/Atlas/Overview") {
+		t.Fatalf("popup did not show indexed title and canonical path: %q", h.tt.Texts())
+	}
+}
+
 func TestWikiSuggestionsEscapeAndManualCloser(t *testing.T) {
 	h := newHarness(t, "")
 	h.e.opts.WikiLinkSuggestions = func(string) []string { return []string{"Target"} }

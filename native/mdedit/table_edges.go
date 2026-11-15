@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"github.com/egoist/mygo/ui"
+	"muse/locales"
 	"muse/mdoc"
 	"strings"
 	"time"
@@ -60,8 +61,8 @@ func (e *Editor) tableEdgesView(c *ui.Context, viewport ui.Rect, pointer ui.Poin
 		e.tableSelectionHandlesView(c, viewport, pointer)
 		return
 	}
-	for _, t := range e.leaves {
-		if e.foldHidden(t) {
+	for _, t := range e.paintVisibleSpan(e.scroll.Y-32, e.scroll.Y+viewport.H+32) {
+		if t.kind != kTable || e.foldHidden(t) {
 			continue
 		}
 		if t.geom == nil || t.tab == nil || len(t.geom.rowY) == 0 {
@@ -71,13 +72,13 @@ func (e *Editor) tableEdgesView(c *ui.Context, viewport ui.Rect, pointer ui.Poin
 		w, h := t.geom.w, t.geom.rowY[len(t.geom.rowY)-1]
 		for _, column := range []bool{false, true} {
 			r := ui.Rect{X: x, Y: y + h - 6, W: w, H: 24}
-			label := "在下方新增行"
+			label := locales.EditorAddRowBelow()
 			if column {
 				if x+w > viewport.X+t.x+tableViewportWidth(t)+1 {
 					continue
 				}
 				r = ui.Rect{X: x + w - 6, Y: y, W: 24, H: h}
-				label = "在右侧新增列"
+				label = locales.EditorAddColumnRight()
 			}
 			trigger := r
 			// Only the visible capsule takes clicks. The gap between it and

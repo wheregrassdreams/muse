@@ -1,12 +1,22 @@
 package mdedit
 
 import (
+	"muse/locales"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
+
+// tableCellDragState exists only for the lifetime of a pointer gesture.
+type tableCellDragState struct {
+	lineStart            int
+	anchorRow, anchorCol int
+	crossed              bool
+}
 
 // input takes the editor's input as it comes: keys, text typed, the edit
 // commands of the menus, and the pointer.
@@ -66,6 +76,15 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		}
 		return e.command(ev.Text)
 	case ui.InputPointerDown:
+		e.pointerX, e.pointerY = ev.X, ev.Y
+		if ev.Button == 1 {
+			e.layoutIfNeeded()
+			if hit, ok := e.imageAt(ev.X, ev.Y); ok && hit.obj != nil {
+				e.contextImagePath = hit.obj.imagePath
+			} else {
+				e.contextImagePath = ""
+			}
+		}
 		if ev.Button == 0 {
 			if i, ok := e.wikiSuggestionIndexAt(ev.X, ev.Y); ok {
 				e.acceptWikiSuggestion(i)
@@ -114,6 +133,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		}
 		if e.dragging {
 			e.dragging = false
+			e.tableCellDrag = nil
 			if e.frozen {
 				e.frozen = false
 				e.caret = e.normalize(e.caret, 1)
@@ -162,9 +182,7 @@ func (e *Editor) command(cmd string) bool {
 func (e *Editor) SelectAll() {
 	e.finishBlockInput()
 	e.block = nil
-	e.tableSelection = nil
-	e.tableBridge = nil
-	e.tableNavigation = nil
+	e.clearTableSelectionSession()
 	e.tableHandleDrag = nil
 	e.dropPhantom()
 	e.anchor, e.caret = 0, len(e.src)
@@ -428,9 +446,12 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	if ev.Button != 0 {
 		return false
 	}
+	e.modal.vimTextVisualActive = false
 	e.layoutIfNeeded()
 	x, y := ev.X, ev.Y
 	e.pointerX, e.pointerY = x, y
+	e.tableCellDrag = nil
+	e.tableDocumentRegion = nil
 	if h := e.foldChevronAt(x, y); h != nil {
 		e.toggleFold(h)
 		return true
@@ -499,6 +520,12 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	off := e.hitTest(x, y)
+	if ev.Clicks <= 1 && ev.Mods&(ui.Shift|ui.Cmd|ui.Ctrl|ui.Alt) == 0 {
+		if target, ok := e.footnoteTargetAt(off); ok {
+			e.NavigateToOffset(target, PageJumpNearest)
+			return true
+		}
+	}
 	if target, bounds := e.wikiLinkHoverAt(x, y, off); target != "" || e.opts.OnWikiLinkHover != nil && e.wikiHover != "" {
 		e.setWikiHover(target, x, y, bounds)
 	}
@@ -559,6 +586,9 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	}
 	e.dragging = true
 	e.hasGoal = false
+	if row, col, table := e.tableCellAtPoint(x, y); table != nil && ev.Clicks <= 1 {
+		e.tableCellDrag = &tableCellDragState{lineStart: table.lineStart, anchorRow: row, anchorCol: col}
+	}
 	if ev.Mods&ui.Shift == 0 {
 		e.clearTableSelection()
 	}
@@ -594,6 +624,24 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	e.frozen, e.frozenAt = true, e.caret
 	e.blinkStart = time.Now()
 	return true
+}
+
+func (e *Editor) footnoteTargetAt(off int) (int, bool) {
+	u := e.unitAt(off)
+	if u == nil || u.id < 0 || e.p.doc == nil {
+		return 0, false
+	}
+	for _, in := range e.p.doc.Inlines(u.id) {
+		if in.Kind != parser.FootnoteRef || off < in.Start || off > in.End {
+			continue
+		}
+		block, ok := e.p.doc.Footnote(in.Text)
+		if !ok {
+			return 0, false
+		}
+		return e.p.doc.Block(block).Start, true
+	}
+	return 0, false
 }
 
 // drag extends the selection to the pointer, by the unit the press chose,
@@ -641,6 +689,31 @@ func (e *Editor) drag(ev ui.InputEvent) bool {
 // element.
 func (e *Editor) dragTo(x, y float32) {
 	off := e.hitTest(x, y)
+	if capture := e.tableCellDrag; capture != nil {
+		if t := e.tableByLineStart(capture.lineStart); t != nil {
+			row, col, inside := tableCellIndexAt(t, x, y)
+			if inside {
+				if row != capture.anchorRow || col != capture.anchorCol {
+					capture.crossed = true
+				}
+				if capture.crossed {
+					if e.Keymap() == "vim" && (e.modal.mode == "Normal" || e.modal.mode == "Visual") {
+						e.modal.mode = "Visual"
+						e.selectionInclusive = false
+						e.selectionLinewise = false
+					}
+					e.selectTableCellRegion(t, capture.anchorRow, capture.anchorCol, row, col)
+					return
+				}
+			} else if capture.crossed {
+				if s := e.tableSelection; s != nil && s.cellRegion {
+					v := *s
+					e.tableDocumentRegion = &v
+				}
+				e.tableCellDrag = nil
+			}
+		}
+	}
 	if e.Keymap() == "vim" && (e.modal.mode == "Normal" || e.modal.mode == "Visual") && e.dragUnit == 0 {
 		off = e.vimPointerOffset(off, x, y)
 		e.modal.mode = "Visual"
@@ -666,6 +739,27 @@ func (e *Editor) dragTo(x, y float32) {
 		}
 	}
 	e.structuralSelectionForRange()
+}
+
+func (e *Editor) tableCellAtPoint(x, y float32) (row, col int, table *leaf) {
+	for _, candidate := range e.leaves {
+		if candidate.kind != kTable || candidate.tab == nil || candidate.geom == nil {
+			continue
+		}
+		if row, col, ok := tableCellIndexAt(candidate, x, y); ok {
+			return row, col, candidate
+		}
+	}
+	return 0, 0, nil
+}
+
+func (e *Editor) tableByLineStart(lineStart int) *leaf {
+	for _, candidate := range e.leaves {
+		if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == lineStart {
+			return candidate
+		}
+	}
+	return nil
 }
 
 // autoScroll scrolls the view while a drag holds the pointer above or below
@@ -955,7 +1049,7 @@ func (e *Editor) codeLabelAt(x, y float32) *leaf {
 			continue
 		}
 		if y >= l.y && y <= l.y+e.lk.size*1.4 && x >= l.x+l.w-e.lk.size*6 && x <= l.x+l.w {
-			if l.lang != "" || e.leafAt(e.caret) == l {
+			if l.language() != "" || e.leafAt(e.caret) == l {
 				return l
 			}
 		}
@@ -1045,25 +1139,37 @@ func (e *Editor) linkRectAt(x, y float32, link Range) (ui.Rect, bool) {
 
 // menu builds the editor's context menu.
 func (e *Editor) menu(m *ui.Menu) {
+	// Context menus are opened at the pointer position; keep the hit image across
+	// menu construction and item selection, which may move the pointer to a row.
+	e.layoutIfNeeded()
+	if imagePath := e.contextImagePath; imagePath != "" {
+		if m.Item(locales.CommonCopyAction()).Chosen() {
+			e.copyImageObject(imagePath)
+		}
+		if m.Item(locales.ImagePreviewTitle()).Chosen() && e.opts.OnImagePreview != nil {
+			e.opts.OnImagePreview(imagePath)
+		}
+		return
+	}
 	a, z := e.selection()
-	if m.Item("剪切").Shortcut(ui.Cmd, ui.KeyX).Disabled(a == z).Chosen() {
+	if m.Item(locales.CommonCutAction()).Shortcut(ui.Cmd, ui.KeyX).Disabled(a == z).Chosen() {
 		e.Cut()
 	}
-	if m.Item("复制").Shortcut(ui.Cmd, ui.KeyC).Disabled(a == z).Chosen() {
+	if m.Item(locales.CommonCopyAction()).Shortcut(ui.Cmd, ui.KeyC).Disabled(a == z).Chosen() {
 		e.Copy()
 	}
-	if m.Item("粘贴").Shortcut(ui.Cmd, ui.KeyV).Chosen() {
+	if m.Item(locales.CommonPasteAction()).Shortcut(ui.Cmd, ui.KeyV).Chosen() {
 		e.Paste(false)
 	}
-	if m.Item("粘贴为纯文本").Shortcut(ui.Cmd|ui.Shift, ui.KeyV).Chosen() {
+	if m.Item(locales.CommonPastePlainText()).Shortcut(ui.Cmd|ui.Shift, ui.KeyV).Chosen() {
 		e.Paste(true)
 	}
 	m.Separator()
 	if url := e.linkAt(e.caret); url != "" {
-		if m.Item("打开链接").Chosen() && e.opts.OnLink != nil {
+		if m.Item(locales.CommonOpenLinkAction()).Chosen() && e.opts.OnLink != nil {
 			e.opts.OnLink(url)
 		}
-		if m.Item("复制链接地址").Chosen() {
+		if m.Item(locales.CommonCopyLinkAddress()).Chosen() {
 			if e.opts.WriteClipboard != nil {
 				e.opts.WriteClipboard(textData(url))
 			} else {
@@ -1073,15 +1179,15 @@ func (e *Editor) menu(m *ui.Menu) {
 		m.Separator()
 	}
 	if t, _, _ := e.cellPos(e.caret); t != nil {
-		m.Submenu("表格", func(m *ui.Menu) {
+		m.Submenu(locales.EditorTableMenu(), func(m *ui.Menu) {
 			for _, it := range []struct{ label, cmd string }{
-				{"在上方插入行", "rowAbove"}, {"在下方插入行", "rowBelow"}, {"删除行", "deleteRow"},
+				{locales.EditorInsertRowAbove(), "rowAbove"}, {locales.EditorInsertRowBelow(), "rowBelow"}, {locales.EditorDeleteRow(), "deleteRow"},
 				{"", ""},
-				{"在左侧插入列", "colLeft"}, {"在右侧插入列", "colRight"}, {"删除列", "deleteCol"},
+				{locales.EditorInsertColumnLeft(), "colLeft"}, {locales.EditorInsertColumnRight(), "colRight"}, {locales.EditorDeleteColumn(), "deleteCol"},
 				{"", ""},
-				{"左对齐", "alignLeft"}, {"居中", "alignCenter"}, {"右对齐", "alignRight"},
+				{locales.EditorAlignLeft(), "alignLeft"}, {locales.EditorAlignCenter(), "alignCenter"}, {locales.EditorAlignRight(), "alignRight"},
 				{"", ""},
-				{"删除表格", "deleteTable"},
+				{locales.EditorDeleteTable(), "deleteTable"},
 			} {
 				if it.label == "" {
 					m.Separator()
@@ -1093,68 +1199,101 @@ func (e *Editor) menu(m *ui.Menu) {
 			}
 		})
 	}
-	m.Submenu("段落", func(m *ui.Menu) {
+	m.Submenu(locales.EditorParagraphMenu(), func(m *ui.Menu) {
 		lv := e.headingLevel()
+		headings := []string{locales.ParagraphHeading1(), locales.ParagraphHeading2(), locales.ParagraphHeading3(), locales.ParagraphHeading4(), locales.ParagraphHeading5(), locales.ParagraphHeading6()}
 		for i := 1; i <= 6; i++ {
-			if m.Item("标题 "+string(rune('0'+i))).Shortcut(ui.Cmd, ui.Key0+ui.Key(i)).Checked(lv == i).Chosen() {
+			if m.Item(headings[i-1]).Shortcut(ui.Cmd, ui.Key0+ui.Key(i)).Checked(lv == i).Chosen() {
 				e.SetHeading(i)
 			}
 		}
-		if m.Item("正文").Shortcut(ui.Cmd, ui.Key0).Checked(lv == 0).Chosen() {
+		if m.Item(locales.ParagraphBody()).Shortcut(ui.Cmd, ui.Key0).Checked(lv == 0).Chosen() {
 			e.SetHeading(0)
 		}
 		m.Separator()
-		if m.Item("引用").Shortcut(ui.Cmd|ui.Shift, ui.KeyQ).Chosen() {
+		if m.Item(locales.ParagraphQuote()).Shortcut(ui.Cmd|ui.Shift, ui.KeyQ).Chosen() {
 			e.ToggleQuote()
 		}
-		if m.Item("有序列表").Shortcut(ui.Cmd|ui.Shift, ui.KeyBracketLeft).Chosen() {
+		if m.Item(locales.ParagraphOrderedList()).Shortcut(ui.Cmd|ui.Shift, ui.KeyBracketLeft).Chosen() {
 			e.ToggleList("1.")
 		}
-		if m.Item("无序列表").Shortcut(ui.Cmd|ui.Shift, ui.KeyBracketRight).Chosen() {
+		if m.Item(locales.ParagraphUnorderedList()).Shortcut(ui.Cmd|ui.Shift, ui.KeyBracketRight).Chosen() {
 			e.ToggleList("-")
 		}
-		if m.Item("任务列表").Chosen() {
+		if m.Item(locales.ParagraphTaskList()).Chosen() {
 			e.ToggleList("- [ ]")
 		}
 		m.Separator()
-		if m.Item("代码块").Shortcut(ui.Cmd|ui.Shift, ui.KeyK).Chosen() {
+		if m.Item(locales.ParagraphCodeBlock()).Shortcut(ui.Cmd|ui.Shift, ui.KeyK).Chosen() {
 			e.InsertCodeBlock()
 		}
-		if m.Item("公式块").Shortcut(ui.Cmd|ui.Shift, ui.KeyM).Chosen() {
+		if m.Item(locales.ParagraphMathBlock()).Shortcut(ui.Cmd|ui.Shift, ui.KeyM).Chosen() {
 			e.InsertMathBlock()
 		}
-		if m.Item("表格").Shortcut(ui.Cmd|ui.Alt, ui.KeyT).Chosen() {
+		if m.Item(locales.ParagraphTable()).Shortcut(ui.Cmd|ui.Alt, ui.KeyT).Chosen() {
 			e.InsertTable(3, 3)
 		}
-		if m.Item("分隔线").Chosen() {
+		if m.Item(locales.ParagraphRule()).Chosen() {
 			e.InsertRule()
 		}
 	})
-	m.Submenu("格式", func(m *ui.Menu) {
-		if m.Item("加粗").Shortcut(ui.Cmd, ui.KeyB).Chosen() {
+	m.Submenu(locales.EditorFormatMenu(), func(m *ui.Menu) {
+		if m.Item(locales.FormatBold()).Shortcut(ui.Cmd, ui.KeyB).Chosen() {
 			e.ToggleBold()
 		}
-		if m.Item("斜体").Shortcut(ui.Cmd, ui.KeyI).Chosen() {
+		if m.Item(locales.FormatItalic()).Shortcut(ui.Cmd, ui.KeyI).Chosen() {
 			e.ToggleItalic()
 		}
-		if m.Item("下划线").Shortcut(ui.Cmd, ui.KeyU).Chosen() {
+		if m.Item(locales.FormatUnderline()).Shortcut(ui.Cmd, ui.KeyU).Chosen() {
 			e.ToggleUnderline()
 		}
-		if m.Item("删除线").Shortcut(ui.Cmd|ui.Shift, ui.KeyX).Chosen() {
+		if m.Item(locales.FormatStrike()).Shortcut(ui.Cmd|ui.Shift, ui.KeyX).Chosen() {
 			e.ToggleStrike()
 		}
-		if m.Item("行内代码").Shortcut(ui.Cmd, ui.KeyE).Chosen() {
+		if m.Item(locales.FormatInlineCode()).Shortcut(ui.Cmd, ui.KeyE).Chosen() {
 			e.ToggleCode()
 		}
-		if m.Item("高亮").Shortcut(ui.Cmd|ui.Shift, ui.KeyH).Chosen() {
+		if m.Item(locales.FormatHighlight()).Shortcut(ui.Cmd|ui.Shift, ui.KeyH).Chosen() {
 			e.ToggleHighlight()
 		}
-		if m.Item("链接").Shortcut(ui.Cmd, ui.KeyK).Chosen() {
+		if m.Item(locales.FormatLink()).Shortcut(ui.Cmd, ui.KeyK).Chosen() {
 			e.InsertLink()
 		}
 	})
 	m.Separator()
-	if m.Item("全选").Shortcut(ui.Cmd, ui.KeyA).Chosen() {
+	if m.Item(locales.CommonSelectAllAction()).Shortcut(ui.Cmd, ui.KeyA).Chosen() {
 		e.SelectAll()
 	}
 }
+
+// copyImageObject writes an image embed to the Markdown clipboard format. A
+// subsequent paste in Muse therefore creates an internal image link and keeps
+// the original image file untouched.
+func (e *Editor) copyImageObject(path string) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+	target := filepath.Base(path)
+	if root := strings.TrimSpace(e.opts.AssetRoot); root != "" {
+		if rel, err := filepath.Rel(root, path); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			target = filepath.ToSlash(rel)
+		}
+	}
+	target = strings.ReplaceAll(target, "|", "\\|")
+	target = strings.ReplaceAll(target, "]", "\\]")
+	md := "![[" + target + "]]"
+	data := transfer.New(transfer.NewItem(
+		transfer.Bytes(transfer.Text, []byte(md)),
+		transfer.Bytes(transfer.Markdown, []byte(md)),
+	))
+	if e.opts.WriteClipboard != nil {
+		e.opts.WriteClipboard(data)
+	} else {
+		e.services.WriteClipboardData(data)
+	}
+}
+
+// CopyImageObject places an image embed in the Markdown clipboard format so
+// pasting into another Muse note keeps referring to the original asset.
+func (e *Editor) CopyImageObject(path string) { e.copyImageObject(path) }

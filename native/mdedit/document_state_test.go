@@ -102,8 +102,8 @@ func checkSound(t *testing.T, name string, step int, e *Editor) {
 		t.Fatalf("%s step %d: comments %v, want %v", name, step, got, want)
 	}
 	wantMask := parserText(blankComments(maskFrontMatter(e.src, e.p.fm), e.p.comments))
-	if string(e.p.mask) != wantMask {
-		t.Fatalf("%s step %d: the parser's source is %q, want %q", name, step, e.p.mask, wantMask)
+	if got := e.p.maskedSource(); got != wantMask {
+		t.Fatalf("%s step %d: the parser's source is %q, want %q", name, step, got, wantMask)
 	}
 	prev := -1
 	seen := map[int]bool{}

@@ -1,12 +1,14 @@
 package mdedit
 
 import (
+	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 
 	"muse/appearance"
 	"muse/mdoc"
@@ -207,6 +209,7 @@ const (
 type leafView struct {
 	disp   display
 	layout *textlayout.Layout
+	params viewParams
 	// empty tells a layout of nothing: shaped from a space, for its height.
 	empty bool
 	// tx and ty place the layout in the leaf's box.
@@ -237,27 +240,47 @@ type leafView struct {
 	used          uint64
 }
 
+// hasImageAsset reports whether keeping this layout alive also keeps decoded
+// pixels alive. Image assets have their own bounded process-wide cache, so an
+// offscreen leaf should not retain another copy through the editor's view LRU.
+func (v *leafView) hasImageAsset() bool {
+	if v == nil {
+		return false
+	}
+	if v.block != nil && v.block.asset != nil {
+		return true
+	}
+	for _, piece := range v.disp.pieces {
+		if piece.obj != nil && piece.obj.asset != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // viewKey is what a leaf's view is made of: views of the same key are the
 // same, and the editor keeps them across frames.
 type viewKey struct {
-	typedBreaks string
-	kind        leafKind
-	level       int
-	flags       uint8
-	width       float32
-	reveal      int
-	mathRange   [2]int
-	selection   [2]int
-	blockRev    uint64
-	compose     string
-	composeAt   int
-	text        string
-	look        lookKey
-	assets      uint64
-	linkRev     uint64
-	linkContext string
-	hoverLink   Range
-	align       parser.Align
+	typedBreaks         string
+	kind                leafKind
+	level               int
+	flags               uint8
+	width               float32
+	reveal              int
+	headingMarkerReveal bool
+	mathRange           [2]int
+	selection           [2]int
+	sourceReveal        uint64
+	blockRev            uint64
+	compose             string
+	composeAt           int
+	text                string
+	look                lookKey
+	assets              uint64
+	linkRev             uint64
+	linkContext         string
+	hoverLink           Range
+	align               parser.Align
 }
 
 // viewParams is what a view depends on besides the leaf's text. A leaf
@@ -265,30 +288,32 @@ type viewKey struct {
 // (see sameLeaf), which is what makes laying out an edited document cost
 // nothing for the leaves the edit did not touch.
 type viewParams struct {
-	typedBreaks string
-	kind        leafKind
-	level       int
-	flags       uint8
-	width       float32
-	reveal      int
-	mathRange   [2]int
-	selection   [2]int
-	blockRev    uint64
-	compose     string
-	composeAt   int
-	look        lookKey
-	assets      uint64
-	linkRev     uint64
-	linkContext string
-	hoverLink   Range
-	align       parser.Align
+	typedBreaks         string
+	kind                leafKind
+	level               int
+	flags               uint8
+	width               float32
+	reveal              int
+	headingMarkerReveal bool
+	mathRange           [2]int
+	selection           [2]int
+	sourceReveal        uint64
+	blockRev            uint64
+	compose             string
+	composeAt           int
+	look                lookKey
+	assets              uint64
+	linkRev             uint64
+	linkContext         string
+	hoverLink           Range
+	align               parser.Align
 }
 
 func (k *viewKey) params() viewParams {
 	return viewParams{
 		typedBreaks: k.typedBreaks,
 		kind:        k.kind, level: k.level, flags: k.flags, width: k.width,
-		reveal: k.reveal, mathRange: k.mathRange, selection: k.selection, blockRev: k.blockRev, compose: k.compose, composeAt: k.composeAt,
+		reveal: k.reveal, headingMarkerReveal: k.headingMarkerReveal, mathRange: k.mathRange, selection: k.selection, sourceReveal: k.sourceReveal, blockRev: k.blockRev, compose: k.compose, composeAt: k.composeAt,
 		look: k.look, assets: k.assets, linkRev: k.linkRev, linkContext: k.linkContext, hoverLink: k.hoverLink, align: k.align,
 	}
 }
@@ -376,13 +401,14 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 		hoverLink = e.hoverLink
 	}
 	k := viewKey{
-		typedBreaks: e.typedBreakKey(l),
-		kind:        l.kind,
-		level:       l.level,
-		flags:       e.leafFlags(l, header),
-		width:       width,
-		reveal:      reveal,
-		look:        e.lk.key(),
+		typedBreaks:         e.typedBreakKey(l),
+		kind:                l.kind,
+		level:               l.level,
+		flags:               e.leafFlags(l, header),
+		width:               width,
+		reveal:              reveal,
+		headingMarkerReveal: e.opts.HeadingMarkerReveal,
+		look:                e.lk.key(),
 		blockRev: func() uint64 {
 			if e.block != nil {
 				return e.block.revision
@@ -405,6 +431,7 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	if a, z := e.textSelectionForUnit(l); a != z && a < l.end && z > l.lineStart {
 		k.selection = [2]int{max(a, l.lineStart) - l.lineStart, min(z, l.end) - l.lineStart}
 	}
+	k.sourceReveal = e.sourceRevealFingerprint(l.lineStart, blockEnd(e.src, l))
 	// Leaves can meet at the caret: a heading and the empty paragraph Enter
 	// opens after it end and start at the same offset. Only the unit the
 	// caret is in shows the composition, just as only it shows the caret.
@@ -416,15 +443,16 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 	// The leaf's own view is the one it had the last time it was laid out:
 	// a leaf the edit did not change keeps it, and its text is not hashed
 	// again for the cache below.
-	if settle && l.view != nil && l.vp == p {
+	if settle && l.view != nil && l.view.params == p {
 		l.view.used = e.frame
 		return l.view
 	}
 	k.text = viewText(e.src, l)
 	if v, ok := e.views[k]; ok {
 		v.used = e.frame
+		v.params = p
 		if settle {
-			l.view, l.vp = v, p
+			l.view = v
 		}
 		return v
 	}
@@ -448,10 +476,13 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align parser.Align,
 		v = e.textView(l, width, at, withCompose, header, align)
 	}
 	v.used = e.frame
+	v.params = p
 	if settle {
-		l.view, l.vp = v, p
+		l.view = v
 	}
-	e.views[k] = v
+	if !v.hasImageAsset() {
+		e.views[k] = v
+	}
 	return v
 }
 
@@ -533,13 +564,20 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 			b.finish(l.end)
 		}
 	default:
-		ins := e.p.doc.Inlines(l.id)
+		ins := e.viewInlines(l)
 		b.alone = aloneImage(ins, e.src)
 		b.starts, b.cell = e.lineStarts(l.id), l.table != nil
 		// A heading's `#`s are chrome, hidden like every other block marker —
-		// but the caret on the line shows them, as Obsidian's live preview
-		// does, so the level can be edited in place.
-		if l.kind == kHeading && !l.pending && (at >= l.lineStart && at <= l.end || selectionReveals(e, l.lineStart, l.end, false)) {
+		// but the caret in its source prefix shows them, so the level can be
+		// edited in place. In the optional boundary mode, the first heading
+		// character itself stays rendered as a heading; moving left onto the
+		// separating space reveals the prefix and exposes its source positions.
+		revealHeading := at >= l.lineStart && at <= l.end
+		if e.opts.HeadingMarkerReveal {
+			emptyHeading := !l.pending && strings.TrimSpace(e.src[l.start:l.end]) == ""
+			revealHeading = emptyHeading || at >= l.lineStart && at < l.start
+		}
+		if l.kind == kHeading && !l.pending && (revealHeading || sourceRangeTargeted(e, l.lineStart, l.end, false)) {
 			b.marker(l.lineStart, l.start, st)
 		}
 		prefixVisible := false
@@ -676,12 +714,14 @@ func (e *Editor) codeFont() ui.Font {
 
 // isMermaid reports whether l is a fenced block of Mermaid.
 func isMermaid(l *leaf) bool {
-	return l.kind == kCode && l.fenced && strings.EqualFold(l.lang, "mermaid")
+	return l.kind == kCode && l.fenced && strings.EqualFold(l.language(), "mermaid")
 }
 
 // codeView lays out a block of code: its lines, highlighted, in a panel,
 // with its fence's info string above them while the caret is there.
 func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *leafView {
+	codeLines := l.codeLines()
+	codeRanges, codeStart, codeEnd, compactCode := codeLayoutRanges(codeLines, at)
 	f := e.codeFont()
 	padX, padY := e.lk.size*codePadX, e.lk.size*codePadY
 	inner := max(width-2*padX, 40)
@@ -692,7 +732,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		inner = max(width, 40)
 		b.width = inner
 	}
-	v := &leafView{panel: !l.whole, tx: padX, ty: padY, label: l.lang}
+	v := &leafView{panel: !l.whole, tx: padX, ty: padY, label: l.language()}
 	if l.whole {
 		v.label = ""
 	}
@@ -702,28 +742,54 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	// as it does in the file — a source that stops at the last line of code
 	// is half a fence.
 	open := e.codeFenceSourceShown(l)
-	infoLine := l.fenced && caretIn && b.reveal >= l.infoStart && b.reveal <= l.infoEnd
+	infoLine := l.fenced && caretIn && b.reveal >= l.infoStartOffset() && b.reveal <= l.infoEndOffset()
 	fenceShown := open || infoLine
+	var mermaidDiagram *mdoc.Diagram
+	if !open && !caretIn && isMermaid(l) && !compactCode {
+		if d, ok := mdoc.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
+			mermaidDiagram = &d
+		}
+	}
 	if fenceShown {
 		mark := ui.Span{Color: e.lk.marker}
-		fence := strings.TrimLeft(e.src[l.lineStart:l.fenceEnd], " \t>")
-		b.deco(l.infoStart, fence, mark, nil)
-		b.spanRun(l.infoStart, l.infoEnd, ui.Span{Color: e.lk.muted})
-		if len(l.lines) > 0 {
-			b.spanAtom(l.infoEnd, l.lines[0].off, "\n", plain)
+		fence := strings.TrimLeft(e.src[l.lineStart:l.fenceEndOffset()], " \t>")
+		b.deco(l.infoStartOffset(), fence, mark, nil)
+		b.spanRun(l.infoStartOffset(), l.infoEndOffset(), ui.Span{Color: e.lk.muted})
+		if len(codeLines) > 0 {
+			b.spanAtom(l.infoEndOffset(), codeLines[0].off, "\n", plain)
 		}
 		// Only the caret on the fence itself is the block's editing state;
 		// a block opened by its control keeps its tag and its diagram
 		// control.
 		v.reveal = infoLine
 	}
-	lang := editor.LanguageNamed(l.lang)
+	lang := editor.LanguageNamed(l.language())
 	var state uint64
 	var toks []editor.Token
-	for k, ln := range l.lines {
-		if k > 0 {
-			prev := l.lines[k-1]
-			b.spanAtom(prev.off+len(prev.text), ln.off, "\n", plain)
+	previousEnd, previousLine, wroteCode := codeStart, -1, false
+	for k, ln := range codeLines {
+		lineEnd := ln.off + len(ln.text)
+		if compactCode && !codeLineInRanges(ln, codeRanges) {
+			continue
+		}
+		if !wroteCode {
+			if ln.off > codeStart {
+				b.spanAtom(codeStart, ln.off, codeOmittedLabel(ln.off-codeStart), ui.Span{Color: e.lk.muted})
+			}
+		} else if k == previousLine+1 {
+			b.spanAtom(previousEnd, ln.off, "\n", plain)
+		} else if ln.off > previousEnd {
+			b.spanAtom(previousEnd, ln.off, codeOmittedLabel(ln.off-previousEnd), ui.Span{Color: e.lk.muted})
+		}
+		wroteCode = true
+		previousEnd, previousLine = lineEnd, k
+		if len(ln.text) > maxShapedCodeLineBytes {
+			appendCodeLineWindow(b, ln, at, plain, ui.Span{Color: e.lk.muted})
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(l.language()), "mermaid") && (open || caretIn || mermaidDiagram == nil) {
+			renderSourceTokens(b, ln.off, ln.text, mermaidSourceTokens(ln.text), plain)
+			continue
 		}
 		if lang == nil || lang.Tokenizer == nil {
 			b.codeRun(ln.off, ln.off+len(ln.text), plain)
@@ -750,6 +816,9 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 		}
 		b.codeRun(ln.off+at, ln.off+len(ln.text), plain)
 	}
+	if compactCode && wroteCode && previousEnd < codeEnd {
+		b.spanAtom(previousEnd, codeEnd, codeOmittedLabel(codeEnd-previousEnd), ui.Span{Color: e.lk.muted})
+	}
 	if fenceShown && l.fenced {
 		// The closing fence is part of the source while the block is open.
 		// Keep its real source range so the caret and selections can occupy
@@ -775,19 +844,100 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	v.font = f
 	_, th := v.layout.Size()
 	v.h = th + 2*padY
-	if !open && !caretIn && isMermaid(l) {
-		if d, ok := mdoc.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
-			v.diagram = &d
-			v.h = d.Height(width) + 2*padY
-		}
+	if mermaidDiagram != nil {
+		v.diagram = mermaidDiagram
+		v.h = mermaidDiagram.Height(width) + 2*padY
 	}
 	return v
+}
+
+const maxShapedCodeLineBytes = 4096
+const maxShapedCodeBlockBytes = 16 << 10
+
+type codeLayoutRange struct{ start, end int }
+
+func codeLayoutRanges(lines []line, caret int) (ranges []codeLayoutRange, start, end int, compact bool) {
+	if len(lines) == 0 {
+		return nil, 0, 0, false
+	}
+	start = lines[0].off
+	last := lines[len(lines)-1]
+	end = last.off + len(last.text)
+	if end-start <= maxShapedCodeBlockBytes {
+		return []codeLayoutRange{{start, end}}, start, end, false
+	}
+	half := maxShapedCodeBlockBytes / 2
+	if caret >= start && caret <= end {
+		windowStart := max(start, caret-half)
+		windowEnd := min(end, windowStart+maxShapedCodeBlockBytes)
+		windowStart = max(start, windowEnd-maxShapedCodeBlockBytes)
+		return []codeLayoutRange{{windowStart, windowEnd}}, start, end, true
+	}
+	return []codeLayoutRange{{start, start + half}, {end - half, end}}, start, end, true
+}
+
+func codeLineInRanges(ln line, ranges []codeLayoutRange) bool {
+	lineEnd := ln.off + len(ln.text)
+	for _, r := range ranges {
+		if ln.off < r.end && lineEnd > r.start || len(ln.text) == 0 && ln.off >= r.start && ln.off < r.end {
+			return true
+		}
+	}
+	return false
+}
+
+func codeOmittedLabel(byteCount int) string {
+	return fmt.Sprintf("… %d source bytes omitted …", byteCount)
+}
+
+// appendCodeLineWindow keeps opaque, unbroken code payloads editable without
+// asking CoreText to allocate per-glyph layout state for the entire source.
+// The caret gets a window around its source offset; otherwise the display
+// keeps both ends and marks the omitted range as one source atom.
+func appendCodeLineWindow(b *builder, ln line, caret int, text, muted ui.Span) {
+	sourceLen := len(ln.text)
+	window := min(sourceLen, maxShapedCodeLineBytes)
+	if caret < ln.off || caret > ln.off+sourceLen {
+		prefixEnd := window / 2
+		suffixStart := sourceLen - (window - prefixEnd)
+		for !utf8.RuneStart(ln.text[prefixEnd]) {
+			prefixEnd--
+		}
+		for suffixStart < sourceLen && !utf8.RuneStart(ln.text[suffixStart]) {
+			suffixStart++
+		}
+		b.codeRun(ln.off, ln.off+prefixEnd, text)
+		if suffixStart > prefixEnd {
+			b.spanAtom(ln.off+prefixEnd, ln.off+suffixStart,
+				fmt.Sprintf(" … %d source bytes omitted … ", suffixStart-prefixEnd), muted)
+		}
+		b.codeRun(ln.off+suffixStart, ln.off+sourceLen, text)
+		return
+	}
+	center := caret - ln.off
+	start := max(0, center-window/2)
+	end := min(sourceLen, start+window)
+	start = max(0, end-window)
+	for start > 0 && !utf8.RuneStart(ln.text[start]) {
+		start--
+	}
+	for end < sourceLen && !utf8.RuneStart(ln.text[end]) {
+		end++
+	}
+	if start > 0 {
+		b.spanAtom(ln.off, ln.off+start, "…", muted)
+	}
+	b.codeRun(ln.off+start, ln.off+end, text)
+	if end < sourceLen {
+		label := fmt.Sprintf(" … %d source bytes omitted … ", sourceLen-end-start)
+		b.spanAtom(ln.off+end, ln.off+sourceLen, label, muted)
+	}
 }
 
 // codeText returns the text of a code or math leaf's lines.
 func (e *Editor) codeText(l *leaf) string {
 	var sb strings.Builder
-	for k, ln := range l.lines {
+	for k, ln := range l.codeLines() {
 		if k > 0 {
 			sb.WriteByte('\n')
 		}
@@ -800,13 +950,13 @@ func (e *Editor) codeText(l *leaf) string {
 // typeset formula while the caret is in it.
 func (e *Editor) mathView(l *leaf, width float32, at int, withCompose bool) *leafView {
 	caretIn := at >= 0
-	selectionIn := selectionReveals(e, l.lineStart, blockEnd(e.src, l), false)
+	sourceTargeted := sourceRangeTargeted(e, l.lineStart, blockEnd(e.src, l), false)
 	tex := e.codeText(l)
 	obj := e.mathBlockObject(tex, 0)
-	if selectionIn && !caretIn {
+	if sourceTargeted && !caretIn {
 		return e.markdownBlockSourceView(l, width)
 	}
-	if !caretIn && !selectionIn {
+	if !caretIn && !sourceTargeted {
 		v := &leafView{block: obj}
 		if obj == nil {
 			// Nothing to typeset, or TeX the typesetter cannot read: its
@@ -849,13 +999,16 @@ func (e *Editor) markdownBlockSourceView(l *leaf, width float32) *leafView {
 func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *leafView {
 	html := e.codeText(l)
 	obj := e.htmlImageObject(html, width)
-	selectionIn := obj == nil && selectionReveals(e, l.lineStart, blockEnd(e.src, l), false)
+	sourceTargeted := sourceRangeTargeted(e, l.lineStart, blockEnd(e.src, l), false)
 	if obj != nil {
 		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = l.start, l.end, imageSyntaxHTML
 		obj.width = obj.w
 		e.applyImagePreview(obj, l.start, l.end)
-		if at < 0 {
+		if at < 0 && !sourceTargeted {
 			return &leafView{block: obj, bx: (width - obj.w) / 2, h: obj.h}
+		}
+		if at < 0 {
+			return e.linesView(l, width, at, withCompose, false)
 		}
 		v := e.linesView(l, width, at, withCompose, false)
 		gap := e.lk.size * 0.5
@@ -863,7 +1016,7 @@ func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *lea
 		v.h += obj.h + gap
 		return v
 	}
-	if at < 0 && !selectionIn {
+	if at < 0 && !sourceTargeted {
 		if v := e.htmlTextView(l, width); v != nil {
 			return v
 		}
@@ -908,12 +1061,16 @@ func (e *Editor) linesView(l *leaf, width float32, at int, withCompose, panel bo
 	if panel {
 		sp.Color = e.lk.text
 	}
-	for k, ln := range l.lines {
+	for k, ln := range l.codeLines() {
 		if k > 0 {
-			prev := l.lines[k-1]
+			prev := l.codeLines()[k-1]
 			b.spanAtom(prev.off+len(prev.text), ln.off, "\n", sp)
 		}
-		b.codeRun(ln.off, ln.off+len(ln.text), sp)
+		if l.kind == kMath {
+			renderSourceTokens(b, ln.off, ln.text, latexSourceTokens(ln.text), sp)
+		} else {
+			b.codeRun(ln.off, ln.off+len(ln.text), sp)
+		}
 	}
 	b.finish(l.end)
 	b.ensure(l.start)
@@ -928,7 +1085,7 @@ func (e *Editor) linesView(l *leaf, width float32, at int, withCompose, panel bo
 // ruleView lays out a thematic break: a line, or its source while the
 // caret is at it.
 func (e *Editor) ruleView(l *leaf, width float32, at int, withCompose bool) *leafView {
-	if at < 0 && !selectionReveals(e, l.lineStart, blockEnd(e.src, l), false) {
+	if at < 0 && !sourceRangeTargeted(e, l.lineStart, blockEnd(e.src, l), false) {
 		return &leafView{h: e.lk.size * 1.2}
 	}
 	f := ui.Font{Family: e.lk.font, Size: e.lk.size, LineHeight: e.lk.lh}
@@ -1022,6 +1179,7 @@ func tightAfter(prev, l *leaf) bool {
 // the rest an estimated height: the text of a large document is not
 // shaped off screen, where nobody reads it.
 func (e *Editor) layoutDoc(x, width float32, virtual bool) {
+	e.virtualIndexReady = false
 	// Only the real caret starts a session. Speculative navigation views
 	// must be pure projections and must not replace the editing interval.
 	e.activeInlineMath()
@@ -1040,51 +1198,86 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 	if rebuildRail {
 		e.railLeaves = e.railLeaves[:0]
 	}
+	if !e.visibleIndexReady || e.visibleIndexRev != e.rev || e.visibleIndexFolds != e.foldRevision {
+		e.visibleLeaves = e.visibleLeaves[:0]
+		// This index contains at most one pointer per source leaf. Reserve its
+		// final size once so a large document does not repeatedly copy the
+		// growing pointer array while building the first layout.
+		if cap(e.visibleLeaves) < len(e.leaves) {
+			e.visibleLeaves = make([]*leaf, 0, len(e.leaves))
+		}
+		for _, l := range e.leaves {
+			if e.foldHidden(l) {
+				l.y = -1e6
+				continue
+			}
+			e.visibleLeaves = append(e.visibleLeaves, l)
+		}
+		e.visibleIndexRev, e.visibleIndexFolds, e.visibleIndexReady = e.rev, e.foldRevision, true
+	}
 	y := e.padTop
 	var prev *leaf
 	var previousBlock *leaf
 	previousBlockEnd := float32(0)
 	prevBottom := float32(0)
 	s := e.lk.size
-	for _, l := range e.leaves {
-		if e.foldHidden(l) {
-			l.y = -1e6
-			continue
-		}
+	for _, l := range e.visibleLeaves {
 		if rebuildRail && l.kind == kHeading && !l.pending {
 			e.railLeaves = append(e.railLeaves, l)
 		}
-		ind := e.indentOf(l.conts)
-		prefixOpen := e.containerPrefixOpen(l)
-		if e.quotePrefixOpen(l) {
-			if prefixOpen {
+		// Empty source lines outside containers are common in long prose: a
+		// Markdown paragraph contributes one after every block. They need only
+		// one line of height and no shaping, so skip the container, margin and
+		// estimate checks below for this hot case.
+		if l.kind == kBlank && len(l.conts) == 0 && l.start == l.end && !e.composing {
+			l.x, l.w = x, max(width, 60)
+			l.h, l.view, l.y = s*e.lk.lh, nil, y
+			y += l.h
+			prev, prevBottom = l, 0
+			continue
+		}
+		ind := float32(0)
+		if len(l.conts) > 0 {
+			ind = e.indentOf(l.conts)
+			prefixOpen := e.containerPrefixOpen(l)
+			if e.quotePrefixOpen(l) {
+				if prefixOpen {
+					ind = 0
+				} else {
+					ind = max(ind-e.quotePrefixShift(l), 0)
+				}
+			} else if prefixOpen {
 				ind = 0
-			} else {
-				ind = max(ind-e.quotePrefixShift(l), 0)
 			}
-		} else if prefixOpen {
-			ind = 0
 		}
 		l.x = x + ind
 		l.w = max(width-ind, 60)
 		if l.kind == kBlank {
-			// A blank line is one line, whatever its own paragraph would
-			// shape to: no margins, nothing to shape, no text to draw — but
-			// for the text the input method composes on it, which is drawn
-			// in the line's own view while it is being composed.
+			// A blank line is one line, with no margins. Its source whitespace
+			// is shaped only while the caret is on it, so it stays visually blank
+			// at rest but still gives the caret a real position while editing.
 			l.h, l.view = s*e.lk.lh, nil
 			if e.quotePrefixOpen(l) {
 				l.view = e.view(l, l.w, false, parser.AlignNone)
 				l.h = max(l.h, l.view.h)
-			} else if e.composing && e.caret == l.start {
+			} else if (l.end > l.start && e.caret >= l.start && e.caret <= l.end) || (e.composing && e.caret == l.start) {
+				// Shape source whitespace only while editing that blank line.
+				// This preserves a visible caret position within spaces without
+				// turning whitespace-only Markdown into a paragraph elsewhere.
 				l.view = e.view(l, l.w, false, parser.AlignNone)
+				l.h = max(l.h, l.view.h)
 			}
 			l.y = y
 			y += l.h
 			prev, prevBottom = l, 0
 			continue
 		}
-		top, bottom := e.margins(l)
+		top, bottom := float32(0), float32(0)
+		if l.kind == kPara && len(l.conts) == 0 && len(l.firstOf) == 0 {
+			top, bottom = s*0.5, s*0.5
+		} else {
+			top, bottom = e.margins(l)
+		}
 		tight := prev != nil && tightAfter(prev, l)
 		if prev == nil {
 			// Blank lines before the first block are lines too — pressing
@@ -1128,7 +1321,7 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		// The height this leaf is expected to take, until it is shaped:
 		// the one it had where it was last laid out, or an estimate.
 		est := l.h
-		if l.view != nil && l.vp.width == l.w && l.vp.look == lk && l.vp.assets == assets {
+		if l.view != nil && l.view.params.width == l.w && l.view.params.look == lk && l.view.params.assets == assets {
 			est = l.view.h
 		}
 		if est <= 0 {
@@ -1146,9 +1339,35 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			// The cells are laid out below, once the table has its y.
 			l.h = est
 		case show:
-			l.view = e.view(l, l.w, false, parser.AlignNone)
-			l.h = l.view.h
+			imageCandidate := l.view.hasImageAsset() || leafMayContainImage(e.src, l)
+			outsideViewport := at > e.scroll.Y+e.viewH || at+max(est, s) < e.scroll.Y
+			if virtual && imageCandidate && outsideViewport {
+				// Keep text layout prefetched, but don't start an image read/decode
+				// until the image is on screen. A semaphore limits active decoders,
+				// yet every prefetched asset still creates a waiting goroutine and
+				// pins its source until that job completes.
+				l.view = nil
+				l.h = est
+				break
+			}
+			view := e.view(l, l.w, false, parser.AlignNone)
+			l.h = view.h
+			if view.hasImageAsset() &&
+				(at > e.scroll.Y+e.viewH || at+max(view.h, s) < e.scroll.Y) {
+				// Text views are cheap to keep in the shaped band, but a view can
+				// own a full decoded bitmap. Prefetch its geometry and let the
+				// process-wide byte-bounded image LRU own the asset until it enters
+				// the actual viewport.
+				l.view = nil
+			} else {
+				l.view = view
+			}
 		default:
+			if l.view.hasImageAsset() {
+				// Keep decoded pixels only while this image is inside the virtual
+				// layout band. Revisited images can reuse the bounded asset LRU.
+				l.view = nil
+			}
 			l.h = est
 		}
 		if l.kind == kHTML && l.h == 0 {
@@ -1183,6 +1402,12 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 	// gives the scroll bar its range: every leaf that comes into view is
 	// shaped, and takes its exact height.
 	e.docH = y + e.padBottom
+	if virtual {
+		e.captureVirtualLayoutIndex()
+		// Height corrections above can expose more of the viewport after the
+		// first pass. Converge it without another document-wide layout pass.
+		e.layoutVirtualBand()
+	}
 	if rebuildRail {
 		e.railRev = e.rev
 		// The preview tells a heading's text and the first lines of its
@@ -1211,6 +1436,24 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			e.railHover = -1
 		}
 	}
+}
+
+// leafMayContainImage is a cheap preflight for leaves in the virtual layout
+// band. It avoids constructing a display view (and therefore starting image
+// loads) for likely image syntax outside the actual viewport. The scan stays
+// within a candidate leaf and never walks the whole source document.
+func leafMayContainImage(src string, l *leaf) bool {
+	if l == nil || l.start < 0 || l.end > len(src) || l.start >= l.end {
+		return false
+	}
+	switch l.kind {
+	case kPara, kHeading, kHTML, kRaw:
+	default:
+		return false
+	}
+	text := src[l.start:l.end]
+	return strings.Contains(text, "![") || strings.Contains(text, "![[") ||
+		strings.Contains(text, "<img") || strings.Contains(text, "<IMG")
 }
 
 // estimateHeight returns the height to give a leaf that is not shaped.
@@ -1255,10 +1498,10 @@ func (e *Editor) linesEstimate(l *leaf, width, s float32) float32 {
 	// A monospaced character takes about 0.6 of the code font's size.
 	perLine := max(width/(s*0.875*0.6), 8)
 	total := 0
-	for _, ln := range l.lines {
+	for _, ln := range l.codeLines() {
 		total += len(ln.text)
 	}
-	visual := max(len(l.lines), int(math.Ceil(float64(total)/float64(perLine))))
+	visual := max(len(l.codeLines()), int(math.Ceil(float64(total)/float64(perLine))))
 	return float32(max(visual, 1)) * s * 0.875 * 1.6
 }
 
@@ -1387,6 +1630,27 @@ func (e *Editor) pruneViews() {
 		if e.frame-v.used > 240 {
 			delete(e.views, k)
 		}
+	}
+	if !e.virtualLayout() {
+		return
+	}
+	// Removing an entry from the lookup cache does not release its view if a
+	// leaf still points at it. Large virtual documents keep every visited leaf
+	// in memory, so detach stale views once they are well outside the viewport.
+	// Keep a few screens around for quick back-and-forth scrolling and always
+	// retain the caret's view. The next visit can still recover a view from the
+	// cache if it remains there, or reshape it otherwise.
+	margin := max(e.viewH*2, e.lk.size*24)
+	keepTop, keepBottom := e.scroll.Y-margin, e.scroll.Y+e.viewH+margin
+	for _, l := range e.visibleLeaves {
+		v := l.view
+		if v == nil || e.frame-v.used <= 240 || l.y+l.h >= keepTop && l.y <= keepBottom {
+			continue
+		}
+		if e.caret >= leafLo(e, l) && e.caret <= l.end {
+			continue
+		}
+		l.view = nil
 	}
 }
 

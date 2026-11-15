@@ -108,6 +108,29 @@ func TestSmartTypographyFallbackAndOptOut(t *testing.T) {
 	}
 }
 
+func TestSmartTypographyBoundsBeforeBuildingRunes(t *testing.T) {
+	spans := []ui.Span{{Text: strings.Repeat("a", 4097)}}
+	if count, ok := boundedRuneCount(spans, 4096); ok || count != 4097 {
+		t.Fatalf("boundedRuneCount = (%d, %v), want (4097, false)", count, ok)
+	}
+
+	font, shape := ui.Font{Size: 16}, ui.TextShape{Width: 320}
+	native := ui.ShapeRichTextWith(spans, font, shape)
+	smart := Shape(spans, font, shape, true)
+	if len(smart.segments) != 0 {
+		t.Fatal("oversized paragraph used smart layout")
+	}
+	if got, want := smart.Lines(), native.Lines(); len(got) != len(want) {
+		t.Fatalf("native fallback line count = %d, want %d", len(got), len(want))
+	}
+
+	var cache Cache
+	cache.Shape(spans, font, shape)
+	if len(cache.entries) != 0 || cache.units != 0 {
+		t.Fatalf("oversized paragraph retained in typography cache: entries=%d units=%d", len(cache.entries), cache.units)
+	}
+}
+
 func TestExplicitNewlineGeometryAndSelection(t *testing.T) {
 	const text = "first line\nsecond line"
 	l := Shape([]ui.Span{{Text: text}}, ui.Font{Size: 16}, ui.TextShape{Width: 300}, true)

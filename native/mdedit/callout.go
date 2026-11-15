@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 
 	"muse/appearance"
 )
@@ -55,15 +55,18 @@ func calloutColor(a parser.Alert, accent ui.Color, dark bool) ui.Color {
 // isCalloutContainer containers from ordinary quotation bars.
 func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 	type card struct {
-		c       cont
-		x, y, z float32
+		c             cont
+		x, y, z       float32
+		headerEditing bool
 	}
 	var cards []*card
 	byID := map[int]*card{}
-	for _, l := range e.leaves {
-		if e.foldHidden(l) {
-			continue
-		}
+	vis := p.Visible()
+	top, bottom := vis.Y-oy-40, vis.Y-oy+vis.H+40
+	// Only leaves that can contribute pixels to this frame are needed here.
+	// A callout that extends beyond the viewport is clipped by the painter, so
+	// its visible portion can be accumulated from the visible leaves alone.
+	for _, l := range e.paintVisibleSpan(top, bottom) {
 		x := e.colX
 		for _, c := range l.conts {
 			if isCalloutContainer(c) {
@@ -77,8 +80,16 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 			}
 			x += e.indentOf([]cont{c})
 		}
+		if c, _, ok := e.calloutHeader(l); ok {
+			if v := byID[c.id]; v != nil {
+				v.headerEditing = e.calloutHeaderSourceOpen(l)
+			}
+		}
 	}
 	for _, v := range cards {
+		if v.z < top || v.y > bottom {
+			continue
+		}
 		col := calloutColor(v.c.alert, e.lk.accent, e.lk.dark)
 		alpha := float32(.1)
 		if e.lk.dark {
@@ -97,17 +108,7 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 				col = ui.RGB(185, 145, 255)
 			}
 		}
-		headerEditing := false
-		for _, l := range e.leaves {
-			if e.foldHidden(l) {
-				continue
-			}
-			if c, _, ok := e.calloutHeader(l); ok && c.id == v.c.id {
-				headerEditing = e.calloutHeaderSourceOpen(l)
-				break
-			}
-		}
-		if !headerEditing {
+		if !v.headerEditing {
 			paintCalloutIcon(p, ox+v.x+e.lk.size*1.4, oy+v.y+e.lk.size*.5, e.lk.size, col, v.c.alert == parser.AlertWarning || v.c.alert == parser.AlertCaution)
 			p.RichText(ox+v.x+e.lk.size*2.8, oy+v.y+e.lk.size*.45, e.colW-(v.x-e.colX)-e.lk.size*4.2, ui.Span{Text: v.c.title, Color: col, Size: e.lk.size, Weight: 600})
 		}
@@ -139,7 +140,7 @@ func (e *Editor) calloutHeaderSourceOpenAt(l *leaf, caret int) bool {
 		return false
 	}
 	return caret >= l.lineStart && caret <= end ||
-		selectionTouchesSourceRange(e, l.lineStart, end)
+		sourceRangeTargeted(e, l.lineStart, end, false)
 }
 
 func (e *Editor) projectCalloutHeader(b *builder, l *leaf, at int) {

@@ -25,6 +25,16 @@ type cachedLayout struct {
 func (c *Cache) Clear() { c.entries, c.units = nil, 0 }
 
 func (c *Cache) Shape(spans []ui.Span, font ui.Font, shape ui.TextShape) *Layout {
+	// UTF-8 uses at most three bytes per UTF-16 code unit. Larger text cannot
+	// fit the retained cache's 4096-unit limit, so bypass both cache lookup and
+	// text measurement. Shape has its own bounded smart-layout preflight.
+	byteCount := 0
+	for _, span := range spans {
+		if len(span.Text) > 3*4096-byteCount {
+			return Shape(spans, font, shape, true)
+		}
+		byteCount += len(span.Text)
+	}
 	for i, entry := range c.entries {
 		if entry.font == font && entry.shape == shape && reflect.DeepEqual(entry.spans, spans) {
 			copy(c.entries[1:i+1], c.entries[:i])

@@ -42,7 +42,7 @@ func TestHorizontalScrollCoreKeepsIndependentBlockState(t *testing.T) {
 	e.setBlockHorizontal(mathLeaf, 0)
 	e.setBlockHorizontal(tableLeaf, 0)
 
-	codeOffset := codeLeaf.lines[0].off + 40
+	codeOffset := codeLeaf.codeLines()[0].off + 40
 	codeCaret, ok := e.caretRect(codeOffset)
 	if !ok {
 		t.Fatal("long code caret has no geometry")

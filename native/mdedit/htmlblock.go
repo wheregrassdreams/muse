@@ -267,7 +267,7 @@ func htmlBlockDisplay(b *builder, l *leaf) {
 		}
 	}
 
-	for k, ln := range l.lines {
+	for k, ln := range l.codeLines() {
 		if k > 0 && skip == "" {
 			// The line break between lines is whitespace, unless <pre>
 			// keeps it.

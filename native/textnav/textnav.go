@@ -4,6 +4,7 @@ package textnav
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"unicode"
 	"unicode/utf8"
@@ -99,12 +100,68 @@ func WarmUp() error {
 // WarmUpIfNeeded starts one background dictionary load when text contains Han.
 // It is safe to call while opening documents or handling source insertions.
 func WarmUpIfNeeded(text string) {
-	for _, r := range text {
-		if unicode.Is(unicode.Han, r) {
-			asyncWarmOnce.Do(func() { go func() { _ = WarmUp() }() })
-			return
-		}
+	if ready, _ := DefaultStatus(); ready {
+		return
 	}
+	if containsHanContent(text) {
+		asyncWarmOnce.Do(func() { go func() { _ = WarmUp() }() })
+	}
+}
+
+// containsHanContent skips valid Base64 image payloads, which are opaque
+// ASCII data and cannot contain text that benefits from the Han dictionary.
+// Searching for the delimiter first lets strings.Index jump across a large
+// encoded payload instead of classifying every byte in it.
+func containsHanContent(text string) bool {
+	if !strings.Contains(text, "data:image/") {
+		return containsHanString(text)
+	}
+	for len(text) > 0 {
+		start := strings.Index(text, "data:image/")
+		if start < 0 {
+			return containsHanString(text)
+		}
+		if containsHanString(text[:start]) {
+			return true
+		}
+		rest := text[start:]
+		comma := strings.IndexByte(rest, ',')
+		if comma < 0 || comma > 256 || !strings.Contains(rest[:comma], ";base64") {
+			return containsHanString(rest)
+		}
+		body := rest[comma+1:]
+		end := strings.IndexByte(body, ')')
+		if i := strings.IndexByte(body, '\r'); i >= 0 && (end < 0 || i < end) {
+			end = i
+		}
+		if i := strings.IndexByte(body, '\n'); i >= 0 && (end < 0 || i < end) {
+			end = i
+		}
+		if end < 0 {
+			return containsHanString(rest)
+		}
+		text = body[end+1:]
+	}
+	return false
+}
+
+// containsHanString skips the common ASCII path without decoding a rune or
+// consulting the Unicode tables for every byte. Large pasted payloads are
+// usually ASCII and should not pay a full Unicode classification pass just to
+// decide whether Chinese navigation needs its dictionary warmed.
+func containsHanString(text string) bool {
+	for i := 0; i < len(text); {
+		if text[i] < utf8.RuneSelf {
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+		i += size
+	}
+	return false
 }
 
 // DefaultStatus reports whether the packaged dictionary has finished loading

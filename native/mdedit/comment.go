@@ -34,7 +34,12 @@ func commentRegions(src string) []cmt {
 			inFence = !inFence
 		} else if !inFence {
 			for p := ls; p+1 < le; {
-				if src[p] != '%' || src[p+1] != '%' || escapedAt(src, p) {
+				next := strings.IndexByte(src[p:le], '%')
+				if next < 0 {
+					break
+				}
+				p += next
+				if p+1 >= le || src[p+1] != '%' || escapedAt(src, p) {
 					p++
 					continue
 				}

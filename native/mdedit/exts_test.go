@@ -3,7 +3,7 @@ package mdedit
 import (
 	"testing"
 
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 func TestNumericTagsAreNotReferences(t *testing.T) {

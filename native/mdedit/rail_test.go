@@ -195,3 +195,20 @@ func TestRailCurrentFollowsViewport(t *testing.T) {
 		t.Fatalf("the current tick is %d after scrolling to heading 4, want 4", cur)
 	}
 }
+
+func TestDenseRailMergesOnlyContiguousMatchingTicks(t *testing.T) {
+	ys := []float32{0, 0.5, 1, 1.5, 2, 2.5, 3}
+	scales := []float32{0.25, 0.25, 1, 0.25, 0.25, 0.25, 0.25}
+	if end := railRunEnd(ys, scales, 0, 2, -1); end != 2 {
+		t.Fatalf("first dense tick run ends at %d, want 2", end)
+	}
+	if end := railRunEnd(ys, scales, 2, 2, -1); end != 3 {
+		t.Fatalf("highlighted tick run ends at %d, want 3", end)
+	}
+	if end := railRunEnd(ys, scales, 3, 2, -1); end != len(ys) {
+		t.Fatalf("last dense tick run ends at %d, want %d", end, len(ys))
+	}
+	if end := railRunEnd([]float32{0, 3}, []float32{0.25, 0.25}, 0, -1, -1); end != 1 {
+		t.Fatalf("separated ticks were merged through a gap: end=%d", end)
+	}
+}

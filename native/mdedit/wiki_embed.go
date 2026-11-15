@@ -2,6 +2,7 @@ package mdedit
 
 import (
 	"fmt"
+	"muse/locales"
 	"path/filepath"
 	"strings"
 )
@@ -34,7 +35,7 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 	}
 	if containsEmbedPath(stack, path) {
 		return &object{
-			embedBlocked: "循环嵌入已阻止：" + filepath.Base(path),
+			embedBlocked: locales.EditorCircularEmbedBlocked(filepath.Base(path)),
 			w:            max(width, 80),
 			h:            e.lk.size * 2.4,
 			block:        true,
@@ -59,7 +60,8 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 			MaxWidth:               width,
 			BaseDir:                baseDir,
 			AssetRoot:              e.opts.AssetRoot,
-			Invalidate:             e.opts.Invalidate,
+			ResolveImage:           e.opts.ResolveImage,
+			Invalidate:             e.invalidateEmbeddedLayout,
 			ResolveWikiEmbed:       e.opts.ResolveWikiEmbed,
 			ResolveWikiLink:        e.opts.ResolveWikiLink,
 			CurrentPath:            path,
@@ -83,6 +85,7 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 	child.opts.CurrentPath = path
 	child.opts.BaseDir = baseDir
 	child.opts.AssetRoot = e.opts.AssetRoot
+	child.opts.ResolveImage = e.opts.ResolveImage
 	child.opts.LinkRevision = e.opts.LinkRevision
 	child.opts.LinkContext = path
 	pad := e.lk.size * 0.55
@@ -100,8 +103,23 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 	child.focused = false
 	child.leavesLaid = false
 	child.layoutDoc(0, contentWidth, false)
+	// Embedded notes are measured and painted as one atomic object. Their
+	// viewport must cover that complete measured body as well: leaving the
+	// previous placeholder height here lets child.paint's layoutIfNeeded
+	// virtualize the lower image leaves out of a host object that already
+	// reserves the full child height.
+	child.viewH = max(child.docH, e.lk.size*4)
 	h := max(child.docH, e.lk.size*1.7) + 2*pad
 	return &object{embed: child, w: width, h: h, block: true}
+}
+
+// invalidateEmbeddedLayout makes changes in a read-only embedded editor part
+// of its host's layout key. Images inside an embed load asynchronously and
+// change the embed's measured height; repainting only the child can otherwise
+// leave the host's cached object at its placeholder height and clip the image.
+func (e *Editor) invalidateEmbeddedLayout() {
+	e.assetGen.Add(1)
+	e.invalidate()
 }
 
 func canonicalEmbedPath(path string) string {

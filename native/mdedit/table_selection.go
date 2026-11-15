@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown/parser"
+	"muse/mdedit/internal/parser"
 )
 
 type tableAxis uint8
@@ -15,21 +15,27 @@ const (
 	tableRows tableAxis = iota + 1
 	tableColumns
 	tableWhole
+	tableCells
 )
 
 // tableSelection is a semantic selection. first/last are inclusive row or
 // column indexes; a table selection uses the whole table.
 type tableSelection struct {
 	lineStart int
-	axis      tableAxis
-	first     int
-	last      int
-	anchor    int
-	active    int
-	activeRow int
-	right     bool
-	fromText  bool
-	textMode  string
+	// Cell coordinates are the canonical active table region. axis/first/last
+	// remain compatibility fields for structural operations and legacy callers.
+	anchorRow, anchorCol int
+	focusRow, focusCol   int
+	cellRegion           bool
+	axis                 tableAxis
+	first                int
+	last                 int
+	anchor               int
+	active               int
+	activeRow            int
+	right                bool
+	fromText             bool
+	textMode             string
 }
 
 type tableContentBridge struct {
@@ -53,12 +59,14 @@ type tableNavigationState struct {
 	selectionInclusive bool
 	selectionLinewise  bool
 	structure          *tableSelection
+	documentRegion     *tableSelection
 	bridge             *tableContentBridge
 }
 
 type tableNavigationStep struct {
 	before, after tableNavigationState
-	dir           int
+	rowDelta      int
+	colDelta      int
 }
 
 func (e *Editor) tableNavigationState() tableNavigationState {
@@ -66,6 +74,10 @@ func (e *Editor) tableNavigationState() tableNavigationState {
 	if e.tableSelection != nil {
 		v := *e.tableSelection
 		s.structure = &v
+	}
+	if e.tableDocumentRegion != nil {
+		v := *e.tableDocumentRegion
+		s.documentRegion = &v
 	}
 	if e.tableBridge != nil {
 		v := *e.tableBridge
@@ -75,10 +87,10 @@ func (e *Editor) tableNavigationState() tableNavigationState {
 }
 
 func sameTableNavigationState(a, b tableNavigationState) bool {
-	if a.mode != b.mode || a.anchor != b.anchor || a.caret != b.caret || a.selectionInclusive != b.selectionInclusive || a.selectionLinewise != b.selectionLinewise || (a.structure == nil) != (b.structure == nil) || (a.bridge == nil) != (b.bridge == nil) {
+	if a.mode != b.mode || a.anchor != b.anchor || a.caret != b.caret || a.selectionInclusive != b.selectionInclusive || a.selectionLinewise != b.selectionLinewise || (a.structure == nil) != (b.structure == nil) || (a.documentRegion == nil) != (b.documentRegion == nil) || (a.bridge == nil) != (b.bridge == nil) {
 		return false
 	}
-	return (a.structure == nil || *a.structure == *b.structure) && (a.bridge == nil || *a.bridge == *b.bridge)
+	return (a.structure == nil || *a.structure == *b.structure) && (a.documentRegion == nil || *a.documentRegion == *b.documentRegion) && (a.bridge == nil || *a.bridge == *b.bridge)
 }
 
 func (e *Editor) restoreTableNavigation(s tableNavigationState) {
@@ -87,6 +99,7 @@ func (e *Editor) restoreTableNavigation(s tableNavigationState) {
 	e.selectionInclusive = s.selectionInclusive
 	e.selectionLinewise = s.selectionLinewise
 	e.tableSelection, e.tableBridge = nil, nil
+	e.tableDocumentRegion = nil
 	if s.structure != nil {
 		v := *s.structure
 		e.tableSelection = &v
@@ -95,16 +108,57 @@ func (e *Editor) restoreTableNavigation(s tableNavigationState) {
 		v := *s.bridge
 		e.tableBridge = &v
 	}
+	if s.documentRegion != nil {
+		v := *s.documentRegion
+		e.tableDocumentRegion = &v
+	}
 	e.hasGoal = false
 	e.wantReveal = true
 	e.blinkStart = time.Now()
 	e.invalidate()
 }
 
+// replayTableNavigation restores the complete prior selection state when the
+// latest cell transition is followed by its inverse direction.
+func (e *Editor) replayTableNavigation(rowDelta, colDelta int) bool {
+	if len(e.tableNavigation) == 0 {
+		return false
+	}
+	before := e.tableNavigationState()
+	n := len(e.tableNavigation)
+	step := e.tableNavigation[n-1]
+	if sameTableNavigationState(before, step.after) && rowDelta == -step.rowDelta && colDelta == -step.colDelta {
+		e.tableNavigation = e.tableNavigation[:n-1]
+		e.restoreTableNavigation(step.before)
+		return true
+	}
+	if !sameTableNavigationState(before, step.after) {
+		e.tableNavigation = nil
+	}
+	return false
+}
+
+func (e *Editor) recordTableNavigation(before tableNavigationState, rowDelta, colDelta int) {
+	after := e.tableNavigationState()
+	if sameTableNavigationState(before, after) {
+		return
+	}
+	if before.structure == nil && before.documentRegion == nil && before.bridge == nil && after.structure == nil && after.documentRegion == nil && after.bridge == nil && len(e.tableNavigation) == 0 {
+		return
+	}
+	e.tableNavigation = append(e.tableNavigation, tableNavigationStep{before: before, after: after, rowDelta: rowDelta, colDelta: colDelta})
+}
+
 // selectionFocus is the active variant's focus, never the dormant text head.
 func (e *Editor) selectionFocus() int {
 	s, t := e.tableSelection, e.tableSelectionLeaf()
 	if s != nil && t != nil {
+		if s.axis == tableCells {
+			row := max(0, min(s.focusRow, len(t.tab.rows)-1))
+			col := max(0, min(s.focusCol, len(t.tab.rows[row])-1))
+			cell := t.tab.rows[row][col]
+			return cell.start
+		}
 		if s.axis == tableWhole {
 			if s.right {
 				return blockEnd(e.src, t)
@@ -127,11 +181,13 @@ func (e *Editor) selectionFocus() int {
 }
 
 type tableRegister struct {
-	axis   tableAxis
-	rows   [][]string
-	align  []parser.Align
-	header []string // source header when the selected rows exclude it
-	whole  bool
+	axis         tableAxis
+	rows         [][]string
+	align        []parser.Align
+	header       []string // source header when the selected rows exclude it
+	whole        bool
+	region       bool // rows are an arbitrary rectangular cell matrix
+	sourceHeader bool
 }
 
 type tableBlockInsert struct {
@@ -151,6 +207,39 @@ func (e *Editor) tableSelectionLeaf() *leaf {
 		}
 	}
 	return nil
+}
+
+// tablePositionAtSource maps parser-owned table line boundaries to structural
+// coordinates. The source offset identifies a parsed line only; row and cell
+// shape still come from the table projection, never from pipe or cell text.
+func (e *Editor) tablePositionAtSource(t *leaf, off int) (row, col int, ok bool) {
+	if t == nil || t.tab == nil || len(t.tab.rows) == 0 {
+		return 0, 0, false
+	}
+	lines := e.tableLines(t)
+	for line, span := range lines {
+		if off < span[0] || off > span[1] {
+			continue
+		}
+		row = 0
+		switch {
+		case line == 0 || line == 1:
+			// The separator belongs to the header boundary.
+			row = 0
+		default:
+			row = line - 1
+		}
+		row = max(0, min(row, len(t.tab.rows)-1))
+		return row, 0, len(t.tab.rows[row]) > 0
+	}
+	if off == t.lineStart {
+		return 0, 0, len(t.tab.rows[0]) > 0
+	}
+	if off == blockEnd(e.src, t) {
+		row = len(t.tab.rows) - 1
+		return row, max(0, len(t.tab.rows[row])-1), len(t.tab.rows[row]) > 0
+	}
+	return 0, 0, false
 }
 
 func (e *Editor) selectTableAxis(t *leaf, axis tableAxis, first, last int, extend bool) {
@@ -185,7 +274,19 @@ func (e *Editor) selectTableAxis(t *leaf, axis tableAxis, first, last int, exten
 		first = min(anchor, last)
 		last = max(anchor, last)
 	}
-	e.tableSelection = &tableSelection{lineStart: t.lineStart, axis: axis, first: first, last: last, anchor: anchor, active: active, activeRow: 0, right: true, textMode: e.modal.mode}
+	s := &tableSelection{lineStart: t.lineStart, axis: axis, first: first, last: last, anchor: anchor, active: active, activeRow: 0, right: true, textMode: e.modal.mode}
+	s.anchorRow, s.focusRow, s.anchorCol, s.focusCol = 0, 0, 0, 0
+	switch axis {
+	case tableRows:
+		s.anchorRow, s.focusRow = anchor, active
+		s.anchorCol, s.focusCol = 0, max(0, t.tab.cols()-1)
+	case tableColumns:
+		s.anchorRow, s.focusRow = 0, max(0, len(t.tab.rows)-1)
+		s.anchorCol, s.focusCol = anchor, active
+	case tableWhole:
+		s.focusRow, s.focusCol = max(0, len(t.tab.rows)-1), max(0, t.tab.cols()-1)
+	}
+	e.tableSelection = s
 	e.tableBridge = nil
 	if axis == tableRows {
 		e.tableSelection.activeRow = active
@@ -195,6 +296,54 @@ func (e *Editor) selectTableAxis(t *leaf, axis tableAxis, first, last int, exten
 	e.wantReveal = true
 	e.blinkStart = time.Now()
 	e.invalidate()
+}
+
+// selectTableCellRegion updates the one active table selection using parser
+// cell coordinates. It intentionally leaves ordinary text endpoints dormant.
+func (e *Editor) selectTableCellRegion(t *leaf, anchorRow, anchorCol, focusRow, focusCol int) bool {
+	if t == nil || t.tab == nil || len(t.tab.rows) == 0 || t.tab.cols() == 0 {
+		return false
+	}
+	anchorRow = max(0, min(anchorRow, len(t.tab.rows)-1))
+	focusRow = max(0, min(focusRow, len(t.tab.rows)-1))
+	anchorCol = max(0, min(anchorCol, t.tab.cols()-1))
+	focusCol = max(0, min(focusCol, t.tab.cols()-1))
+	e.clearTableSelectionSession()
+	// The region owns table presentation while the document endpoints retain
+	// any selected text outside the table. Clear incompatible linewise/text flags.
+	e.selectionInclusive = false
+	e.selectionLinewise = false
+	e.modal.line = false
+	top, bottom := min(anchorRow, focusRow), max(anchorRow, focusRow)
+	left, right := min(anchorCol, focusCol), max(anchorCol, focusCol)
+	axis, first, last := tableCells, top, bottom
+	switch {
+	case top == 0 && left == 0 && bottom == len(t.tab.rows)-1 && right == t.tab.cols()-1:
+		axis, first, last = tableWhole, 0, len(t.tab.rows)-1
+	case left == 0 && right == t.tab.cols()-1:
+		axis, first, last = tableRows, top, bottom
+	case top == 0 && bottom == len(t.tab.rows)-1:
+		axis, first, last = tableColumns, left, right
+	}
+	compatAnchor, compatActive := anchorCol, focusCol
+	if axis == tableRows || axis == tableWhole {
+		compatAnchor, compatActive = anchorRow, focusRow
+	}
+	e.tableSelection = &tableSelection{lineStart: t.lineStart, axis: axis, anchorRow: anchorRow, anchorCol: anchorCol, focusRow: focusRow, focusCol: focusCol, cellRegion: true, first: first, last: last, anchor: compatAnchor, active: compatActive, activeRow: focusRow, right: true, textMode: e.modal.mode}
+	e.tableBridge = nil
+	if !e.tableNavigating {
+		e.tableNavigation = nil
+	}
+	e.wantReveal = true
+	e.invalidate()
+	return true
+}
+
+func (e *Editor) tableSelectionCellRegion(s *tableSelection) (tableCellRegion, bool) {
+	if s == nil || !s.cellRegion {
+		return tableCellRegion{}, false
+	}
+	return tableCellRegion{lineStart: s.lineStart, anchorRow: s.anchorRow, anchorCol: s.anchorCol, focusRow: s.focusRow, focusCol: s.focusCol}, true
 }
 
 // tableHorizontalTransition exposes adjacent cell text first. Continuing to
@@ -311,26 +460,15 @@ func (e *Editor) tableHorizontalTransition(dir int) bool {
 // instead of reconstructing a selection from a whole-row content range.
 func (e *Editor) moveHorizontal(dir int, extend bool) {
 	before := e.tableNavigationState()
-	if n := len(e.tableNavigation); n > 0 {
-		step := e.tableNavigation[n-1]
-		if sameTableNavigationState(before, step.after) && dir == -step.dir {
-			e.tableNavigation = e.tableNavigation[:n-1]
-			e.restoreTableNavigation(step.before)
-			return
-		}
-		if !sameTableNavigationState(before, step.after) {
-			e.tableNavigation = nil
-		}
+	if e.replayTableNavigation(0, dir) {
+		return
 	}
 	e.tableNavigating = true
 	defer func() { e.tableNavigating = false }()
 	if !e.tableHorizontalTransition(dir) {
 		e.setCaret(e.step(e.caret, dir, false), extend)
 	}
-	after := e.tableNavigationState()
-	if !sameTableNavigationState(before, after) && (before.structure != nil || before.bridge != nil || after.structure != nil || after.bridge != nil || len(e.tableNavigation) > 0) {
-		e.tableNavigation = append(e.tableNavigation, tableNavigationStep{before: before, after: after, dir: dir})
-	}
+	e.recordTableNavigation(before, 0, dir)
 }
 
 func (e *Editor) tableSelectionSourceRange(t *leaf, s *tableSelection) (int, int, bool) {
@@ -339,6 +477,17 @@ func (e *Editor) tableSelectionSourceRange(t *leaf, s *tableSelection) (int, int
 	}
 	if s.axis == tableWhole || s.axis == tableColumns && s.first == 0 && s.last == t.tab.cols()-1 {
 		return t.lineStart, blockEnd(e.src, t), true
+	}
+	if s.cellRegion && s.axis == tableCells {
+		r, ok := e.tableSelectionCellRegion(s)
+		if !ok {
+			return 0, 0, false
+		}
+		top, left, bottom, right := r.bounds()
+		if top >= len(t.tab.rows) || bottom >= len(t.tab.rows) || left >= len(t.tab.rows[top]) || right >= len(t.tab.rows[bottom]) {
+			return 0, 0, false
+		}
+		return t.tab.rows[top][left].start, t.tab.rows[bottom][right].end, true
 	}
 	if s.axis == tableRows {
 		lines := e.tableLines(t)
@@ -387,11 +536,18 @@ func (e *Editor) tableRowBoundary(t *leaf, row int, right bool) int {
 }
 
 func (e *Editor) tableSelectionContainsCell(t *leaf, row, col int) bool {
-	s := e.tableSelection
+	return tableSelectionContainsCell(e.tableSelection, t, row, col)
+}
+
+func tableSelectionContainsCell(s *tableSelection, t *leaf, row, col int) bool {
 	if s == nil || t == nil || s.lineStart != t.lineStart {
 		return false
 	}
 	switch s.axis {
+	case tableCells:
+		r := tableCellRegion{lineStart: s.lineStart, anchorRow: s.anchorRow, anchorCol: s.anchorCol, focusRow: s.focusRow, focusCol: s.focusCol}
+		top, left, bottom, right := r.bounds()
+		return row >= top && row <= bottom && col >= left && col <= right
 	case tableWhole:
 		return true
 	case tableRows:
@@ -437,7 +593,11 @@ func (e *Editor) tableSelectionCaretRect() (ui.Rect, bool) {
 	}
 	row := 0
 	x := tableContentX(t)
-	if s.axis == tableColumns {
+	if s.cellRegion {
+		row = max(0, min(s.focusRow, min(len(t.tab.rows), len(t.geom.rowY)-1)-1))
+		col := max(0, min(s.focusCol, len(t.geom.colX)-2))
+		x += t.geom.colX[col]
+	} else if s.axis == tableColumns {
 		col := max(0, min(s.active, len(t.geom.colX)-2))
 		if s.right {
 			col++
@@ -529,6 +689,7 @@ func (e *Editor) moveStructuralRow(dir int, extend bool) bool {
 func (e *Editor) structuralSelectionForRange() bool {
 	// Recompute from the current endpoints on every extended move. Keeping a
 	// previous structural state here made a shrinking selection stay structural.
+	suspended := cloneTableSelection(e.tableDocumentRegion)
 	e.tableSelection = nil
 	if e.anchor == e.caret {
 		return false
@@ -536,6 +697,21 @@ func (e *Editor) structuralSelectionForRange() bool {
 	for _, t := range e.leaves {
 		if t.kind != kTable || t.tab == nil {
 			continue
+		}
+		// A region suspended while the Visual caret was outside its table is
+		// part of the same selection session. Re-entering the table resumes it
+		// from the saved anchor and the parser-owned cell containing the caret;
+		// the document endpoints continue to own any text outside the table.
+		if suspended != nil && suspended.fromText && suspended.lineStart == t.lineStart && suspended.textMode == e.modal.mode {
+			focusTable, focusRow, focusCol, focusOK := e.tableCellAtSourceOffset(e.caret)
+			if focusOK && focusTable.lineStart == t.lineStart {
+				if e.selectTableCellRegion(t, suspended.anchorRow, suspended.anchorCol, focusRow, focusCol) {
+					e.tableSelection.fromText = suspended.fromText
+					e.tableSelection.textMode = suspended.textMode
+					e.tableDocumentRegion = nil
+					return true
+				}
+			}
 		}
 		lines := e.tableLines(t)
 		// A document selection can contain text and table structures together.
@@ -641,6 +817,18 @@ func (e *Editor) tableRegisterForSelection(t *leaf, s *tableSelection) *tableReg
 		return nil
 	}
 	r := &tableRegister{axis: s.axis, whole: s.axis == tableWhole || s.axis == tableRows && s.first == 0 && s.last == len(t.tab.rows)-1 || s.axis == tableColumns && s.first == 0 && s.last == t.tab.cols()-1}
+	if s.cellRegion {
+		region, ok := e.tableSelectionCellRegion(s)
+		if !ok {
+			return nil
+		}
+		matrix := e.tableCellMatrix(t, region)
+		if matrix == nil {
+			return nil
+		}
+		top, _, _, _ := region.bounds()
+		return &tableRegister{axis: s.axis, whole: r.whole, rows: matrix.cells, align: matrix.align, region: true, sourceHeader: top == 0}
+	}
 	if s.axis == tableRows || s.axis == tableWhole {
 		r.align = append([]parser.Align(nil), t.tab.align...)
 		if s.first > 0 && s.axis != tableWhole {
@@ -684,6 +872,35 @@ func (r *tableRegister) markdown() string {
 	}
 	var b strings.Builder
 	rows := r.rows
+	if r.region && len(rows) > 0 {
+		for i, row := range rows {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteByte('|')
+			for _, cell := range row {
+				b.WriteByte(' ')
+				b.WriteString(cell)
+				b.WriteString(" |")
+			}
+			if i == 0 {
+				b.WriteString("\n|")
+				for c := range row {
+					sep := "---"
+					switch alignAt(r.align, c) {
+					case parser.AlignLeft:
+						sep = ":---"
+					case parser.AlignCenter:
+						sep = ":---:"
+					case parser.AlignRight:
+						sep = "---:"
+					}
+					b.WriteString(" " + sep + " |")
+				}
+			}
+		}
+		return b.String()
+	}
 	if len(r.header) > 0 {
 		rows = append([][]string{r.header}, rows...)
 	}
@@ -716,6 +933,20 @@ func (r *tableRegister) markdown() string {
 	return b.String()
 }
 
+func (r *tableRegister) html() string {
+	if r == nil || !r.region || len(r.rows) == 0 {
+		return ""
+	}
+	html := parser.Parse(r.markdown()).HTML()
+	if !r.sourceHeader {
+		html = strings.ReplaceAll(html, "<th>", "<td>")
+		html = strings.ReplaceAll(html, "</th>", "</td>")
+		html = strings.ReplaceAll(html, "<thead>", "<tbody>")
+		html = strings.ReplaceAll(html, "</thead>", "</tbody>")
+	}
+	return html
+}
+
 // applyTableSelection performs a row or column edit in one undo step. The
 // parser remains the authority for whether the result is still a GFM table.
 func (e *Editor) applyTableSelection(op string) bool {
@@ -724,20 +955,56 @@ func (e *Editor) applyTableSelection(op string) bool {
 	if s == nil || t == nil {
 		return false
 	}
-	reg := e.tableRegisterForSelection(t, s)
-	e.modal.registerTable = reg
-	if reg != nil {
-		e.modal.register = reg.markdown()
-		e.modal.registerLine = true
+	if s.axis == tableCells {
+		region, ok := e.tableSelectionCellRegion(s)
+		if !ok {
+			return false
+		}
+		top, left, bottom, right := region.bounds()
+		fullRows := left == 0 && right == t.tab.cols()-1
+		fullColumns := top == 0 && bottom == len(t.tab.rows)-1
+		switch {
+		case fullRows && fullColumns:
+			s.axis, s.first, s.last = tableWhole, 0, len(t.tab.rows)-1
+		case fullRows:
+			s.axis, s.first, s.last = tableRows, top, bottom
+		case fullColumns:
+			s.axis, s.first, s.last = tableColumns, left, right
+		default:
+			if op != "y" {
+				e.modal.setTableRegister(e.tableRegisterForSelection(t, s))
+				if !e.clearTableCellRegion(t, region) {
+					return false
+				}
+				if op == "c" {
+					e.modal.mode = "Insert"
+				} else {
+					e.modal.mode = "Normal"
+				}
+				e.tableSelection = nil
+				e.tableBridge = nil
+				return true
+			}
+		}
 	}
+	reg := e.tableRegisterForSelection(t, s)
+	e.modal.setTableRegister(reg)
 	if op == "y" {
 		focus := e.selectionFocus()
+		ranges := e.SelectionRanges()
 		e.Copy()
+		e.startVimYankFlash(ranges)
+		// A yank doesn't leave a pending structural destination: the source
+		// caret is still meaningful and p/P should resolve at its current cell.
+		e.clearTableVirtualEdit()
 		e.tableSelection = nil
 		e.tableHandleDrag = nil
 		e.tableBridge = nil
 		e.tableNavigation = nil
 		e.anchor, e.caret = focus, focus
+		e.modal.line = false
+		e.selectionInclusive = false
+		e.selectionLinewise = false
 		return true
 	}
 	lines := e.tableLines(t)
@@ -758,6 +1025,12 @@ func (e *Editor) applyTableSelection(op string) bool {
 		if first >= len(lines) || last >= len(lines) {
 			return false
 		}
+		virtualLineStart := t.lineStart
+		virtualRow := s.first
+		keepVirtual := op == "d" && s.axis == tableRows
+		if s.axis == tableWhole {
+			e.clearTableVirtualEdit()
+		}
 		a, z := lines[first][0], lines[last][1]
 		if z < len(e.src) {
 			z++
@@ -773,9 +1046,27 @@ func (e *Editor) applyTableSelection(op string) bool {
 			caret++
 		}
 		e.commit(caret, caret)
+		if keepVirtual {
+			var updated *leaf
+			for _, candidate := range e.leaves {
+				if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == virtualLineStart {
+					updated = candidate
+					break
+				}
+			}
+			if updated != nil && len(updated.tab.rows) > 0 {
+				virtualRow = max(0, min(virtualRow, len(updated.tab.rows)-1))
+				e.enterTableVirtualEdit(updated, virtualRow, 0, tableVirtualLeading, tableRows, true)
+			} else {
+				e.clearTableVirtualEdit()
+			}
+		}
 		if op == "c" {
 			e.modal.mode = "Insert"
 		}
+		e.modal.line = false
+		e.selectionInclusive = false
+		e.selectionLinewise = false
 		return true
 	}
 	if s.axis == tableColumns {
@@ -834,13 +1125,36 @@ func (e *Editor) applyTableSelection(op string) bool {
 			}
 		}
 		a, z := lines[0][0], lines[len(lines)-1][1]
+		virtualLineStart := t.lineStart
+		virtualRow := max(0, min(s.activeRow, len(t.tab.rows)-1))
+		virtualCol := s.first
+		keepVirtual := op == "d"
 		e.begin(stepEdit)
 		e.replace(a, z, b.String())
 		e.commit(a, a)
+		if keepVirtual {
+			var updated *leaf
+			for _, candidate := range e.leaves {
+				if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == virtualLineStart {
+					updated = candidate
+					break
+				}
+			}
+			if updated != nil && updated.tab.cols() > 0 && len(updated.tab.rows) > 0 {
+				virtualRow = max(0, min(virtualRow, len(updated.tab.rows)-1))
+				virtualCol = max(0, min(virtualCol, updated.tab.cols()-1))
+				e.enterTableVirtualEdit(updated, virtualRow, virtualCol, tableVirtualLeading, tableColumns, true)
+			} else {
+				e.clearTableVirtualEdit()
+			}
+		}
 		if op == "c" {
 			e.modal.mode = "Insert"
 			e.modal.blockInsert = &tableBlockInsert{lineStart: s.lineStart, firstCol: s.first}
 		}
+		e.modal.line = false
+		e.selectionInclusive = false
+		e.selectionLinewise = false
 		return true
 	}
 	return false
@@ -957,10 +1271,69 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 	if r == nil || len(r.rows) == 0 {
 		return false
 	}
-	u := e.unitAt(e.caret)
-	t := e.tableOf(u)
-	if edge, _ := e.tableAtEdge(e.caret); t == nil && edge != nil {
-		t = edge
+	if s := e.tableSelection; s != nil && s.cellRegion {
+		if t := e.tableSelectionLeaf(); t != nil {
+			region, ok := e.tableSelectionCellRegion(s)
+			rows := r.rows
+			if len(r.header) > 0 {
+				rows = append([][]string{r.header}, rows...)
+			}
+			matrix := &tableCellMatrix{cells: rows, align: r.align}
+			if ok && e.replaceTableCellRegion(t, region, matrix) {
+				e.tableSelection = nil
+				e.tableBridge = nil
+				return true
+			}
+		}
+	}
+	// A structural delete/yank leaves its target as row/column coordinates.
+	// Resolve that semantic position first: the text caret may be on a pipe or
+	// separator where unitAt has no cell to return.
+	var t *leaf
+	row, col := -1, -1
+	virtualLineStart := -1
+	if r.region && r.axis == tableCells {
+		t, row, col, _ = e.tableRegionAtCaret()
+	}
+	if t != nil {
+		// Region registers use the focused cell as their semantic origin.
+	} else if virtualTable, position, ok := e.resolveTableVirtualEdit(); ok {
+		t, row, col = virtualTable, position.row, position.col
+		virtualLineStart = position.lineStart
+	} else {
+		e.clearTableVirtualEdit()
+		u := e.unitAt(e.caret)
+		if u != nil {
+			t = e.tableOf(u)
+			if t != nil {
+				_, row, col = cellAt(t, e.caret)
+			}
+		}
+		if t == nil {
+			if edge, after := e.tableAtEdge(e.caret); edge != nil {
+				t = edge
+				row, col = 0, 0
+				if after && len(t.tab.rows) > 0 {
+					row = len(t.tab.rows) - 1
+					col = max(0, len(t.tab.rows[row])-1)
+				}
+			}
+		}
+		if t == nil {
+			for _, candidate := range e.leaves {
+				if candidate.kind != kTable || candidate.tab == nil || e.caret < candidate.lineStart || e.caret > blockEnd(e.src, candidate) {
+					continue
+				}
+				t = candidate
+				row, col, _ = e.tablePositionAtSource(t, e.caret)
+				break
+			}
+		} else if row < 0 || col < 0 {
+			row, col, _ = e.tablePositionAtSource(t, e.caret)
+		}
+	}
+	if t != nil && virtualLineStart < 0 {
+		virtualLineStart = t.lineStart
 	}
 	if t == nil || t.tab == nil || r.whole {
 		value := r.markdown()
@@ -988,17 +1361,37 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 		e.begin(stepEdit)
 		e.replace(at, at, value)
 		e.commit(at+len(value), at+len(value))
+		e.clearTableVirtualEdit()
 		return true
 	}
 	lines := e.tableLines(t)
-	if len(lines) < 2 {
+	if len(lines) < 2 || row < 0 || col < 0 {
 		return false
 	}
-	_, row, col := cellAt(t, e.caret)
-	if row < 0 {
-		row, col = 0, 0
+	if r.region && r.axis == tableCells {
+		startCol := col
+		if !before {
+			startCol++
+		}
+		region := tableCellRegion{lineStart: t.lineStart, anchorRow: row, anchorCol: startCol, focusRow: row, focusCol: startCol}
+		if e.replaceTableCellRegion(t, region, &tableCellMatrix{cells: r.rows, align: r.align}) {
+			e.clearTableVirtualEdit()
+			return true
+		}
+		return false
 	}
 	if r.axis == tableRows {
+		insertedRow := row
+		if row == 0 {
+			insertedRow = 1 // P targets the first inserted row at the header boundary.
+			if !before {
+				insertedRow = len(r.rows) // p leaves the cursor on the inserted block's last row.
+			}
+		} else {
+			// Keep repeated structural puts contiguous: after p this is the last
+			// inserted row; before P it is the original row shifted by the insert.
+			insertedRow += len(r.rows)
+		}
 		at := lines[len(lines)-1][1]
 		appendAfter := !before && row > 0
 		if before {
@@ -1037,9 +1430,23 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 		e.begin(stepEdit)
 		e.replace(at, at, value)
 		e.commit(at+len(value), at+len(value))
+		var updated *leaf
+		for _, candidate := range e.leaves {
+			if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == t.lineStart {
+				updated = candidate
+				break
+			}
+		}
+		if updated != nil && len(updated.tab.rows) > 0 {
+			insertedRow = max(0, min(insertedRow, len(updated.tab.rows)-1))
+			e.enterTableVirtualEdit(updated, insertedRow, 0, tableVirtualLeading, tableRows, false)
+		} else {
+			e.clearTableVirtualEdit()
+		}
 		return true
 	}
 	if r.axis == tableColumns {
+		virtualRow := row
 		col = max(0, min(col, t.tab.cols()-1))
 		if !before {
 			col++
@@ -1142,6 +1549,24 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 		e.begin(stepEdit)
 		e.replace(a, z, b.String())
 		e.commit(a, a)
+		var updated *leaf
+		for _, candidate := range e.leaves {
+			if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == virtualLineStart {
+				updated = candidate
+				break
+			}
+		}
+		if updated != nil && len(updated.tab.rows) > 0 {
+			virtualRow = max(0, min(virtualRow, len(updated.tab.rows)-1))
+			insertedCol := max(0, min(col, updated.tab.cols()-1))
+			if insertedCol < len(updated.tab.rows[virtualRow]) {
+				e.enterTableVirtualEdit(updated, virtualRow, insertedCol, tableVirtualLeading, tableColumns, false)
+			} else {
+				e.clearTableVirtualEdit()
+			}
+		} else {
+			e.clearTableVirtualEdit()
+		}
 		return true
 	}
 	return false
