@@ -89,16 +89,19 @@ for package in \
   native/nativeui \
   native/nativeui/components \
   native/nativeui/components/doctypes \
-  native/nativeui/components/navicons \
   native/nativeui/interactions \
   native/nativeui/panels/filetree \
   native/nativeui/panels/outline \
   native/nativeui/panels/search \
   native/nativeui/panels/quickopen \
+  native/nativeui/panels/naviconpicker \
+  native/nativeui/panels/vaulthome \
   native/nativeui/panels/properties \
   native/nativeui/panels/agent \
   native/nativeui/panels/settings \
   native/platform/filesystem/documentstore \
+  native/platform/filesystem/imagecache \
+  native/platform/filesystem/naviconstore \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \

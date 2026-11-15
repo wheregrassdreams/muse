@@ -65,6 +65,8 @@ native/
 │   │   ├── outline/
 │   │   ├── search/
 │   │   ├── quickopen/
+│   │   ├── naviconpicker/
+│   │   ├── vaulthome/
 │   │   ├── properties/
 │   │   ├── agent/
 │   │   └── settings/
@@ -74,6 +76,8 @@ native/
 │   ├── cachepath/                  # OS/XDG cache-root policy
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
+│       ├── imagecache/            # atomic image cache persistence
+│       ├── naviconstore/          # concrete per-vault icon preference persistence
 │       ├── vaultsearchstore/      # concrete persistent search-index storage
 │       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher
@@ -88,7 +92,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 
 `search/quickopen` owns fuzzy matching across candidate path, title, and aliases, including rank and rune-based highlight positions. The Quick Open panel only presents candidates and translates input into actions; it does not scan or rank the full catalog itself.
 
-`nativeui` owns the application window and composes panels. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `components` owns reusable UI pieces such as document-type presentation and navigation icons; `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
+`nativeui` owns the application window and composes panels. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `components` owns reusable UI pieces such as document-type presentations and shared primitives; icon assets and lookup live in `ui/iconlibrary`. `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
 
 `textnav` may remain a small top-level pure algorithm package only while it is consumed by more than one editor capability; if it is editor-only after the refactor, move it under `editor/navigation`. `cachepath` belongs under `platform` only if it provides OS/runtime path policy; otherwise place it beside the feature that owns the cache. These are explicit audit decisions, not permission to retain old names indefinitely.
 
