@@ -96,6 +96,7 @@ for package in \
   native/ui/iconlibrary \
   native/nativeui \
   native/nativeui/components \
+  native/nativeui/window \
   native/nativeui/components/doctypes \
   native/nativeui/interactions \
   native/nativeui/panels/filetree \
@@ -112,6 +113,7 @@ for package in \
   native/platform/filesystem/naviconstore \
   native/platform/filesystem/recentstore \
   native/platform/filesystem/vaultfiles \
+  native/platform/filesystem/vaultfilessource \
   native/platform/filesystem/vaultindexsource \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
