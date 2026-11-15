@@ -1,15 +1,20 @@
 package editor
 
 import (
+	"image/color"
 	"strings"
 	"unsafe"
 
-	"muse/markdown"
+	"github.com/egoist/mygo/ui"
+	"muse/markdown/diagrams"
+	"muse/markdown/images"
+	texmath "muse/markdown/math"
+	"muse/markdown/syntax"
 )
 
 // mathScale turns the pixels of a typeset formula into DIPs: mdoc
 // rasterizes at twice the density of a DIP.
-const mathScale = markdown.MathScale
+const mathScale = texmath.MathScale
 
 // mathObject returns the typeset formula of tex at the size of the text
 // around it, as an inline object, or nil when it cannot be typeset.
@@ -21,7 +26,7 @@ func (e *Editor) mathObject(tex string, size float32, display bool) *object {
 	if display {
 		size *= 1.15
 	}
-	visual := markdown.RenderMathVisual(tex, float64(size), e.lk.dark, false, e.lk.font)
+	visual := renderMathVisual(tex, float64(size), e.lk.dark, false, e.lk.font)
 	if visual == nil || visual.Bitmap() == nil {
 		return nil
 	}
@@ -39,7 +44,7 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 	if tex == "" {
 		return nil
 	}
-	visual := markdown.RenderMathVisual(tex, float64(e.lk.size*1.2), e.lk.dark, true, e.lk.font)
+	visual := renderMathVisual(tex, float64(e.lk.size*1.2), e.lk.dark, true, e.lk.font)
 	if visual == nil || visual.Bitmap() == nil {
 		return nil
 	}
@@ -61,20 +66,27 @@ func (e *Editor) imageObject(dest, alt string, width float32, alone bool) *objec
 	if e.opts.ResolveImage != nil {
 		resolved = e.opts.ResolveImage(dest, e.opts.BaseDir, e.opts.AssetRoot)
 	} else {
-		resolved = markdown.ResolveImageSource(dest, e.opts.BaseDir, e.opts.AssetRoot)
+		resolved = images.ResolveSource(dest, images.SourceOptions{
+			BaseDir: e.opts.BaseDir,
+			Root:    e.opts.AssetRoot,
+			Lookup: func(name string) string {
+				return images.FindAttachment(e.opts.AssetRoot, name)
+			},
+		})
 	}
-	var asset *markdown.ImageAsset
+	var asset *images.Asset
 	if strings.HasPrefix(resolved, "data:") {
 		asset = e.dataImageAsset(resolved)
 	} else {
-		asset = markdown.LoadImageAssetWithSizeAndCacheStore(resolved, "", e.opts.ImageCacheStore, e.assetLoaded, e.assetLoaded)
+		asset = images.Load(resolved, images.LoadOptions{Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
 	}
-	bmp := asset.Bitmap()
 	intrinsic, hasIntrinsic := asset.IntrinsicSize()
 	// ImageAsset owns the asynchronous read and decode. Do not decode a second
 	// copy here: doing that on the UI thread delays the first frame of every
 	// note whose visible content contains a local image.
-	obj := &object{asset: asset, bmp: bmp, imagePending: !asset.Loaded(), alt: alt, block: alone, imagePath: resolved}
+	obj := &object{asset: asset, imagePending: !asset.Loaded(), alt: alt, block: alone, imagePath: resolved}
+	obj.refreshAssetBitmap()
+	bmp := obj.bmp
 	if bmp == nil {
 		// A missing image is rendered as a paragraph-like fallback block. Keep
 		// it full width even when its source occurred inline; the surrounding
@@ -124,14 +136,14 @@ type dataImageAssetKey struct {
 // byte-bounded cache after decode; without this document-local identity map,
 // the assetGen invalidation after loading would parse the view again and start
 // another full Base64 decode immediately.
-func (e *Editor) dataImageAsset(src string) *markdown.ImageAsset {
+func (e *Editor) dataImageAsset(src string) *images.Asset {
 	key := dataImageAssetKey{data: unsafe.StringData(src), len: len(src)}
 	if asset := e.dataImageAssets[key]; asset != nil {
 		return asset
 	}
-	asset := markdown.LoadImageAssetWithSize(src, "", e.assetLoaded, e.assetLoaded)
+	asset := images.Load(src, images.LoadOptions{Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
 	if e.dataImageAssets == nil {
-		e.dataImageAssets = make(map[dataImageAssetKey]*markdown.ImageAsset)
+		e.dataImageAssets = make(map[dataImageAssetKey]*images.Asset)
 	}
 	e.dataImageAssets[key] = asset
 	return asset
@@ -139,7 +151,7 @@ func (e *Editor) dataImageAsset(src string) *markdown.ImageAsset {
 
 // htmlImageObject returns the image an HTML block of just an image shows.
 func (e *Editor) htmlImageObject(html string, width float32) *object {
-	src, alt, _, iw, ih, ok := markdown.HTMLOnlyImage(html)
+	src, alt, _, iw, ih, ok := syntax.HTMLOnlyImage(html)
 	if !ok {
 		return nil
 	}
@@ -215,11 +227,23 @@ func sizedImageDimensions(baseW, baseH float32, sz imgSize, width float32) (floa
 }
 
 func (o *object) refreshAssetBitmap() {
-	if o != nil && o.asset != nil {
-		if bmp := o.asset.Bitmap(); bmp != nil {
-			o.bmp = bmp
-		}
+	if o == nil || o.asset == nil {
+		return
 	}
+	version := o.asset.FrameVersion()
+	if version == o.assetFrameVersion {
+		return
+	}
+	frame := o.asset.CurrentFrame()
+	if frame == nil {
+		return
+	}
+	if o.bmp == nil {
+		o.bmp = ui.NewBitmap(frame)
+	} else {
+		o.bmp.Update(frame)
+	}
+	o.assetFrameVersion = version
 }
 
 // assetLoaded is called on a worker when image dimensions are known or image
@@ -233,18 +257,11 @@ func (e *Editor) assetLoaded() {
 
 // sketchOptions is what a diagram needs to be drawn in this page: its
 // colors, and a measure of its labels in this page's font.
-func (e *Editor) sketchOptions() markdown.SketchOptions {
-	return markdown.SketchOptions{
-		Theme: &markdown.SketchTheme{
-			Bg:         e.lk.panel,
-			Fg:         e.lk.text,
-			Muted:      e.lk.muted,
-			Line:       e.lk.border,
-			Surface:    e.lk.panel,
-			SurfaceAlt: e.lk.codeBg,
-			Border:     e.lk.border,
-			Accent:     e.lk.accent,
-			Radius:     4,
-		},
-	}
+func (e *Editor) sketchOptions() diagrams.Options {
+	c := func(v ui.Color) color.RGBA { return color.RGBA{R: v.R, G: v.G, B: v.B, A: v.A} }
+	return diagrams.Options{Theme: &diagrams.Theme{
+		Bg: c(e.lk.panel), Fg: c(e.lk.text), Muted: c(e.lk.muted), Line: c(e.lk.border),
+		Surface: c(e.lk.panel), SurfaceAlt: c(e.lk.codeBg), Border: c(e.lk.border),
+		Accent: c(e.lk.accent), Radius: 4,
+	}}
 }

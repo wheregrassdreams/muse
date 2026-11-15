@@ -13,6 +13,13 @@ import (
 	"muse/markdown/math/texcanvas"
 )
 
+// MathDPI is the raster density used for Markdown formulas: twice the DIP
+// density used by the editor's text layout.
+const MathDPI = 192.0
+
+// MathScale converts formula raster pixels to DIPs.
+const MathScale = 72.0 / MathDPI
+
 // FallbackGlyph is a CJK rune left for the host text renderer while the
 // remaining formula glyphs are rasterized with go-tex.
 type FallbackGlyph struct {

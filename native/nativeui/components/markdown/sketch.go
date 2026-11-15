@@ -1,7 +1,6 @@
 package markdown
 
 import (
-	"image/color"
 	"strings"
 	"sync"
 
@@ -11,34 +10,10 @@ import (
 	"muse/markdown/diagrams"
 )
 
-// SketchTheme is the palette a diagram is drawn in: pele's tokens, in Muse's
-// colors. A field left zero keeps pele's own.
-type SketchTheme struct {
-	Bg, Fg, Muted, Line, Surface, SurfaceAlt, Border, Accent ui.Color
-	Radius                                                   float32
-}
-
-// SketchOptions are what Muse tells sketch about the page it draws for.
-type SketchOptions struct {
-	Theme *SketchTheme
-	// Measure gives the width of a label. Without it pele measures in Arial's
-	// advances, which is wrong for many system fonts.
-	Measure func(text string, size float64, bold bool) float64
-}
-
 // ParseSketchDiagram asks the backend-neutral diagrams subsystem to parse
 // Mermaid and adapts its shape/label result to the MyGo painter.
-func ParseSketchDiagram(code string, opts SketchOptions) (Diagram, bool) {
-	var theme *diagrams.Theme
-	if opts.Theme != nil {
-		t := opts.Theme
-		theme = &diagrams.Theme{
-			Bg: stdColor(t.Bg), Fg: stdColor(t.Fg), Muted: stdColor(t.Muted), Line: stdColor(t.Line),
-			Surface: stdColor(t.Surface), SurfaceAlt: stdColor(t.SurfaceAlt), Border: stdColor(t.Border),
-			Accent: stdColor(t.Accent), Radius: float64(t.Radius),
-		}
-	}
-	result, ok := diagrams.Parse(code, diagrams.Options{Theme: theme, Measure: opts.Measure})
+func ParseSketchDiagram(code string, opts diagrams.Options) (Diagram, bool) {
+	result, ok := diagrams.Parse(code, opts)
 	if !ok {
 		return Diagram{}, false
 	}
@@ -52,10 +27,6 @@ func DiagramFromResult(result diagrams.Result) Diagram {
 	result.Labels = append([]diagrams.Label(nil), result.Labels...)
 	d := &sketchDiagram{result: result, drawn: map[int]*ui.Bitmap{}}
 	return Diagram{width: func() float32 { return result.Width }, height: func() float32 { return result.Height }, draw: d.draw}
-}
-
-func stdColor(c ui.Color) color.RGBA {
-	return color.RGBA{R: c.R, G: c.G, B: c.B, A: c.A}
 }
 
 type sketchDiagram struct {

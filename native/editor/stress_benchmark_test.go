@@ -18,9 +18,9 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
 	"muse/editor/navigation"
-	"muse/markdown"
+	"muse/markdown/images"
+	syntax "muse/markdown/syntax"
 )
 
 func stressTester(e *Editor) *ui.Tester {
@@ -365,7 +365,7 @@ func BenchmarkStressFirstFrame(b *testing.B) {
 			b.ReportMetric(float64(leafChunks), "editor-leaf-chunks")
 			b.ReportMetric(float64(strings.Count(tc.src, "\n")+1), "source-lines")
 			b.ReportMetric(float64(blocks), "parser-blocks")
-			b.ReportMetric(float64(unsafe.Sizeof(parser.Block{})), "parser-block-B")
+			b.ReportMetric(float64(unsafe.Sizeof(syntax.IncrementalBlock{})), "parser-block-B")
 			b.ReportMetric(float64(unsafe.Sizeof(leaf{})), "leaf-struct-B")
 			b.ReportMetric(float64(unsafe.Sizeof(viewParams{})), "view-params-B")
 			b.ReportMetric(float64(unsafe.Sizeof(blockHorizontalScroll{})), "horizontal-state-B")
@@ -422,7 +422,7 @@ func BenchmarkStressBase64FirstFrame(b *testing.B) {
 	settleStart := time.Now()
 	settleDeadline := settleStart.Add(30 * time.Second)
 	for {
-		pending, active := markdown.ImageDecodeQueueStats()
+		pending, active := images.QueueStats()
 		if pending == 0 && active == 0 {
 			break
 		}
@@ -453,10 +453,10 @@ func BenchmarkStressBase64FirstFrame(b *testing.B) {
 	b.ReportMetric(float64(settleDuration.Nanoseconds()), "image-decode-settle-ns")
 	b.ReportMetric(float64(settledFrame.Nanoseconds()), "settled-frame-ns")
 	b.ReportMetric(float64((newTime+testerTime+frameTime).Nanoseconds())/float64(b.N), "cold-first-frame-ns/op")
-	cacheEntries, cacheBytes := markdown.ImageAssetCacheStats()
+	cacheEntries, cacheBytes := images.CacheStats()
 	b.ReportMetric(float64(cacheEntries), "image-cache-entries")
 	b.ReportMetric(float64(cacheBytes), "image-cache-estimated-bytes")
-	postPending, postActive := markdown.ImageDecodeQueueStats()
+	postPending, postActive := images.QueueStats()
 	b.ReportMetric(float64(postPending), "post-frame-pending-image-decodes")
 	b.ReportMetric(float64(postActive), "post-frame-active-image-decodes")
 	if postPending != 0 || postActive != 0 || len(src) > 1<<20 && cacheEntries != 0 {
@@ -693,7 +693,7 @@ func BenchmarkStressHighResolutionImageScroll(b *testing.B) {
 	// fast-scroll backlog is not mislabeled as retained cache memory.
 	time.Sleep(2 * time.Second)
 	t.Frame()
-	decodeJobs, activeDecodeJobs := markdown.ImageDecodeQueueStats()
+	decodeJobs, activeDecodeJobs := images.QueueStats()
 	runtime.ReadMemStats(&gcEnd)
 	imageViews := 0
 	offscreenImageViews := 0

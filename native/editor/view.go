@@ -10,9 +10,9 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
-	"muse/editor/internal/parser"
 	"muse/locales"
-	"muse/markdown"
+	"muse/markdown/images"
+	syntax "muse/markdown/syntax"
 )
 
 // VaultItemDrag is the in-process drag value shared by the navigation tree
@@ -255,7 +255,7 @@ func (e *Editor) refreshVisibleSourceViews() (changed, stableGeometry bool) {
 			return true, false
 		}
 		oldHeight := l.h
-		v := e.view(l, l.w, false, parser.AlignNone)
+		v := e.view(l, l.w, false, syntax.IncrementalAlignNone)
 		l.view, l.h = v, v.h
 		l.horizontal.x = min(l.horizontal.x, max(blockContentWidth(l)-l.w, 0))
 		if math.Abs(float64(v.h-oldHeight)) > 0.01 {
@@ -329,7 +329,7 @@ func (e *Editor) layoutVirtualBand() bool {
 				continue
 			}
 			oldHeight := l.h
-			v := e.view(l, l.w, false, parser.AlignNone)
+			v := e.view(l, l.w, false, syntax.IncrementalAlignNone)
 			l.view, l.h = v, v.h
 			shaped = true
 			if delta := v.h - oldHeight; math.Abs(float64(delta)) > 0.01 {
@@ -639,7 +639,7 @@ func (e *Editor) vaultItemInsertionRect(off int) (ui.Rect, bool) {
 func (e *Editor) advanceVisibleImageAssets(c *ui.Context) {
 	now := c.Now()
 	var nextFrame time.Duration
-	seen := make(map[*markdown.ImageAsset]struct{})
+	seen := make(map[*images.Asset]struct{})
 	var visit func(*Editor)
 	visit = func(editor *Editor) {
 		if editor == nil {

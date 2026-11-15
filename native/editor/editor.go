@@ -17,7 +17,6 @@ import (
 	layoutindex "muse/editor/layout"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
-	markdownui "muse/nativeui/components/markdown"
 	"muse/ui/scrollbar"
 )
 
@@ -255,7 +254,7 @@ type Editor struct {
 
 	lk              look
 	views           map[viewKey]*leafView
-	dataImageAssets map[dataImageAssetKey]*markdownui.ImageAsset
+	dataImageAssets map[dataImageAssetKey]*images.Asset
 	dataAssetsRev   uint64
 	typographyCache textlayout.Cache
 	frame           uint64

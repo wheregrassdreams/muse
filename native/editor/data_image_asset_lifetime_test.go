@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"muse/markdown"
+	"muse/markdown/images"
 )
 
 func TestLargeDataImageAssetSurvivesAssetInvalidationWithoutRedecode(t *testing.T) {
@@ -50,7 +50,7 @@ func TestLargeDataImageAssetSurvivesAssetInvalidationWithoutRedecode(t *testing.
 	}
 }
 
-func editorImageAsset(e *Editor) *markdown.ImageAsset {
+func editorImageAsset(e *Editor) *images.Asset {
 	for _, leaf := range e.leaves {
 		if leaf.view == nil {
 			continue

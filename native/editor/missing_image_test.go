@@ -6,7 +6,24 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/locales"
 )
+
+func TestMissingImageMessageUsesLocalizedSourceLabel(t *testing.T) {
+	for _, tc := range []struct {
+		source string
+		want   string
+	}{
+		{"", locales.DocumentMissingImage()},
+		{"  data:image/png;base64,abc  ", locales.DocumentMissingImage()},
+		{"folder\\image.png", locales.DocumentMissingImageNamed("folder/image.png")},
+		{" folder/image.png ", locales.DocumentMissingImageNamed("folder/image.png")},
+	} {
+		if got := missingImageMessage(tc.source); got != tc.want {
+			t.Errorf("missingImageMessage(%q) = %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}
 
 func TestMissingImageFallbackIsFullWidthAndClickable(t *testing.T) {
 	dir := t.TempDir()

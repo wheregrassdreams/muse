@@ -4,17 +4,25 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	syntax "muse/markdown/syntax"
 
 	"muse/locales"
-	markdownui "muse/nativeui/components/markdown"
 	"muse/theme"
 )
 
 const blink = 530 * time.Millisecond
+
+func missingImageMessage(src string) string {
+	src = strings.TrimSpace(src)
+	if src == "" || strings.HasPrefix(strings.ToLower(src), "data:") {
+		return locales.DocumentMissingImage()
+	}
+	return locales.DocumentMissingImageNamed(strings.ReplaceAll(src, "\\", "/"))
+}
 
 // paint draws the document: the leaves in view, the selection, what a
 // search found, and the caret.
@@ -658,7 +666,7 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 	if source == "" {
 		source = o.imagePath
 	}
-	sp := ui.Span{Text: markdownui.MissingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
+	sp := ui.Span{Text: missingImageMessage(source), Size: e.lk.size * 0.8, Color: e.lk.muted}
 	pad := e.lk.size * 0.8
 	textW := max(r.W-2*pad, 0)
 	_, h := p.MeasureText(textW, sp)

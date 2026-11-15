@@ -7,9 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
-	"muse/editor/internal/parser"
-
-	"muse/markdown"
+	"muse/markdown/images"
+	syntax "muse/markdown/syntax"
 )
 
 // A leaf shows as display text: the characters drawn, each piece of which
@@ -47,8 +46,9 @@ type piece struct {
 // gives its object replacement character.
 type object struct {
 	bmp                   *ui.Bitmap
-	math                  *markdown.MathVisual
-	asset                 *markdown.ImageAsset
+	math                  *mathVisual
+	asset                 *images.Asset
+	assetFrameVersion     uint64
 	imagePending          bool
 	embed                 *Editor
 	embedBlocked          string
@@ -367,14 +367,14 @@ func (b *builder) gap(to int, st istyle) {
 
 // inlines adds the display of a block's inlines, from the source offset
 // from to to.
-func (b *builder) inlines(ins []parser.Inline, from, to int, st istyle) {
+func (b *builder) inlines(ins []syntax.IncrementalInline, from, to int, st istyle) {
 	b.pos = from
 	b.walk(ins, 0, len(ins), st)
 	b.gap(to, st)
 	b.finish(to)
 }
 
-func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
+func (b *builder) walk(ins []syntax.IncrementalInline, i, end int, st istyle) {
 	marks := highlights(b.src, ins, i, end)
 	cmts := b.e.p.comments
 	// outer is whether the text was marked before the highlight it is in.
@@ -393,9 +393,9 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			continue
 		}
 		switch in.Kind {
-		case parser.Text:
+		case syntax.IncrementalText:
 			st = b.text_(in.Start, in.End, st, marks, cmts, wikiLinks(b.src, in.Start, in.End), &outer)
-		case parser.SoftBreak, parser.LineBreak:
+		case syntax.IncrementalSoftBreak, syntax.IncrementalLineBreak:
 			// A comment's line breaks are the comment's: hidden with it, so a
 			// `%%` block collapses instead of leaving blank lines behind. The
 			// break right after a block comment goes too — but not the one
@@ -421,7 +421,7 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			editing := b.e.typedBreakIn(in.Start, in.End)
 			text := "\n"
 			if !(paragraph.BreakProjection{
-				SoftBreak:          in.Kind == parser.SoftBreak,
+				SoftBreak:          in.Kind == syntax.IncrementalSoftBreak,
 				CollapseSoftBreaks: b.e.opts.SoftBreaksAsSpaces,
 				PreserveLine:       b.preserveSoftBreaks,
 				EditingLine:        editing,
@@ -446,19 +446,19 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			}
 			b.atom(in.Start, end, text, st, nil)
 			b.pos = end
-		case parser.Code:
+		case syntax.IncrementalCode:
 			b.codeSpan(in, st)
-		case parser.Emphasis, parser.Strong, parser.Strikethrough:
+		case syntax.IncrementalEmphasis, syntax.IncrementalStrong, syntax.IncrementalStrikethrough:
 			b.wrapped(ins, i, st)
-		case parser.Link:
+		case syntax.IncrementalLink:
 			b.link(ins, i, st)
-		case parser.Image:
+		case syntax.IncrementalImage:
 			b.image(ins, i, st)
-		case parser.HTML:
+		case syntax.IncrementalHTML:
 			st = b.htmlInline(in, st)
-		case parser.Math:
+		case syntax.IncrementalMath:
 			b.math(in, st)
-		case parser.FootnoteRef:
+		case syntax.IncrementalFootnoteRef:
 			b.footnoteRef(in, st)
 		default:
 			b.textRun(in.Start, in.End, st)
@@ -489,7 +489,7 @@ func (b *builder) quotePrefixRevealed(s, end int) bool {
 // children returns where the children of inline i start and end in the
 // source: the first one's start and the last one's end, or from and from
 // when it has none.
-func children(ins []parser.Inline, i int, from int) (int, int) {
+func children(ins []syntax.IncrementalInline, i int, from int) (int, int) {
 	in := &ins[i]
 	if i+1 >= in.Next || i+1 >= len(ins) {
 		return from, from
@@ -587,7 +587,7 @@ func (b *builder) text_(s, e int, st istyle, marks []hlMark, cmts []cmt, wikis [
 			continue
 		}
 		if c == '&' {
-			if n, txt := parser.Entity(src[p:e]); n > 0 && txt != "" {
+			if n, txt := syntax.IncrementalEntity(src[p:e]); n > 0 && txt != "" {
 				b.textRun(run, p, st)
 				if b.revealed(p, p+n) {
 					b.marker(p, p+n, st)
@@ -656,7 +656,7 @@ func (b *builder) wiki(w wikiLink, st istyle) {
 
 // wrapped adds emphasis, strong emphasis or strikethrough: its markers
 // while the caret is at it, and its text in its style.
-func (b *builder) wrapped(ins []parser.Inline, i int, st istyle) {
+func (b *builder) wrapped(ins []syntax.IncrementalInline, i int, st istyle) {
 	in := &ins[i]
 	cs, ce := children(ins, i, in.Start)
 	if cs == in.Start {
@@ -667,16 +667,16 @@ func (b *builder) wrapped(ins []parser.Inline, i int, st istyle) {
 	rev := b.revealed(in.Start, in.End)
 	inner := st
 	switch in.Kind {
-	case parser.Emphasis:
+	case syntax.IncrementalEmphasis:
 		inner.italic = true
-	case parser.Strong:
+	case syntax.IncrementalStrong:
 		inner.bold = true
-	case parser.Strikethrough:
+	case syntax.IncrementalStrikethrough:
 		inner.strike = true
 	}
 	if rev {
 		markerStyle := st
-		if in.Kind == parser.Strong {
+		if in.Kind == syntax.IncrementalStrong {
 			markerStyle.bold = true
 		}
 		b.marker(in.Start, cs, markerStyle)
@@ -686,7 +686,7 @@ func (b *builder) wrapped(ins []parser.Inline, i int, st istyle) {
 	b.gap(ce, inner)
 	if rev {
 		markerStyle := st
-		if in.Kind == parser.Strong {
+		if in.Kind == syntax.IncrementalStrong {
 			markerStyle.bold = true
 		}
 		b.marker(ce, in.End, markerStyle)
@@ -696,7 +696,7 @@ func (b *builder) wrapped(ins []parser.Inline, i int, st istyle) {
 
 // link adds a link: its text, and its brackets and destination while the
 // caret is in it.
-func (b *builder) link(ins []parser.Inline, i int, st istyle) {
+func (b *builder) link(ins []syntax.IncrementalInline, i int, st istyle) {
 	in := &ins[i]
 	cs, ce := children(ins, i, in.Start)
 	inner := st
@@ -740,7 +740,7 @@ func isExternalLinkTarget(target string) bool {
 }
 
 // codeSpan adds code within text: its backticks while the caret is at it.
-func (b *builder) codeSpan(in *parser.Inline, st istyle) {
+func (b *builder) codeSpan(in *syntax.IncrementalInline, st istyle) {
 	n := 0
 	for in.Start+n < in.End && b.src[in.Start+n] == '`' {
 		n++
@@ -790,7 +790,7 @@ func (b *builder) codeSpan(in *parser.Inline, st istyle) {
 
 // math adds a formula within text: typeset, or its TeX while the caret is
 // at it.
-func (b *builder) math(in *parser.Inline, st istyle) {
+func (b *builder) math(in *syntax.IncrementalInline, st istyle) {
 	if b.revealed(in.Start, in.End) || b.objectOpen(in.Start, in.End) {
 		b.mathSource(in.Start, in.End, st)
 		return
@@ -805,7 +805,7 @@ func (b *builder) math(in *parser.Inline, st istyle) {
 }
 
 // image adds an image: drawn, and its source too while the caret is at it.
-func (b *builder) image(ins []parser.Inline, i int, st istyle) {
+func (b *builder) image(ins []syntax.IncrementalInline, i int, st istyle) {
 	in := &ins[i]
 	alt := b.e.plainText(ins[i+1 : max(in.Next, i+1)])
 	alt, inlineWidth := imageAltWidth(alt)
@@ -866,7 +866,7 @@ func largeDataImageDestination(dest string) bool {
 
 // footnoteRef adds a reference to a footnote: its label raised, or its
 // source while the caret is at it.
-func (b *builder) footnoteRef(in *parser.Inline, st istyle) {
+func (b *builder) footnoteRef(in *syntax.IncrementalInline, st istyle) {
 	if b.revealed(in.Start, in.End) {
 		b.marker(in.Start, in.End, st)
 		return
@@ -886,7 +886,7 @@ func (b *builder) footnoteRef(in *parser.Inline, st istyle) {
 // htmlInline adds a tag within text. The tags of formatting, as <u> and
 // <b>, are hidden, unless the caret is at them, and style the text up to
 // their closing tags; others show as written.
-func (b *builder) htmlInline(in *parser.Inline, st istyle) istyle {
+func (b *builder) htmlInline(in *syntax.IncrementalInline, st istyle) istyle {
 	if src, alt, sz, ok := imgTag(in.Text); ok {
 		b.htmlImage(in, src, alt, sz, st)
 		return st
@@ -926,7 +926,7 @@ func (b *builder) htmlInline(in *parser.Inline, st istyle) istyle {
 
 // htmlImage adds an <img> within text: drawn at the size it asks for, and
 // its tag too while the caret is at it.
-func (b *builder) htmlImage(in *parser.Inline, src, alt string, sz imgSize, st istyle) {
+func (b *builder) htmlImage(in *syntax.IncrementalInline, src, alt string, sz imgSize, st istyle) {
 	obj := b.e.sizedImage(src, alt, sz, b.width, false)
 	if obj != nil {
 		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = in.Start, in.End, imageSyntaxHTML
@@ -1133,16 +1133,16 @@ func utf16ByteOffset(s string, u int) int {
 	return len(s)
 }
 
-// plainText returns the text of inlines, as parser.PlainText does. When a
+// plainText returns the text of inlines, as syntax.IncrementalPlainText does. When a
 // Text inline is the parsed source as written, it reads from the editor's
 // source so inline masking and source-preserving display stay in step.
-func (e *Editor) plainText(ins []parser.Inline) string {
+func (e *Editor) plainText(ins []syntax.IncrementalInline) string {
 	parsed := e.p.doc.Source()
 	marks := allHighlights(e.src, ins, 0, len(ins))
 	var b strings.Builder
 	for k := range ins {
 		switch in := &ins[k]; in.Kind {
-		case parser.Text:
+		case syntax.IncrementalText:
 			if in.End <= len(parsed) && in.End <= len(e.src) && in.Text == parsed[in.Start:in.End] {
 				// The text as written, but for its ==s of highlight.
 				at := in.Start
@@ -1156,11 +1156,11 @@ func (e *Editor) plainText(ins []parser.Inline) string {
 			} else {
 				b.WriteString(in.Text)
 			}
-		case parser.Code, parser.HTML, parser.Math:
+		case syntax.IncrementalCode, syntax.IncrementalHTML, syntax.IncrementalMath:
 			b.WriteString(in.Text)
-		case parser.SoftBreak, parser.LineBreak:
+		case syntax.IncrementalSoftBreak, syntax.IncrementalLineBreak:
 			b.WriteByte(' ')
-		case parser.FootnoteRef:
+		case syntax.IncrementalFootnoteRef:
 			b.WriteString("[^" + in.Text + "]")
 		}
 	}
