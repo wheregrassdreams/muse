@@ -461,6 +461,7 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 	}
 
 	b := e.scrollHandle.Bounds(c)
+	e.mathPreviewViewport = MathPreviewRect{X: b.X, Y: b.Y, W: b.W, H: b.H}
 	if b.W > 0 {
 		e.elemW, e.viewH = b.W, b.H
 	}
@@ -581,7 +582,6 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 		// there as an overlay does.
 		e.railView(c, b)
 		e.tableEdgesView(c, b, tablePointer)
-		e.mathPreviewView(c, b)
 		e.wikiSuggestionsView(c, b)
 		if _, active := e.searchMatchPulse(c.Now()); active {
 			c.After(16 * time.Millisecond)

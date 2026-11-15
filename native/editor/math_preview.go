@@ -1,95 +1,75 @@
 package editor
 
-import (
-	"muse/locales"
+import texmath "muse/markdown/math"
 
-	"github.com/egoist/mygo/ui"
-)
-
-// mathPreviewBounds places a non-interactive card beside its source line.
-// All coordinates are viewport coordinates; an offscreen anchor stays hidden.
-func mathPreviewBounds(view, anchor ui.Rect, w, h float32) (ui.Rect, bool) {
-	const gap = float32(8)
-	if view.W <= 2*gap || view.H <= 2*gap || anchor.Y+anchor.H <= view.Y || anchor.Y >= view.Y+view.H {
-		return ui.Rect{}, false
-	}
-	w = min(w, view.W-2*gap)
-	h = min(h, view.H-2*gap)
-	y := anchor.Y + anchor.H + gap
-	if y+h > view.Y+view.H-gap {
-		y = anchor.Y - gap - h
-	}
-	y = max(view.Y+gap, min(y, view.Y+view.H-gap-h))
-	x := max(view.X+gap, min(anchor.X, view.X+view.W-gap-w))
-	return ui.Rect{X: x, Y: y, W: w, H: h}, true
+// MathPreviewRect is backend-neutral viewport geometry in logical pixels.
+type MathPreviewRect struct {
+	X, Y, W, H float32
 }
 
-func (e *Editor) mathPreviewAnchor(viewport ui.Rect, start int) (ui.Rect, bool) {
-	anchor, ok := e.caretRect(start)
-	if !ok {
-		return ui.Rect{}, false
-	}
-	anchor.X += viewport.X
-	anchor.Y += viewport.Y - e.scroll.Y
-	// Keep the preview associated with the formula's opening delimiter while
-	// it is visible. A long inline formula can wrap across enough rows that
-	// the caret scrolls past that opening row; in that case anchor to the live
-	// caret so the preview does not disappear mid-edit.
-	if anchor.Y+anchor.H <= viewport.Y || anchor.Y >= viewport.Y+viewport.H {
-		anchor, ok = e.caretRect(e.caret)
-		if !ok {
-			return ui.Rect{}, false
-		}
-		anchor.X += viewport.X
-		anchor.Y += viewport.Y - e.scroll.Y
-	}
-	return anchor, true
+// MathPreviewFrame is a detached view of the active inline formula. The raster
+// is immutable and revision-independent; the host owns all drawing and card
+// interaction. Width and Height are the formula's natural logical size.
+type MathPreviewFrame struct {
+	Viewport MathPreviewRect
+	Anchor   MathPreviewRect
+	Raster   *texmath.Raster
+	Width    float32
+	Height   float32
+	FontSize float32
+	Font     string
+	Dark     bool
+	Failed   bool
 }
 
-// mathPreviewView paints only: no input handler, focus target or document space.
-func (e *Editor) mathPreviewView(c *ui.Context, viewport ui.Rect) {
-	if !e.focused {
-		return
+// InlineMathPreview returns the current formula preview if one is active and
+// its anchor is visible. It has no document or selection side effects.
+func (e *Editor) InlineMathPreview() (MathPreviewFrame, bool) {
+	if !e.focused || e.composing || e.inlineMath.PreviewHidden() {
+		return MathPreviewFrame{}, false
 	}
-	start, _, tex, ok := e.activeInlineMath()
-	if !ok || e.composing || e.inlineMath.PreviewHidden() {
-		return
+	start, _, tex, active := e.activeInlineMath()
+	if !active {
+		return MathPreviewFrame{}, false
 	}
-	anchor, ok := e.mathPreviewAnchor(viewport, start)
+	anchor, ok := e.mathPreviewAnchor(start)
 	if !ok {
-		return
+		return MathPreviewFrame{}, false
+	}
+	frame := MathPreviewFrame{
+		Viewport: e.mathPreviewViewport,
+		Anchor:   anchor,
+		FontSize: e.lk.size,
+		Font:     e.lk.font,
+		Dark:     e.lk.dark,
 	}
 	obj := e.mathObject(tex, e.lk.size, false)
-	w, h := float32(240), float32(48)
-	if obj != nil {
-		w, h = obj.w+24, obj.h+obj.descent+24
+	if obj == nil {
+		frame.Width, frame.Height, frame.Failed = 240, 48, true
+		return frame, true
 	}
-	card, ok := mathPreviewBounds(viewport, anchor, w, h)
+	frame.Raster = obj.math
+	frame.Width, frame.Height = obj.w, obj.h+obj.descent
+	return frame, true
+}
+
+func (e *Editor) mathPreviewAnchor(start int) (MathPreviewRect, bool) {
+	anchor, ok := e.caretRect(start)
 	if !ok {
-		return
+		return MathPreviewRect{}, false
 	}
-	ui.Overlay(c, func() {
-		ui.Box(c).Absolute().Left(card.X).Top(card.Y).Width(card.W).Height(card.H).Draw(func(p *ui.Painter, r ui.Rect) {
-			// A floating card needs an opaque surface: the dark code-panel
-			// tint is translucent and would let quotation text show through.
-			p.Fill(r, p.Theme().Background, 8)
-			p.Stroke(r, e.lk.border, 8, 1)
-			p.Clip(r, 8, func() {
-				if obj == nil {
-					p.RichText(r.X+12, r.Y+12, max(r.W-24, 1), ui.Span{Text: locales.EditorMathRenderError(), Size: e.lk.size * 0.8, Color: e.lk.muted})
-					return
-				}
-				dst := ui.Rect{X: r.X + 12, Y: r.Y + 12, W: max(r.W-24, 1), H: max(r.H-24, 1)}
-				if obj.math != nil {
-					if e.mathRenderer != nil {
-						e.mathRenderer(p, dst, obj.math, e.lk.dark, e.lk.font)
-					} else if visual := legacyMathVisualFor(obj.math, e.lk.dark, e.lk.font); visual != nil {
-						visual.Draw(p, dst)
-					}
-				} else {
-					p.Image(obj.bmp, dst, ui.Contain)
-				}
-			})
-		})
-	})
+	anchor.X += e.mathPreviewViewport.X
+	anchor.Y += e.mathPreviewViewport.Y - e.scroll.Y
+	// Keep the preview associated with the formula's opening delimiter while
+	// it is visible. If the formula wraps beyond the viewport, follow the live
+	// caret so its preview stays available during editing.
+	if anchor.Y+anchor.H <= e.mathPreviewViewport.Y || anchor.Y >= e.mathPreviewViewport.Y+e.mathPreviewViewport.H {
+		anchor, ok = e.caretRect(e.caret)
+		if !ok {
+			return MathPreviewRect{}, false
+		}
+		anchor.X += e.mathPreviewViewport.X
+		anchor.Y += e.mathPreviewViewport.Y - e.scroll.Y
+	}
+	return MathPreviewRect{X: anchor.X, Y: anchor.Y, W: anchor.W, H: anchor.H}, true
 }

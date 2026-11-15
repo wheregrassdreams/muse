@@ -101,6 +101,77 @@ func TestProductionContentRendersNeutralMathRaster(t *testing.T) {
 	}
 }
 
+func TestProductionContentPaintsInlineMathPreviewFromNeutralFrame(t *testing.T) {
+	const source = "当 $A=\\frac{1}{2}$ 时\n\n> 函数要求 domain 中的每一个元素都映射到 codomain。\n> 第二行引用文字。\n"
+	theme := ui.DarkTheme()
+	value := tappeditor.New(source, tappeditor.Options{FontSize: 16})
+	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len("当 $A"), Head: len("当 $A")}); err != nil {
+		t.Fatal(err)
+	}
+	content := NewProductionContent(value, nil)
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Themed(c, theme).Fill().Background(theme.Background).Children(func() { content.Render(c) })
+	}, 1000, 700)
+	tester.Frame()
+	value.Focus()
+	tester.Frame()
+	frame, ok := value.InlineMathPreview()
+	if !ok || frame.Raster == nil || frame.Failed {
+		t.Fatalf("production inline math snapshot = %+v, ok=%v", frame, ok)
+	}
+	viewport := ui.Rect{X: frame.Viewport.X, Y: frame.Viewport.Y, W: frame.Viewport.W, H: frame.Viewport.H}
+	anchor := ui.Rect{X: frame.Anchor.X, Y: frame.Anchor.Y, W: frame.Anchor.W, H: frame.Anchor.H}
+	card, ok := mathPreviewBounds(viewport, anchor, frame.Width+24, frame.Height+24)
+	if !ok {
+		t.Fatal("production inline math card is outside the visible viewport")
+	}
+	img := tester.Image()
+	matched, total := 0, 0
+	for y := int(card.Y) + 4; y < int(card.Y+card.H)-4; y++ {
+		for x := int(card.X) + 4; x < int(card.X+card.W)-4; x++ {
+			total++
+			pixel := img.RGBAAt(x, y)
+			if pixel.R == theme.Background.R && pixel.G == theme.Background.G && pixel.B == theme.Background.B {
+				matched++
+			}
+		}
+	}
+	if matched*100 < total*70 {
+		t.Fatalf("production preview surface is translucent/occluded: %d of %d opaque surface pixels", matched, total)
+	}
+}
+
+func TestMathPreviewBounds(t *testing.T) {
+	view := ui.Rect{X: 100, Y: 50, W: 400, H: 300}
+	for _, tc := range []struct {
+		name           string
+		anchor         ui.Rect
+		w, h           float32
+		visible, above bool
+	}{
+		{"below", ui.Rect{X: 120, Y: 80, W: 2, H: 20}, 200, 60, true, false},
+		{"flip", ui.Rect{X: 480, Y: 300, W: 2, H: 20}, 200, 60, true, true},
+		{"oversize", ui.Rect{X: 120, Y: 100, W: 2, H: 20}, 900, 900, true, false},
+		{"scrolled out", ui.Rect{X: 120, Y: 10, W: 2, H: 20}, 200, 60, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, ok := mathPreviewBounds(view, tc.anchor, tc.w, tc.h)
+			if ok != tc.visible {
+				t.Fatalf("visible=%v", ok)
+			}
+			if !ok {
+				return
+			}
+			if r.X < view.X || r.Y < view.Y || r.X+r.W > view.X+view.W || r.Y+r.H > view.Y+view.H {
+				t.Fatalf("outside viewport: %+v", r)
+			}
+			if tc.above && r.Y+r.H > tc.anchor.Y {
+				t.Fatalf("did not flip: %+v", r)
+			}
+		})
+	}
+}
+
 func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 	var source strings.Builder
 	for i := 0; i < 8; i++ {

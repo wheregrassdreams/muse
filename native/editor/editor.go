@@ -216,6 +216,7 @@ type Editor struct {
 	opts                   Options
 	diagramRenderer        DiagramRenderer
 	mathRenderer           MathRenderer
+	mathPreviewViewport    MathPreviewRect
 	headingRailRenderer    HeadingRailRenderer
 	inlineMath             inlineblock.MathSession
 	typedBreaks            paragraph.Breaks

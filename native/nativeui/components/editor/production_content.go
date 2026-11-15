@@ -49,6 +49,9 @@ func (c *ProductionContent) Render(ctx *ui.Context) {
 		return
 	}
 	c.editor.ViewWithInput(ctx, c.handleInput)
+	if frame, ok := c.editor.InlineMathPreview(); ok {
+		drawInlineMathPreview(ctx, frame)
+	}
 }
 
 // handleInput owns the MyGo-to-editor input translation for the production

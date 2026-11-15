@@ -24,37 +24,6 @@ func TestLegacyMathVisualBridgeBuildsFromNeutralRaster(t *testing.T) {
 	}
 }
 
-func TestMathPreviewBounds(t *testing.T) {
-	view := ui.Rect{X: 100, Y: 50, W: 400, H: 300}
-	for _, tc := range []struct {
-		name           string
-		anchor         ui.Rect
-		w, h           float32
-		visible, above bool
-	}{
-		{"below", ui.Rect{X: 120, Y: 80, W: 2, H: 20}, 200, 60, true, false},
-		{"flip", ui.Rect{X: 480, Y: 300, W: 2, H: 20}, 200, 60, true, true},
-		{"oversize", ui.Rect{X: 120, Y: 100, W: 2, H: 20}, 900, 900, true, false},
-		{"scrolled out", ui.Rect{X: 120, Y: 10, W: 2, H: 20}, 200, 60, false, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, ok := mathPreviewBounds(view, tc.anchor, tc.w, tc.h)
-			if ok != tc.visible {
-				t.Fatalf("visible=%v", ok)
-			}
-			if !ok {
-				return
-			}
-			if r.X < view.X || r.Y < view.Y || r.X+r.W > view.X+view.W || r.Y+r.H > view.Y+view.H {
-				t.Fatalf("outside viewport: %+v", r)
-			}
-			if tc.above && r.Y+r.H > tc.anchor.Y {
-				t.Fatalf("did not flip: %+v", r)
-			}
-		})
-	}
-}
-
 func TestInlineMathPreview(t *testing.T) {
 	h := newHarness(t, "公式 $x^2$ 后文。")
 	h.caretAt(len("公式 $x"))
@@ -119,12 +88,9 @@ func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testin
 	if caretRect.Y+caretRect.H <= viewport.Y || caretRect.Y >= viewport.Y+viewport.H {
 		t.Fatalf("caret is not visible in the viewport: caret=%+v viewport=%+v scroll=%v", caretRect, viewport, h.e.scroll.Y)
 	}
-	anchor, ok := h.e.mathPreviewAnchor(viewport, start)
-	if !ok || anchor != caretRect {
-		t.Fatalf("preview did not follow the visible caret after the formula start scrolled away: anchor=%+v caret=%+v ok=%v", anchor, caretRect, ok)
-	}
-	if _, ok := mathPreviewBounds(viewport, anchor, 240, 48); !ok {
-		t.Fatalf("preview anchor cannot produce a visible card: anchor=%+v viewport=%+v", anchor, viewport)
+	frame, ok := h.e.InlineMathPreview()
+	if !ok || frame.Anchor != (MathPreviewRect{X: caretRect.X, Y: caretRect.Y, W: caretRect.W, H: caretRect.H}) {
+		t.Fatalf("preview did not follow the visible caret after the formula start scrolled away: frame=%+v caret=%+v ok=%v", frame, caretRect, ok)
 	}
 	h.shot("inline-math-preview-after-source-start-scrolls-away")
 }
@@ -149,60 +115,9 @@ func TestMathPreviewOffsetViewport(t *testing.T) {
 	if bounds.X < 260 || bounds.Y < 56 {
 		t.Fatalf("missing viewport offset: %+v", bounds)
 	}
-	anchor, ok := h.e.caretRect(h.e.caret)
-	if !ok {
-		t.Fatal("missing anchor")
-	}
-	anchor.X += bounds.X
-	anchor.Y += bounds.Y - h.e.scroll.Y
-	r, ok := mathPreviewBounds(bounds, anchor, 200, 60)
-	if !ok || r.X < bounds.X || r.Y < bounds.Y {
-		t.Fatalf("incorrect offset preview: %+v", r)
+	frame, ok := h.e.InlineMathPreview()
+	if !ok || frame.Viewport.X != bounds.X || frame.Viewport.Y != bounds.Y || frame.Anchor.X < bounds.X || frame.Anchor.Y < bounds.Y {
+		t.Fatalf("incorrect offset preview snapshot: %+v", frame)
 	}
 	h.shot("inline-math-preview-offset")
-}
-
-func TestDarkMathPreviewOccludesQuote(t *testing.T) {
-	const src = "当 $A=\\frac{1}{2}$ 时\n\n> 函数要求 domain 中的每一个元素都映射到 codomain。\n> 第二行引用文字。\n"
-	theme := ui.DarkTheme()
-	var viewport ui.Rect
-	h := &harness{t: t, e: New(src, Options{FontSize: 16})}
-	h.tt = ui.NewTester(func(c *ui.Context) {
-		viewport = h.e.scrollHandle.Bounds(c)
-		ui.Themed(c, theme).Fill().Background(theme.Background).Children(func() { h.e.View(c).Grow(1) })
-	}, 1000, 700)
-	h.frame()
-	h.focus()
-	h.caretAt(len("当 $A"))
-	h.frame()
-	start, _, tex, ok := h.e.activeInlineMath()
-	if !ok {
-		t.Fatal("no formula")
-	}
-	anchor, _ := h.e.caretRect(start)
-	anchor.X += viewport.X
-	anchor.Y += viewport.Y - h.e.scroll.Y
-	obj := h.e.mathObject(tex, h.e.lk.size, false)
-	if obj == nil {
-		t.Fatal("formula render failed")
-	}
-	card, ok := mathPreviewBounds(viewport, anchor, obj.w+24, obj.h+obj.descent+24)
-	if !ok {
-		t.Fatal("preview not visible")
-	}
-	img := h.tt.Image()
-	matched, total := 0, 0
-	for y := int(card.Y) + 4; y < int(card.Y+card.H)-4; y++ {
-		for x := int(card.X) + 4; x < int(card.X+card.W)-4; x++ {
-			total++
-			c := img.RGBAAt(x, y)
-			if c.R == theme.Background.R && c.G == theme.Background.G && c.B == theme.Background.B {
-				matched++
-			}
-		}
-	}
-	if matched*100 < total*70 {
-		t.Fatalf("preview surface is translucent/occluded: %d of %d opaque surface pixels", matched, total)
-	}
-	h.shot("inline-math-over-quote-dark")
 }
