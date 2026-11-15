@@ -1,8 +1,6 @@
-package doc
+package doctypes
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -26,15 +24,9 @@ func TestLookupKnownAndFallback(t *testing.T) {
 	}
 }
 
-func TestOpenPlainTextFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "notes.txt")
-	if err := os.WriteFile(path, []byte("line one\nline two\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
+func TestOpenSourceParsesCallerProvidedContent(t *testing.T) {
 	r := NewRegistry()
-	tp, d, err := r.Open(path)
+	tp, d, err := r.OpenSource("notes.txt", []byte("line one\nline two\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,9 +38,9 @@ func TestOpenPlainTextFile(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesBinary(t *testing.T) {
+func TestOpenSourceRefusesBinary(t *testing.T) {
 	r := NewRegistry()
-	if _, _, err := r.Open("logo.png"); err == nil {
+	if _, _, err := r.OpenSource("logo.png", []byte("image bytes")); err == nil {
 		t.Error("opening logo.png succeeded, want an error")
 	}
 }
@@ -59,5 +51,33 @@ func TestRegisterOverrides(t *testing.T) {
 	r.Register(&Type{ID: "diary", Name: "Diary", Extensions: []string{".diary"}})
 	if tp, ok := r.Lookup(".diary"); !ok || tp.ID != "diary" {
 		t.Errorf(".diary -> %v %v, want diary", tp, ok)
+	}
+}
+
+func TestEditableVisibilityUsesRegisteredAllowlist(t *testing.T) {
+	r := NewRegistry()
+	for _, path := range []string{"note.md", "src/main.go", "config.json5", "README", "Makefile"} {
+		if !r.IsEditablePath(path) {
+			t.Errorf("IsEditablePath(%q) = false, want true", path)
+		}
+	}
+	for _, path := range []string{"payload.unknown", "photo.png", "archive.zip"} {
+		if r.IsEditablePath(path) {
+			t.Errorf("IsEditablePath(%q) = true, want false", path)
+		}
+	}
+	if got := r.EditableExtensions(); len(got) == 0 || got[0] == ".md" {
+		t.Fatalf("EditableExtensions should be a non-empty suffix list without dots: %v", got)
+	}
+}
+
+func TestImageExtensionsAreSharedWithPathClassification(t *testing.T) {
+	for _, ext := range ImageExtensions() {
+		if !IsImagePath("image" + ext) {
+			t.Errorf("IsImagePath(image%s) = false", ext)
+		}
+	}
+	if IsImagePath("note.md") {
+		t.Fatal("markdown path classified as image")
 	}
 }
