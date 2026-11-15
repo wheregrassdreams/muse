@@ -88,10 +88,14 @@ func TestStatReadAndPathBoundary(t *testing.T) {
 func TestWalkDoesNotFollowSymlinkedDirectory(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
-	writeFile(t, outside, "outside.md", "outside-token")
+	outsideNote := writeFile(t, outside, "outside.md", "outside-token")
 	link := filepath.Join(root, "linked")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
+	}
+	fileLink := filepath.Join(root, "linked-file.md")
+	if err := os.Symlink(outsideNote, fileLink); err != nil {
+		t.Fatal(err)
 	}
 	source, err := vaultindexsource.New(root)
 	if err != nil {
@@ -104,15 +108,21 @@ func TestWalkDoesNotFollowSymlinkedDirectory(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Path != "linked" || got[0].Kind != vaultindex.EntrySymlink {
+	if len(got) != 2 || got[0].Path != "linked" || got[0].Kind != vaultindex.EntrySymlink || got[1].Path != "linked-file.md" || got[1].Kind != vaultindex.EntrySymlink {
 		t.Fatalf("symlink walk = %+v", got)
 	}
-	entry, err := source.Stat("linked/outside.md")
-	if err != nil || entry.Kind != vaultindex.EntrySymlink {
-		t.Fatalf("stat through symlink = %+v, %v", entry, err)
+	if _, err := source.Stat("linked/outside.md"); err == nil {
+		t.Fatal("Stat accepted a path through a symlinked directory")
 	}
 	if _, err := source.Read("linked/outside.md"); err == nil {
 		t.Fatal("Read followed a symlinked directory")
+	}
+	entry, err := source.Stat("linked-file.md")
+	if err != nil || entry.Kind != vaultindex.EntrySymlink {
+		t.Fatalf("stat symlink file = %+v, %v", entry, err)
+	}
+	if _, err := source.Read("linked-file.md"); err == nil {
+		t.Fatal("Read followed a symlinked file")
 	}
 	idx := vaultindex.New(source)
 	if err := idx.Rebuild(); err != nil {

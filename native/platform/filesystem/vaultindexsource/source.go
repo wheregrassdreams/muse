@@ -124,6 +124,21 @@ func (s *Source) resolve(path string) (absolute, relative string, err error) {
 	}
 	absolute = filepath.Join(s.root, normalized)
 	relative = filepath.ToSlash(normalized)
+	current := s.root
+	parts := strings.Split(relative, "/")
+	for _, part := range parts[:len(parts)-1] {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return "", "", err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return "", "", fmt.Errorf("vaultindexsource: path traverses symlink: %q", path)
+		}
+		if !info.IsDir() {
+			return "", "", fs.ErrNotExist
+		}
+	}
 	return absolute, relative, nil
 }
 
