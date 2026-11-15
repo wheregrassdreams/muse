@@ -63,8 +63,7 @@ No Node, no pnpm, no vite — there is no frontend build at all.
 
 ```
 native/
-├── main.go            native entry point
-├── nativeui/          window, icon rail, context panel, agent
+├── cmd/muse-native/   thin executable entry point
 ├── app/               process composition root and platform adapter wiring
 ├── application/       document, vault and workspace use cases
 ├── document/          note, revision, metadata and persistence ports
@@ -79,9 +78,6 @@ native/
 ├── config/            application settings and theme configuration
 ├── events/            typed, instance-scoped application events
 └── ui/                shared native UI infrastructure, including scrollbars
-├── doc/               document type registry
-├── services/          native AI HTTP client
-└── cmd/               auxiliary commands
 ```
 
 ## Known limits
