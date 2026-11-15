@@ -83,3 +83,36 @@ func TestViewDispatchesVimKeysThroughProductionSession(t *testing.T) {
 		t.Fatalf("selection after Vim input = %d, want 2", got)
 	}
 }
+
+func TestSurfaceEditsSourceBackedPlainParagraphThroughSession(t *testing.T) {
+	session := editor.NewSession("hello")
+	if err := session.SetSelection(editor.Selection{Anchor: 5, Head: 5}); err != nil {
+		t.Fatal(err)
+	}
+	surface := NewSurface(session, Options{})
+	tester := ui.NewTester(func(c *ui.Context) { surface.Render(c) }, 640, 480)
+	tester.Frame()
+	if surface.frame.Rendered == nil || len(surface.frame.Rendered.Blocks) != 1 {
+		t.Fatalf("surface frame did not project source block: %+v", surface.frame)
+	}
+	if err := tester.Click("hello"); err != nil {
+		t.Fatalf("click paragraph to activate editor: %v", err)
+	}
+	tester.Frame()
+	tester.Type("!")
+	tester.Frame()
+	if got, want := session.Source(), "hello!"; got != want {
+		t.Fatalf("source after native block edit = %q, want %q", got, want)
+	}
+}
+
+func TestSourceDiffKeepsUTF8Boundaries(t *testing.T) {
+	old, updated := "猫a", "猫🦊"
+	prefix, suffix := sourceDiff(old, updated)
+	if got := old[:prefix]; got != "猫" {
+		t.Fatalf("prefix = %q, want complete CJK rune", got)
+	}
+	if got := old[len(old)-suffix:]; got != "" {
+		t.Fatalf("suffix = %q, want empty", got)
+	}
+}

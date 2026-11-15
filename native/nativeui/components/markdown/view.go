@@ -20,6 +20,14 @@ const (
 
 // Options controls how a document is drawn natively.
 type Options struct {
+	// RenderBlock may replace a neutral render block with a native element.
+	// Returning false lets the Markdown component use its standard renderer.
+	// The callback is a presentation seam; markdown/render remains toolkit-free.
+	RenderBlock func(c *ui.Context, block mdrender.Block) bool
+	// OnBlockClick is called when a paragraph or heading is clicked. It lets a
+	// hosting editor activate source-backed editing without coupling Markdown
+	// rendering to editor state.
+	OnBlockClick func(block mdrender.Block)
 	// SoftBreaksAsSpaces displays ordinary source newlines as Markdown spaces.
 	// Explicit hard breaks and paragraph boundaries are unaffected.
 	SoftBreaksAsSpaces bool
@@ -155,6 +163,11 @@ func renderBlocks(c *ui.Context, blocks []mdrender.Block, depth int, s rstyle) {
 }
 
 func renderBlock(c *ui.Context, b mdrender.Block, depth int, s rstyle) {
+	if s.o.RenderBlock != nil {
+		if s.o.RenderBlock(c, b) {
+			return
+		}
+	}
 	t := c.Theme()
 	switch b.Kind {
 	case Heading:
@@ -171,13 +184,19 @@ func renderBlock(c *ui.Context, b mdrender.Block, depth int, s rstyle) {
 			})
 			return
 		}
-		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
+		el := ui.RichText(c, uiSpans(c, b.Inlines, s)...).
 			FontSize(HeadingSize(b.Level, s.o.BodyFontSize)).
 			FontWeight(HeadingWeight(b.Level)).Wrap().LineHeight(HeadingLineHeight(b.Level)).
 			Padding(pad, 0, 0, 0)
+		if s.o.OnBlockClick != nil {
+			el.OnClick(func() { s.o.OnBlockClick(b) }).Cursor(ui.CursorText)
+		}
 	case Paragraph:
-		ui.RichText(c, uiSpans(c, b.Inlines, s)...).
+		el := ui.RichText(c, uiSpans(c, b.Inlines, s)...).
 			FontSize(s.o.BodyFontSize).Wrap().LineHeight(1.7)
+		if s.o.OnBlockClick != nil {
+			el.OnClick(func() { s.o.OnBlockClick(b) }).Cursor(ui.CursorText)
+		}
 	case Code:
 		renderCode(c, b, s)
 	case Quote:
