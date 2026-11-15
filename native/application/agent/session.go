@@ -24,6 +24,37 @@ const (
 type Message struct {
 	Role    Role
 	Content string
+	Parts   []Part
+}
+
+type PartKind uint8
+
+const (
+	TextPart PartKind = iota + 1
+	ThoughtPart
+	ToolPart
+)
+
+type PartStatus uint8
+
+const (
+	PartRunning PartStatus = iota + 1
+	PartApproval
+	PartSucceeded
+	PartFailed
+)
+
+type Part struct {
+	Kind     PartKind
+	Text     string
+	Duration time.Duration
+	Expanded bool
+	Tool     ToolPartState
+}
+
+type ToolPartState struct {
+	ID, Name, Arguments, Result, Error string
+	Status                             PartStatus
 }
 
 type Snapshot struct {
@@ -39,13 +70,16 @@ type Request struct {
 	Messages []Message
 }
 
+type StreamEvent struct{ Text, Thought, Phase string }
+
 type StreamResult struct {
 	Aborted bool
 	Err     error
+	Tools   []ToolRequest
 }
 
 type StreamClient interface {
-	Stream(Request, func(string)) StreamResult
+	Stream(Request, func(StreamEvent)) StreamResult
 	Abort()
 }
 
@@ -60,6 +94,25 @@ type ToolResult struct {
 
 type ToolExecutor interface {
 	Execute(context.Context, ToolRequest) ToolResult
+}
+
+type Permission uint8
+
+const (
+	AskBeforeChanges Permission = iota + 1
+	AllowChanges
+	ReadOnly
+)
+
+type ToolPolicy interface {
+	Enabled(config.AssistantSettings, string) bool
+	RequiresApproval(string) bool
+	Permission() Permission
+}
+
+type Capabilities struct {
+	Tools  ToolExecutor
+	Policy ToolPolicy
 }
 
 type Decision uint8
@@ -85,6 +138,8 @@ type Session struct {
 	mu        sync.RWMutex
 	client    StreamClient
 	settings  config.AssistantSettings
+	tools     ToolExecutor
+	policy    ToolPolicy
 	messages  []Message
 	busy      bool
 	phase     string
@@ -95,8 +150,12 @@ type Session struct {
 	closed    bool
 }
 
-func NewSession(settings config.AssistantSettings, client StreamClient) *Session {
-	return &Session{settings: settings, client: client, approvals: make(map[string]approval)}
+func NewSession(settings config.AssistantSettings, client StreamClient, capabilities ...Capabilities) *Session {
+	s := &Session{settings: settings, client: client, approvals: make(map[string]approval)}
+	if len(capabilities) > 0 {
+		s.tools, s.policy = capabilities[0].Tools, capabilities[0].Policy
+	}
+	return s
 }
 
 func (s *Session) Snapshot() Snapshot {
@@ -148,7 +207,7 @@ func (s *Session) Send(prompt string) error {
 }
 
 func (s *Session) stream(id uint64, request Request) {
-	result := s.client.Stream(request, func(delta string) { s.appendDelta(id, delta) })
+	result := s.client.Stream(request, func(event StreamEvent) { s.applyEvent(id, event) })
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id != s.requestID || s.closed {
@@ -161,8 +220,8 @@ func (s *Session) stream(id uint64, request Request) {
 	s.revision++
 }
 
-func (s *Session) appendDelta(id uint64, delta string) {
-	if delta == "" {
+func (s *Session) applyEvent(id uint64, event StreamEvent) {
+	if event.Text == "" && event.Thought == "" && event.Phase == "" {
 		return
 	}
 	s.mu.Lock()
@@ -171,8 +230,25 @@ func (s *Session) appendDelta(id uint64, delta string) {
 		return
 	}
 	last := &s.messages[len(s.messages)-1]
-	last.Content += delta
+	if event.Phase != "" {
+		s.phase = event.Phase
+	}
+	if event.Thought != "" {
+		appendPartDelta(last, ThoughtPart, event.Thought)
+	}
+	if event.Text != "" {
+		appendPartDelta(last, TextPart, event.Text)
+		last.Content += event.Text
+	}
 	s.revision++
+}
+
+func appendPartDelta(message *Message, kind PartKind, value string) {
+	if n := len(message.Parts); n > 0 && message.Parts[n-1].Kind == kind {
+		message.Parts[n-1].Text += value
+		return
+	}
+	message.Parts = append(message.Parts, Part{Kind: kind, Text: value})
 }
 
 func (s *Session) Stop() {
@@ -266,6 +342,35 @@ func (s *Session) DecideApproval(id string, decision Decision) error {
 	default:
 		return ErrNoApproval
 	}
+}
+
+// ExecuteTool applies the injected capability and permission policy before
+// delegating a typed operation. It never interprets UI state or raw JSON.
+func (s *Session) ExecuteTool(ctx context.Context, request ToolRequest) ToolResult {
+	if s == nil || s.tools == nil || s.policy == nil {
+		return ToolResult{Err: ErrUnavailable}
+	}
+	s.mu.RLock()
+	settings := s.settings
+	s.mu.RUnlock()
+	if !s.policy.Enabled(settings, request.Name) {
+		return ToolResult{Err: fmt.Errorf("assistant tool %q is disabled", request.Name)}
+	}
+	if s.policy.RequiresApproval(request.Name) {
+		switch s.policy.Permission() {
+		case ReadOnly:
+			return ToolResult{Err: errors.New("assistant session is read-only")}
+		case AskBeforeChanges:
+			decision, err := s.RequestApproval(ctx, request)
+			if err != nil {
+				return ToolResult{Err: err}
+			}
+			if decision == Reject {
+				return ToolResult{Err: errors.New("assistant operation was rejected")}
+			}
+		}
+	}
+	return s.tools.Execute(ctx, request)
 }
 
 func (s *Session) Close() {

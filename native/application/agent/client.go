@@ -20,7 +20,7 @@ func NewProviderClient(service *nativeagent.AI) *ProviderClient {
 	return &ProviderClient{service: service}
 }
 
-func (c *ProviderClient) Stream(request Request, onDelta func(string)) StreamResult {
+func (c *ProviderClient) Stream(request Request, onDelta func(StreamEvent)) StreamResult {
 	if c == nil || c.service == nil {
 		return StreamResult{Err: errors.New("assistant provider is unavailable")}
 	}
@@ -44,7 +44,7 @@ func (c *ProviderClient) Stream(request Request, onDelta func(string)) StreamRes
 		Body: map[string]any{
 			"model": request.Settings.Model, "stream": true, "messages": wireMessages,
 		},
-	}, nativeagent.ChatSink{Chunk: onDelta})
+	}, nativeagent.ChatSink{Chunk: func(chunk string) { onDelta(StreamEvent{Text: chunk}) }})
 	c.active.Store("")
 	if result.Aborted {
 		return StreamResult{Aborted: true}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -10,13 +11,13 @@ import (
 )
 
 type fakeStream struct {
-	chunks chan func(string)
+	chunks chan func(StreamEvent)
 	done   chan struct{}
 	aborts int
 	once   sync.Once
 }
 
-func (f *fakeStream) Stream(_ Request, onDelta func(string)) StreamResult {
+func (f *fakeStream) Stream(_ Request, onDelta func(StreamEvent)) StreamResult {
 	f.chunks <- onDelta
 	<-f.done
 	return StreamResult{Aborted: true}
@@ -24,13 +25,13 @@ func (f *fakeStream) Stream(_ Request, onDelta func(string)) StreamResult {
 func (f *fakeStream) Abort() { f.aborts++; f.once.Do(func() { close(f.done) }) }
 
 func TestSessionOwnsTranscriptAndStreamsDeltas(t *testing.T) {
-	client := &fakeStream{chunks: make(chan func(string), 1), done: make(chan struct{})}
+	client := &fakeStream{chunks: make(chan func(StreamEvent), 1), done: make(chan struct{})}
 	session := NewSession(config.AssistantSettings{Model: "m"}, client)
 	if err := session.Send("  summarize  "); err != nil {
 		t.Fatal(err)
 	}
 	callback := <-client.chunks
-	callback("A result")
+	callback(StreamEvent{Text: "A result"})
 	client.once.Do(func() { close(client.done) })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -38,13 +39,13 @@ func TestSessionOwnsTranscriptAndStreamsDeltas(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := session.Snapshot()
-	if snapshot.Busy || len(snapshot.Messages) != 2 || snapshot.Messages[0] != (Message{Role: User, Content: "summarize"}) || snapshot.Messages[1] != (Message{Role: Assistant, Content: "A result"}) {
+	if snapshot.Busy || len(snapshot.Messages) != 2 || !reflect.DeepEqual(snapshot.Messages[0], Message{Role: User, Content: "summarize"}) || !reflect.DeepEqual(snapshot.Messages[1], Message{Role: Assistant, Content: "A result", Parts: []Part{{Kind: TextPart, Text: "A result"}}}) {
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
 }
 
 func TestSessionApprovalAndStopAreTypedAndCancelPendingWork(t *testing.T) {
-	client := &fakeStream{chunks: make(chan func(string), 1), done: make(chan struct{})}
+	client := &fakeStream{chunks: make(chan func(StreamEvent), 1), done: make(chan struct{})}
 	session := NewSession(config.AssistantSettings{Model: "m"}, client)
 	if err := session.Send("do work"); err != nil {
 		t.Fatal(err)
