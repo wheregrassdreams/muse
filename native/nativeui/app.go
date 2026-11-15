@@ -43,6 +43,7 @@ import (
 	doctypes "muse/nativeui/components/doctypes"
 	"muse/nativeui/components/documentdialogs"
 	"muse/nativeui/interactions"
+	"muse/nativeui/panels/filetree"
 	"muse/nativeui/surfaces/mermaidpreview"
 	"muse/nativeui/window"
 	vaultsearch "muse/search"
@@ -637,7 +638,10 @@ func (a *App) View(c *ui.Context) {
 	}
 	a.wikiLinkPreviewDialog(c)
 	if a.treePreviewPath != "" {
-		a.treeImagePreview(c, a.treePreviewPath, a.treePreviewRect)
+		a.treePreviewPopupHovered = filetree.RenderImagePreview(c, filetree.ImagePreview{
+			Path: a.treePreviewPath, Anchor: a.treePreviewRect,
+			CacheStore: a.imageCacheStore, OnLoad: a.invalidate,
+		})
 	}
 }
 

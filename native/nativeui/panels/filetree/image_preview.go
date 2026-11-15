@@ -1,39 +1,48 @@
-package nativeui
+package filetree
 
 import (
-	"muse/locales"
 	"path/filepath"
 
 	"github.com/egoist/mygo/ui"
-	"muse/mdoc"
+	"muse/locales"
+	"muse/markdown/images"
+	markdownui "muse/nativeui/components/markdown"
 )
 
-// treeImagePreview draws a compact image popup adjacent to a hovered tree
-// row. ImageAsset is shared by the renderer's filesystem cache, so invoking
-// this on each hovered frame does not reread or decode the image repeatedly.
-func (a *App) treeImagePreview(c *ui.Context, path string, anchor ui.Rect) {
-	if path == "" || !isImageFile(path) {
-		return
+// ImagePreview is the presentation input for the hover preview rendered next
+// to a file-tree row. The caller owns the hovered path and cache capability.
+type ImagePreview struct {
+	Path       string
+	Anchor     ui.Rect
+	CacheStore images.CacheStore
+	OnLoad     func()
+}
+
+// RenderImagePreview renders an image preview and reports whether the pointer
+// is currently over its popup. The panel owns only placement and rendering;
+// image loading and persistent cache storage remain injected capabilities.
+func RenderImagePreview(c *ui.Context, preview ImagePreview) bool {
+	if preview.Path == "" {
+		return false
 	}
-	asset := mdoc.LoadImageAsset(path, "", a.invalidate)
+	asset := markdownui.LoadImageAssetWithCacheStore(preview.Path, "", preview.CacheStore, preview.OnLoad)
 	if asset == nil {
-		return
+		return false
 	}
 	if next, _ := asset.Advance(c.Now()); next > 0 {
 		c.After(next)
 	}
 	bmp := asset.Bitmap()
 	vw, vh := c.Size()
-	boxRect := placeTreeImagePreview(ui.Rect{W: vw, H: vh}, anchor, 280, 220)
+	boxRect := PlaceImagePreview(ui.Rect{W: vw, H: vh}, preview.Anchor, 280, 220)
 	t := c.Theme()
 	box := ui.Box(c).Key("tree-image-hover-preview").Label(locales.ImagePreviewTitle()).Absolute().Left(boxRect.X).Top(boxRect.Y).
 		ZIndex(100).
 		Width(boxRect.W).Height(boxRect.H).Radius(10).Background(t.Background).Border(1, t.Border).
 		Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Clip()
-	a.treePreviewPopupHovered = box.Hovered()
 	box.Children(func() {
 		ui.Column(c).Fill().Padding(10).Gap(7).Children(func() {
-			ui.Text(c, filepath.Base(path)).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+			ui.Text(c, filepath.Base(preview.Path)).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 			ui.Box(c).FillWidth().Height(1).Background(t.Border)
 			if bmp == nil {
 				ui.Text(c, locales.ImagePreviewUnavailable()).Fill().Center().TextColor(t.TextMuted)
@@ -52,13 +61,13 @@ func (a *App) treeImagePreview(c *ui.Context, path string, anchor ui.Rect) {
 			})
 		})
 	})
+	return box.Hovered()
 }
 
-// placeTreeImagePreview keeps the preview attached to the hovered row. Prefer
-// the row's trailing edge, so the card sits just outside the sidebar instead
-// of at a fixed distance from the editor origin. Flip to the leading edge when
-// the viewport has no room on the right, and clamp both axes to the window.
-func placeTreeImagePreview(viewport, anchor ui.Rect, width, height float32) ui.Rect {
+// PlaceImagePreview keeps a preview attached to its hovered row, flips it to
+// the row's leading edge when there is no room on the right, and clamps it to
+// the viewport.
+func PlaceImagePreview(viewport, anchor ui.Rect, width, height float32) ui.Rect {
 	const (
 		edge = float32(8)
 		gap  = float32(8)

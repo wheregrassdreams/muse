@@ -8,8 +8,10 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	applicationvault "muse/application/vault"
+	mdedit "muse/editor"
 	"muse/locales"
-	"muse/mdedit"
+	"muse/platform/filesystem/vaultfiles"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +19,18 @@ import (
 	"time"
 )
 
+var trashItem = mygo.Shell.TrashItem
+
 func treeDragHandleLabel(name string) string {
 	return locales.TreeDragHandleLabel(name)
+}
+
+func newFileTreeTestApp() *App {
+	a := New()
+	a.fileOperations = applicationvault.NewFileOperations(vaultfiles.New(func(path string) error {
+		return trashItem(path)
+	}))
+	return a
 }
 
 func clickTreeRow(t *testing.T, tt *ui.Tester, label string) {
@@ -49,7 +61,7 @@ func TestMoveTreeItemIntoFolder(t *testing.T) {
 	if err := os.WriteFile(source, []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root, a.path, a.selectedPath = root, source, source
 	a.moveTreeItem(source, destination)
 	moved := filepath.Join(destination, "note.md")
@@ -75,7 +87,7 @@ func TestMoveTreeFolderRemapsOpenDescendant(t *testing.T) {
 	if err := os.WriteFile(open, []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root, a.path, a.selectedPath = root, open, open
 	a.expanded[source] = true
 	a.moveTreeItem(source, destination)
@@ -94,7 +106,7 @@ func TestExternalTreeDropCopiesFileWithoutOverwrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root = root
 	a.importDroppedInto([]string{source}, root)
 	got, err := os.ReadFile(filepath.Join(root, "note 2.md"))
@@ -117,7 +129,7 @@ func TestExternalTreeDropSkipsTopLevelSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root = root
 	a.importDroppedInto([]string{link}, root)
 	if _, err := os.Lstat(filepath.Join(root, filepath.Base(link))); !os.IsNotExist(err) {
@@ -134,7 +146,7 @@ func TestMoveTreeItemToCurrentParentIsNoOp(t *testing.T) {
 	if err := os.WriteFile(path, []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root, a.path, a.selectedPath = root, path, path
 	beforeInfo, err := os.Stat(path)
 	if err != nil {
@@ -156,7 +168,7 @@ func TestPlainTreeClickDoesNotStartDragProjection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -192,7 +204,7 @@ func TestTreeModifierSelectionDoesNotOpenOrToggleRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -248,7 +260,7 @@ func TestTreeRightClickPreservesSelectionOnlyForSelectedRow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -280,7 +292,7 @@ func TestTreeDragMovesCurrentMultiSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -332,7 +344,7 @@ func TestTreeDragUnmodifiedPressOnUnselectedRowCollapsesGroup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -376,7 +388,7 @@ func TestTreeDragTrashesCurrentMultiSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	trashed := make(chan string, len(paths))
 	oldTrash, oldDialog := trashItem, messageDialog
@@ -426,7 +438,7 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	a.loadDoc("# Draft\n\n")
 	original := a.ed.Source()
@@ -500,7 +512,7 @@ func TestTreeDragDropsFileIntoFolder(t *testing.T) {
 	if err := os.WriteFile(source, []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -539,7 +551,7 @@ func TestTreeDragDropsToWideRootBlankArea(t *testing.T) {
 	if err := os.WriteFile(source, []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	a.expanded[folder] = true
 	tt := ui.NewTester(a.View, 1000, 720)
@@ -568,7 +580,7 @@ func TestTreeDragDropsIntoTrashUsesRecoverableTrashAction(t *testing.T) {
 	if err := os.WriteFile(source, []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	trashed := make(chan string, 1)
 	oldTrash, oldDialog := trashItem, messageDialog
@@ -624,7 +636,7 @@ func TestTreeDragHandsOffToNativeWindowDragWhenPointerLeaves(t *testing.T) {
 	if err := os.WriteFile(path, []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	var got transfer.Data
 	var options mygo.DragOptions
@@ -686,7 +698,7 @@ func TestTreeNativeHandoffCompletionAllowsNextClick(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
