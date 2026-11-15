@@ -79,7 +79,7 @@ sh scripts/play.sh --once           # 打开一次，关窗即退
 **性能闸门**（1MB 文档，一次按键的 CPU 时间 < 8.3ms）：
 
 ```bash
-MUSE_PERF=1 sh scripts/go.sh -C native test ./mdedit -run TestTypingFrameBudget -v
+MUSE_PERF=1 sh scripts/go.sh -C native test ./editor -run TestTypingFrameBudget -v
 ```
 
 它默认跳过，因为 `go test ./...` 会把各包并排跑，墙钟读数会被别的进程污染。
@@ -92,55 +92,28 @@ MUSE_PERF=1 sh scripts/go.sh -C native test ./mdedit -run TestTypingFrameBudget 
 
 ## 3. 仓库地图
 
-```
-native/
-├── main.go           只调用 nativeui.Run
-├── mdedit/           所见即所得编辑器（1.6 万行，37 个测试文件）
-│   ├── editor.go     状态、sync（唯一的解析入口）、SetSource、公共 API
-│   ├── parsed.go     parserSource：解析输入的单一所有者（set / edit / clear）
-│   ├── doc.go        buildLeaves：块 + 空行 → 叶子；addBlankLeaves
-│   ├── display.go    源码 → 显示：pieces、srcToDisp/dispToSrc、stops、对象展开
-│   ├── layout.go     排版：每种块的 view、表格几何、view 缓存键
-│   ├── paint.go      绘制：文字、对象、块标记、源码浮条
-│   ├── nav.go        光标：step、normalize、edgeStop、hitTest、整块选区
-│   ├── input.go      按键与鼠标：press/drag/hover、源码开关、任务勾选
-│   ├── edit.go       编辑：Enter/Backspace/Delete、缩进、行首标记
-│   ├── format.go     格式命令（粗体/表格/任务…）
-│   ├── comment.go    %%注释%% 的屏蔽（注释是文档级区间，不是叶子）
-│   ├── mask.go       前置元信息屏蔽
-│   ├── history.go    撤销栈
-│   └── ime.go        输入法（UTF-16 偏移）
-├── mdoc/             Markdown 的模型与渲染（16 个测试文件）
-│   ├── math_image.go 数学：go-tex 解析/布局 → 光栅 → 缓存
-│   ├── texcanvas/    ★ vendored 的 go-tex canvasr（见 §6）
-│   ├── sketch.go     mermaid：sketch 出 SVG，这里取形状与标签
-│   ├── diagram.go    ParseDiagram / ParseDiagramThemed
-│   ├── mermaid.go    旧的自己写的 mermaid 布局（**待删**，见 §9）
-│   ├── class.go/gantt.go/pie.go/state.go/sequence.go   同一批旧布局（**待删**）
-│   └── view.go       非编辑态的渲染（预览、标题、表格…）
-├── nativeui/         窗口外壳（20 个测试文件）
-│   ├── app.go        App 状态、View、侧栏、画布、编辑器头部、面板
-│   ├── run.go        菜单、快捷键、窗口、单实例
-│   ├── frame.go      窗口按钮与标题栏的房间
-│   ├── header_fade.go  顶部模糊：三级级联 + 浅罩（macOS scroll edge，见 §7.1）
-│   └── *.go          AI 面板、文件 IO、设置、命令面板、对话框
-├── services/         原生 AI HTTP 客户端
-├── doc/              文件类型注册表
-└── testdata/         all-syntax.md、playground.md、commonmark/
-docs/
-├── editor-model.md   ★ 编辑器模型与不变量（改编辑行为前必读）
-├── rendering.md      ★ 数学与 mermaid 的管线、上游问题、可选路线
-├── playground.md     快速验证流程
-├── rfc-001-*.md      早期 Web 侧 PoC 与迁移记录（历史，不必读）
-└── HANDOVER.md       本文
-scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing.sh
-```
+当前架构基准和完整模块职责以 [architecture.md](architecture.md) 为准；不要按旧交接记录里的
+`mdedit`、`mdoc`、`services` 等旧目录继续加代码。常用入口如下：
+
+- `native/cmd/muse-native`：桌面命令入口。
+- `native/app`：组合 application 用例、platform 适配器和事件生命周期。
+- `native/application`：文档保存/恢复、vault 生命周期、workspace 恢复等跨模块用例。
+- `native/document`、`native/vault`、`native/search`、`native/workspace`：领域模型与策略。
+- `native/editor`：编辑会话、输入/导航、布局策略和行内/段落/表格子系统。
+- `native/markdown`：Markdown 语法、渲染模型及图片、数学、图表管线。
+- `native/nativeui`：MyGo 展示层；通用窗口管理在 `window`，编辑器与 Markdown 适配在
+  `components`，瞬态窗口内容在 `surfaces`，侧栏视图在 `panels`。
+- `native/platform`：文件系统、缓存路径和子进程等具体适配器。
+- `native/config`、`native/theme`、`native/ui`、`native/locales`：配置、视觉主题、共享 UI
+  原语和本地化资源。
+
+历史迁移记录和历史路径只用于解释背景；新增代码的实际归属以当前源码和上面的架构基准为准。
 
 ---
 
-## 4. 编辑器模型：先读这一节，再动 `mdedit`
+## 4. 编辑器模型：先读这一节，再动 `editor`
 
-完整版在 **`docs/editor-model.md`**（含"参考系"：每条设计的先例与自研前提）。这里只留
+模型不变量仍见 **`docs/editor-model.md`**（含"参考系"：每条设计的先例与自研前提）。这里只留
 接手时最容易踩的四条：
 
 1. **源码是唯一状态。** 没有富文本树。显示、光标、选区、撤销都从 `src` 派生；
@@ -150,7 +123,7 @@ scripts/              dev.sh、play.sh、build.sh、build-macos-app.sh、signing
 4. **显示是投影**：`pieces` 说明哪段源码显示成什么；光标落在边界上时标记展开成源码，
    这只是显示变化，不改编辑行为。
 
-**解析输入只有一个所有者**（`mdedit/parsed.go` 的 `parserSource`）：`doc`、`src`、`mask`、
+**解析输入只有一个所有者**（`editor` 中的 `parserSource`）：`doc`、`src`、`mask`、
 `comments`、`fm` 只有 `set`/`edit`/`clear` 能写，`Editor.sync` 是唯一决定"整篇重算还是增量推进"的
 地方。新增派生字段时只需填这两个地方；`TestTheParserSourceIsWrittenInOnePlace` 会读本包
 源码阻止别处写入，随机按键测试会在每一步校验"派生状态 == 重算"。

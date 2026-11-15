@@ -1,10 +1,10 @@
 # 编辑器模型：源码是唯一的真实状态
 
 - **状态**：现行（2026-11-09）
-- **相关**：[rfc-001-editor-engine.md](rfc-001-editor-engine.md)、`native/mdedit/`
+- **相关**：[rfc-001-editor-engine.md](rfc-001-editor-engine.md)、`native/editor/`
 - **适用范围**：正文编辑器的源码表示、叶片模型、光标寻址、显示映射、性能边界
 
-本文记录 `native/mdedit` 的模型与不变量。改动编辑行为前先读它：这里的每一条都是为了“打开的 vault 不被改坏、双链可用、编辑行为与原始 Markdown 一致”。
+本文记录 `native/editor` 的模型与不变量。改动编辑行为前先读它：这里的每一条都是为了“打开的 vault 不被改坏、双链可用、编辑行为与原始 Markdown 一致”。
 
 ---
 
@@ -21,7 +21,7 @@ source (string)            唯一的真实状态，字节偏移就是光标
              └─ pieces     源码 → 显示 的映射，一个叶片一份
 ```
 
-**解析输入只有一个所有者**（`mdedit/parsed.go`）。`parserSource` 持有解析器读到的一切和由源码派生的状态：`doc`、它据以构建的 `src`、屏蔽后的 `mask`、`mask` 里藏起来的 `comments`、前置元信息的结尾 `fm`。只有它的三个方法能写这些字段——`set`（整篇重读）、`edit`（跨一次编辑推进）、`clear`（换了源码，或根本不当 Markdown 解析）；`Editor.sync` 是唯一决定走哪条路的调用方。新增一个派生字段时，它只有这两个地方要填，而"只在增量路径更新、忘了整篇路径"这类错误由 `TestTheParserSourceIsWrittenInOnePlace`（读本包源码找写入点）和随机按键测试里"派生状态必须等于重算"的断言一起拦。
+**解析输入只有一个所有者**（`editor/parsed.go`）。`parserSource` 持有解析器读到的一切和由源码派生的状态：`doc`、它据以构建的 `src`、屏蔽后的 `mask`、`mask` 里藏起来的 `comments`、前置元信息的结尾 `fm`。只有它的三个方法能写这些字段——`set`（整篇重读）、`edit`（跨一次编辑推进）、`clear`（换了源码，或根本不当 Markdown 解析）；`Editor.sync` 是唯一决定走哪条路的调用方。新增一个派生字段时，它只有这两个地方要填，而"只在增量路径更新、忘了整篇路径"这类错误由 `TestTheParserSourceIsWrittenInOnePlace`（读本包源码找写入点）和随机按键测试里"派生状态必须等于重算"的断言一起拦。
 
 四条不变量：
 
@@ -131,7 +131,7 @@ Muse 用的是**块叶模型去逼近连续缓冲区**。差别落在“寻址�
 这个闸门读的是时间，而 `go test ./...` 会把各包的测试并排跑在同样的核和内存带宽上——同一次按键单跑是 4.7ms，并排时读到过 14ms。所以它默认跳过，需要时单独跑：
 
 ```
-MUSE_PERF=1 go test ./mdedit -run TestTypingFrameBudget -v
+MUSE_PERF=1 go test ./editor -run TestTypingFrameBudget -v
 ```
 
 量的是 **CPU 时间**（darwin/linux 用 `getrusage`，其他平台退回墙钟），并且最多重测三轮：机器忙的时候，晚一拍的读数不该算成编辑器慢。

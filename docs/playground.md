@@ -30,8 +30,9 @@ Go 编出来的是新二进制，所以这里的热重载是**改文件 → 重�
 看起来像是原地刷新。
 
 脚本用 `find -newer <stamp>` 轮询（每 0.4 秒），不依赖 `fswatch` 之类的外部工具：
-改 `native/mdedit`、`native/nativeui`、`native/mdoc`、`native/services`、`native/doc`、
-`native/cmd` 下的 `.go`，或者改样例本身，都会触发。构建失败时窗口保持关闭，
+改 `native/editor`、`native/nativeui`、`native/markdown`、`native/agent`、`native/application`、
+`native/document`、`native/vault`、`native/search`、`native/platform` 或 `native/cmd` 下的 `.go`，
+或者改样例本身，都会触发。构建失败时窗口保持关闭，
 再存一次文件就重试。
 
 ## 为什么它也在测试里
