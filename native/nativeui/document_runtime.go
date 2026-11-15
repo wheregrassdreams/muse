@@ -3,13 +3,16 @@ package nativeui
 import (
 	"errors"
 	"fmt"
+	"muse/locales"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/frontmatter"
 	"muse/notestore"
 	"muse/scrollui"
 )
@@ -29,7 +32,10 @@ type documentRuntime struct {
 	store                               *notestore.Store
 	generation                          uint64
 	revision                            string
+	baseSource                          string
 	due                                 time.Time
+	updatedAtDue                        time.Time
+	applyingMetadata                    bool
 	saving                              bool
 	results                             chan saveResult
 	draftKey                            string
@@ -49,6 +55,7 @@ func (a *App) enableDocumentServices() {
 	a.documents = &documentRuntime{store: notestore.New(filepath.Join(filepath.Dir(nativePreferencesPath()), "recovery")), results: make(chan saveResult, 1), draftKey: fmt.Sprintf("untitled-%d", time.Now().UnixNano())}
 	if a.path != "" {
 		a.documents.revision = notestore.Revision(a.diskSource())
+		a.documents.baseSource = a.diskSource()
 	}
 }
 func (a *App) documentLoaded(raw string) {
@@ -61,13 +68,19 @@ func (a *App) documentLoaded(raw string) {
 		r.saveMu.Unlock()
 		r.conflictOpen = false
 		r.revision = notestore.Revision(raw)
+		r.baseSource = raw
 		r.due = time.Time{}
+		r.updatedAtDue = time.Time{}
 		r.conflict = ""
 	}
 }
 func (a *App) documentChanged() {
 	if r := a.documents; r != nil {
-		r.due = time.Now().Add(autosaveDelay)
+		now := time.Now()
+		r.due = now.Add(autosaveDelay)
+		if !r.applyingMetadata {
+			r.updatedAtDue = now.Add(time.Second)
+		}
 	}
 	if v := a.vault; v != nil && a.workspaceSearch {
 		v.queryToken++
@@ -94,12 +107,13 @@ func (a *App) documentTick(c *ui.Context) {
 				if errors.Is(done.err, notestore.ErrConflict) {
 					r.conflict = done.path
 					r.conflictOpen = true
-					a.notice("磁盘文件已变化，自动保存已暂停")
+					a.notice(locales.DocumentExternalChangedAutosavePaused())
 				} else {
-					a.notice("自动保存失败：" + done.err.Error())
+					a.notice(locales.CommonAutosaveError(done.err.Error()))
 				}
 			} else if done.path != "" && done.revision != "" {
 				r.revision = done.revision
+				r.baseSource = done.source
 				if done.source == a.diskSource() {
 					a.dirty = false
 					a.updateTitle()
@@ -108,7 +122,16 @@ func (a *App) documentTick(c *ui.Context) {
 		}
 	default:
 	}
+	if !r.updatedAtDue.IsZero() && !time.Now().Before(r.updatedAtDue) {
+		r.updatedAtDue = time.Time{}
+		a.updateManagedTimestamp()
+	}
 	if r.saving || r.due.IsZero() || time.Now().Before(r.due) || !a.dirty {
+		return
+	}
+	if !r.updatedAtDue.IsZero() {
+		r.updatedAtDue = time.Time{}
+		a.updateManagedTimestamp()
 		return
 	}
 	r.due = time.Time{}
@@ -137,6 +160,49 @@ func (a *App) documentTick(c *ui.Context) {
 		a.invalidate()
 	}()
 }
+
+func (a *App) flushManagedTimestamp() {
+	if a.documents == nil || a.documents.updatedAtDue.IsZero() {
+		return
+	}
+	a.documents.updatedAtDue = time.Time{}
+	a.updateManagedTimestamp()
+}
+
+func (a *App) updateManagedTimestamp() {
+	if a.ed == nil || a.documents == nil || codeLanguage(a.path) != "" {
+		return
+	}
+	source := a.ed.Source()
+	next, err := frontmatter.EnsureCore(source)
+	if err != nil {
+		a.notice(locales.CommonTimestampError(err.Error()))
+		return
+	}
+	next, err = frontmatter.SetTyped(next, "updated_at", time.Now().UTC().Format(time.RFC3339Nano), "text")
+	if err != nil {
+		a.notice(locales.CommonTimestampError(err.Error()))
+		return
+	}
+	a.documents.applyingMetadata = true
+	a.ed.ReplaceSystemAll(next)
+	a.documents.applyingMetadata = false
+}
+
+func ensureCreatedAt(source string, fallback time.Time) (string, string, error) {
+	core, err := frontmatter.EnsureCore(source)
+	if err != nil {
+		return source, "", err
+	}
+	for _, field := range frontmatter.Parse(core).Fields {
+		if field.Key == "created_at" && strings.TrimSpace(field.Value) != "" {
+			return core, field.Value, nil
+		}
+	}
+	stamp := fallback.UTC().Format(time.RFC3339Nano)
+	updated, err := frontmatter.SetTyped(core, "created_at", stamp, "text")
+	return updated, stamp, err
+}
 func (a *App) writeDocument(path, source, revision string) error {
 	if a.documents == nil {
 		return writeFileAtomic(path, []byte(source))
@@ -158,7 +224,7 @@ func (a *App) openRecovery() {
 	}
 	drafts, err := a.documents.store.ListDrafts()
 	if err != nil {
-		a.notice("读取恢复草稿失败：" + err.Error())
+		a.notice(locales.CommonRecoveryReadError(err.Error()))
 		return
 	}
 	a.documents.drafts = drafts
@@ -171,9 +237,12 @@ func (a *App) documentDialogs(c *ui.Context) {
 	}
 	ui.Modal(c, &r.conflictOpen, func() {
 		ui.Column(c).Width(440).Padding(20).Gap(12).Background(c.Theme().Background).Radius(12).Children(func() {
-			ui.Text(c, "文件在外部发生了变化").FontWeight(700)
-			ui.Text(c, "你的编辑已保留为恢复草稿。选择重新加载磁盘内容，或将当前编辑保留为未命名副本。").Wrap()
-			if ui.Button(c, "保留为未命名副本").Clicked() {
+			ui.Text(c, locales.DocumentExternalChanged()).FontWeight(700)
+			ui.Text(c, locales.DocumentExternalChangedDetail()).Wrap()
+			if ui.Button(c, locales.CommonTryMerge()).Clicked() {
+				a.tryMergeExternalChanges()
+			}
+			if ui.Button(c, locales.CommonKeepCopy()).Clicked() {
 				if !a.preserveCurrentDraft() {
 					return
 				}
@@ -186,12 +255,12 @@ func (a *App) documentDialogs(c *ui.Context) {
 				r.conflictOpen = false
 				a.updateTitle()
 			}
-			if ui.Button(c, "重新加载磁盘内容").Clicked() {
+			if ui.Button(c, locales.CommonReloadDisk()).Clicked() {
 				data, err := os.ReadFile(a.path)
 				if err != nil {
 					a.notice(err.Error())
 				} else if !isTextData(data) {
-					a.notice("外部文件不是文本，无法加载")
+					a.notice(locales.DocumentExternalNotText())
 				} else {
 					if !a.preserveCurrentDraft() {
 						return
@@ -207,10 +276,10 @@ func (a *App) documentDialogs(c *ui.Context) {
 	})
 	ui.Modal(c, &r.recoveryOpen, func() {
 		ui.Column(c).Width(540).MaxHeight(600).Padding(20).Gap(10).Background(c.Theme().Background).Radius(12).Children(func() {
-			ui.Text(c, "恢复草稿").FontWeight(700)
-			ui.Text(c, "恢复会打开为未命名副本，不覆盖原文件。").Wrap()
+			ui.Text(c, locales.DocumentRecoveryTitle()).FontWeight(700)
+			ui.Text(c, locales.DocumentRecoveryDetail()).Wrap()
 			if len(r.drafts) == 0 {
-				ui.Text(c, "暂无恢复草稿")
+				ui.Text(c, locales.DocumentRecoveryEmpty())
 			}
 			quietScroll(c, &r.recoveryScroll, &r.recoveryIndicator).Height(300).FillWidth().Children(func() {
 				ui.Column(c).FillWidth().Gap(6).Children(func() {
@@ -230,11 +299,63 @@ func (a *App) documentDialogs(c *ui.Context) {
 					}
 				})
 			})
-			if ui.Button(c, "关闭").Clicked() {
+			if ui.Button(c, locales.CommonClose()).Clicked() {
 				r.recoveryOpen = false
 			}
 		})
 	})
+}
+
+func (a *App) tryMergeExternalChanges() bool {
+	r := a.documents
+	if r == nil || a.path == "" {
+		return false
+	}
+	external, err := os.ReadFile(a.path)
+	if err != nil || !isTextData(external) {
+		a.notice(locales.DocumentExternalReadFailed())
+		return false
+	}
+	externalSource := string(external)
+	merged, ok := mergeDisjointDocumentEdits(r.baseSource, a.diskSource(), externalSource)
+	if !ok {
+		a.notice(locales.DocumentExternalMergeConflict())
+		return false
+	}
+	r.baseSource = externalSource
+	r.revision = notestore.Revision(externalSource)
+	a.crlf = strings.Contains(externalSource, "\r\n")
+	a.ed.ReplaceAll(strings.ReplaceAll(merged, "\r\n", "\n"))
+	a.dirty = a.diskSource() != externalSource
+	r.conflict = ""
+	r.conflictOpen = false
+	if !a.dirty {
+		r.due = time.Time{}
+		r.updatedAtDue = time.Time{}
+		a.updateManagedTimestamp()
+		a.dirty = a.diskSource() != externalSource
+		if !a.dirty {
+			a.notice(locales.DocumentExternalLoaded())
+			return true
+		}
+	}
+	a.flushManagedTimestamp()
+	if err := a.writeDocument(a.path, a.diskSource(), r.revision); err != nil {
+		r.conflict, r.conflictOpen = a.path, true
+		a.notice(locales.CommonMergedSaveError(err.Error()))
+		return false
+	}
+	r.revision = notestore.Revision(a.diskSource())
+	r.baseSource = a.diskSource()
+	r.due = time.Time{}
+	r.updatedAtDue = time.Time{}
+	r.conflict = ""
+	r.conflictOpen = false
+	a.dirty = false
+	_ = r.store.DeleteDraft(a.path)
+	a.updateTitle()
+	a.notice(locales.DocumentExternalMerged())
+	return true
 }
 
 // Saving to a different destination follows the user's Save As confirmation,
@@ -253,12 +374,13 @@ func (a *App) preserveCurrentDraft() bool {
 	if !a.dirty || a.documents == nil {
 		return true
 	}
+	a.flushManagedTimestamp()
 	key := a.path
 	if key == "" {
 		key = a.documents.draftKey
 	}
 	if err := a.documents.store.WriteDraft(key, a.path, a.diskSource()); err != nil {
-		a.notice("保留草稿失败：" + err.Error())
+		a.notice(locales.CommonDraftPreserveError(err.Error()))
 		return false
 	}
 	return true
@@ -266,7 +388,7 @@ func (a *App) preserveCurrentDraft() bool {
 
 func (a *App) openHistory() {
 	if a.path == "" {
-		a.notice("当前文档尚未保存")
+		a.notice(locales.DocumentUnsaved())
 		return
 	}
 	if a.documents == nil {
@@ -274,7 +396,7 @@ func (a *App) openHistory() {
 	}
 	entries, err := a.documents.store.ListHistory(a.path)
 	if err != nil {
-		a.notice("读取历史失败：" + err.Error())
+		a.notice(locales.CommonHistoryReadError(err.Error()))
 		return
 	}
 	a.documents.historyPath = a.path
@@ -288,16 +410,16 @@ func (a *App) historyDialog(c *ui.Context) {
 	}
 	ui.Modal(c, &r.historyOpen, func() {
 		ui.Column(c).Width(540).MaxHeight(600).Padding(20).Gap(10).Background(c.Theme().Background).Radius(12).Children(func() {
-			ui.Text(c, "版本历史").FontWeight(700)
-			ui.Text(c, "选择版本打开为未命名副本，原文件不变。").Wrap()
+			ui.Text(c, locales.DocumentHistoryTitle()).FontWeight(700)
+			ui.Text(c, locales.DocumentHistoryDetail()).Wrap()
 			if len(r.history) == 0 {
-				ui.Text(c, "暂无历史版本")
+				ui.Text(c, locales.DocumentHistoryEmpty())
 			}
 			quietScroll(c, &r.historyScroll, &r.historyIndicator).Height(300).FillWidth().Children(func() {
 				ui.Column(c).FillWidth().Gap(6).Children(func() {
 					for _, entry := range r.history {
 						h := entry
-						if ui.Button(c, h.CreatedAt.Local().Format("2006-01-02 15:04:05")+" · "+h.Revision[:8]).Clicked() {
+						if ui.Button(c, locales.DocumentHistoryVersionLabel(h.CreatedAt.Local(), h.Revision[:8])).Clicked() {
 							doc, err := r.store.ReadHistory(r.historyPath, h.ID)
 							if err != nil {
 								a.notice(err.Error())
@@ -316,7 +438,7 @@ func (a *App) historyDialog(c *ui.Context) {
 					}
 				})
 			})
-			if ui.Button(c, "关闭").Clicked() {
+			if ui.Button(c, locales.CommonClose()).Clicked() {
 				r.historyOpen = false
 			}
 		})

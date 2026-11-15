@@ -13,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"muse/locales"
 	"muse/mdoc"
 )
 
@@ -58,6 +59,7 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	if !tt.HasText("preview.png") || !tt.HasText("100%") {
 		t.Fatalf("preview overlay text = %q", tt.Texts())
 	}
+	writeImageUIScreenshot(t, tt, "image-preview")
 	before := a.imagePreview.zoom
 	tt.Wheel(450, 300, 0, -40)
 	tt.Frame()
@@ -75,6 +77,18 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	}
 	if a.ed.ScrollY() != 0 {
 		t.Fatalf("wheel down scrolled the note to %v", a.ed.ScrollY())
+	}
+	beforePanZoom := a.imagePreview.zoom
+	tt.Scroll(450, 300, 18, -24)
+	tt.Frame()
+	if a.imagePreview.zoom != beforePanZoom || a.imagePreview.x == 0 || a.imagePreview.y == 0 {
+		t.Fatalf("precise touchpad scroll = zoom %v, pan (%v,%v); want pan without zoom", a.imagePreview.zoom, a.imagePreview.x, a.imagePreview.y)
+	}
+	beforePinch := a.imagePreview.zoom
+	tt.Pinch(450, 300, 1.5)
+	tt.Frame()
+	if a.imagePreview.zoom <= beforePinch {
+		t.Fatalf("touchpad pinch zoom = %v, want > %v", a.imagePreview.zoom, beforePinch)
 	}
 	tt.Type("accidental")
 	if got := a.ed.Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
@@ -183,5 +197,121 @@ func TestImagePreviewZoomClamp(t *testing.T) {
 	}
 	if got := clampImageZoom(100); got != imagePreviewMaxZoom {
 		t.Errorf("upper clamp = %v, want %v", got, imagePreviewMaxZoom)
+	}
+}
+
+func TestImageInitialScaleFitsOnlyOversizedImages(t *testing.T) {
+	if got := imageInitialScale(300, 200, 600, 400); got != 1 {
+		t.Fatalf("small image initial scale = %v, want native 1", got)
+	}
+	if got := imageInitialScale(1200, 600, 600, 400); got != .5 {
+		t.Fatalf("wide image initial scale = %v, want .5", got)
+	}
+	if got := imageInitialScale(400, 1200, 600, 600); got != .5 {
+		t.Fatalf("tall image initial scale = %v, want .5", got)
+	}
+}
+
+func TestImageDocumentCanvasZoomPanAndFullscreen(t *testing.T) {
+	path := writePreviewPNG(t)
+	a := New()
+	a.openImageDocument(path, false)
+	tt := ui.NewTester(a.View, 900, 600)
+	tt.Frame()
+	if !tt.HasText("100%") {
+		t.Fatalf("native-size image page did not show 100%%: %q", tt.Texts())
+	}
+	writeImageUIScreenshot(t, tt, "image-document")
+	before := a.imageDocument.zoom
+	tt.Wheel(450, 300, 0, -40)
+	tt.Frame()
+	if a.imageDocument.zoom <= before {
+		t.Fatalf("image-document wheel zoom = %v, want > %v", a.imageDocument.zoom, before)
+	}
+	beforePanZoom := a.imageDocument.zoom
+	tt.Scroll(450, 300, 20, -25)
+	tt.Frame()
+	if a.imageDocument.zoom != beforePanZoom || a.imageDocument.x == 0 || a.imageDocument.y == 0 {
+		t.Fatalf("image-document touchpad scroll = zoom %v, pan (%v,%v); want pan without zoom", a.imageDocument.zoom, a.imageDocument.x, a.imageDocument.y)
+	}
+	beforePinch := a.imageDocument.zoom
+	tt.Pinch(450, 300, 1.5)
+	tt.Frame()
+	if a.imageDocument.zoom <= beforePinch {
+		t.Fatalf("image-document pinch zoom = %v, want > %v", a.imageDocument.zoom, beforePinch)
+	}
+	tt.Press(450, 300)
+	tt.Move(480, 320)
+	tt.Frame()
+	tt.Release(480, 320)
+	if a.imageDocument.x == 0 || a.imageDocument.y == 0 {
+		t.Fatalf("image-document pan = (%v, %v), want nonzero movement", a.imageDocument.x, a.imageDocument.y)
+	}
+	if err := tt.Click(locales.ImagePreviewTitle()); err != nil {
+		t.Fatalf("click fullscreen preview: %v", err)
+	}
+	tt.Frame()
+	if !a.imagePreview.open {
+		t.Fatal("fullscreen control did not open image preview")
+	}
+}
+
+func TestImageDocumentBacklinksUseImageTarget(t *testing.T) {
+	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{
+		"Source.md": "A referenced attachment: ![[Attachments/diagram.png]]",
+	})
+	imagePath := filepath.Join(a.root, "Attachments", "diagram.png")
+	if err := os.MkdirAll(filepath.Dir(imagePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(writePreviewPNG(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(imagePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.openImageDocument(imagePath, false)
+	tt.Frame()
+	if got := a.documentBacklinkSources(); len(got) != 1 || got[0].Source != "Source.md" {
+		t.Fatalf("image backlinks = %+v, want Source.md", got)
+	}
+	if !tt.HasText(locales.PropertyViewBacklinks()) || !tt.HasText(locales.PropertyBacklinkCount(1)) {
+		t.Fatalf("image backlink control missing from page: %q", tt.Texts())
+	}
+	writeImageUIScreenshot(t, tt, "image-document-backlinks")
+	tt.SetDark(true)
+	tt.Frame()
+	writeImageUIScreenshot(t, tt, "image-document-backlinks-dark")
+	tt.SetDark(false)
+	tt.Frame()
+	if err := tt.Click(locales.PropertyViewBacklinks()); err != nil {
+		t.Fatalf("click image backlinks control: %v", err)
+	}
+	tt.Frame()
+	if !a.vault.linksOpen {
+		t.Fatal("image backlinks control did not open the backlinks view")
+	}
+}
+
+func writeImageUIScreenshot(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	dir := os.Getenv("MUSE_IMAGE_UI_SHOTS")
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(filepath.Join(dir, name+".png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, tt.Image()); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

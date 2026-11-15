@@ -53,6 +53,86 @@ func TestWorkspaceSearchModalFocusAndEscape(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSearchClosesOnBackdropClick(t *testing.T) {
+	a := New()
+	a.openWorkspaceSearch()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+
+	// Clicking inside the dialog keeps it open and continues to target the
+	// search input. A press on the dimmed area closes it.
+	tt.ClickAt(400, 120)
+	tt.Frame()
+	if !a.workspaceSearch {
+		t.Fatal("clicking inside the search dialog closed it")
+	}
+	tt.ClickAt(20, 20)
+	tt.Frame()
+	if a.workspaceSearch {
+		t.Fatal("clicking outside the search dialog did not close it")
+	}
+}
+
+func TestCmdOOpensWorkspaceQuickSearch(t *testing.T) {
+	a := New()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyO)
+	tt.Frame()
+	if !a.workspaceSearch || a.quickOpen {
+		t.Fatalf("Cmd+O should open workspace quick search: workspaceSearch=%v quickOpen=%v", a.workspaceSearch, a.quickOpen)
+	}
+	if !tt.HasText("搜索笔记库") {
+		t.Fatalf("Cmd+O opened the wrong panel: %q", tt.Texts())
+	}
+}
+
+func TestWorkspaceSearchEmacsNavigationAndVaultRelativePaths(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("MUSE_CONFIG_DIR", config)
+	root := t.TempDir()
+	nested := filepath.Join(root, "Projects", "Atlas")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "Home.md")
+	rendering := filepath.Join(nested, "Rendering Notes.md")
+	for path, content := range map[string]string{home: "# Home\n", rendering: "# Rendering Notes\n"} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := New()
+	a.setWorkspace(root)
+	a.addRecent(rendering, false)
+	a.addRecent(home, false)
+	a.openWorkspaceSearch()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	fadeShot(t, tt.Image(), "workspace-search-relative-paths")
+
+	text := strings.Join(tt.Texts(), "\n")
+	if strings.Contains(text, root) {
+		t.Fatalf("recent path included the vault root: %q", text)
+	}
+	if !strings.Contains(text, "Projects/Atlas/Rendering Notes.md") {
+		t.Fatalf("nested recent path lost its folder hierarchy: %q", text)
+	}
+	if a.workspaceSearchSel != 0 {
+		t.Fatalf("initial selection = %d, want 0", a.workspaceSearchSel)
+	}
+	tt.Key(ui.Ctrl, ui.KeyN)
+	tt.Frame()
+	if a.workspaceSearchSel != 1 {
+		t.Fatalf("Ctrl+N selection = %d, want 1", a.workspaceSearchSel)
+	}
+	tt.Key(ui.Ctrl, ui.KeyP)
+	tt.Frame()
+	if a.workspaceSearchSel != 0 {
+		t.Fatalf("Ctrl+P selection = %d, want 0", a.workspaceSearchSel)
+	}
+}
+
 func TestSidebarMagnifierOpensWorkspaceSearch(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)
@@ -111,9 +191,7 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 	if !tt.HasText("one.md") {
 		t.Fatalf("file tree missing one.md; texts = %q", tt.Texts())
 	}
-	if err := tt.Click("one.md"); err != nil {
-		t.Fatalf("click file: %v", err)
-	}
+	clickTreeRow(t, tt, "one.md")
 	if a.path != filepath.Join(dir, "one.md") {
 		t.Fatalf("opened %q, want one.md", a.path)
 	}

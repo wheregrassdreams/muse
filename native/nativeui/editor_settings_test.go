@@ -2,8 +2,10 @@ package nativeui
 
 import (
 	"github.com/egoist/mygo/ui"
+	"muse/locales"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestEditorKeymapPersists(t *testing.T) {
@@ -113,7 +115,7 @@ func TestSmartTypographySettingsToggle(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
 	a.openSettings()
-	a.settingsTab = 1
+	a.settingsTab = 0
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !tt.HasText("智能排版") {
@@ -132,5 +134,274 @@ func TestSmartTypographySettingsToggle(t *testing.T) {
 			t.Fatalf("saved smartTypography = %v, want %v", saved.SmartTypography, enabled)
 		}
 		tt.Frame()
+	}
+}
+
+func TestVimVirtualImageRowsDefaultOffAndPersist(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	if a.vimVirtualImageRows || a.ed.Options().VimVirtualImageRows {
+		t.Fatal("Vim virtual image rows should default off")
+	}
+	a.setVimVirtualImageRows(true)
+	b := New()
+	if !b.vimVirtualImageRows || !b.ed.Options().VimVirtualImageRows {
+		t.Fatal("Vim virtual image rows were not restored from settings")
+	}
+	b.setVimVirtualImageRows(false)
+	if c := New(); c.vimVirtualImageRows || c.ed.Options().VimVirtualImageRows {
+		t.Fatal("disabled Vim virtual image rows were not restored")
+	}
+}
+
+func TestHeadingMarkerRevealDefaultsOffAndPersists(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	if a.headingMarkerReveal || a.ed.Options().HeadingMarkerReveal {
+		t.Fatal("heading marker reveal preference should default off")
+	}
+	a.setHeadingMarkerReveal(true)
+	b := New()
+	if !b.headingMarkerReveal || !b.ed.Options().HeadingMarkerReveal {
+		t.Fatal("heading marker reveal preference was not restored")
+	}
+	b.setHeadingMarkerReveal(false)
+	if c := New(); c.headingMarkerReveal || c.ed.Options().HeadingMarkerReveal {
+		t.Fatal("disabled heading marker reveal preference was not restored")
+	}
+}
+
+func TestHeadingMarkerRevealSettingsToggleThroughEditorPage(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("标题标记按空格展开开关"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.headingMarkerReveal || !a.ed.Options().HeadingMarkerReveal {
+		t.Fatal("settings toggle did not update editor heading reveal behavior")
+	}
+	if saved := loadEditorSettings(); saved.HeadingMarkerReveal == nil || !*saved.HeadingMarkerReveal {
+		t.Fatal("settings toggle did not persist heading marker reveal behavior")
+	}
+}
+
+func TestVimVirtualImageRowsSettingsToggle(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	a.setEditorKeymap("vim")
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	for _, enabled := range []bool{true, false} {
+		if err := tt.Click("Vim 图片虚拟行开关"); err != nil {
+			t.Fatal(err)
+		}
+		if a.vimVirtualImageRows != enabled || a.ed.Options().VimVirtualImageRows != enabled {
+			t.Fatalf("toggle enabled=%v app=%v editor=%v", enabled, a.vimVirtualImageRows, a.ed.Options().VimVirtualImageRows)
+		}
+		saved := loadEditorSettings()
+		if saved.VimVirtualImageRows == nil || *saved.VimVirtualImageRows != enabled {
+			t.Fatalf("saved vimVirtualImageRows = %v, want %v", saved.VimVirtualImageRows, enabled)
+		}
+		tt.Frame()
+	}
+}
+
+func TestCursorSettingsDefaultOffAndPersist(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	if a.cursorFade || a.smoothCursor || a.hideMouseCursor || a.mouseCursorHidden || a.editorOptions().CursorFade || a.editorOptions().SmoothCursor {
+		t.Fatal("cursor effects should default off")
+	}
+	a.setCursorFade(true)
+	a.setSmoothCursor(true)
+	a.setHideMouseCursor(true)
+	b := New()
+	if !b.cursorFade || !b.smoothCursor || !b.hideMouseCursor || !b.editorOptions().CursorFade || !b.editorOptions().SmoothCursor {
+		t.Fatal("cursor settings were not restored from settings")
+	}
+	b.setCursorFade(false)
+	b.setSmoothCursor(false)
+	b.setHideMouseCursor(false)
+	c := New()
+	if c.cursorFade || c.smoothCursor || c.hideMouseCursor || c.editorOptions().CursorFade || c.editorOptions().SmoothCursor {
+		t.Fatal("disabled cursor settings were not restored")
+	}
+}
+
+func TestSearchMatchPulseSettingDefaultAndPersist(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	if a.searchMatchPulse || a.editorOptions().SearchMatchPulse || a.ed.Options().SearchMatchPulse {
+		t.Fatal("search match pulse should default off")
+	}
+	a.setSearchMatchPulse(true)
+	b := New()
+	if !b.searchMatchPulse || !b.editorOptions().SearchMatchPulse || !b.ed.Options().SearchMatchPulse {
+		t.Fatal("search match pulse was not restored from settings")
+	}
+	if saved := loadEditorSettings(); saved.SearchMatchPulse == nil || !*saved.SearchMatchPulse {
+		t.Fatal("search match pulse was not saved")
+	}
+	b.setSearchMatchPulse(false)
+	if c := New(); c.searchMatchPulse || c.ed.Options().SearchMatchPulse {
+		t.Fatal("disabled search match pulse was not restored")
+	}
+}
+
+func TestSearchMatchPulseSettingToggleThroughEditorPage(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("搜索命中轻微动效开关"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.searchMatchPulse || !a.ed.Options().SearchMatchPulse {
+		t.Fatal("settings toggle did not enable search match pulse")
+	}
+	if saved := loadEditorSettings(); saved.SearchMatchPulse == nil || !*saved.SearchMatchPulse {
+		t.Fatal("settings toggle did not persist search match pulse")
+	}
+}
+
+func TestVimYankFlashSettingDefaultAndPersist(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	if a.vimYankFlash || a.editorOptions().VimYankFlash || a.ed.Options().VimYankFlash {
+		t.Fatal("Vim yank flash should default off")
+	}
+	a.setEditorKeymap("vim")
+	a.setVimYankFlash(true)
+	b := New()
+	if !b.vimYankFlash || !b.editorOptions().VimYankFlash || !b.ed.Options().VimYankFlash {
+		t.Fatal("Vim yank flash was not restored from settings")
+	}
+	if saved := loadEditorSettings(); saved.VimYankFlash == nil || !*saved.VimYankFlash {
+		t.Fatal("Vim yank flash was not saved")
+	}
+	b.setVimYankFlash(false)
+	if c := New(); c.vimYankFlash || c.ed.Options().VimYankFlash {
+		t.Fatal("disabled Vim yank flash was not restored")
+	}
+}
+
+func TestVimYankFlashSettingsToggleAndVisibility(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	standard := ui.NewTester(a.View, 1200, 800)
+	standard.Frame()
+	if standard.HasText("Vim 复制选区闪显") {
+		t.Fatal("Vim-only yank setting is visible in default keymap")
+	}
+	a.setEditorKeymap("vim")
+	a.settingsScroll.Y = 1000
+	standard.Frame()
+	if err := standard.Click("Vim 复制选区闪显开关"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.vimYankFlash || !a.ed.Options().VimYankFlash {
+		t.Fatal("Vim yank flash toggle did not update app and editor")
+	}
+}
+
+func TestCursorSettingsToggleThroughEditorPage(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.setEditorKeymap("vim")
+	a.openSettings()
+	a.settingsTab = 1
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	for _, tc := range []struct {
+		label string
+		set   func() bool
+		opt   func() bool
+	}{
+		{"光标淡入淡出开关", func() bool { return a.cursorFade }, func() bool { return a.ed.Options().CursorFade }},
+		{"平滑光标开关", func() bool { return a.smoothCursor }, func() bool { return a.ed.Options().SmoothCursor }},
+		{locales.SettingsHideMouseCursor(), func() bool { return a.hideMouseCursor }, func() bool { return a.hideMouseCursor }},
+	} {
+		if err := tt.Click(tc.label); err != nil {
+			t.Fatal(err)
+		}
+		if !tc.set() || !tc.opt() {
+			t.Fatalf("%s did not update app and editor options", tc.label)
+		}
+		saved := loadEditorSettings()
+		if (tc.label == "光标淡入淡出开关" && (saved.CursorFade == nil || !*saved.CursorFade)) ||
+			(tc.label == "平滑光标开关" && (saved.SmoothCursor == nil || !*saved.SmoothCursor)) {
+			t.Fatalf("%s was not persisted", tc.label)
+		}
+		if tc.label == locales.SettingsHideMouseCursor() && (saved.HideMouseCursor == nil || !*saved.HideMouseCursor) {
+			t.Fatalf("%s was not persisted", tc.label)
+		}
+		tt.Frame()
+	}
+}
+
+func TestHideMouseCursorAfterTypingAndVimInputUntilIdle(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.setHideMouseCursor(true)
+	tt := ui.NewTester(a.View, 1200, 800)
+	a.ed.Focus()
+	tt.Frame()
+	tt.Move(700, 400)
+	tt.Type("x")
+	if !a.mouseCursorHidden {
+		t.Fatal("typing did not hide the mouse pointer")
+	}
+	if got := tt.Cursor(); got != ui.CursorNone {
+		t.Fatalf("native pointer cursor = %v after typing, want CursorNone", got)
+	}
+	tt.Advance(2 * time.Second)
+	if a.mouseCursorHidden || tt.Cursor() == ui.CursorNone {
+		t.Fatal("pointer was not restored after typing stopped")
+	}
+	a.setEditorKeymap("vim")
+	a.ed.Focus()
+	tt.Frame()
+	tt.Key(0, ui.KeyJ)
+	if !a.mouseCursorHidden {
+		t.Fatal("Vim key operation did not hide the mouse pointer")
+	}
+	if got := tt.Cursor(); got != ui.CursorNone {
+		t.Fatalf("native pointer cursor = %v after Vim input, want CursorNone", got)
+	}
+	tt.Advance(2 * time.Second)
+	if a.mouseCursorHidden || tt.Cursor() == ui.CursorNone {
+		t.Fatal("pointer was not restored after Vim input stopped")
+	}
+}
+
+func TestEditorSettingsHideModeSpecificRows(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.openSettings()
+	a.settingsTab = 1
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if tt.HasText("Vim 图片虚拟行") || tt.HasText("平滑光标") {
+		t.Fatal("modal-only settings should be hidden in default keymap")
+	}
+	a.setEditorKeymap("helix")
+	tt.Frame()
+	if !tt.HasText("平滑光标") || tt.HasText("Vim 图片虚拟行") {
+		t.Fatal("Helix should show smooth cursor only")
+	}
+	a.setEditorKeymap("vim")
+	tt.Frame()
+	if !tt.HasText("平滑光标") || !tt.HasText("Vim 图片虚拟行") {
+		t.Fatal("Vim should show Vim and modal cursor settings")
 	}
 }

@@ -102,9 +102,11 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	if !tt.HasText("photo.png") {
 		t.Fatalf("image missing from tree: %q", tt.Texts())
 	}
-	if err := tt.Click("photo.png"); err != nil {
-		t.Fatalf("click image: %v", err)
+	imageRow, ok := tt.Find("photo.png")
+	if !ok {
+		t.Fatal("image missing from tree")
 	}
+	tt.ClickAt(imageRow.X+4, imageRow.Y+imageRow.H/2)
 	if !a.imageDocument.open || a.imageDocument.path != path {
 		t.Fatalf("image document = %+v, want open %q", a.imageDocument, path)
 	}

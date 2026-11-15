@@ -65,4 +65,6 @@ var (
 	iconStop    = lucide(`<rect width="10" height="10" x="7" y="7" rx="1.5" fill="currentColor" stroke="none"/>`)
 	iconTrash   = lucide(`<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>` +
 		`<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>`)
+	iconTrashOpen = lucide(`<path d="M4 8h16"/><path d="m6 8 1 13h10l1-13"/>` +
+		`<path d="m8 5 2-2h4l2 2"/><path d="m3 6 18-2"/>`)
 )

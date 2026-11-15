@@ -1,7 +1,7 @@
 package nativeui
 
 import (
-	"io/fs"
+	"muse/locales"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,7 +11,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"muse/mdedit"
 	"muse/mdoc"
+	"muse/vaultindex"
 )
 
 const (
@@ -57,51 +59,79 @@ func (a *App) hoverWikiLinkAt(target string, x, y float32, linkBounds ui.Rect) {
 	a.invalidate()
 }
 
+func (a *App) resolveVaultImage(src, base, root string) string {
+	if a.vault != nil && a.vault.files != nil {
+		return mdoc.ResolveImageSourceWithLookup(src, base, root, a.vault.files.FindImage)
+	}
+	// The catalog is built asynchronously when a vault opens. Keep the first
+	// frame free of a fallback WalkDir; local/root-relative images still resolve.
+	return mdoc.ResolveImageSourceWithLookup(src, base, root, nil)
+}
+
 // wikiLinkSuggestions returns vault-relative Markdown paths without their
 // extension. Paths remain unambiguous even when several notes share a title.
 func (a *App) wikiLinkSuggestions(_ string) []string {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || a.vault.index == nil || a.vault.files == nil {
 		return nil
 	}
-	root, revision := filepath.Clean(a.vault.root), a.vault.linkRevision
-	if a.wikiSuggestionReady && a.wikiSuggestionRoot == root && a.wikiSuggestionRevision == revision {
+	root, revision, filesRevision := filepath.Clean(a.vault.root), a.vault.index.Revision(), a.vault.files.Revision()
+	if a.wikiSuggestionReady && a.wikiSuggestionVault == a.vault && a.wikiSuggestionRoot == root && a.wikiSuggestionRevision == revision && a.wikiSuggestionFilesRevision == filesRevision {
 		return append([]string(nil), a.wikiSuggestionCache...)
 	}
-	docs := a.vault.index.Snapshot()
-	items := make([]string, 0, len(docs))
-	for _, doc := range docs {
-		if !strings.EqualFold(filepath.Ext(doc.Path), ".md") {
-			continue
-		}
-		items = append(items, strings.TrimSuffix(filepath.ToSlash(doc.Path), filepath.Ext(doc.Path)))
+	notes := a.vault.index.NotePaths()
+	images := a.vault.files.ImagePaths()
+	items := make([]string, 0, len(notes)+len(images))
+	for _, path := range notes {
+		items = append(items, strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path)))
 	}
 	// Attachments are linkable files too. Always suggest vault-relative
 	// paths so same-named images in different folders remain distinguishable.
-	_ = filepath.WalkDir(a.vault.root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if entry.IsDir() {
-			if path != a.vault.root && strings.HasPrefix(entry.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !isImageFile(path) {
-			return nil
-		}
-		rel, err := filepath.Rel(a.vault.root, path)
-		if err == nil {
-			items = append(items, filepath.ToSlash(rel))
-		}
-		return nil
-	})
+	items = append(items, images...)
 	sort.Strings(items)
 	a.wikiSuggestionRoot = root
+	a.wikiSuggestionVault = a.vault
 	a.wikiSuggestionRevision = revision
+	a.wikiSuggestionFilesRevision = filesRevision
 	a.wikiSuggestionCache = append(a.wikiSuggestionCache[:0], items...)
 	a.wikiSuggestionReady = true
+	a.wikiSuggestionDetailsReady = false
 	return append([]string(nil), a.wikiSuggestionCache...)
+}
+
+// wikiLinkSuggestionDetails projects titles and aliases from the shared note
+// index. Targets remain vault-relative paths, which are stable for insertion
+// and disambiguate notes that share a title.
+func (a *App) wikiLinkSuggestionDetails(query string) []mdedit.WikiSuggestion {
+	if a.vault == nil || a.vault.index == nil || a.vault.files == nil {
+		return nil
+	}
+	targets := a.wikiLinkSuggestions(query)
+	if a.wikiSuggestionDetailsReady && len(a.wikiSuggestionDetailsCache) == len(targets) {
+		return append([]mdedit.WikiSuggestion(nil), a.wikiSuggestionDetailsCache...)
+	}
+	notesByTarget := make(map[string]vaultindex.Document)
+	for _, path := range a.vault.index.NotePaths() {
+		doc, ok := a.vault.index.Document(path)
+		if ok {
+			target := strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path))
+			notesByTarget[target] = doc
+		}
+	}
+	details := make([]mdedit.WikiSuggestion, 0, len(targets))
+	for _, target := range targets {
+		if isImageFile(target) {
+			details = append(details, mdedit.WikiSuggestion{Target: target, Title: filepath.Base(target)})
+			continue
+		}
+		doc, ok := notesByTarget[target]
+		if !ok {
+			continue
+		}
+		details = append(details, mdedit.WikiSuggestion{Target: target, Title: doc.Title, Aliases: append([]string(nil), doc.Aliases...)})
+	}
+	a.wikiSuggestionDetailsCache = details
+	a.wikiSuggestionDetailsReady = true
+	return append([]mdedit.WikiSuggestion(nil), details...)
 }
 
 func (a *App) resolveWikiImageTarget(target string) string {
@@ -124,7 +154,7 @@ func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
 	if currentPath != "" {
 		base = filepath.Dir(currentPath)
 	}
-	resolved := mdoc.ResolveImageSource(target, base, root)
+	resolved := a.resolveVaultImage(target, base, root)
 	if resolved == "" {
 		return ""
 	}
@@ -150,16 +180,16 @@ func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string,
 	if !ok {
 		return "", "", false
 	}
-	doc, ok := a.vault.index.Document(loc.Path)
+	_, source, ok = a.vault.index.NoteContent(loc.Path)
 	if !ok {
 		return "", "", false
 	}
-	return loc.Path, doc.Source, true
+	return loc.Path, source, true
 }
 
 func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 	p := &a.linkPreview
-	if p.target == "" || a.imagePreview.open {
+	if p.target == "" || a.imagePreview.open || a.workspaceSearch {
 		return
 	}
 	if !p.leaveAt.IsZero() && !p.overlayHovered {
@@ -197,7 +227,7 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 			p.image = p.imageAsset.Bitmap()
 		}
 		boxRect := placeWikiPreview(ui.Rect{W: vw, H: vh}, anchor, 280, 220)
-		box := ui.Box(c).Key("wiki-link-preview").Label("图片链接预览").Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
+		box := ui.Box(c).Key("wiki-link-preview").Label(locales.ImageLinkPreviewTitle()).Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
 			Radius(10).Background(t.Background).Border(1, t.Border).
 			Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Clip()
 		if !a.updateWikiPreviewHover(c, p, box.Hovered()) {
@@ -208,12 +238,12 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 				ui.Text(c, filepath.Base(imagePath)).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 				ui.Box(c).FillWidth().Height(1).Background(t.Border)
 				if p.image == nil {
-					ui.Text(c, "图片无法预览").Fill().Center().TextColor(t.TextMuted)
+					ui.Text(c, locales.ImagePreviewUnavailable()).Fill().Center().TextColor(t.TextMuted)
 					return
 				}
 				bw, bh := ui.ImageSize(p.image)
 				if bw <= 0 || bh <= 0 {
-					ui.Text(c, "图片无法预览").Fill().Center().TextColor(t.TextMuted)
+					ui.Text(c, locales.ImagePreviewUnavailable()).Fill().Center().TextColor(t.TextMuted)
 					return
 				}
 				fit := min(254/bw, 178/bh)
@@ -232,18 +262,18 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 	if !ok {
 		return
 	}
-	doc, ok := a.vault.index.Document(loc.Path)
+	titleText, source, ok := a.vault.index.NoteContent(loc.Path)
 	if !ok {
 		return
 	}
 	title := strings.TrimSuffix(filepath.Base(loc.Path), filepath.Ext(loc.Path))
-	if strings.TrimSpace(doc.Title) != "" {
-		title = doc.Title
+	if strings.TrimSpace(titleText) != "" {
+		title = titleText
 	}
-	preview := wikiPreviewMarkdown(doc.Source, loc.Offset)
+	preview := wikiPreviewMarkdown(source, loc.Offset)
 	previewDoc := mdoc.Parse(preview)
 	boxRect := placeWikiPreview(ui.Rect{W: vw, H: vh}, anchor, 380, 300)
-	box := ui.Box(c).Key("wiki-link-preview").Label("链接预览").Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
+	box := ui.Box(c).Key("wiki-link-preview").Label(locales.LinkPreviewTitle()).Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
 		Radius(10).Background(t.Background).Border(1, t.Border).
 		Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Clip()
 	if !a.updateWikiPreviewHover(c, p, box.Hovered()) {
@@ -260,9 +290,10 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 				ContentWidth: 346,
 				BaseDir:      filepath.Join(a.vault.root, filepath.Dir(loc.Path)),
 				AssetRoot:    a.vault.root,
+				ResolveImage: a.resolveVaultImage,
 				OnAsync:      a.invalidate,
 				OnImagePreview: func(src string) {
-					resolved := mdoc.ResolveImageSource(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
+					resolved := a.resolveVaultImage(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
 					if resolved != "" {
 						a.openImagePreview(resolved)
 					}
@@ -404,7 +435,7 @@ func wikiPreviewMarkdown(source string, offset int) string {
 
 func wikiPreviewExcerpt(source string, offset int) string {
 	if source == "" {
-		return "（空笔记）"
+		return locales.LinkPreviewEmptyNote()
 	}
 	offset = max(0, min(offset, len(source)))
 	start := strings.LastIndex(source[:offset], "\n") + 1
@@ -422,7 +453,7 @@ func wikiPreviewExcerpt(source string, offset int) string {
 		}
 	}
 	if len(excerpt) == 0 {
-		return "（没有可预览的正文）"
+		return locales.LinkPreviewNoBody()
 	}
 	text := strings.Join(excerpt, "\n")
 	if len([]rune(text)) > 230 {

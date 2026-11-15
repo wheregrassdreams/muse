@@ -3,6 +3,7 @@ package nativeui
 import (
 	"github.com/egoist/mygo/ui"
 	"muse/appearance"
+	"muse/locales"
 )
 
 func (a *App) setAccent(id string) {
@@ -12,25 +13,25 @@ func (a *App) setAccent(id string) {
 	}
 	a.accentID = id
 	if err := a.saveNativePreferences(); err != nil {
-		a.notice("保存设置失败：" + err.Error())
+		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}
 	a.invalidate()
 }
 
 func (a *App) accentSettings(c *ui.Context) {
-	name := "红色"
+	name := accentLocalizedName(appearance.Normalize(a.accentID))
 	for _, p := range appearance.Presets {
 		if p.ID == appearance.Normalize(a.accentID) {
-			name = p.Name
+			name = accentLocalizedName(p.ID)
 			break
 		}
 	}
-	settingsRow(c, "重点色", "用于链接、按钮、光标与选中区域。当前："+name, func() {
+	settingsRow(c, locales.AccentColor(), locales.AccentColorDetail(name), func() {
 		for _, preset := range appearance.Presets {
 			preset := preset
 			selected := appearance.Normalize(a.accentID) == preset.ID
 			palette := appearance.From(preset.Color, c.Theme().Dark)
-			button := ui.ButtonBase(c).Size(30, 30).Radius(15).Padding(3).Label("重点色：" + preset.Name)
+			button := ui.ButtonBase(c).Size(30, 30).Radius(15).Padding(3).Label(locales.AccentNamed(accentLocalizedName(preset.ID)))
 			if selected {
 				button.Border(2, c.Theme().Accent)
 			} else if button.Hovered() {
@@ -45,4 +46,23 @@ func (a *App) accentSettings(c *ui.Context) {
 			})
 		}
 	})
+}
+
+func accentLocalizedName(id string) string {
+	switch id {
+	case "orange":
+		return locales.AccentOrange()
+	case "yellow":
+		return locales.AccentYellow()
+	case "green":
+		return locales.AccentGreen()
+	case "blue":
+		return locales.AccentBlue()
+	case "purple":
+		return locales.AccentPurple()
+	case "pink":
+		return locales.AccentPink()
+	default:
+		return locales.AccentRed()
+	}
 }

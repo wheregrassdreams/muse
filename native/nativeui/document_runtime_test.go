@@ -3,6 +3,7 @@ package nativeui
 import (
 	"github.com/egoist/mygo/ui"
 	"image/png"
+	"muse/frontmatter"
 	"muse/notestore"
 	"os"
 	"path/filepath"
@@ -22,6 +23,61 @@ func waitDocument(t *testing.T, tt *ui.Tester, check func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("document service did not reach expected state")
+}
+
+func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
+	a, tt, _ := runtimeFixture(t)
+	a.ed.ReplaceAll("a changed note")
+	if a.documents.updatedAtDue.IsZero() {
+		t.Fatal("content edit did not schedule updated_at")
+	}
+	a.documents.updatedAtDue = time.Now().Add(-time.Second)
+	tt.Frame()
+	doc := frontmatter.Parse(a.source)
+	fields := map[string]frontmatter.Field{}
+	for _, f := range doc.Fields {
+		fields[f.Key] = f
+	}
+	for _, key := range []string{"type", "tags", "aliases", "created_at", "updated_at"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("managed metadata update omitted %q: %q", key, a.source)
+		}
+	}
+	if fields["updated_at"].Value == "" {
+		t.Fatalf("updated_at was not set after debounce: %q", a.source)
+	}
+	if !a.ed.Undo() || a.ed.Source() != "original" {
+		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.ed.Source())
+	}
+}
+
+func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "merge.md")
+	base := "line one\nline two\nline three\n"
+	if err := os.WriteFile(path, []byte(base), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	a := New()
+	a.path = path
+	a.enableDocumentServices()
+	a.loadDoc(base)
+	a.ed.ReplaceAll("local line one\nline two\nline three\n")
+	external := "line one\nline two\nexternal line three\n"
+	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	a.documents.conflictOpen = true
+	if !a.tryMergeExternalChanges() {
+		t.Fatal("non-overlapping edits were not merged")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.dirty {
+		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.dirty, data)
+	}
 }
 func runtimeFixture(t *testing.T) (*App, *ui.Tester, string) {
 	return runtimeFixtureWithNotes(t, nil)
@@ -372,6 +428,24 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 	d, err := a.documents.store.ReadDraft(path)
 	if err != nil || d.Text != "keep after deletion" {
 		t.Fatal("deleted document draft missing")
+	}
+}
+
+func TestEditorChangesUpdateSharedBacklinkIndex(t *testing.T) {
+	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Target.md": "# Target\n"})
+	a.ed.SetSource("[[Target]]")
+	a.docChanged()
+	waitDocument(t, tt, func() bool {
+		return len(a.vault.index.Backlinks("Target.md")) == 1
+	})
+
+	a.ed.SetSource("No internal link")
+	a.docChanged()
+	waitDocument(t, tt, func() bool {
+		return len(a.vault.index.Backlinks("Target.md")) == 0
+	})
+	if got := a.vault.index.Outgoing("note.md"); len(got) != 0 {
+		t.Fatalf("editor source snapshot left stale outgoing links: %+v", got)
 	}
 }
 

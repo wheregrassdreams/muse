@@ -4,12 +4,14 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"muse/locales"
 	"muse/mdedit"
 )
 
@@ -17,8 +19,18 @@ import (
 // native entry point; nothing in this package needs a webview or a frontend
 // build.
 func Run() {
+	if runVaultSearchIndexerMode() {
+		return
+	}
+	configureDefaultGCPolicy()
 	app := New()
+	startMemoryDiagnostics(app)
 	mygo.App.SetName("Muse")
+	mygo.App.OnLocaleChanged(func(string) {
+		app.updateTitle()
+		app.installMenu()
+		app.invalidate()
+	})
 	mygo.App.WhenReady(func() {
 		app.applyNativePreferences(loadNativePreferences())
 		app.enableDocumentServices()
@@ -30,6 +42,10 @@ func Run() {
 		}
 		// 材料在窗口创建时就按应用外观画好，先定下来再开窗。
 		app.syncAppearance()
+		// Explicit automation paths take precedence over the last session.
+		if os.Getenv("MUSE_WORKSPACE") == "" && os.Getenv("MUSE_OPEN") == "" {
+			app.restoreWorkspaceState()
+		}
 		if ws := os.Getenv("MUSE_WORKSPACE"); ws != "" {
 			app.setWorkspace(ws)
 		}
@@ -84,6 +100,18 @@ func Run() {
 	}
 }
 
+// configureDefaultGCPolicy lowers Go heap high-water during document scrolling.
+// On the 10 MiB prose benchmark and the real-vault image scroll probe, GOGC=50
+// reduced peak heap without crossing the 13 ms large-document frame budget.
+// Keep an explicit GOGC environment setting authoritative for diagnostics and
+// users who choose a different tradeoff.
+func configureDefaultGCPolicy() {
+	if _, configured := os.LookupEnv("GOGC"); configured {
+		return
+	}
+	debug.SetGCPercent(50)
+}
+
 func (a *App) openWindow() {
 	if a.win != nil && !a.win.IsDestroyed() {
 		a.win.Show()
@@ -91,7 +119,7 @@ func (a *App) openWindow() {
 		return
 	}
 	a.win = mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Muse",
+		Title:           locales.AppTitle(),
 		Width:           1200,
 		Height:          800,
 		MinWidth:        720,
@@ -120,6 +148,7 @@ func (a *App) openWindow() {
 	a.win.OnMaximize(a.invalidate)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if !a.dirty {
+			a.persistWorkspaceState()
 			stopVault(a.vault)
 			return
 		}
@@ -137,6 +166,7 @@ func (a *App) openWindow() {
 				a.closing = false
 				a.busy = false
 				if ok {
+					a.persistWorkspaceState()
 					a.win.Close()
 					return
 				}
@@ -182,16 +212,16 @@ func (a *App) installMenu() {
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
 		{
-			Label: "文件",
+			Label: locales.MenuFile(),
 			Submenu: []*mygo.MenuItem{
-				{Label: "新建", Accelerator: "CmdOrCtrl+N", Click: click(a.newDoc)},
-				{Label: "命令面板…", Accelerator: "CmdOrCtrl+P", Click: click(a.openCommandPalette)},
-				{Label: "跳转到文件…", Accelerator: "CmdOrCtrl+O", Click: click(a.openQuickOpen)},
-				{Label: "打开…", Click: click(a.openFileDialog)},
-				{Label: "打开文件夹…", Accelerator: "Shift+CmdOrCtrl+O", Click: click(a.openFolderDialog)},
+				{Label: locales.MenuNew(), Accelerator: "CmdOrCtrl+N", Click: click(a.newDoc)},
+				{Label: locales.MenuCommandPalette(), Accelerator: "CmdOrCtrl+P", Click: click(a.openCommandPalette)},
+				{Label: locales.MenuWorkspaceSearch(), Accelerator: "CmdOrCtrl+O", Click: click(a.openWorkspaceSearch)},
+				{Label: locales.MenuOpen(), Click: click(a.openFileDialog)},
+				{Label: locales.MenuOpenFolder(), Accelerator: "Shift+CmdOrCtrl+O", Click: click(a.openFolderDialog)},
 				mygo.Separator(),
-				{Label: "保存", Accelerator: "CmdOrCtrl+S", Click: click(a.save)},
-				{Label: "另存为…", Accelerator: "Shift+CmdOrCtrl+S", Click: click(a.saveAs)},
+				{Label: locales.MenuSave(), Accelerator: "CmdOrCtrl+S", Click: click(a.save)},
+				{Label: locales.MenuSaveAs(), Accelerator: "Shift+CmdOrCtrl+S", Click: click(a.saveAs)},
 				mygo.Separator(),
 				{Role: mygo.RoleClose},
 			},
@@ -199,19 +229,19 @@ func (a *App) installMenu() {
 		{Role: mygo.RoleEditMenu},
 		// 段落与格式：快捷键由编辑器自己处理（见右键菜单），这里不再挂
 		// Accelerator，免得同一按键在菜单和编辑器里各触发一次。
-		{Label: "段落", Submenu: a.paragraphMenu(click)},
-		{Label: "格式", Submenu: a.formatMenu(click)},
+		{Label: locales.MenuParagraph(), Submenu: a.paragraphMenu(click)},
+		{Label: locales.MenuFormat(), Submenu: a.formatMenu(click)},
 		{
-			Label: "视图",
+			Label: locales.MenuView(),
 			Submenu: []*mygo.MenuItem{
-				{Label: "文件栏", Accelerator: "Shift+CmdOrCtrl+L", Click: click(func() { a.togglePanel(panelFiles) })},
-				{Label: "大纲", Click: click(func() { a.togglePanel(panelOutline) })},
-				{Label: "当前文档查找", Accelerator: "CmdOrCtrl+F", Click: click(func() { a.closeWorkspaceSearch(); a.showPanel(panelSearch) })},
-				{Label: "搜索笔记库", Accelerator: "CmdOrCtrl+Shift+F", Click: click(a.openWorkspaceSearch)},
-				{Label: "扁平风格", Click: click(func() { a.flat = !a.flat; a.invalidate() })},
-				{Label: "顶部模糊", Click: click(func() { a.headerFade = !a.headerFade; a.invalidate() })},
+				{Label: locales.MenuFiles(), Accelerator: "Shift+CmdOrCtrl+L", Click: click(func() { a.togglePanel(panelFiles) })},
+				{Label: locales.MenuOutline(), Click: click(func() { a.togglePanel(panelOutline) })},
+				{Label: locales.MenuFindDocument(), Accelerator: "CmdOrCtrl+F", Click: click(func() { a.closeWorkspaceSearch(); a.showPanel(panelSearch) })},
+				{Label: locales.MenuSearchWorkspace(), Accelerator: "CmdOrCtrl+Shift+F", Click: click(a.openWorkspaceSearch)},
+				{Label: locales.MenuFlatStyle(), Click: click(func() { a.flat = !a.flat; a.invalidate() })},
+				{Label: locales.MenuHeaderFade(), Click: click(func() { a.headerFade = !a.headerFade; a.invalidate() })},
 				mygo.Separator(),
-				{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: click(a.openSettings)},
+				{Label: locales.MenuSettings(), Accelerator: "CmdOrCtrl+,", Click: click(a.openSettings)},
 			},
 		},
 		{Role: mygo.RoleWindowMenu},
@@ -231,35 +261,35 @@ func (a *App) editorAction(fn func(e *mdedit.Editor)) func() {
 // the blocks of code, math and tables.
 func (a *App) paragraphMenu(click func(func()) func(*mygo.MenuItem, *mygo.Window)) []*mygo.MenuItem {
 	var items []*mygo.MenuItem
-	for i, name := range []string{"一级标题", "二级标题", "三级标题", "四级标题", "五级标题", "六级标题"} {
+	for i, name := range []string{locales.ParagraphHeading1(), locales.ParagraphHeading2(), locales.ParagraphHeading3(), locales.ParagraphHeading4(), locales.ParagraphHeading5(), locales.ParagraphHeading6()} {
 		level := i + 1
 		items = append(items, &mygo.MenuItem{Label: name, Click: click(a.editorAction(func(e *mdedit.Editor) { e.SetHeading(level) }))})
 	}
 	return append(items,
-		&mygo.MenuItem{Label: "正文", Click: click(a.editorAction(func(e *mdedit.Editor) { e.SetHeading(0) }))},
+		&mygo.MenuItem{Label: locales.ParagraphBody(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.SetHeading(0) }))},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: "引用", Click: click(a.editorAction((*mdedit.Editor).ToggleQuote))},
-		&mygo.MenuItem{Label: "有序列表", Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("1.") }))},
-		&mygo.MenuItem{Label: "无序列表", Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("-") }))},
-		&mygo.MenuItem{Label: "任务列表", Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("- [ ]") }))},
+		&mygo.MenuItem{Label: locales.ParagraphQuote(), Click: click(a.editorAction((*mdedit.Editor).ToggleQuote))},
+		&mygo.MenuItem{Label: locales.ParagraphOrderedList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("1.") }))},
+		&mygo.MenuItem{Label: locales.ParagraphUnorderedList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("-") }))},
+		&mygo.MenuItem{Label: locales.ParagraphTaskList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("- [ ]") }))},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: "代码块", Click: click(a.editorAction((*mdedit.Editor).InsertCodeBlock))},
-		&mygo.MenuItem{Label: "公式块", Click: click(a.editorAction((*mdedit.Editor).InsertMathBlock))},
-		&mygo.MenuItem{Label: "表格", Click: click(a.editorAction(func(e *mdedit.Editor) { e.InsertTable(3, 3) }))},
-		&mygo.MenuItem{Label: "分隔线", Click: click(a.editorAction((*mdedit.Editor).InsertRule))},
+		&mygo.MenuItem{Label: locales.ParagraphCodeBlock(), Click: click(a.editorAction((*mdedit.Editor).InsertCodeBlock))},
+		&mygo.MenuItem{Label: locales.ParagraphMathBlock(), Click: click(a.editorAction((*mdedit.Editor).InsertMathBlock))},
+		&mygo.MenuItem{Label: locales.ParagraphTable(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.InsertTable(3, 3) }))},
+		&mygo.MenuItem{Label: locales.ParagraphRule(), Click: click(a.editorAction((*mdedit.Editor).InsertRule))},
 	)
 }
 
 // formatMenu is the menu bar's 格式: the formats of text.
 func (a *App) formatMenu(click func(func()) func(*mygo.MenuItem, *mygo.Window)) []*mygo.MenuItem {
 	return []*mygo.MenuItem{
-		{Label: "加粗", Click: click(a.editorAction((*mdedit.Editor).ToggleBold))},
-		{Label: "斜体", Click: click(a.editorAction((*mdedit.Editor).ToggleItalic))},
-		{Label: "下划线", Click: click(a.editorAction((*mdedit.Editor).ToggleUnderline))},
-		{Label: "删除线", Click: click(a.editorAction((*mdedit.Editor).ToggleStrike))},
-		{Label: "行内代码", Click: click(a.editorAction((*mdedit.Editor).ToggleCode))},
-		{Label: "高亮", Click: click(a.editorAction((*mdedit.Editor).ToggleHighlight))},
+		{Label: locales.FormatBold(), Click: click(a.editorAction((*mdedit.Editor).ToggleBold))},
+		{Label: locales.FormatItalic(), Click: click(a.editorAction((*mdedit.Editor).ToggleItalic))},
+		{Label: locales.FormatUnderline(), Click: click(a.editorAction((*mdedit.Editor).ToggleUnderline))},
+		{Label: locales.FormatStrike(), Click: click(a.editorAction((*mdedit.Editor).ToggleStrike))},
+		{Label: locales.FormatInlineCode(), Click: click(a.editorAction((*mdedit.Editor).ToggleCode))},
+		{Label: locales.FormatHighlight(), Click: click(a.editorAction((*mdedit.Editor).ToggleHighlight))},
 		mygo.Separator(),
-		{Label: "链接", Click: click(a.editorAction((*mdedit.Editor).InsertLink))},
+		{Label: locales.FormatLink(), Click: click(a.editorAction((*mdedit.Editor).InsertLink))},
 	}
 }

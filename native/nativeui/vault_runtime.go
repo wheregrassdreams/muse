@@ -5,11 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"github.com/egoist/mygo/ui"
 	"muse/cachepath"
+	"muse/locales"
 	"muse/notestore"
 	"muse/scrollui"
+	"muse/vaultfiles"
 	"muse/vaultindex"
 	"muse/vaultsearch"
 	"muse/vaultwatch"
@@ -17,12 +18,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type vaultReady struct {
 	root   string
 	index  *vaultindex.Index
+	files  *vaultfiles.Catalog
 	search *vaultsearch.Index
 	watch  *vaultwatch.Watcher
 	err    error
@@ -44,6 +47,7 @@ type vaultQuery struct {
 	literal bool
 	hits    []vaultsearch.Hit
 	err     error
+	elapsed time.Duration
 }
 type vaultNavigation struct {
 	hit vaultsearch.Hit
@@ -62,9 +66,10 @@ type vaultRuntime struct {
 	stopped            bool
 	root               string
 	index              *vaultindex.Index
-	linkRevision       uint64
+	files              *vaultfiles.Catalog
 	search             *vaultsearch.Index
 	searchMu           sync.Mutex
+	searchAvailable    atomic.Bool
 	watch              *vaultwatch.Watcher
 	ready              chan vaultReady
 	refresh            chan vaultRefresh
@@ -80,6 +85,8 @@ type vaultRuntime struct {
 	hits               []vaultsearch.Hit
 	searchErr          error
 	searchBusy         bool
+	searchElapsed      time.Duration
+	searchCost         time.Duration
 	linksOpen          bool
 }
 
@@ -111,23 +118,27 @@ func (a *App) vaultTick(c *ui.Context) {
 		a.vault = v
 		go func() {
 			idx := vaultindex.New()
+			files := vaultfiles.New(root)
 			w, watchErr := vaultwatch.New(root)
 			indexErr := idx.Rebuild(root)
+			filesErr := files.Rebuild()
 			var search *vaultsearch.Index
 			var searchErr error
 			if indexErr == nil {
 				search, searchErr = openVaultSearch(root)
 				if searchErr == nil {
-					searchErr = search.Reconcile(v.lifeCtx, searchDocuments(idx.Snapshot()))
+					search, searchErr = reconcileVaultSearchInWorker(v.lifeCtx, root, search, searchSnapshotDocuments(idx.SearchSnapshot()))
 					if searchErr != nil {
-						_ = search.Close()
-						search = nil
+						if search != nil {
+							_ = search.Close()
+							search = nil
+						}
 					}
 				}
 			}
-			err := errors.Join(watchErr, indexErr, searchErr)
+			err := errors.Join(watchErr, indexErr, filesErr, searchErr)
 			select {
-			case v.ready <- vaultReady{root: root, index: idx, search: search, watch: w, err: err}:
+			case v.ready <- vaultReady{root: root, index: idx, files: files, search: search, watch: w, err: err}:
 				a.invalidate()
 			case <-v.closed:
 				if w != nil {
@@ -143,10 +154,13 @@ func (a *App) vaultTick(c *ui.Context) {
 	select {
 	case ready := <-v.ready:
 		if ready.err != nil {
-			a.notice("笔记库索引／监听失败：" + ready.err.Error())
+			a.notice(locales.VaultIndexWatchError(ready.err.Error()))
 		}
-		v.index, v.search, v.watch = ready.index, ready.search, ready.watch
-		v.linkRevision++
+		v.index, v.files, v.search, v.watch = ready.index, ready.files, ready.search, ready.watch
+		v.searchAvailable.Store(ready.search != nil)
+		if a.dirty && a.path != "" && codeLanguage(a.path) == "" {
+			a.queueLinkIndexSnapshot()
+		}
 		if a.ed != nil {
 			a.ed.SetOptions(a.editorOptions())
 		}
@@ -171,7 +185,6 @@ func (a *App) vaultTick(c *ui.Context) {
 	case fresh := <-v.refresh:
 		v.refreshing = false
 		if fresh.linksChanged {
-			v.linkRevision++
 			if a.ed != nil {
 				a.ed.SetOptions(a.editorOptions())
 			}
@@ -180,7 +193,7 @@ func (a *App) vaultTick(c *ui.Context) {
 			v.due = time.Now()
 		}
 		if fresh.err != nil && !errors.Is(fresh.err, os.ErrNotExist) {
-			a.notice("刷新笔记库索引失败：" + fresh.err.Error())
+			a.notice(locales.WorkspaceIndexRefreshFailed(fresh.err.Error()))
 		}
 		if fresh.path == a.path {
 			r := a.documents
@@ -188,15 +201,38 @@ func (a *App) vaultTick(c *ui.Context) {
 				if errors.Is(fresh.err, os.ErrNotExist) {
 					r.conflict = a.path
 					r.conflictOpen = true
-					a.notice("当前文件已在外部删除，编辑内容仍保留")
+					a.notice(locales.VaultCurrentFileDeleted())
 				}
 			} else if fresh.hasDoc && fresh.doc.Revision != r.revision {
 				if a.dirty || r.saving {
 					if fresh.doc.Text != a.diskSource() {
-						r.conflict = a.path
-						r.conflictOpen = true
-						if err := r.store.WriteDraft(a.path, a.path, a.diskSource()); err != nil {
-							a.notice("恢复草稿保存失败：" + err.Error())
+						merged, ok := "", false
+						if !r.saving {
+							merged, ok = mergeDisjointDocumentEdits(r.baseSource, a.diskSource(), fresh.doc.Text)
+						}
+						if ok {
+							r.revision = fresh.doc.Revision
+							r.baseSource = fresh.doc.Text
+							a.crlf = strings.Contains(fresh.doc.Text, "\r\n")
+							mergedEditor := strings.ReplaceAll(fresh.doc.Text, "\r\n", "\n")
+							if merged != fresh.doc.Text {
+								mergedEditor = strings.ReplaceAll(merged, "\r\n", "\n")
+							}
+							a.ed.ReplaceAll(mergedEditor)
+							a.dirty = merged != fresh.doc.Text
+							if a.dirty {
+								a.documentChanged()
+								a.notice(locales.VaultExternalMergedSaving())
+							} else {
+								r.due = time.Time{}
+								a.notice(locales.DocumentExternalLoaded())
+							}
+						} else {
+							r.conflict = a.path
+							r.conflictOpen = true
+							if err := r.store.WriteDraft(a.path, a.path, a.diskSource()); err != nil {
+								a.notice(locales.WorkspaceRecoverySaveFailed(err.Error()))
+							}
 						}
 					}
 				} else {
@@ -204,8 +240,13 @@ func (a *App) vaultTick(c *ui.Context) {
 					a.loadDoc(fresh.doc.Text)
 					a.ed.Select(min(at, len(a.source)), min(at, len(a.source)))
 					a.dirty = false
+					a.updateManagedTimestamp()
 					a.updateTitle()
-					a.notice("已加载外部修改")
+					if a.dirty {
+						a.notice(locales.VaultExternalUpdatedAt())
+					} else {
+						a.notice(locales.DocumentExternalLoaded())
+					}
 				}
 			}
 		}
@@ -230,19 +271,22 @@ func (a *App) vaultTick(c *ui.Context) {
 			v.refreshing = true
 			current := filepath.Clean(a.path)
 			idx := v.index
-			search := v.search
+			files := v.files
 			store := a.documents.store
 			go func() {
 				var fresh vaultRefresh
 				upserts := make([]vaultsearch.Document, 0, len(paths))
 				deletes := make([]string, 0, len(paths))
+				if rescan && files != nil {
+					fresh.err = errors.Join(fresh.err, files.Rebuild())
+				}
 				if idx != nil {
 					if rescan {
 						if err := idx.Rebuild(root); err != nil {
 							fresh.err = err
 						} else {
-							if search != nil {
-								upserts = searchDocuments(idx.Snapshot())
+							if v.searchAvailable.Load() {
+								upserts = searchSnapshotDocuments(idx.SearchSnapshot())
 							}
 							if current != "." && current != "" {
 								if doc, ok := idx.Document(current); ok && filepath.Ext(current) == ".md" {
@@ -255,6 +299,13 @@ func (a *App) vaultTick(c *ui.Context) {
 					} else {
 						for path := range paths {
 							path = filepath.Clean(path)
+							if files != nil {
+								if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+									files.Remove(path)
+								} else if statErr == nil {
+									files.Update(path)
+								}
+							}
 							if path == current {
 								doc, err := store.Read(path)
 								fresh = vaultRefresh{path: path, doc: doc, err: err, hasDoc: err == nil}
@@ -292,13 +343,19 @@ func (a *App) vaultTick(c *ui.Context) {
 						}
 					}
 				}
-				if search != nil {
+				if v.searchAvailable.Load() {
 					searchCtx, cancel := context.WithTimeout(v.lifeCtx, 30*time.Second)
 					v.searchMu.Lock()
 					if rescan {
-						fresh.err = errors.Join(fresh.err, search.Reconcile(searchCtx, upserts))
+						v.searchAvailable.Store(false)
+						next, rebuildErr := reconcileVaultSearchInWorker(searchCtx, root, v.search, upserts)
+						v.search = next
+						v.searchAvailable.Store(next != nil)
+						fresh.err = errors.Join(fresh.err, rebuildErr)
 					} else {
-						fresh.err = errors.Join(fresh.err, search.Apply(searchCtx, upserts, deletes))
+						if search := v.search; search != nil {
+							fresh.err = errors.Join(fresh.err, search.Apply(searchCtx, upserts, deletes))
+						}
 					}
 					v.searchMu.Unlock()
 					cancel()
@@ -314,6 +371,8 @@ func (a *App) vaultTick(c *ui.Context) {
 	}
 	select {
 	case result := <-v.queries:
+		v.searchElapsed = result.elapsed
+		v.searchCost = smoothWorkspaceSearchCost(v.searchCost, result.elapsed)
 		if result.query == a.workspaceQuery && result.literal == v.searchLiteral && result.token == v.queryToken {
 			v.hits = result.hits
 			v.searchErr = result.err
@@ -328,11 +387,11 @@ func (a *App) vaultTick(c *ui.Context) {
 	select {
 	case result := <-v.navigation:
 		if result.err != nil {
-			a.notice("搜索结果已更新，请重试：" + result.err.Error())
+			a.notice(locales.WorkspaceSearchResultUpdated(result.err.Error()))
 		} else {
 			full := filepath.Join(v.root, filepath.FromSlash(result.hit.Path))
 			if filepath.Clean(full) == filepath.Clean(a.path) && notestore.Revision(a.diskSource()) == result.hit.Revision {
-				a.ed.ScrollToOffset(editorOffset(a.diskSource(), result.hit.Start))
+				a.ed.NavigateToRange(editorOffset(a.diskSource(), result.hit.Start), editorOffset(a.diskSource(), result.hit.End))
 				break
 			}
 			a.indexedPath, a.indexedOffset, a.indexedRevision = full, result.hit.Start, result.hit.Revision
@@ -351,21 +410,67 @@ func (a *App) vaultTick(c *ui.Context) {
 	}
 
 }
+
+// queueLinkIndexSnapshot coalesces editor changes before parsing one immutable
+// source snapshot. vaultindex then replaces this document's links incrementally;
+// consumers share the same graph rather than parsing links during rendering.
+func (a *App) queueLinkIndexSnapshot() {
+	if a.vault == nil || a.vault.index == nil || a.path == "" || codeLanguage(a.path) != "" {
+		return
+	}
+	rel, err := filepath.Rel(a.vault.root, a.path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return
+	}
+	a.linkIndexGeneration++
+	a.linkIndexDue = time.Now().Add(120 * time.Millisecond)
+}
+
+func (a *App) linkIndexTick(c *ui.Context) {
+	v, due := a.vault, a.linkIndexDue
+	if v == nil || v.index == nil || due.IsZero() {
+		return
+	}
+	if remaining := time.Until(due); remaining > 0 {
+		c.After(remaining)
+		return
+	}
+	a.linkIndexDue = time.Time{}
+	index, path, source, generation := v.index, a.path, a.source, a.linkIndexGeneration
+	go func() {
+		parsed, err := index.ParseSnapshot(path, source)
+		if err != nil {
+			return
+		}
+		a.onMain(func() {
+			if a.vault != v || v.index != index || a.path != path || a.source != source || a.linkIndexGeneration != generation {
+				return
+			}
+			index.ApplySnapshot(parsed)
+			if a.ed != nil {
+				a.ed.SetOptions(a.editorOptions())
+			}
+			a.invalidate()
+		})
+	}()
+}
 func (a *App) workspaceSearchView(c *ui.Context) {
 	ui.Column(c).Fill().Padding(10).Gap(8).Children(func() {
 		v := a.vault
-		if v == nil || v.index == nil || v.search == nil {
+		if v == nil || v.index == nil || !v.searchAvailable.Load() {
 			if v != nil && v.searchErr != nil {
-				ui.Text(c, "搜索索引不可用："+v.searchErr.Error()).Wrap()
+				ui.Text(c, locales.WorkspaceSearchIndexUnavailable(v.searchErr.Error())).Wrap()
 				return
 			}
-			ui.Text(c, "正在建立笔记库索引…")
+			ui.Text(c, locales.VaultIndexBuilding())
 			return
 		}
 		if v.query != a.workspaceQuery || v.searchMode != v.searchLiteral {
+			wasBusy := v.searchBusy
 			a.workspaceSearchSel = 0
 			a.workspaceReveal = true
 			a.workspaceScroll = ui.ScrollState{}
+			a.workspaceSearchResults = ui.ListState{}
 			v.query = a.workspaceQuery
 			v.searchMode = v.searchLiteral
 			if v.queryCancel != nil {
@@ -373,9 +478,11 @@ func (a *App) workspaceSearchView(c *ui.Context) {
 				v.queryCancel = nil
 			}
 			v.queryToken++
-			v.hits = nil
 			v.searchErr = nil
-			v.due = time.Now().Add(150 * time.Millisecond)
+			// Search runs off the UI thread against the maintained index. Start
+			// on this frame instead of imposing a typing debounce; superseded
+			// queries are canceled and rejected by queryToken.
+			v.due = time.Now().Add(workspaceSearchCoalesce(v.searchCost, wasBusy))
 		}
 		if !v.due.IsZero() && !time.Now().Before(v.due) {
 			q := v.query
@@ -383,7 +490,7 @@ func (a *App) workspaceSearchView(c *ui.Context) {
 			token := v.queryToken
 			literal := v.searchLiteral
 			current, buffer := a.path, a.diskSource()
-			idx, search := v.index, v.search
+			idx := v.index
 			ctx, cancel := context.WithCancel(v.lifeCtx)
 			v.queryCancel = cancel
 			v.searchBusy = q != ""
@@ -394,30 +501,40 @@ func (a *App) workspaceSearchView(c *ui.Context) {
 				return
 			}
 			go func() {
+				started := time.Now()
 				var overlays []vaultsearch.Document
-				if current != "" && filepath.Ext(current) == ".md" {
+				if ctx.Err() == nil && current != "" && filepath.Ext(current) == ".md" {
 					if doc, err := idx.ParseSnapshot(current, buffer); err == nil {
 						overlays = append(overlays, searchDocument(doc))
 					}
 				}
-				v.searchMu.Lock()
 				var hits []vaultsearch.Hit
 				var err error
-				if literal {
-					hits, err = search.Literal(ctx, q, 500, overlays...)
+				if !lockWorkspaceSearch(ctx, &v.searchMu) {
+					err = ctx.Err()
 				} else {
-					hits, err = search.Search(ctx, q, 500, overlays...)
+					search := v.search
+					if ctx.Err() != nil {
+						err = ctx.Err()
+					} else if search == nil {
+						err = errors.New("vault search index is unavailable")
+					} else if literal {
+						hits, err = search.Literal(ctx, q, 500, overlays...)
+					} else {
+						hits, err = search.Search(ctx, q, 500, overlays...)
+					}
+					v.searchMu.Unlock()
 				}
-				v.searchMu.Unlock()
+				elapsed := time.Since(started)
 				select {
-				case v.queries <- vaultQuery{query: q, literal: literal, hits: hits, token: token, err: err}:
+				case v.queries <- vaultQuery{query: q, literal: literal, hits: hits, token: token, err: err, elapsed: elapsed}:
 				default:
 					select {
 					case <-v.queries:
 					default:
 					}
 					select {
-					case v.queries <- vaultQuery{query: q, literal: literal, hits: hits, token: token, err: err}:
+					case v.queries <- vaultQuery{query: q, literal: literal, hits: hits, token: token, err: err, elapsed: elapsed}:
 					default:
 					}
 				}
@@ -425,57 +542,57 @@ func (a *App) workspaceSearchView(c *ui.Context) {
 			}()
 		}
 		if v.searchErr != nil {
-			ui.Text(c, "搜索失败："+v.searchErr.Error()).Wrap()
+			ui.Text(c, locales.WorkspaceSearchFailed(v.searchErr.Error())).Wrap()
 		}
 		if v.searchBusy {
-			ui.Text(c, "正在搜索…").FontSize(11).TextColor(c.Theme().TextMuted)
+			ui.Text(c, locales.VaultSearching()).FontSize(11).TextColor(c.Theme().TextMuted)
 		}
-		if a.workspaceQuery != "" && !v.searchBusy && v.searchErr == nil && len(v.hits) == 0 && v.search != nil {
-			ui.Text(c, "没有找到笔记").FontSize(12).TextColor(c.Theme().TextMuted)
+		if a.workspaceQuery != "" && !v.searchBusy && v.searchErr == nil && len(v.hits) == 0 && v.searchAvailable.Load() {
+			ui.Text(c, locales.VaultSearchEmpty()).FontSize(12).TextColor(c.Theme().TextMuted)
 		}
+		if a.workspaceReveal && len(v.hits) > 0 {
+			a.workspaceSearchResults.ScrollIntoView(a.workspaceSearchSel)
+			a.workspaceReveal = false
+		}
+		a.workspaceSearchResults.Key = func(i int) any { return v.hits[i].Path }
 		showSearchScroll := a.workspaceIndicator.Visible(c.Now(), a.workspaceScroll.X, a.workspaceScroll.Y)
 		if showSearchScroll {
 			c.After(a.workspaceIndicator.Remaining(c.Now()))
 		}
-		quietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(0).Scrollbars(showSearchScroll).Children(func() {
-			ui.Column(c).FillWidth().Gap(6).Children(func() {
-				for i, hit := range v.hits {
-					h := hit
-					title := filepath.Base(h.Path)
-					if doc, ok := v.index.Document(h.Path); ok && strings.TrimSpace(doc.Title) != "" {
-						title = doc.Title
-					}
-					row := ui.ButtonBase(c).Label("搜索结果：" + h.Path).FillWidth().Height(72).Shrink(0).Padding(8)
-					if i == a.workspaceSearchSel {
-						row.Background(c.Theme().SurfaceHover)
-						if a.workspaceReveal {
-							row.ScrollIntoView()
-							a.workspaceReveal = false
-						}
-					}
-					row.OnClick(func() {
-						a.workspaceSearchSel = i
-						a.openSelectedWorkspaceHit()
-					}).Children(func() {
-						ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
-							ui.Icon(c, iconFile).Size(16, 16).TextColor(iconTint(c.Theme()))
-							ui.Column(c).FillWidth().AlignItems(ui.Start).Gap(3).Children(func() {
-								ui.Text(c, title).FontWeight(600).SingleLine().Ellipsis("…")
-								ui.Text(c, h.Path).FontSize(10.5).TextColor(c.Theme().TextMuted).SingleLine().Ellipsis("…")
-								ui.Text(c, strings.Join(strings.Fields(h.Snippet), " ")).FontSize(11.5).TextColor(c.Theme().TextMuted).SingleLine().Ellipsis("…")
-							})
-						})
+		ui.List(c, &a.workspaceSearchResults, len(v.hits), func(i int) {
+			h := v.hits[i]
+			title := filepath.Base(h.Path)
+			if noteTitle, _, ok := v.index.NoteContent(h.Path); ok && strings.TrimSpace(noteTitle) != "" {
+				title = noteTitle
+			}
+			pathLabel := a.workspacePathLabel(h.Path)
+			snippet := strings.Join(strings.Fields(h.Snippet), " ")
+			row := ui.ButtonBase(c).Label(locales.WorkspaceSearchResultLabel(h.Path)).FillWidth().Height(72).Shrink(0).Padding(8)
+			if i == a.workspaceSearchSel {
+				row.Background(c.Theme().SurfaceHover)
+			}
+			row.OnClick(func() {
+				a.workspaceSearchSel = i
+				a.openSelectedWorkspaceHit()
+			}).Children(func() {
+				ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
+					ui.Icon(c, iconFile).Size(16, 16).TextColor(iconTint(c.Theme()))
+					ui.Column(c).FillWidth().AlignItems(ui.Start).Gap(3).Children(func() {
+						workspaceSearchText(c, c.Theme(), title, a.workspaceQuery, c.Theme().Text, 13).FontWeight(600)
+						workspaceSearchText(c, c.Theme(), pathLabel, a.workspaceQuery, c.Theme().TextMuted, 10.5)
+						workspaceSearchText(c, c.Theme(), snippet, a.workspaceQuery, c.Theme().TextMuted, 11.5)
 					})
-				}
+				})
 			})
-		})
+		}).FillWidth().Grow(1).MinHeight(0).Gap(6).TrackScroll(&a.workspaceScroll).Scrollbars(showSearchScroll)
 	})
 }
 func (a *App) syncWorkspaceSearchQuery() {
 	v := a.vault
-	if v == nil || v.search == nil || (v.query == a.workspaceQuery && v.searchMode == v.searchLiteral) {
+	if v == nil || !v.searchAvailable.Load() || (v.query == a.workspaceQuery && v.searchMode == v.searchLiteral) {
 		return
 	}
+	wasBusy := v.searchBusy
 	if v.queryCancel != nil {
 		v.queryCancel()
 		v.queryCancel = nil
@@ -483,17 +600,18 @@ func (a *App) syncWorkspaceSearchQuery() {
 	v.queryToken++
 	v.query = a.workspaceQuery
 	v.searchMode = v.searchLiteral
-	v.hits = nil
 	v.searchErr = nil
 	v.searchBusy = v.query != ""
 	a.workspaceSearchSel = 0
 	a.workspaceScroll = ui.ScrollState{}
+	a.workspaceSearchResults = ui.ListState{}
 	a.workspaceReveal = true
 	if v.query == "" {
+		v.hits = nil
 		v.searchBusy = false
 		v.due = time.Time{}
 	} else {
-		v.due = time.Now().Add(150 * time.Millisecond)
+		v.due = time.Now().Add(workspaceSearchCoalesce(v.searchCost, wasBusy))
 	}
 }
 
@@ -514,13 +632,13 @@ func (a *App) navigateIndexed(path string, offset int) {
 // A changed snapshot is indexed and queried again before navigation proceeds.
 func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 	v := a.vault
-	if v == nil || a.documents == nil || v.search == nil {
+	if v == nil || a.documents == nil || !v.searchAvailable.Load() {
 		return
 	}
 	full := filepath.Join(v.root, filepath.FromSlash(hit.Path))
 	query, literal := a.workspaceQuery, v.searchLiteral
 	currentPath, currentSource := a.path, a.diskSource()
-	search, idx, store := v.search, v.index, a.documents.store
+	idx, store := v.index, a.documents.store
 	go func() {
 		ctx, cancel := context.WithTimeout(v.lifeCtx, 30*time.Second)
 		defer cancel()
@@ -556,7 +674,12 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 		fresh := searchDocument(parsed)
 		v.searchMu.Lock()
 		idx.ApplySnapshot(parsed)
-		err = search.Apply(ctx, []vaultsearch.Document{fresh}, nil)
+		search := v.search
+		if search == nil {
+			err = errors.New("vault search index is unavailable")
+		} else {
+			err = search.Apply(ctx, []vaultsearch.Document{fresh}, nil)
+		}
 		var hits []vaultsearch.Hit
 		if err == nil {
 			var overlays []vaultsearch.Document
@@ -589,7 +712,7 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 			}
 		}
 		select {
-		case v.navigation <- vaultNavigation{err: errors.New("该笔记已不再匹配当前搜索")}:
+		case v.navigation <- vaultNavigation{err: errors.New(locales.WorkspaceSearchNoLongerMatches())}:
 		case <-v.closed:
 		}
 	}()
@@ -612,45 +735,45 @@ func (a *App) linksDialog(c *ui.Context) {
 	v := a.vault
 	ui.Modal(c, &v.linksOpen, func() {
 		ui.Column(c).Width(540).MaxHeight(600).Padding(20).Gap(10).Background(c.Theme().Background).Radius(12).Children(func() {
-			ui.Text(c, "关联笔记").FontWeight(700)
+			ui.Text(c, locales.VaultBacklinksTitle()).FontWeight(700)
 			if v.index == nil {
-				ui.Text(c, "索引正在建立")
+				ui.Text(c, locales.VaultIndexBuildingShort())
 				return
 			}
 			rel, _ := filepath.Rel(v.root, a.path)
 			rel = filepath.ToSlash(rel)
 			quietScroll(c, &v.linkScroll, &v.linkIndicator).Height(360).FillWidth().Children(func() {
 				ui.Column(c).FillWidth().Gap(6).Children(func() {
-					ui.Text(c, "链接到这里")
+					ui.Text(c, locales.VaultLinksToHere())
 					if v.linksBusy {
-						ui.Text(c, "正在查找关联笔记…")
+						ui.Text(c, locales.VaultFindingBacklinks())
 					}
 					incoming := v.incoming
 					if len(incoming) == 0 {
-						ui.Text(c, "暂无反向链接")
+						ui.Text(c, locales.VaultNoBacklinks())
 					}
 					for _, link := range groupedBacklinks(incoming) {
 						l := link
 						label := l.Source
 						if l.Count > 1 {
-							label += fmt.Sprintf("（%d 处）", l.Count)
+							label += locales.VaultBacklinkCountSuffix(l.Count)
 						}
-						if ui.Button(c, label).Label("反向链接：" + label).Clicked() {
+						if ui.Button(c, label).Label(locales.VaultBacklinkSourceLabel(label)).Clicked() {
 							v.linksOpen = false
 							a.navigateIndexed(l.Source, l.Start)
 						}
 					}
-					ui.Text(c, "本文链接")
+					ui.Text(c, locales.VaultOutgoingLinks())
 					for _, link := range v.outgoing {
 						l := link
-						if ui.Button(c, l.Target).Label("打开链接：" + l.Target).Clicked() {
+						if ui.Button(c, l.Target).Label(locales.VaultOpenLinkLabel(l.Target)).Clicked() {
 							v.linksOpen = false
 							a.indexedLink(l.Target)
 						}
 					}
 				})
 			})
-			if ui.Button(c, "关闭").Clicked() {
+			if ui.Button(c, locales.CommonClose()).Clicked() {
 				v.linksOpen = false
 			}
 		})
@@ -681,6 +804,9 @@ func stopVault(v *vaultRuntime) {
 	if v == nil || v.stopped {
 		return
 	}
+	if v.closeDone == nil {
+		v.closeDone = make(chan struct{})
+	}
 	v.stopped = true
 	if v.queryCancel != nil {
 		v.queryCancel()
@@ -692,16 +818,17 @@ func stopVault(v *vaultRuntime) {
 	if v.watch != nil {
 		_ = v.watch.Close()
 	}
-	if v.search != nil {
-		go func() {
-			v.searchMu.Lock()
-			_ = v.search.Close()
-			v.searchMu.Unlock()
-			close(v.closeDone)
-		}()
-	} else if v.closeDone != nil {
+	v.searchAvailable.Store(false)
+	go func() {
+		v.searchMu.Lock()
+		search := v.search
+		v.search = nil
+		if search != nil {
+			_ = search.Close()
+		}
+		v.searchMu.Unlock()
 		close(v.closeDone)
-	}
+	}()
 }
 
 func openVaultSearch(root string) (*vaultsearch.Index, error) {
@@ -725,10 +852,14 @@ func openVaultSearch(root string) (*vaultsearch.Index, error) {
 	return vaultsearch.Open(dir)
 }
 
-func searchDocuments(docs []vaultindex.Document) []vaultsearch.Document {
+func searchSnapshotDocuments(docs []vaultindex.SearchSnapshot) []vaultsearch.Document {
 	out := make([]vaultsearch.Document, 0, len(docs))
 	for _, doc := range docs {
-		out = append(out, searchDocument(doc))
+		out = append(out, vaultsearch.Document{
+			ID: searchDocumentID(doc.Path), Path: doc.Path, Title: doc.Title, Source: doc.Source,
+			Type: doc.Type, CreatedAt: doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
+			Revision: notestore.Revision(doc.Source), Aliases: doc.Aliases, Tags: doc.Tags,
+		})
 	}
 	return out
 }
@@ -736,6 +867,7 @@ func searchDocuments(docs []vaultindex.Document) []vaultsearch.Document {
 func searchDocument(doc vaultindex.Document) vaultsearch.Document {
 	return vaultsearch.Document{
 		ID: searchDocumentID(doc.Path), Path: doc.Path, Title: doc.Title, Source: doc.Source,
+		Type: doc.Type, CreatedAt: doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
 		Revision: notestore.Revision(doc.Source), Aliases: append([]string(nil), doc.Aliases...), Tags: append([]string(nil), doc.Tags...),
 	}
 }
@@ -764,7 +896,11 @@ func (a *App) openLinks() {
 	v.linksBusy = true
 	v.incoming = nil
 	v.outgoing = nil
-	rel, _ := filepath.Rel(v.root, a.path)
+	path := a.path
+	if a.imageDocument.open && a.imageDocument.path != "" {
+		path = a.imageDocument.path
+	}
+	rel, _ := filepath.Rel(v.root, path)
 	rel = filepath.ToSlash(rel)
 	idx := v.index
 	go func() {

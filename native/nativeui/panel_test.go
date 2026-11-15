@@ -62,6 +62,57 @@ func TestPanelDragResizesAndFolds(t *testing.T) {
 	}
 }
 
+func TestPanelGripAppearsWhenPointerEntersResizeEdge(t *testing.T) {
+	a := New()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	tt.Frame()
+
+	edge, ok := tt.Find("调整面板宽度")
+	if !ok || edge.W == 0 {
+		t.Fatal("panel resize edge is not laid out")
+	}
+	if edge.W != 12 {
+		t.Fatalf("resize target width = %.1f, want the original 12px placement", edge.W)
+	}
+	grip, ok := tt.Find("侧栏把手")
+	if !ok {
+		t.Fatal("panel grip is not built")
+	}
+	if grip.H > 10 {
+		t.Fatalf("unhovered grip height = %.1f, want collapsed", grip.H)
+	}
+
+	// The flat editor clips children at the seam. Hover in the editor-side
+	// resize target and ensure the visible grip is fully inside that region.
+	tt.Move(edge.X+edge.W/2, edge.Y+edge.H/2)
+	tt.Frame()
+	grip, ok = tt.Find("侧栏把手")
+	if !ok {
+		t.Fatal("panel grip disappeared")
+	}
+	if grip.H < 39 || grip.H > 41 {
+		t.Fatalf("hovered grip height = %.1f, want 40; edge=%+v grip=%+v", grip.H, edge, grip)
+	}
+	if grip.X < edge.X || grip.X+grip.W > edge.X+edge.W {
+		t.Fatalf("hovered grip is clipped/outside its editor-side target: edge=%+v grip=%+v", edge, grip)
+	}
+	if center := grip.X + grip.W/2; center-edge.X < 5.5 || center-edge.X > 6.5 {
+		t.Fatalf("grip center moved %.1fpx from the original edge anchor; edge=%+v grip=%+v", center-edge.X, edge, grip)
+	}
+	verticalShift := grip.Y + grip.H/2 - (edge.Y + edge.H/2)
+	if verticalShift > -10 || verticalShift < -80 {
+		t.Fatalf("grip vertical shift = %.1fpx, want a small upward shift from the window-area center; edge=%+v grip=%+v", verticalShift, edge, grip)
+	}
+
+	tt.Move(0, 0)
+	tt.Frame()
+	grip, _ = tt.Find("侧栏把手")
+	if grip.H > 10 {
+		t.Fatalf("grip stayed expanded after pointer left: %+v", grip)
+	}
+}
+
 // TestModulesShareOnePanelWidth checks that sidebar modules and current-file
 // search keep one width, so the editor beside the panel does not reflow.
 func TestModulesShareOnePanelWidth(t *testing.T) {

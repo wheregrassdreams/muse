@@ -32,7 +32,7 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	a.root = root
 	a.path = filepath.Join(root, "one/current.md")
 	a.source = "[[target]]"
-	a.vault = &vaultRuntime{root: root, index: idx, linkRevision: 4}
+	a.vault = &vaultRuntime{root: root, index: idx}
 	opts := a.editorOptions()
 	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != mdedit.LinkTargetValid {
 		t.Fatalf("existing indexed target state=%v, want valid", got)
@@ -69,7 +69,6 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	if err := idx.Update(filepath.Join(root, "one/target.md")); err != nil {
 		t.Fatal(err)
 	}
-	a.vault.linkRevision++
 	opts = a.editorOptions()
 	if opts.LinkRevision != revision+1 || opts.ResolveWikiLink(opts.CurrentPath, "target") != mdedit.LinkTargetInvalid {
 		t.Fatalf("updated index did not refresh link style: revision=%d state=%v", opts.LinkRevision, opts.ResolveWikiLink(opts.CurrentPath, "target"))

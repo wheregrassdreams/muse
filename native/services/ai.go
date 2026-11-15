@@ -14,8 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
+	"muse/locales"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -115,7 +115,7 @@ func normalizeBaseURL(raw string) string {
 
 func describeHTTPError(status int, raw string) string {
 	if status == 401 || status == 403 {
-		return "认证失败，请检查 API Key"
+		return locales.AiServiceAuthFailure()
 	}
 	var parsed struct {
 		Error struct {
@@ -125,12 +125,12 @@ func describeHTTPError(status int, raw string) string {
 	if json.Unmarshal([]byte(raw), &parsed) == nil && parsed.Error.Message != "" {
 		return parsed.Error.Message
 	}
-	return fmt.Sprintf("请求失败（HTTP %d）", status)
+	return locales.AiServiceRequestFailed(status)
 }
 
 func describeNetworkError(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || osIsTimeout(err) {
-		return fmt.Sprintf("请求超时（%ds）", int(aiTimeout/time.Second))
+		return locales.AiServiceTimeout(int(aiTimeout / time.Second))
 	}
 	var uerr *url.Error
 	if errors.As(err, &uerr) && uerr.Err != nil {
@@ -140,7 +140,7 @@ func describeNetworkError(err error) string {
 	for _, code := range []string{"ENOTFOUND", "ECONNREFUSED", "EHOSTUNREACH", "ECONNRESET", "ETIMEDOUT",
 		"no such host", "connection refused", "network is unreachable"} {
 		if strings.Contains(msg, code) {
-			return "无法连接服务器，请检查 Base URL"
+			return locales.AiServiceUnreachable()
 		}
 	}
 	return msg
@@ -167,7 +167,7 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 	baseURL := normalizeBaseURL(req.BaseURL)
 	apiKey := strings.TrimSpace(req.APIKey)
 	if baseURL == "" {
-		return failure(0, "请先填写 Base URL")
+		return failure(0, locales.AiServiceFillBaseURL())
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), aiTimeout)
@@ -188,7 +188,7 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if err != nil {
-		return failure(res.StatusCode, "读取模型列表失败")
+		return failure(res.StatusCode, locales.AiServiceReadModelsFailed())
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return failure(res.StatusCode, describeHTTPError(res.StatusCode, string(body)))
@@ -208,7 +208,7 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 		} `json:"data"`
 	}
 	if json.Unmarshal(body, &data) != nil || data.Data == nil {
-		return failure(res.StatusCode, "模型接口未返回有效的 data 列表，请检查 Base URL（通常以 /v1 结尾）")
+		return failure(res.StatusCode, locales.AiServiceInvalidModelList())
 	}
 	models := make([]ProviderModel, 0, len(data.Data))
 	seen := map[string]bool{}
@@ -230,7 +230,7 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 			Input: m.Modalities.Input, ContextWindow: contextWindow, MaxTokens: m.MaxTokens})
 	}
 	return ModelsResult{TestConnResult: TestConnResult{Ok: true, Status: res.StatusCode,
-		Message: fmt.Sprintf("联通成功，获取 %d 个模型", len(models))}, Models: models}
+		Message: locales.AiServiceModelsLoaded(len(models))}, Models: models}
 }
 
 // ChatStream 发起流式对话：POST {baseUrl}/chat/completions（stream: true），
@@ -257,7 +257,7 @@ func (a *AI) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
 	baseURL := normalizeBaseURL(req.BaseURL)
 	apiKey := strings.TrimSpace(req.APIKey)
 	if requestID == "" || baseURL == "" || req.Body == nil {
-		return ChatResult{Ok: false, Message: "请求参数不完整"}
+		return ChatResult{Ok: false, Message: locales.AiServiceRequestIncomplete()}
 	}
 
 	payload, err := json.Marshal(req.Body)
@@ -287,7 +287,7 @@ func (a *AI) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
 	res, err := a.client.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return ChatResult{Ok: false, Aborted: true, Message: "已中止"}
+			return ChatResult{Ok: false, Aborted: true, Message: locales.AiServiceAborted()}
 		}
 		message := describeNetworkError(err)
 		if sink.Error != nil {
@@ -342,7 +342,7 @@ func (a *AI) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
 		}
 	}
 	if ctx.Err() != nil {
-		return ChatResult{Ok: false, Aborted: true, Message: "已中止"}
+		return ChatResult{Ok: false, Aborted: true, Message: locales.AiServiceAborted()}
 	}
 	if sink.End != nil {
 		sink.End()
@@ -373,10 +373,10 @@ func (a *AI) WebSearch(req struct {
 	query := strings.TrimSpace(req.Query)
 	apiKey := strings.TrimSpace(req.APIKey)
 	if query == "" {
-		return WebSearchResponse{Ok: false, Message: "搜索关键词不能为空"}
+		return WebSearchResponse{Ok: false, Message: locales.AiServiceSearchQueryEmpty()}
 	}
 	if apiKey == "" {
-		return WebSearchResponse{Ok: false, Message: "请先在设置中填写 Brave Search API Key"}
+		return WebSearchResponse{Ok: false, Message: locales.AiServiceSearchKeyMissing()}
 	}
 	count := req.Count
 	if count <= 0 {
@@ -405,9 +405,9 @@ func (a *AI) WebSearch(req struct {
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		message := fmt.Sprintf("搜索失败（HTTP %d）", res.StatusCode)
+		message := locales.AiServiceSearchFailed(res.StatusCode)
 		if res.StatusCode == 401 || res.StatusCode == 403 {
-			message = "搜索 API Key 无效或已过期"
+			message = locales.AiServiceSearchKeyInvalid()
 		}
 		return WebSearchResponse{Ok: false, Status: res.StatusCode, Message: message}
 	}

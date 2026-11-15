@@ -21,9 +21,7 @@ func TestFolderFirstClickAndWorkspaceReset(t *testing.T) {
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	if err := tt.Click("child"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "child")
 	if !a.expanded[sub] {
 		t.Fatal("first folder click did not expand")
 	}
@@ -36,9 +34,7 @@ func TestFolderFirstClickAndWorkspaceReset(t *testing.T) {
 	}
 	tt.Advance(time.Second)
 	tt.Frame()
-	if err := tt.Click("child"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "child")
 	if !a.expanded[sub] {
 		t.Fatal("folder did not expand after workspace reset")
 	}

@@ -5,7 +5,6 @@ package nativeui
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"muse/locales"
 	"muse/services"
 )
 
@@ -96,7 +96,7 @@ func saveAISettings(s aiSettings) error {
 // saveAITools 把能力开关立即落盘（开关切换即生效）。
 func (a *App) saveAITools() {
 	if err := saveAISettings(a.ai); err != nil {
-		a.notice(fmt.Sprintf("保存失败：%v", err))
+		a.notice(locales.CommonSaveFailed(err.Error()))
 	}
 	a.invalidate()
 }
@@ -105,46 +105,55 @@ func (a *App) aiConfigured() bool {
 	return strings.TrimSpace(a.ai.BaseURL) != "" && strings.TrimSpace(a.ai.Model) != ""
 }
 
+func (a *App) aiSettings(c *ui.Context) {
+	settingsGroup(c, locales.AssistantGroup(), func() {
+		settingsRowToggleAction(c, locales.AiAssistant(), locales.AiAssistantDetail(), &a.aiEnabled, func() {
+			a.setAIEnabled(!a.aiEnabled)
+		})
+	})
+	a.modelSettings(c)
+}
+
 func (a *App) modelSettings(c *ui.Context) {
 	t := c.Theme()
 	magpie := a.ai.usesMagpie()
 	settingsGroup(c, "", func() {
-		serviceDetail := "任意 OpenAI 兼容端点：OpenAI、DeepSeek 或自建网关。"
+		serviceDetail := locales.AiServiceAnyDetail()
 		if magpie {
-			serviceDetail = "连本机 magpie（菜单栏应用的网关），无需自己的 Key。"
+			serviceDetail = locales.AiServiceMagpieDetail()
 		}
-		settingsRow(c, "服务", serviceDetail, func() {
-			a.aiServiceButton(c, "Magpie 本地网关", true)
-			a.aiServiceButton(c, "自定义", false)
+		settingsRow(c, locales.AiService(), serviceDetail, func() {
+			a.aiServiceButton(c, locales.AiGateway(), true)
+			a.aiServiceButton(c, locales.AiCustom(), false)
 		})
 		a.settingsDivider(c, true)
-		urlDetail := "OpenAI 兼容的 Base URL，通常以 /v1 结尾。"
+		urlDetail := locales.AiURLDetail()
 		urlPlaceholder := "https://api.openai.com/v1"
 		if magpie {
-			urlDetail = "magpie 网关默认在 http://127.0.0.1:3425/v1。"
+			urlDetail = locales.AiURLMagpieDetail()
 			urlPlaceholder = magpieGatewayBaseURL
 		}
-		settingsRow(c, "接口地址", urlDetail, func() {
+		settingsRow(c, locales.AiEndpoint(), urlDetail, func() {
 			ui.TextInput(c, &a.ai.BaseURL).Width(250).Placeholder(urlPlaceholder)
 		})
 		a.settingsDivider(c, true)
-		keyDetail := "只写入本机配置文件，不会进入文档。"
+		keyDetail := locales.AiKeyDetail()
 		keyPlaceholder := "sk-…"
 		if magpie {
-			keyDetail = "magpie 未开启调用方密钥时可留空。"
-			keyPlaceholder = "可留空"
+			keyDetail = locales.AiKeyMagpieDetail()
+			keyPlaceholder = locales.AiOptional()
 		}
-		settingsRow(c, "API Key", keyDetail, func() {
+		settingsRow(c, locales.AiApiKey(), keyDetail, func() {
 			ui.TextInput(c, &a.ai.APIKey).Password().Width(250).Placeholder(keyPlaceholder)
 		})
 		a.settingsDivider(c, true)
-		modelDetail := "例如 gpt-4.1、deepseek-chat 或你的网关模型名。"
+		modelDetail := locales.AiModelDetail()
 		modelPlaceholder := "gpt-4.1"
 		if magpie {
-			modelDetail = "magpie 的模型名，例如 opencode-go/deepseek-v4.1-flash。"
+			modelDetail = locales.AiModelMagpieDetail()
 			modelPlaceholder = "opencode-go/deepseek-v4.1-flash"
 		}
-		settingsRow(c, "模型", modelDetail, func() {
+		settingsRow(c, locales.AiModel(), modelDetail, func() {
 			if len(a.aiModels) > 0 {
 				opts := make([]string, 0, len(a.aiModels))
 				for _, m := range a.aiModels {
@@ -157,60 +166,60 @@ func (a *App) modelSettings(c *ui.Context) {
 		})
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(0, 2).Children(func() {
 			if a.aiModelsBusy {
-				ui.Text(c, "获取模型中…").FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, locales.AiFetchModelsLoading()).FontSize(11).TextColor(t.TextMuted)
 			} else {
-				label := "获取模型"
+				label := locales.AiFetchModels()
 				if len(a.aiModels) > 0 {
-					label = "刷新模型"
+					label = locales.AiRefreshModels()
 				}
 				if ui.Button(c, label).Clicked() {
 					a.fetchAIModels()
 				}
 			}
 			if len(a.aiModels) > 0 {
-				ui.Textf(c, "%d 个可用模型", len(a.aiModels)).FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, locales.AiAvailableModels(len(a.aiModels))).FontSize(11).TextColor(t.TextMuted)
 			}
 			if a.aiModelsErr != "" {
 				ui.Text(c, a.aiModelsErr).FontSize(10.5).TextColor(t.Danger).Wrap()
 			}
 		})
 		a.settingsDivider(c, true)
-		settingsRow(c, "系统提示", "可选；每次对话都会放在最前面。", func() {
-			ui.TextInput(c, &a.ai.System).Width(250).Placeholder("You are Muse…")
+		settingsRow(c, locales.AiSystemPrompt(), locales.AiSystemPromptDetail(), func() {
+			ui.TextInput(c, &a.ai.System).Width(250).Placeholder(locales.AiSystemPromptPlaceholder())
 		})
 	})
 	// 保存行保持在原位；Agent 能力组放页面末尾，切换即存，不用点保存。
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "密钥保存在 "+aiConfigPath()).FontSize(10.5).TextColor(t.TextMuted).Grow(1).SingleLine().Ellipsis("…")
-		if modelSaveButton(c, "保存模型设置").Clicked() {
+		ui.Text(c, locales.AiConfigLocation(aiConfigPath())).FontSize(10.5).TextColor(t.TextMuted).Grow(1).SingleLine().Ellipsis("…")
+		if modelSaveButton(c, locales.AiSaveModelSettings()).Clicked() {
 			if err := saveAISettings(a.ai); err != nil {
-				a.notice(fmt.Sprintf("保存失败：%v", err))
+				a.notice(locales.CommonSaveFailed(err.Error()))
 			} else {
-				a.notice("模型设置已保存")
+				a.notice(locales.AiModelSettingsSaved())
 			}
 		}
 	})
 	a.settingsDivider(c, true)
-	settingsGroup(c, "Agent 能力", func() {
-		settingsRow(c, "浏览与搜索", "列出、读取、搜索文档，读大纲、目录结构与统计。", func() {
-			if ui.Switch(c, &a.ai.Tools.Browse).Label("允许浏览与搜索").Changed() {
+	settingsGroup(c, locales.AiAgentCapabilities(), func() {
+		settingsRow(c, locales.AiBrowseSearch(), locales.AiBrowseSearchDetail(), func() {
+			if ui.Switch(c, &a.ai.Tools.Browse).Label(locales.AiAllowBrowseSearch()).Changed() {
 				a.saveAITools()
 			}
 		})
 		a.settingsDivider(c, true)
-		settingsRow(c, "编辑文档内容", "精确替换与插入内容；执行前仍按权限预设确认。", func() {
-			if ui.Switch(c, &a.ai.Tools.Edit).Label("允许编辑").Changed() {
+		settingsRow(c, locales.AiEditDocuments(), locales.AiEditDocumentsDetail(), func() {
+			if ui.Switch(c, &a.ai.Tools.Edit).Label(locales.AiAllowEdit()).Changed() {
 				a.saveAITools()
 			}
 		})
 		a.settingsDivider(c, true)
-		settingsRow(c, "管理文件", "新建/写入文件、重命名、删除（进回收站）、新建文件夹。", func() {
-			if ui.Switch(c, &a.ai.Tools.Manage).Label("允许管理文件").Changed() {
+		settingsRow(c, locales.AiManageFiles(), locales.AiManageFilesDetail(), func() {
+			if ui.Switch(c, &a.ai.Tools.Manage).Label(locales.AiAllowManageFiles()).Changed() {
 				a.saveAITools()
 			}
 		})
 	})
-	ui.Text(c, "能力决定 Agent 有哪些工具；输入区底栏的权限预设决定执行前是否询问。切换立即保存。").
+	ui.Text(c, locales.AiCapabilitiesDetail()).
 		FontSize(11.5).TextColor(t.TextMuted).Padding(0, 4).Wrap()
 }
 
@@ -309,7 +318,7 @@ func loadAIChat() []chatMessage {
 			p := &msgs[i].Parts[j]
 			if p.Tool != nil && p.Tool.State == toolApproval {
 				p.Tool.State = toolFailed
-				p.Tool.Err = toolErrorJSON("会话中断，这次修改没有执行")
+				p.Tool.Err = toolErrorJSON(locales.AiConversationInterrupted())
 			}
 		}
 	}
@@ -347,7 +356,7 @@ func (a *App) insertAIContent(text string) {
 	// 追加到文档末尾，作为编辑器里的一步撤销；光标随之滚到插入处。
 	a.ed.AppendBlock(text)
 	a.docChanged()
-	a.notice("已插入文档")
+	a.notice(locales.DocumentInserted())
 	a.invalidate()
 }
 
@@ -369,7 +378,7 @@ func (a *App) fetchAIModels() {
 					a.ai.Model = res.Models[0].ID
 				}
 				if len(res.Models) == 0 {
-					a.aiModelsErr = "接口没有返回模型"
+					a.aiModelsErr = locales.AiNoModelsReturned()
 				}
 			} else {
 				a.aiModelsErr = res.Message

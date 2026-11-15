@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"muse/locales"
 	"muse/mdoc"
 )
 
@@ -25,6 +26,7 @@ type imagePreviewState struct {
 	bmp          *ui.Bitmap
 	loading      bool
 	zoom         float32
+	baseZoom     float32
 	x, y         float32
 	dragging     bool
 	dragX, dragY float32
@@ -110,6 +112,11 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 		// participate in flow layout, which can leave the lower window exposed.
 		root := ui.Box(c).Key("image-preview").Absolute().Top(0).Left(0).Right(0).Bottom(0).
 			Background(ui.RGBA(0, 0, 0, 0.88)).Focusable().Focus().
+			ContextMenu(func(m *ui.Menu) {
+				if m.Item(locales.CommonCopyAction()).Chosen() {
+					a.ed.CopyImageObject(p.src)
+				}
+			}).
 			HandleInput(func(ev ui.InputEvent) bool {
 				switch ev.Kind {
 				case ui.InputKeyDown:
@@ -120,6 +127,12 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 				case ui.InputKeyUp, ui.InputText, ui.InputCompose, ui.InputCommand:
 					return true
 				case ui.InputScroll:
+					if ev.Precise {
+						p.x -= ev.DX
+						p.y -= ev.DY
+						a.invalidate()
+						return true
+					}
 					if ev.DY != 0 {
 						p.zoom = clampImageZoom(p.zoom * float32(math.Pow(1.12, float64(-ev.DY/60))))
 						a.invalidate()
@@ -163,16 +176,13 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 			if p.bmp != nil {
 				bw, bh := ui.ImageSize(p.bmp)
 				if bw > 0 && bh > 0 {
-					fit := min((vw-80)/bw, (vh-100)/bh)
-					if fit <= 0 {
-						fit = 1
-					}
-					w, h := bw*fit*p.zoom, bh*fit*p.zoom
+					p.baseZoom = imageInitialScale(bw, bh, vw-80, vh-100)
+					w, h := bw*p.baseZoom*p.zoom, bh*p.baseZoom*p.zoom
 					ui.Image(c, p.bmp).Key("image-preview-image").Size(w, h).Absolute().
 						Left((vw-w)/2 + p.x).Top((vh-h)/2 + p.y)
 				}
 			} else {
-				status := "正在加载图片…"
+				status := locales.ImageLoading()
 				if !p.loading {
 					status = mdoc.MissingImageMessage(p.label)
 				}
@@ -183,20 +193,29 @@ func (a *App) imagePreviewDialog(c *ui.Context) {
 				AlignItems(ui.Center).Gap(8).Children(func() {
 				ui.Text(c, p.src).Key("image-preview-path").SingleLine().Ellipsis("…").
 					TextColor(ui.RGB(255, 255, 255)).Grow(1)
-				imagePreviewButton(c, "−", "缩小图片", "image-preview-zoom-out", func() { p.zoom = clampImageZoom(p.zoom / 1.25) })
-				ui.Text(c, fmt.Sprintf("%.0f%%", p.zoom*100)).Key("image-preview-zoom").
+				imagePreviewButton(c, "−", locales.ImageZoomOut(), "image-preview-zoom-out", func() { p.zoom = clampImageZoom(p.zoom / 1.25) })
+				ui.Text(c, fmt.Sprintf("%.0f%%", p.baseZoom*p.zoom*100)).Key("image-preview-zoom").
 					TextColor(ui.RGB(255, 255, 255)).Width(48).TextAlign(ui.Center)
-				imagePreviewButton(c, "+", "放大图片", "image-preview-zoom-in", func() { p.zoom = clampImageZoom(p.zoom * 1.25) })
-				imagePreviewButton(c, "适合窗口", "适合窗口", "image-preview-fit", func() { p.zoom, p.x, p.y = 1, 0, 0 })
-				imagePreviewButton(c, "×", "关闭图片预览", "image-preview-close", a.closeImagePreview)
+				imagePreviewButton(c, "+", locales.ImageZoomIn(), "image-preview-zoom-in", func() { p.zoom = clampImageZoom(p.zoom * 1.25) })
+				imagePreviewButton(c, locales.ImageFitWindow(), locales.ImageFitWindow(), "image-preview-fit", func() { p.zoom, p.x, p.y = 1, 0, 0 })
+				imagePreviewButton(c, "×", locales.ImageClosePreview(), "image-preview-close", a.closeImagePreview)
 			})
 		})
 	})
 }
 
+// imageInitialScale keeps small images at their native size and only scales
+// down images that would exceed the available viewport.
+func imageInitialScale(bw, bh, vw, vh float32) float32 {
+	if bw <= 0 || bh <= 0 || vw <= 0 || vh <= 0 {
+		return 1
+	}
+	return min(float32(1), min(vw/bw, vh/bh))
+}
+
 func imagePreviewButton(c *ui.Context, text, label, key string, click func()) {
 	b := ui.Button(c, text).Key(key).Size(34, 32).Label(label)
-	if text == "适合窗口" {
+	if key == "image-preview-fit" {
 		b.Size(88, 32)
 	}
 	if b.Clicked() {

@@ -28,8 +28,8 @@ func TestPropertiesInspectorKeepsFileSidebarAndSource(t *testing.T) {
 	if a.ed.Source() != src {
 		t.Fatal("opening properties rewrote Markdown")
 	}
-	if frontmatter.Title(src, a.path) != "filename-title" {
-		t.Fatal("default title not derived from filename")
+	if frontmatter.Title(src, a.path) != "Body" {
+		t.Fatal("canonical H1 title was not selected")
 	}
 }
 
@@ -45,8 +45,8 @@ func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	if err := a.propertySet("title", "Manual title"); err != nil {
 		t.Fatal(err)
 	}
-	if frontmatter.Title(a.ed.Source(), a.path) != "Manual title" || a.path != "/tmp/default-name.md" {
-		t.Fatal("title edit renamed file or failed")
+	if frontmatter.Title(a.ed.Source(), a.path) != "default-name" || a.path != "/tmp/default-name.md" {
+		t.Fatal("legacy YAML title incorrectly overrode the canonical title")
 	}
 	if !a.ed.Undo() || a.ed.Source() != src || a.ed.Caret() != caret {
 		t.Fatal("property edit did not undo with original body caret")

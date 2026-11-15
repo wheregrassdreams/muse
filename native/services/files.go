@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	log2 "log"
+	"muse/locales"
 	"os"
 	"path/filepath"
 	"sort"
@@ -142,9 +143,9 @@ func warnUnsupported(parent *mygo.Window, path string) {
 	_, _ = mygo.Dialog.Message(mygo.MessageOptions{
 		Parent:  parent,
 		Type:    mygo.MessageWarning,
-		Message: "无法打开「" + filepath.Base(path) + "」",
-		Detail:  "Muse 只能打开文本类文件（Markdown 或 .txt）。请选择 .md / .markdown / .mdx / .txt 文件。",
-		Buttons: []string{"知道了"},
+		Message: locales.CommonOpenUnsupportedFileMessage(filepath.Base(path)),
+		Detail:  locales.CommonOpenUnsupportedFileDetail(),
+		Buttons: []string{locales.CommonAcknowledge()},
 	})
 }
 
@@ -162,7 +163,7 @@ func (f *Files) Open(ctx context.Context) (*FileContent, error) {
 	parent := mygo.CallerWindow(ctx)
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 		Parent:  parent,
-		Title:   "打开 Markdown",
+		Title:   locales.CommonOpenMarkdown(),
 		Filters: []mygo.FileFilter{{Name: "Markdown", Extensions: []string{"md", "markdown", "mdx", "txt"}}},
 	})
 	if err != nil || len(paths) == 0 {
@@ -217,7 +218,7 @@ func (f *Files) SaveAs(ctx context.Context, content string) (string, error) {
 	f.lastSaveAsAt = time.Now()
 	path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 		Parent:      mygo.CallerWindow(ctx),
-		Title:       "保存 Markdown",
+		Title:       locales.CommonSaveFile(),
 		DefaultPath: "Untitled.md",
 		Filters:     []mygo.FileFilter{{Name: "Markdown", Extensions: []string{"md", "markdown", "mdx"}}},
 	})
@@ -274,8 +275,8 @@ func (f *Files) ReadRecent() []string {
 func (f *Files) PickFolder(ctx context.Context) (string, error) {
 	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 		Parent:            mygo.CallerWindow(ctx),
-		Title:             "打开文件夹",
-		ButtonLabel:       "打开",
+		Title:             locales.CommonOpenFolderDialog(),
+		ButtonLabel:       locales.CommonOpenButton(),
 		Directory:         true,
 		CreateDirectories: true,
 	})
@@ -372,7 +373,7 @@ func uniquePath(dir, base, ext string) string {
 // CreateFile 在目录下新建 md（重名自动加序号）。
 func (f *Files) CreateFile(dir, base string) string {
 	if base == "" {
-		base = "未命名"
+		base = locales.FilesUntitled()
 	}
 	if !f.insideWorkspace(dir) || !isDir(dir) {
 		return ""
@@ -387,7 +388,7 @@ func (f *Files) CreateFile(dir, base string) string {
 // CreateFolder 在目录下新建文件夹。
 func (f *Files) CreateFolder(dir, base string) string {
 	if base == "" {
-		base = "新建文件夹"
+		base = locales.FilesNewFolderDefaultName()
 	}
 	if !f.insideWorkspace(dir) || !isDir(dir) {
 		return ""

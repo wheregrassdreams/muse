@@ -10,6 +10,8 @@ package nativeui
 import (
 	"runtime"
 
+	"muse/locales"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -53,12 +55,12 @@ func (a *App) windowButtons(c *ui.Context) {
 		Top(canvasPadding + cardBorder + (editorHeaderH-windowButtonH)/2).
 		Height(windowButtonH).Gap(windowButtonGap).AlignItems(ui.Center)
 	row.Children(func() {
-		windowButton(c, "window-minimize", iconWindowMinimize, "最小化", false, false, win.Minimize)
+		windowButton(c, "window-minimize", iconWindowMinimize, locales.WindowMinimize(), false, false, win.Minimize)
 
 		maximized := win.IsMaximized()
-		icon, label := iconWindowMaximize, "最大化"
+		icon, label := iconWindowMaximize, locales.WindowMaximize()
 		if maximized {
-			icon, label = iconWindowRestore, "向下还原"
+			icon, label = iconWindowRestore, locales.WindowRestore()
 		}
 		windowButton(c, "window-maximize", icon, label, false, true, func() {
 			if maximized {
@@ -68,7 +70,7 @@ func (a *App) windowButtons(c *ui.Context) {
 			}
 		})
 
-		windowButton(c, "window-close", iconClose, "关闭", true, false, win.Close)
+		windowButton(c, "window-close", iconClose, locales.CommonClose(), true, false, win.Close)
 	})
 }
 

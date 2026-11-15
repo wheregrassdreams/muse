@@ -56,9 +56,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
-	if err := tt.Click("周报.md"); err != nil {
-		t.Fatalf("open file from tree: %v", err)
-	}
+	clickTreeRow(t, tt, "周报.md")
 	tt.Frame()
 	if a.path != one {
 		t.Fatalf("a.path = %q, want %q", a.path, one)
@@ -142,9 +140,7 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
-	if err := tt.Click("周报.md"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "周报.md")
 	tt.Frame()
 	clickSource(t, a, tt, "原始行")
 	tt.Key(0, ui.KeyEnd)
@@ -156,16 +152,12 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 		t.Fatal("dirty after save")
 	}
 
-	if err := tt.Click("notes.md"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "notes.md")
 	tt.Frame()
 	if a.path != two || !strings.Contains(a.source, "第二份文档。") {
 		t.Fatalf("notes.md not opened: path=%q source=%q", a.path, a.source)
 	}
-	if err := tt.Click("周报.md"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "周报.md")
 	tt.Frame()
 	if !strings.Contains(a.source, "已保存再切走") {
 		t.Fatalf("saved edit not loaded after switching back: %q", a.source)
@@ -185,9 +177,7 @@ func TestE2ETableCmdEnterAddsRow(t *testing.T) {
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	if err := tt.Click("表.md"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "表.md")
 	tt.Frame()
 	clickSource(t, a, tt, "1 |")
 	tt.Key(ui.Cmd, ui.KeyEnter)
@@ -218,9 +208,7 @@ func TestE2EWindowsLineEndingsRoundTrip(t *testing.T) {
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	if err := tt.Click("crlf.md"); err != nil {
-		t.Fatal(err)
-	}
+	clickTreeRow(t, tt, "crlf.md")
 	tt.Frame()
 	if strings.Contains(a.source, "\r") {
 		t.Fatalf("the editor sees carriage returns: %q", a.source)

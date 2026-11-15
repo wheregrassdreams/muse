@@ -111,6 +111,21 @@ func recentLabels(rs []recentEntry) []string {
 	return labels
 }
 
+// workspacePathLabel shows paths relative to the open vault. Recent entries
+// are persisted as absolute paths, while search hits are already relative;
+// normalize both before putting them in the workspace search results.
+func (a *App) workspacePathLabel(path string) string {
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	if a.root != "" {
+		if rel, err := filepath.Rel(a.root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(path)
+}
+
 // clipRunes 按字符数截断并补省略号。
 func clipRunes(s string, n int) string {
 	r := []rune(s)

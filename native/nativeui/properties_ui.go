@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"muse/frontmatter"
+	"muse/locales"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"muse/frontmatter"
+	"muse/notedate"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -22,6 +25,34 @@ type propertyDocumentCache struct {
 }
 
 type systemProperty struct{ key, value string }
+
+const (
+	systemPropertyFileName  = "file-name"
+	systemPropertyPath      = "path"
+	systemPropertyWordCount = "word-count"
+	systemPropertyCreatedAt = "created-at"
+	systemPropertyFileSize  = "file-size"
+	systemPropertyUpdatedAt = "updated-at"
+)
+
+func systemPropertyLabel(key string) string {
+	switch key {
+	case systemPropertyFileName:
+		return locales.PropertyFileName()
+	case systemPropertyPath:
+		return locales.PropertyPath()
+	case systemPropertyWordCount:
+		return locales.PropertyWordCountLabel()
+	case systemPropertyCreatedAt:
+		return locales.PropertyCreationDate()
+	case systemPropertyFileSize:
+		return locales.PropertyFileSize()
+	case systemPropertyUpdatedAt:
+		return locales.PropertyModifiedDate()
+	default:
+		return key
+	}
+}
 
 type fieldDisplayPreference struct {
 	Pinned bool `json:"pinned,omitempty"`
@@ -68,28 +99,40 @@ func (a *App) propertySummary(c *ui.Context) {
 	}
 	quiet := propertyQuietColor(c.Theme())
 	fields := a.orderedProperties(d.Fields)
-	visible := make([]frontmatter.Field, 0, len(fields))
-	for _, f := range fields {
-		if !propertyOmitted(f.Key) && !strings.EqualFold(f.Key, "type") && !a.propertyPrefs.Fields[f.Key].Hidden {
-			visible = append(visible, f)
-		}
-	}
+	visible := summaryPropertyFields(fields, a.propertyPrefs)
 	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, propertyDocumentType(d)).FontSize(13).TextColor(quiet)
-		if links := a.documentBacklinks(); len(links) > 0 {
+		separator := func() {
 			ui.Text(c, "·").FontSize(13).TextColor(quiet)
-			b := ui.ButtonBase(c).Height(32).Padding(0).Label("查看反向链接").OnClick(a.openLinks)
-			b.Children(func() { ui.Textf(c, "%d 反向链接", len(links)).FontSize(13).TextColor(quiet) })
+		}
+		if sources := a.documentBacklinkSources(); len(sources) > 0 {
+			separator()
+			b := ui.ButtonBase(c).Height(32).Padding(0).Label(locales.PropertyViewBacklinks()).OnClick(a.openLinks)
+			b.Children(func() { ui.Text(c, locales.PropertyBacklinkCount(len(sources))).FontSize(13).TextColor(quiet) })
 		}
 		for i, f := range visible {
+			separator()
 			if i >= 4 {
-				a.propertyButton(c, fmt.Sprintf("+%d 项", len(visible)-i), a.openProperties)
+				a.propertyButton(c, locales.PropertyMoreCount(len(visible)-i), a.openProperties)
 				break
 			}
-			ui.Text(c, "·").FontSize(13).TextColor(quiet)
 			a.propertySummaryItem(c, f)
 		}
 	})
+}
+
+func summaryPropertyFields(fields []frontmatter.Field, prefs documentPropertyPrefs) []frontmatter.Field {
+	visible := make([]frontmatter.Field, 0, len(fields))
+	for _, f := range fields {
+		if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") || prefs.Fields[f.Key].Hidden {
+			continue
+		}
+		if strings.TrimSpace(displayPropertyValue(f)) == "" {
+			continue
+		}
+		visible = append(visible, f)
+	}
+	return visible
 }
 
 func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
@@ -103,7 +146,7 @@ func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
 		return
 	}
 	t := c.Theme()
-	b := ui.ButtonBase(c).Height(36).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label("编辑属性 " + f.Key)
+	b := ui.ButtonBase(c).Height(36).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label(locales.PropertyEditLabel(f.Key))
 	if b.Hovered() {
 		b.Background(t.SurfaceHover)
 	}
@@ -122,14 +165,20 @@ func (a *App) propertySummaryItem(c *ui.Context, f frontmatter.Field) {
 
 func displayPropertyValue(f frontmatter.Field) string {
 	v := strings.TrimSpace(f.Value)
+	if f.Kind == "structure" {
+		return locales.PropertyStructureSourceOnly()
+	}
+	if strings.EqualFold(f.Key, "type") && strings.EqualFold(v, "note") {
+		return locales.PropertyDefaultNoteType()
+	}
 	if strings.EqualFold(f.Key, "status") {
 		switch strings.ToLower(v) {
 		case "draft":
-			return "草稿"
+			return locales.PropertyStatusDraft()
 		case "done":
-			return "已完成"
+			return locales.PropertyStatusDone()
 		case "in_progress":
-			return "进行中"
+			return locales.PropertyStatusInProgress()
 		}
 	}
 	if f.Kind == "date" || isNaturalDateProperty(f.Key) {
@@ -140,7 +189,7 @@ func displayPropertyValue(f frontmatter.Field) string {
 
 func isNaturalDateProperty(key string) bool {
 	switch strings.ToLower(key) {
-	case "date", "created", "created_at", "creation date", "updated", "modified", "modified_at", "last_modified", "last modified date", "last_opened", "last opened date":
+	case "date", "created", "created_at", "creation date", "updated", "updated_at", "modified", "modified_at", "last_modified", "last modified date", "last_opened", "last opened date":
 		return true
 	default:
 		return false
@@ -156,29 +205,29 @@ func (a *App) propertyInlineEditor(c *ui.Context, f frontmatter.Field, location 
 		ui.Row(c).Gap(4).Children(func() {
 			a.propertyButton(c, "true", func() { a.propertySaveField(f.Key, "true") })
 			a.propertyButton(c, "false", func() { a.propertySaveField(f.Key, "false") })
-			a.propertyButton(c, "取消", func() { a.propertyEditKey, a.propertyEditLocation = "", "" })
+			a.propertyButton(c, locales.CommonCancel(), func() { a.propertyEditKey, a.propertyEditLocation = "", "" })
 		})
 		return
 	}
 	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 		input := ui.TextInput(c.Key("property-inline-"+location+"-"+f.Key), &a.propertyEditDraft).
-			Width(180).Placeholder("list 可逗号分隔").Label(f.Key).AutoFocus().OnSubmit(func() { a.propertySaveField(f.Key, a.propertyEditDraft) })
+			Width(180).Placeholder(locales.PropertyListPlaceholder()).Label(f.Key).AutoFocus().OnSubmit(func() { a.propertySaveField(f.Key, a.propertyEditDraft) })
 		_ = input
-		a.propertyButton(c, "保存", func() { a.propertySaveField(f.Key, a.propertyEditDraft) })
-		a.propertyButton(c, "取消", func() { a.propertyEditKey, a.propertyEditLocation = "", "" })
+		a.propertyButton(c, locales.CommonSave(), func() { a.propertySaveField(f.Key, a.propertyEditDraft) })
+		a.propertyButton(c, locales.CommonCancel(), func() { a.propertyEditKey, a.propertyEditLocation = "", "" })
 	})
 }
 
 func naturalPropertyDate(value string) string {
-	for _, layout := range []string{time.RFC3339, "2006-01-02", "2006-01-02 15:04:05"} {
-		if d, err := time.Parse(layout, value); err == nil {
-			if layout != "2006-01-02" {
-				return d.Local().Format("2006年1月2日 15:04")
-			}
-			return d.Local().Format("2006年1月2日")
-		}
+	parsed, precision, err := notedate.Parse(value)
+	if err != nil {
+		return strings.TrimSpace(value)
 	}
-	return value
+	if precision == notedate.Date {
+		year, month, day := parsed.Date()
+		return locales.PropertyDate(time.Date(year, month, day, 0, 0, 0, 0, time.Local))
+	}
+	return locales.PropertyDateTime(parsed.In(time.Local))
 }
 
 func (a *App) openProperties() {
@@ -196,17 +245,17 @@ func (a *App) refreshSystemProperties() {
 		body = body[d.End:]
 	}
 	props := []systemProperty{
-		{key: "文件名", value: filepath.Base(a.path)},
-		{key: "路径", value: a.path},
-		{key: "字数", value: fmt.Sprintf("%d 字 · %d 词", chars, len(strings.Fields(body)))},
+		{key: systemPropertyFileName, value: filepath.Base(a.path)},
+		{key: systemPropertyPath, value: a.path},
+		{key: systemPropertyWordCount, value: locales.PropertyWordCount(chars, len(strings.Fields(body)))},
 	}
 	if st, err := os.Stat(a.path); err == nil {
 		if created := fileCreationTime(st); !created.IsZero() {
-			props = append(props, systemProperty{key: "Creation date", value: created.Local().Format("2006年1月2日 15:04")})
+			props = append(props, systemProperty{key: systemPropertyCreatedAt, value: locales.PropertyDateTime(created.Local())})
 		}
 		props = append(props,
-			systemProperty{key: "文件大小", value: formatPropertySize(st.Size())},
-			systemProperty{key: "Last modified date", value: st.ModTime().Local().Format("2006年1月2日 15:04")},
+			systemProperty{key: systemPropertyFileSize, value: formatPropertySize(st.Size())},
+			systemProperty{key: systemPropertyUpdatedAt, value: locales.PropertyDateTime(st.ModTime().Local())},
 		)
 	}
 	a.propertySystem = props
@@ -224,25 +273,30 @@ func (a *App) propertiesSidebar(c *ui.Context) {
 	ui.Column(c).Key("properties-sidebar").Width(propertiesSidebarWidth).Shrink(0).FillHeight().
 		BorderWidth(0, 0, 0, 1).BorderColor(t.Border).Background(t.Background).Children(func() {
 		ui.Row(c).Height(70).Shrink(0).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "属性").FontSize(18).FontWeight(600).TextColor(propertyValueColor(t))
+			ui.Text(c, locales.PropertyTitle()).FontSize(18).FontWeight(600).TextColor(propertyValueColor(t))
 			ui.Spacer(c)
 			if a.propertySourceMode {
-				a.propertyButton(c, "返回属性", func() { a.propertySourceMode = false; a.invalidate() })
+				a.propertyButton(c, locales.PropertyBackToProperties(), func() { a.propertySourceMode = false; a.invalidate() })
 			} else {
-				b := ui.ButtonBase(c).Height(34).Padding(0, 14).Radius(17).Background(propertyCardColor(t)).Label("编辑类型")
+				b := ui.ButtonBase(c).Height(34).Padding(0, 14).Radius(17).Background(propertyCardColor(t)).Label(locales.PropertyEditType())
 				b.OnClick(func() { a.startPropertyEdit(propertyTypeField(a.propertyDocument()), "sidebar") })
-				b.Children(func() { ui.Text(c, "编辑类型").FontSize(13).FontWeight(500).TextColor(propertyValueColor(t)) })
+				b.Children(func() {
+					ui.Text(c, locales.PropertyEditType()).FontSize(13).FontWeight(500).TextColor(propertyValueColor(t))
+				})
 			}
-			menu := a.smallIconTint(c, iconMore, "属性菜单", nil, propertyQuietColor(t))
+			menu := a.smallIconTint(c, iconMore, locales.PropertyMenu(), nil, propertyQuietColor(t))
 			menu.Menu(func(m *ui.Menu) {
-				if m.Item("添加属性").Chosen() {
+				if m.Item(locales.PropertyAdd()).Chosen() {
 					a.propertyAddOpen = !a.propertyAddOpen
 				}
-				if m.Item("YAML 源码").Chosen() {
+				if m.Item(locales.PropertyMigrationPreviewMenu()).Chosen() {
+					a.openCoreMigrationPreview()
+				}
+				if m.Item(locales.PropertyYAMLSource()).Chosen() {
 					a.openPropertySource()
 				}
 				m.Separator()
-				if m.Item("关闭属性栏").Chosen() {
+				if m.Item(locales.PropertyCloseSidebar()).Chosen() {
 					a.propertiesOpen = false
 				}
 			})
@@ -262,17 +316,23 @@ func (a *App) propertiesSidebar(c *ui.Context) {
 			ui.Column(c).FillWidth().Padding(0, 18, 24, 18).Gap(10).Children(func() {
 				d := a.propertyDocument()
 				if d.Err != nil {
-					ui.Text(c, "YAML frontmatter 无法解析").FontWeight(600)
+					ui.Text(c, locales.PropertyYAMLInvalid()).FontWeight(600)
 					ui.Text(c, d.Err.Error()).FillWidth().TextColor(propertyQuietColor(t)).FontSize(12)
-					a.propertyButton(c, "YAML 源码", a.openPropertySource)
+					a.propertyButton(c, locales.PropertyYAMLSource(), a.openPropertySource)
 					return
 				}
-				a.propertyFieldRow(c, propertyTypeField(d))
+				// Core schema fields have stable slots in the properties view even
+				// before a value has been entered. They are materialized in the
+				// document by the schema lifecycle, but remain visible as empty
+				// rows while an older note is being migrated.
+				for _, f := range propertyCoreFields(d.Fields) {
+					a.propertyFieldRow(c, f)
+				}
 				a.propertyBacklinkCard(c)
 				fields := a.orderedProperties(d.Fields)
 				var hidden []frontmatter.Field
 				for _, f := range fields {
-					if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") {
+					if propertyOmitted(f.Key) || isCoreProperty(f.Key) {
 						continue
 					}
 					if a.propertyPrefs.Fields[f.Key].Hidden || propertySecondary(f.Key) {
@@ -280,16 +340,6 @@ func (a *App) propertiesSidebar(c *ui.Context) {
 						continue
 					}
 					a.propertyFieldRow(c, f)
-				}
-				if !propertyHasField(d, "tags") {
-					a.propertyFieldRow(c, frontmatter.Field{Key: "tags", Kind: "list", Editable: true})
-				}
-				if !propertyHasField(d, "created") {
-					for _, p := range a.propertySystem {
-						if p.key == "Creation date" {
-							a.propertyReadonlyCard(c, p.key, p.value)
-						}
-					}
 				}
 				a.propertyHiddenSection(c, hidden)
 				if a.propertyAddOpen {
@@ -303,10 +353,10 @@ func (a *App) propertiesSidebar(c *ui.Context) {
 func (a *App) propertySourceEditor(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().MinHeight(0).Padding(12).Gap(8).Children(func() {
-		ui.Text(c, "仅编辑 YAML frontmatter；正文会原样保留。").FillWidth().FontSize(11).TextColor(t.TextMuted)
-		ui.TextArea(c.Key("properties-yaml-source"), &a.propertySourceDraft).Grow(1).MinHeight(120).FillWidth().Font("monospace").Label("YAML 源码")
+		ui.Text(c, locales.PropertyYAMLDetail()).FillWidth().FontSize(11).TextColor(t.TextMuted)
+		ui.TextArea(c.Key("properties-yaml-source"), &a.propertySourceDraft).Grow(1).MinHeight(120).FillWidth().Font("monospace").Label(locales.PropertyYAMLSource())
 		ui.Row(c).FillWidth().Justify(ui.End).Children(func() {
-			a.propertyButton(c, "应用源码", func() {
+			a.propertyButton(c, locales.PropertyApplySource(), func() {
 				if err := a.applyPropertyYAMLSource(a.propertySourceDraft); err != nil {
 					a.propertyError = err.Error()
 					return
@@ -330,14 +380,14 @@ func (a *App) yamlPropertySource() string {
 func (a *App) applyPropertyYAMLSource(draft string) error {
 	end := a.propertyDocument().End
 	if strings.HasPrefix(a.source, "---") && end == 0 {
-		return fmt.Errorf("frontmatter 缺少结束分隔符；无法安全判断正文边界")
+		return fmt.Errorf("%s", locales.PropertyYAMLEndDelimiterMissing())
 	}
 	d := frontmatter.Parse(draft)
 	if d.Err != nil || d.End == 0 {
-		return fmt.Errorf("请输入完整有效的 YAML frontmatter")
+		return fmt.Errorf("%s", locales.PropertyYAMLCompleteRequired())
 	}
 	if strings.TrimSpace(draft[d.End:]) != "" {
-		return fmt.Errorf("源码框只接受 YAML frontmatter，不接受正文")
+		return fmt.Errorf("%s", locales.PropertyYAMLOnly())
 	}
 	prefix := draft[:d.End]
 	if !strings.HasSuffix(prefix, "\n") {
@@ -363,7 +413,7 @@ func (a *App) propertyFieldRow(c *ui.Context, f frontmatter.Field) {
 		content := func() {
 			ui.Text(c, propertyLabel(f.Key)).FontSize(14).TextColor(propertyQuietColor(t)).Shrink(0)
 			if f.Editable {
-				value := ui.ButtonBase(c).Key("property-value-" + f.Key).Grow(1).MinWidth(0).MinHeight(28).Padding(0).Justify(ui.Start).Label("编辑属性 " + f.Key)
+				value := ui.ButtonBase(c).Key("property-value-" + f.Key).Grow(1).MinWidth(0).MinHeight(28).Padding(0).Justify(ui.Start).Label(locales.PropertyEditLabel(f.Key))
 				value.OnClick(func() { a.startPropertyEdit(f, "sidebar") })
 				value.ContextMenu(func(m *ui.Menu) { a.propertyFieldMenu(m, f) })
 				value.Children(func() { a.propertyFieldValue(c, f, t) })
@@ -379,10 +429,51 @@ func (a *App) propertyFieldRow(c *ui.Context, f frontmatter.Field) {
 	})
 }
 
+// propertyCoreFields projects the required properties into a stable display
+// order. Timestamps are app-managed and therefore never editable here.
+func propertyCoreFields(fields []frontmatter.Field) []frontmatter.Field {
+	keys := []struct {
+		key, kind, fallback string
+	}{
+		{"type", "text", "note"},
+		{"tags", "list", ""},
+		{"aliases", "list", ""},
+		{"created_at", "date", ""},
+		{"updated_at", "date", ""},
+	}
+	out := make([]frontmatter.Field, 0, len(keys))
+	for _, core := range keys {
+		field := frontmatter.Field{Key: core.key, Kind: core.kind, Editable: core.key != "created_at" && core.key != "updated_at"}
+		for _, existing := range fields {
+			if strings.EqualFold(existing.Key, core.key) {
+				field = existing
+				break
+			}
+		}
+		if strings.TrimSpace(field.Value) == "" && core.fallback != "" {
+			field.Value = core.fallback
+		}
+		if core.key == "created_at" || core.key == "updated_at" {
+			field.Editable = false
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+func isCoreProperty(key string) bool {
+	switch strings.ToLower(key) {
+	case "type", "tags", "aliases", "created_at", "updated_at":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) propertyFieldValue(c *ui.Context, f frontmatter.Field, t *ui.Theme) {
 	val := displayPropertyValue(f)
 	if val == "" {
-		ui.Text(c, "无数值").FontSize(14).TextColor(propertyEmptyColor(t))
+		ui.Text(c, locales.PropertyNoValue()).FontSize(14).TextColor(propertyEmptyColor(t))
 		return
 	}
 	if strings.EqualFold(f.Key, "tags") {
@@ -395,14 +486,14 @@ func (a *App) propertyFieldValue(c *ui.Context, f frontmatter.Field, t *ui.Theme
 func (a *App) propertyAddForm(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).FillWidth().Gap(6).Padding(8, 0).Children(func() {
-		ui.Text(c, "添加属性").FontSize(12).FontWeight(600)
-		ui.TextInput(c, &a.propertyAddKey).FillWidth().Placeholder("属性名").Label("属性名")
+		ui.Text(c, locales.PropertyAdd()).FontSize(12).FontWeight(600)
+		ui.TextInput(c, &a.propertyAddKey).FillWidth().Placeholder(locales.PropertyName()).Label(locales.PropertyName())
 		ui.Row(c).FillWidth().Gap(5).AlignItems(ui.Center).Children(func() {
 			kind := a.propertyAddKind
 			if kind == "" {
 				kind = "text"
 			}
-			k := ui.ButtonBase(c).Height(28).Padding(0, 8).Radius(6).Background(t.Surface).Label("类型：" + propertyTypeName(kind))
+			k := ui.ButtonBase(c).Height(28).Padding(0, 8).Radius(6).Background(t.Surface).Label(locales.PropertyTypeLabel(propertyTypeName(kind)))
 			k.Menu(func(m *ui.Menu) {
 				for _, typ := range []string{"text", "list", "bool", "number", "date"} {
 					if m.Item(propertyTypeName(typ)).Chosen() {
@@ -410,7 +501,7 @@ func (a *App) propertyAddForm(c *ui.Context) {
 					}
 				}
 			})
-			k.Children(func() { ui.Text(c, "类型："+propertyTypeName(kind)).FontSize(11) })
+			k.Children(func() { ui.Text(c, locales.PropertyTypeLabel(propertyTypeName(kind))).FontSize(11) })
 			ui.Spacer(c)
 		})
 		kind := a.propertyAddKind
@@ -419,19 +510,19 @@ func (a *App) propertyAddForm(c *ui.Context) {
 		}
 		if kind == "bool" {
 			ui.Row(c).Gap(6).Children(func() {
-				a.propertyButton(c, "添加 false", func() { a.propertyAdd("false") })
-				a.propertyButton(c, "添加 true", func() { a.propertyAdd("true") })
+				a.propertyButton(c, locales.PropertyAddFalse(), func() { a.propertyAdd("false") })
+				a.propertyButton(c, locales.PropertyAddTrue(), func() { a.propertyAdd("true") })
 			})
 		} else {
-			placeholder := "值"
+			placeholder := locales.PropertyValuePlaceholder()
 			if kind == "list" {
-				placeholder = "值，逗号分隔"
+				placeholder = locales.PropertyListValuePlaceholder()
 			}
 			if kind == "date" {
-				placeholder = "日期 YYYY-MM-DD"
+				placeholder = locales.PropertyDateValuePlaceholder()
 			}
-			ui.TextInput(c, &a.propertyAddValue).FillWidth().Placeholder(placeholder).Label("属性值").OnSubmit(func() { a.propertyAdd(a.propertyAddValue) })
-			a.propertyButton(c, "添加", func() { a.propertyAdd(a.propertyAddValue) })
+			ui.TextInput(c, &a.propertyAddValue).FillWidth().Placeholder(placeholder).Label(locales.PropertyValue()).OnSubmit(func() { a.propertyAdd(a.propertyAddValue) })
+			a.propertyButton(c, locales.CommonAdd(), func() { a.propertyAdd(a.propertyAddValue) })
 		}
 	})
 }
@@ -439,17 +530,17 @@ func (a *App) propertyAddForm(c *ui.Context) {
 func propertyTypeName(kind string) string {
 	switch kind {
 	case "list":
-		return "列表"
+		return locales.PropertyTypeList()
 	case "bool":
-		return "布尔"
+		return locales.PropertyTypeBoolean()
 	case "number":
-		return "数字"
+		return locales.PropertyTypeNumber()
 	case "date":
-		return "日期"
+		return locales.PropertyTypeDate()
 	case "structure":
-		return "复杂结构"
+		return locales.PropertyTypeStructure()
 	default:
-		return "文本"
+		return locales.PropertyTypeText()
 	}
 }
 
@@ -487,6 +578,9 @@ func (a *App) propertySet(key, value string) error {
 }
 
 func (a *App) propertyDelete(key string) error {
+	if isCoreProperty(key) {
+		return fmt.Errorf("%s", locales.PropertyCoreCannotDelete(key))
+	}
 	next, err := frontmatter.Delete(a.source, key)
 	if err != nil {
 		return err

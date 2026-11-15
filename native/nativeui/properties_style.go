@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	"muse/locales"
 	"path/filepath"
 	"strings"
 
@@ -55,30 +56,53 @@ func propertySecondary(key string) bool {
 }
 
 func propertyLabel(key string) string {
-	switch strings.ToLower(key) {
+	switch propertyCanonicalKey(key) {
 	case "type":
-		return "Type"
+		return locales.PropertyTypeFieldLabel()
 	case "tags":
-		return "Tag"
-	case "created", "created_at", "creation date":
-		return "Creation date"
-	case "updated", "modified", "modified_at", "last_modified":
-		return "Last modified date"
+		return locales.PropertyTagsFieldLabel()
+	case "created_at":
+		return locales.PropertyCreationDate()
+	case "updated_at":
+		return locales.PropertyModifiedDate()
 	case "last_opened":
-		return "Last opened date"
+		return locales.PropertyLastOpenedDate()
 	case "status":
-		return "Status"
+		return locales.PropertyStatusFieldLabel()
 	case "aliases":
-		return "Aliases"
+		return locales.PropertyAliasesFieldLabel()
 	case "date":
-		return "Date"
+		return locales.PropertyDateFieldLabel()
 	}
 	return key
 }
 
+func propertyCanonicalKey(key string) string {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "type":
+		return "type"
+	case "tags":
+		return "tags"
+	case "created", "created_at", "creation date":
+		return "created_at"
+	case "updated", "modified", "modified_at", "last_modified", "last modified date":
+		return "updated_at"
+	case "last_opened", "last opened date":
+		return "last_opened"
+	case "status":
+		return "status"
+	case "aliases":
+		return "aliases"
+	case "date":
+		return "date"
+	default:
+		return strings.ToLower(strings.TrimSpace(key))
+	}
+}
+
 func propertyHasField(d frontmatter.Document, key string) bool {
 	for _, f := range d.Fields {
-		if strings.EqualFold(f.Key, key) || propertyLabel(f.Key) == propertyLabel(key) {
+		if propertyCanonicalKey(f.Key) == propertyCanonicalKey(key) {
 			return true
 		}
 	}
@@ -91,14 +115,14 @@ func propertyTypeField(d frontmatter.Document) frontmatter.Field {
 			return f
 		}
 	}
-	return frontmatter.Field{Key: "type", Value: "Note", Kind: "text", Editable: true}
+	return frontmatter.Field{Key: "type", Value: locales.PropertyDefaultNoteType(), Kind: "text", Editable: true}
 }
 
 func propertyDocumentType(d frontmatter.Document) string {
 	if v := strings.TrimSpace(propertyTypeField(d).Value); v != "" {
 		return v
 	}
-	return "Note"
+	return locales.PropertyDefaultNoteType()
 }
 
 func (a *App) propertyTags(c *ui.Context, value string, limit int) {
@@ -126,50 +150,40 @@ func (a *App) propertyTags(c *ui.Context, value string, limit int) {
 	})
 }
 
-type propertyBacklinkCache struct {
-	context  string
-	revision uint64
-	vault    *vaultRuntime
-	links    []vaultindex.Link
-}
-
-func (a *App) documentBacklinks() []vaultindex.Link {
+// documentBacklinkSources returns the shared index's reverse-link projection. The
+// index owns grouping and counts, so rendering does not rebuild or cache a
+// second copy of the graph in the UI layer.
+func (a *App) documentBacklinkSources() []vaultindex.BacklinkSource {
 	v := a.vault
-	if v == nil || v.index == nil || a.path == "" {
+	path := a.path
+	if a.imageDocument.open && a.imageDocument.path != "" {
+		path = a.imageDocument.path
+	}
+	if v == nil || v.index == nil || path == "" {
 		return nil
 	}
-	context := a.editorLinkContext()
-	cache := &a.propertyBacklinks
-	if cache.context != context || cache.vault != v || cache.revision != v.linkRevision {
-		cache.context, cache.vault, cache.revision = context, v, v.linkRevision
-		cache.links = nil
-		seen := make(map[string]bool)
-		for _, link := range v.index.Backlinks(relativeVaultPath(v.root, a.path)) {
-			if !seen[link.Source] {
-				cache.links = append(cache.links, link)
-				seen[link.Source] = true
-			}
-		}
-	}
-	return cache.links
+	return v.index.BacklinkSources(relativeVaultPath(v.root, path))
 }
 
 func (a *App) propertyBacklinkCard(c *ui.Context) {
 	t := c.Theme()
-	links := a.documentBacklinks()
+	sources := a.documentBacklinkSources()
 	ui.Row(c).Key("property-card-backlinks").FillWidth().MinHeight(64).Padding(18, 22).Gap(12).AlignItems(ui.Center).
 		Radius(20).Background(propertyCardColor(t)).Children(func() {
-		ui.Text(c, "Backlinks").FontSize(14).TextColor(propertyQuietColor(t)).Shrink(0)
-		if len(links) == 0 {
-			ui.Text(c, "无数值").FontSize(14).TextColor(propertyEmptyColor(t))
+		ui.Text(c, locales.VaultBacklinksTitle()).FontSize(14).TextColor(propertyQuietColor(t)).Shrink(0)
+		if len(sources) == 0 {
+			ui.Text(c, locales.PropertyNoValue()).FontSize(14).TextColor(propertyEmptyColor(t))
 			return
 		}
 		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
-			for _, link := range links {
-				l := link
-				label := strings.TrimSuffix(filepath.Base(l.Source), filepath.Ext(l.Source))
-				b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).Label("属性反向链接：" + l.Source)
-				b.OnClick(func() { a.navigateIndexed(l.Source, l.Start) })
+			for _, source := range sources {
+				s := source
+				label := strings.TrimSuffix(filepath.Base(s.Source), filepath.Ext(s.Source))
+				if s.Count > 1 {
+					label += locales.VaultBacklinkCountSuffix(s.Count)
+				}
+				b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).Label(locales.CorePropertyBacklinkLabel(s.Source))
+				b.OnClick(func() { a.navigateIndexed(s.Source, s.Start) })
 				b.Children(func() { ui.Text(c, label).FontSize(15).TextColor(propertyValueColor(t)).SingleLine().Ellipsis("…") })
 			}
 		})
@@ -184,12 +198,12 @@ func (a *App) openPropertySource() {
 
 func (a *App) propertyFieldMenu(m *ui.Menu, f frontmatter.Field) {
 	pref := a.propertyPrefs.Fields[f.Key]
-	pin, hide := "置顶", "隐藏"
+	pin, hide := locales.PropertyPin(), locales.PropertyHideFromSummary()
 	if pref.Pinned {
-		pin = "取消置顶"
+		pin = locales.PropertyUnpin()
 	}
 	if pref.Hidden {
-		hide = "显示"
+		hide = locales.PropertyShow()
 	}
 	if m.Item(pin).Chosen() {
 		a.updatePropertyPreference(f.Key, func(p *fieldDisplayPreference) { p.Pinned = !p.Pinned })
@@ -197,14 +211,14 @@ func (a *App) propertyFieldMenu(m *ui.Menu, f frontmatter.Field) {
 	if m.Item(hide).Chosen() {
 		a.updatePropertyPreference(f.Key, func(p *fieldDisplayPreference) { p.Hidden = !p.Hidden })
 	}
-	if m.Item("上移").Chosen() {
+	if m.Item(locales.PropertyMoveUp()).Chosen() {
 		a.moveProperty(f.Key, -1)
 	}
-	if m.Item("下移").Chosen() {
+	if m.Item(locales.PropertyMoveDown()).Chosen() {
 		a.moveProperty(f.Key, 1)
 	}
 	m.Separator()
-	if m.Item("删除属性").Chosen() {
+	if m.Item(locales.PropertyDelete()).Chosen() {
 		if err := a.propertyDelete(f.Key); err != nil {
 			a.propertyError = err.Error()
 		}
@@ -213,7 +227,7 @@ func (a *App) propertyFieldMenu(m *ui.Menu, f frontmatter.Field) {
 
 func (a *App) propertyHiddenSection(c *ui.Context, fields []frontmatter.Field) {
 	t := c.Theme()
-	b := ui.ButtonBase(c).FillWidth().Height(38).Padding(0, 8).Gap(7).Justify(ui.Start).Label("隐藏属性")
+	b := ui.ButtonBase(c).FillWidth().Height(38).Padding(0, 8).Gap(7).Justify(ui.Start).Label(locales.PropertyHide())
 	b.OnClick(func() { a.propertyHiddenOpen = !a.propertyHiddenOpen; a.invalidate() })
 	b.Children(func() {
 		icon := iconChevronDown
@@ -221,7 +235,7 @@ func (a *App) propertyHiddenSection(c *ui.Context, fields []frontmatter.Field) {
 			icon = iconChevron
 		}
 		ui.Icon(c, icon).Size(16, 16).TextColor(propertyQuietColor(t))
-		ui.Text(c, "隐藏").FontSize(14).TextColor(propertyQuietColor(t))
+		ui.Text(c, locales.PropertyHidden()).FontSize(14).TextColor(propertyQuietColor(t))
 	})
 	if !a.propertyHiddenOpen {
 		return
@@ -231,13 +245,13 @@ func (a *App) propertyHiddenSection(c *ui.Context, fields []frontmatter.Field) {
 	}
 	d := a.propertyDocument()
 	for _, p := range a.propertySystem {
-		if p.key == "Creation date" || propertyHasField(d, p.key) {
+		if p.key == systemPropertyCreatedAt || p.key == systemPropertyUpdatedAt {
 			continue
 		}
-		a.propertyReadonlyCard(c, p.key, p.value)
+		a.propertyReadonlyCard(c, systemPropertyLabel(p.key), p.value)
 	}
 	if !a.propertyOpenedAt.IsZero() && !propertyHasField(d, "last_opened") {
-		a.propertyReadonlyCard(c, "Last opened date", a.propertyOpenedAt.Local().Format("2006年1月2日 15:04"))
+		a.propertyReadonlyCard(c, locales.PropertyLastOpenedDate(), locales.PropertyDateTime(a.propertyOpenedAt.Local()))
 	}
 }
 

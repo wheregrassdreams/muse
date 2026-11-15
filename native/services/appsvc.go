@@ -9,6 +9,7 @@ package services
 
 import (
 	"log"
+	"muse/locales"
 
 	"github.com/egoist/mygo"
 )
@@ -61,9 +62,9 @@ func (a *App) ConfirmUnsaved(name string) string {
 	res, err := mygo.Dialog.Message(mygo.MessageOptions{
 		Parent:        win,
 		Type:          mygo.MessageWarning,
-		Message:       "要存储对“" + name + "”的更改吗？",
-		Detail:        "如果不存储，将丢失未保存的更改。",
-		Buttons:       []string{"存储", "不存储", "取消"},
+		Message:       locales.CommonUnsavedMessage(name),
+		Detail:        locales.CommonUnsavedDetail(),
+		Buttons:       []string{locales.CommonSaveUnsaved(), locales.CommonDiscardUnsaved(), locales.CommonCancelUnsaved()},
 		DefaultButton: 0,
 		CancelButton:  2,
 	})

@@ -1,7 +1,7 @@
 package nativeui
 
 import (
-	"fmt"
+	"muse/locales"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -51,7 +51,7 @@ func (a *App) ensureNavIconStore() *navicons.Store {
 	if a.navIconStore == nil {
 		store, err := navicons.New()
 		if err != nil {
-			a.notice("无法打开图标设置：" + err.Error())
+			a.notice(locales.CommonOpenIconSettingsError(err.Error()))
 			return nil
 		}
 		a.navIconStore = store
@@ -145,9 +145,9 @@ func (a *App) chooseNavIcon(id string) {
 			err = store.Set(a.root, item, id)
 		}
 		if err != nil {
-			a.notice("保存图标失败：" + err.Error())
+			a.notice(locales.CommonSaveIconError(err.Error()))
 		} else {
-			a.notice("已更新导航图标")
+			a.notice(locales.NavigationIconUpdated())
 		}
 	}
 	a.cancelNavIconSearch()
@@ -170,15 +170,15 @@ func (a *App) navIconPickerContent(c *ui.Context) {
 		Background(t.Background).Border(1, t.Border).
 		Shadow(0, 14, 34, -4, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "选择图标").FontSize(14).FontWeight(650)
+			ui.Text(c, locales.IconPickerTitle()).FontSize(14).FontWeight(650)
 			ui.Spacer(c)
 			ui.Text(c, filepath.Base(a.navIconPickerPath)).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			a.smallIcon(c, iconClose, "关闭", func() {
+			a.smallIcon(c, iconClose, locales.CommonClose(), func() {
 				a.cancelNavIconSearch()
 				a.navIconPickerOpen = false
 			})
 		})
-		ui.TextInput(c, &a.navIconPickerQuery).Placeholder("搜索 2,356 个图标").Label("搜索图标")
+		ui.TextInput(c, &a.navIconPickerQuery).Placeholder(locales.IconPickerSearchPlaceholder()).Label(locales.IconPickerSearch())
 		query := strings.TrimSpace(a.navIconPickerQuery)
 		if query != a.navIconPickerLastQuery {
 			a.navIconPickerScroll.Y = 0
@@ -186,11 +186,11 @@ func (a *App) navIconPickerContent(c *ui.Context) {
 			a.requestNavIconSearch(query)
 		}
 		matches, loading := a.navIconSearchSnapshot()
-		countLabel := "全部图标"
+		countLabel := locales.IconPickerAllIcons()
 		if query != "" {
-			countLabel = "搜索结果"
+			countLabel = locales.IconPickerResults()
 		}
-		ui.Text(c, fmt.Sprintf("%s · %d 个图标", countLabel, len(matches))).FontSize(10).TextColor(t.TextMuted)
+		ui.Text(c, locales.IconPickerResultCount(countLabel, len(matches))).FontSize(10).TextColor(t.TextMuted)
 		rows := (len(matches) + navIconColumns - 1) / navIconColumns
 		firstRow := max(int(a.navIconPickerScroll.Y/navIconRowHeight)-1, 0)
 		lastRow := min(firstRow+navIconVisibleRows+2, rows)
@@ -226,17 +226,17 @@ func (a *App) navIconPickerContent(c *ui.Context) {
 					ui.Box(c).FillWidth().Height(float32(rows-lastRow) * navIconRowHeight)
 				}
 				if loading {
-					ui.Text(c, "正在加载图标…").FillWidth().Center().TextColor(t.TextMuted)
+					ui.Text(c, locales.IconPickerLoading()).FillWidth().Center().TextColor(t.TextMuted)
 				} else if len(matches) == 0 {
-					ui.Text(c, "没有匹配的图标").FillWidth().Center().TextColor(t.TextMuted)
+					ui.Text(c, locales.IconPickerNoMatch()).FillWidth().Center().TextColor(t.TextMuted)
 				}
 			})
 		})
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-			if ui.Button(c, "恢复默认图标").Clicked() {
+			if ui.Button(c, locales.CommonRestoreDefaultIcon()).Clicked() {
 				a.chooseNavIcon("")
 			}
-			if ui.Button(c, "取消").Clicked() {
+			if ui.Button(c, locales.CommonCancel()).Clicked() {
 				a.cancelNavIconSearch()
 				a.navIconPickerOpen = false
 			}

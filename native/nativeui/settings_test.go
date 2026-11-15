@@ -15,20 +15,28 @@ func TestSettingsDialog(t *testing.T) {
 	a.openSettings()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	for _, want := range []string{"设置", "主题", "排版", "浅色", "深色"} {
+	for _, want := range []string{"设置", "主题", "排版", "浅色", "深色", "智能排版", "字号", "行高"} {
 		if !tt.HasText(want) {
 			t.Fatalf("missing %q; texts = %q", want, tt.Texts())
 		}
 	}
-	if err := tt.Click("排版"); err != nil {
-		t.Fatalf("open typography: %v", err)
+	if tt.HasText("AI 助手") {
+		t.Fatal("AI assistant control should be on the AI page, not appearance")
+	}
+	if err := tt.Click("编辑器"); err != nil {
+		t.Fatalf("open editor settings: %v", err)
 	}
 	tt.Frame()
-	if !tt.HasText("字号") || !tt.HasText("行高") {
-		t.Fatalf("typography page missing; texts = %q", tt.Texts())
+	for _, want := range []string{"按键模式", "光标淡入淡出", "源码展开偏好"} {
+		if !tt.HasText(want) {
+			t.Fatalf("editor page missing %q; texts = %q", want, tt.Texts())
+		}
 	}
-	if err := tt.Click("主题"); err != nil {
-		t.Fatalf("back to theme: %v", err)
+	if tt.HasText("智能排版") || tt.HasText("字号") || tt.HasText("行高") {
+		t.Fatalf("appearance controls leaked into editor page; texts = %q", tt.Texts())
+	}
+	if err := tt.Click("外观"); err != nil {
+		t.Fatalf("back to appearance: %v", err)
 	}
 	tt.Frame()
 	if err := tt.Click("深色"); err != nil {
@@ -37,6 +45,15 @@ func TestSettingsDialog(t *testing.T) {
 	if a.themeMode != 1 {
 		t.Fatalf("themeMode = %d, want 1", a.themeMode)
 	}
+	if err := tt.Click("AI"); err != nil {
+		t.Fatalf("open AI settings: %v", err)
+	}
+	tt.Frame()
+	for _, want := range []string{"AI 助手", "服务", "接口地址", "API Key", "模型"} {
+		if !tt.HasText(want) {
+			t.Fatalf("AI settings page missing %q; texts = %q", want, tt.Texts())
+		}
+	}
 }
 
 func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
@@ -44,6 +61,7 @@ func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", configDir)
 	a := New()
 	a.openSettings()
+	a.settingsTab = 2
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if a.aiEnabled {
@@ -98,6 +116,32 @@ func TestThemePreferenceRoundTripsAndDefaultsToSystem(t *testing.T) {
 	restarted.applyNativePreferences(loadNativePreferences())
 	if restarted.themeMode != themeDark {
 		t.Fatalf("reloaded theme = %d, want dark", restarted.themeMode)
+	}
+}
+
+func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	a := New()
+	a.applyNativePreferences(loadNativePreferences())
+	if a.smoothPageJumps || a.ed.Options().SmoothPageJumps {
+		t.Fatal("smooth page jumps should default off")
+	}
+	a.openSettings()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if !tt.HasText("页内跳转平滑滚动") {
+		t.Fatal("missing appearance option for smooth in-page navigation")
+	}
+	if err := tt.Click("页内跳转平滑滚动开关"); err != nil {
+		t.Fatalf("enable smooth page jumps: %v", err)
+	}
+	if !a.smoothPageJumps || !a.ed.Options().SmoothPageJumps {
+		t.Fatal("setting did not update editor navigation options")
+	}
+	restarted := New()
+	restarted.applyNativePreferences(loadNativePreferences())
+	if !restarted.smoothPageJumps || !restarted.ed.Options().SmoothPageJumps {
+		t.Fatal("smooth page jump setting did not persist")
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"muse/locales"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -335,10 +336,6 @@ func validPrefixLen(s string, keep int) int {
 
 const agentMaxTurns = 8
 
-const agentSystemPrompt = `你是 Muse 的写作 Agent。Muse 是一款 Markdown 编辑器，工作区里的文档你可以用工具查看、搜索和编辑；修改文档的工具（edit_document / write_document / insert_into_document）需要用户确认才会执行。
-编辑文档前先用 read_document 或 search_document 确认原文，再用 edit_document 做精确替换：old_text 必须与文档原文逐字一致且唯一。
-回答用简体中文，正文用 Markdown，简洁直接；不要复述你调用过的工具，用户看得到。`
-
 // sendAI 发出一次 Agent 对话：用户消息入列后，后台循环跑
 // 流式回复 → 工具调用 → 再流式回复，直到给出正文或到轮数上限。
 func (a *App) sendAI() {
@@ -353,7 +350,7 @@ func (a *App) sendAI() {
 	a.aiInput = ""
 	a.aiErr = ""
 	a.aiBusy = true
-	a.aiPhase = "思考中…"
+	a.aiPhase = locales.AiThinkingShort()
 	a.aiStop.Store(false)
 	a.scrollAIBottom()
 	a.invalidate()
@@ -378,7 +375,7 @@ func (a *App) agentLoop() {
 		more = a.agentTurn()
 	}
 	if more {
-		a.appendAgentNote("已连续调用多轮工具，先停在这里；需要的话让我继续。")
+		a.appendAgentNote(locales.AiAgentTurnLimit())
 	}
 	a.onMain(func() {
 		a.aiBusy = false
@@ -492,7 +489,7 @@ func (a *App) agentTurn() bool {
 		// 能力组没开：直接拒绝，别让模型硬试。
 		if group := toolGroup(t.Name); group != "" && !a.toolGroupEnabledOffMain(group) {
 			a.setToolOutcome(idx, t.Index, t.ID,
-				toolFail("当前设置没有开启「%s」能力；请告诉用户可以在 设置 → 模型 → Agent 能力 里开启", toolGroupLabel(group)))
+				toolFail("%s", locales.AiAgentToolGroupDisabled(toolGroupLabel(group))))
 			continue
 		}
 		if toolNeedsApproval(t.Name) {
@@ -501,18 +498,18 @@ func (a *App) agentTurn() bool {
 			switch perm := a.currentPerm(); perm {
 			case permReadonly:
 				a.setToolOutcome(idx, t.Index, t.ID,
-					toolFail("当前权限预设是只读，不能修改文档；请把想改的内容直接写给用户，或让用户把权限切换到「每次询问」或「完全访问」"))
+					toolFail("%s", locales.AiAgentReadOnlyPermission()))
 				continue
 			case permAsk:
 				dec, aborted := a.requestApproval(idx, t)
 				if aborted {
-					a.setToolOutcome(idx, t.Index, t.ID, toolFail("已中止"))
+					a.setToolOutcome(idx, t.Index, t.ID, toolFail("%s", locales.AiAgentCanceled()))
 					return false
 				}
 				if dec == approvalDeny {
 					// 拒绝也回传给模型，让它改道而不是硬试。
 					a.setToolOutcome(idx, t.Index, t.ID,
-						toolFail("用户拒绝了这次修改；不要原样重试，先问用户想怎么改"))
+						toolFail("%s", locales.AiAgentUserDenied()))
 					continue
 				}
 			}
@@ -549,11 +546,11 @@ var aiPerms = []aiPerm{permAsk, permFull, permReadonly}
 func (p aiPerm) label() string {
 	switch p {
 	case permFull:
-		return "完全访问"
+		return locales.AiPermissionFull()
 	case permReadonly:
-		return "只读"
+		return locales.AiPermissionReadOnly()
 	default:
-		return "每次询问"
+		return locales.AiPermissionAsk()
 	}
 }
 
@@ -588,7 +585,7 @@ func (a *App) requestApproval(msgIdx int, t *streamTool) (dec approvalDecision, 
 		if p := a.toolPart(msgIdx, t.Index, t.ID); p != nil && p.Tool != nil {
 			p.Tool.State = toolApproval
 		}
-		a.aiPhase = "等待确认…"
+		a.aiPhase = locales.AiToolPendingApproval()
 		a.scrollAIBottom()
 		a.invalidate()
 	})
@@ -688,7 +685,7 @@ func (a *App) wireMessages() []map[string]any {
 	if sys := strings.TrimSpace(a.ai.System); sys != "" {
 		msgs = append(msgs, map[string]any{"role": "system", "content": sys})
 	} else {
-		msgs = append(msgs, map[string]any{"role": "system", "content": agentSystemPrompt})
+		msgs = append(msgs, map[string]any{"role": "system", "content": locales.AiAgentSystemPrompt()})
 	}
 	if ctx := a.agentDocContext(); ctx != "" {
 		msgs = append(msgs, map[string]any{"role": "system", "content": ctx})
@@ -739,27 +736,27 @@ func (a *App) wireMessages() []map[string]any {
 // agentDocContext 是随每轮发送的文档上下文，让模型知道它面对什么。
 func (a *App) agentDocContext() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "当前时间：%s\n", time.Now().Format("2006-01-02 15:04"))
+	fmt.Fprintf(&b, "%s\n", locales.AiAgentCurrentTime(time.Now().Format("2006-01-02 15:04")))
 	if a.path != "" {
-		fmt.Fprintf(&b, "当前文档：%s\n", a.displayName())
-		fmt.Fprintf(&b, "文档路径：%s\n", a.path)
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentCurrentDocument(a.displayName()))
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentDocumentPath(a.path))
 	} else {
-		b.WriteString("当前文档：未命名（尚未保存）\n")
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentUntitledDocument())
 	}
 	if a.root != "" {
-		fmt.Fprintf(&b, "工作区根目录：%s\n", a.root)
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentWorkspaceRoot(a.root))
 	}
 	if a.dirty {
-		b.WriteString("文档有未保存的修改；read_document/edit_document 看到的就是编辑器里的最新内容。\n")
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentDirtyDocument())
 	}
 	if len(a.headings) > 0 {
-		b.WriteString("文档大纲：\n")
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentOutline())
 		for _, h := range a.headings {
 			fmt.Fprintf(&b, "%s- %s\n", strings.Repeat("  ", max(h.level-1, 0)), h.text)
 		}
 	}
 	if off := a.disabledGroupLabels(); len(off) > 0 {
-		fmt.Fprintf(&b, "以下能力未开启，对应工具不可用，不要尝试调用：%s。\n", strings.Join(off, "、"))
+		fmt.Fprintf(&b, "%s\n", locales.AiAgentDisabledCapabilities(strings.Join(off, ", ")))
 	}
 	return b.String()
 }
@@ -807,13 +804,13 @@ func (a *App) applyStreamDelta(idx int, d streamDelta) {
 			p.started = time.Now()
 		}
 		p.open = true // 思考流式期间保持展开
-		a.aiPhase = "深度思考中…"
+		a.aiPhase = locales.AiThinkingLong()
 	}
 	if d.Text != "" {
 		a.closeThinking(m)
 		p := a.appendPart(m, partText)
 		p.Text += d.Text
-		a.aiPhase = "正在生成…"
+		a.aiPhase = locales.AiToolWorking()
 	}
 	for _, td := range d.Tools {
 		a.closeThinking(m)
@@ -823,7 +820,7 @@ func (a *App) applyStreamDelta(idx int, d streamDelta) {
 			State: toolRunning,
 		}})
 		if td.Name != "" {
-			a.aiPhase = "调用 " + toolLabel(td.Name) + "…"
+			a.aiPhase = locales.AiToolCallPrefix(toolLabel(td.Name)) + "…"
 		}
 	}
 	a.scrollAIBottom()
@@ -997,11 +994,11 @@ func toolGroup(name string) string {
 func toolGroupLabel(group string) string {
 	switch group {
 	case toolGroupBrowse:
-		return "浏览与搜索"
+		return locales.AiToolGroupBrowse()
 	case toolGroupEdit:
-		return "编辑文档内容"
+		return locales.AiToolGroupEdit()
 	case toolGroupManage:
-		return "管理文件"
+		return locales.AiToolGroupManage()
 	}
 	return group
 }
@@ -1031,54 +1028,54 @@ func agentToolDefs() []agentToolDef {
 		}
 	}
 	return []agentToolDef{
-		{toolGroupBrowse, fn("list_documents", "列出工作区里的文件与子目录，用来找文档。", map[string]any{
-			"path": str("相对工作区根目录的子目录；缺省列出根目录"),
+		{toolGroupBrowse, fn("list_documents", locales.AiSchemaListDocuments(), map[string]any{
+			"path": str(locales.AiSchemaPathSubdir()),
 		})},
-		{toolGroupBrowse, fn("read_document", "读一个文档的内容（带行号）。不传 path 读当前文档；文件较大时会被截断，可用 offset 续读。", map[string]any{
-			"path":   str("相对工作区根目录的路径；缺省读当前文档"),
-			"offset": map[string]any{"type": "integer", "description": "起始行号，从 1 开始"},
-			"limit":  map[string]any{"type": "integer", "description": "最多读多少行，缺省 300"},
+		{toolGroupBrowse, fn("read_document", locales.AiSchemaReadDocument(), map[string]any{
+			"path":   str(locales.AiSchemaPathCurrent()),
+			"offset": map[string]any{"type": "integer", "description": locales.AiSchemaOffset()},
+			"limit":  map[string]any{"type": "integer", "description": locales.AiSchemaLimit()},
 		})},
-		{toolGroupBrowse, fn("search_document", "在一个文档里按行搜索文本，返回行号与该行内容。", map[string]any{
-			"query":    str("要找的文本"),
-			"path":     str("相对工作区根目录的路径；缺省搜当前文档"),
-			"is_regex": map[string]any{"type": "boolean", "description": "把 query 当正则；缺省按普通文本、忽略大小写"},
+		{toolGroupBrowse, fn("search_document", locales.AiSchemaSearchDocument(), map[string]any{
+			"query":    str(locales.AiSchemaQuery()),
+			"path":     str(locales.AiSchemaPathCurrent()),
+			"is_regex": map[string]any{"type": "boolean", "description": locales.AiSchemaRegex()},
 		})},
-		{toolGroupBrowse, fn("read_outline", "读一个文档的标题大纲（各级 Heading）。", map[string]any{
-			"path": str("相对工作区根目录的路径；缺省读当前文档"),
+		{toolGroupBrowse, fn("read_outline", locales.AiSchemaReadOutline(), map[string]any{
+			"path": str(locales.AiSchemaPathCurrent()),
 		})},
-		{toolGroupBrowse, fn("workspace_tree", "递归列出工作区的目录结构，用来了解全貌。", map[string]any{
-			"path":  str("起点目录；缺省为工作区根目录"),
-			"depth": map[string]any{"type": "integer", "description": "递归层数，缺省 2，最大 4"},
+		{toolGroupBrowse, fn("workspace_tree", locales.AiSchemaWorkspaceTree(), map[string]any{
+			"path":  str(locales.AiSchemaPathSubdir()),
+			"depth": map[string]any{"type": "integer", "description": locales.AiSchemaDepth()},
 		})},
-		{toolGroupBrowse, fn("document_stats", "统计一个文档的字符数、行数与标题数。", map[string]any{
-			"path": str("相对工作区根目录的路径；缺省统计当前文档"),
+		{toolGroupBrowse, fn("document_stats", locales.AiSchemaDocumentStats(), map[string]any{
+			"path": str(locales.AiSchemaPathCurrent()),
 		})},
-		{toolGroupBrowse, fn("open_document", "把一个文档打开到编辑器里，方便用户查看。", map[string]any{
-			"path": str("相对工作区根目录的路径"),
+		{toolGroupBrowse, fn("open_document", locales.AiSchemaOpenDocument(), map[string]any{
+			"path": str(locales.AiSchemaPathRequired()),
 		})},
-		{toolGroupEdit, fn("edit_document", "编辑文档：把 old_text 精确替换为 new_text。old_text 必须与原文逐字一致且只出现一次；可以先 read_document 核对。", map[string]any{
-			"path":     str("相对工作区根目录的路径；缺省编辑当前文档"),
-			"old_text": str("要被替换的原文片段，逐字一致且唯一"),
-			"new_text": str("替换成的内容，可以为空表示删除"),
+		{toolGroupEdit, fn("edit_document", locales.AiSchemaEditDocument(), map[string]any{
+			"path":     str(locales.AiSchemaPathCurrent()),
+			"old_text": str(locales.AiSchemaOldText()),
+			"new_text": str(locales.AiSchemaNewText()),
 		})},
-		{toolGroupEdit, fn("insert_into_document", "把一段 Markdown 插入当前文档的开头或结尾。", map[string]any{
-			"text":     str("要插入的 Markdown"),
-			"position": map[string]any{"type": "string", "enum": []string{"start", "end"}, "description": "缺省插到结尾"},
+		{toolGroupEdit, fn("insert_into_document", locales.AiSchemaInsertDocument(), map[string]any{
+			"text":     str(locales.AiSchemaInsertText()),
+			"position": map[string]any{"type": "string", "enum": []string{"start", "end"}, "description": locales.AiSchemaInsertPosition()},
 		})},
-		{toolGroupManage, fn("write_document", "在工作区新建或整体改写一个 Markdown 文档。", map[string]any{
-			"path":    str("相对工作区根目录的路径"),
-			"content": str("完整的文档内容"),
+		{toolGroupManage, fn("write_document", locales.AiSchemaWriteDocument(), map[string]any{
+			"path":    str(locales.AiSchemaPathRequired()),
+			"content": str(locales.AiSchemaContent()),
 		})},
-		{toolGroupManage, fn("rename_document", "重命名或移动一个文件（可以移到别的子目录）。", map[string]any{
-			"path":     str("现在的相对路径"),
-			"new_path": str("新的相对路径"),
+		{toolGroupManage, fn("rename_document", locales.AiSchemaRenameDocument(), map[string]any{
+			"path":     str(locales.AiSchemaCurrentPath()),
+			"new_path": str(locales.AiSchemaNewPath()),
 		})},
-		{toolGroupManage, fn("delete_document", "把一个文件移到系统回收站（不是永久删除）。", map[string]any{
-			"path": str("相对工作区根目录的路径"),
+		{toolGroupManage, fn("delete_document", locales.AiSchemaDeleteDocument(), map[string]any{
+			"path": str(locales.AiSchemaPathRequired()),
 		})},
-		{toolGroupManage, fn("create_folder", "在工作区新建一个文件夹（可含子目录）。", map[string]any{
-			"path": str("相对工作区根目录的文件夹路径"),
+		{toolGroupManage, fn("create_folder", locales.AiSchemaCreateFolder(), map[string]any{
+			"path": str(locales.AiSchemaPathFolder()),
 		})},
 	}
 }
@@ -1098,31 +1095,31 @@ func agentToolSchemas(enabled func(group string) bool) []map[string]any {
 func toolLabel(name string) string {
 	switch name {
 	case "list_documents":
-		return "列出文件"
+		return locales.AiToolLabelListDocuments()
 	case "read_document":
-		return "读取文档"
+		return locales.AiToolLabelReadDocument()
 	case "search_document":
-		return "搜索文档"
+		return locales.AiToolLabelSearchDocument()
 	case "read_outline":
-		return "读取大纲"
+		return locales.AiToolLabelReadOutline()
 	case "workspace_tree":
-		return "目录结构"
+		return locales.AiToolLabelWorkspaceTree()
 	case "document_stats":
-		return "文档统计"
+		return locales.AiToolLabelDocumentStats()
 	case "open_document":
-		return "打开文档"
+		return locales.AiToolLabelOpenDocument()
 	case "edit_document":
-		return "编辑文档"
+		return locales.AiToolLabelEditDocument()
 	case "write_document":
-		return "写入文档"
+		return locales.AiToolLabelWriteDocument()
 	case "insert_into_document":
-		return "插入内容"
+		return locales.AiToolLabelInsertContent()
 	case "rename_document":
-		return "重命名文档"
+		return locales.AiToolLabelRenameDocument()
 	case "delete_document":
-		return "删除文档"
+		return locales.AiToolLabelDeleteDocument()
 	case "create_folder":
-		return "新建文件夹"
+		return locales.AiToolLabelCreateFolder()
 	default:
 		return name
 	}
@@ -1155,7 +1152,7 @@ func (a *App) execToolOnMain(name, argsJSON string) toolOutcome {
 	args := map[string]any{}
 	if s := strings.TrimSpace(argsJSON); s != "" {
 		if err := json.Unmarshal([]byte(s), &args); err != nil {
-			return toolFail("参数不是合法 JSON：%v", err)
+			return toolFail("%s", locales.AiAgentInvalidJSON(err.Error()))
 		}
 	}
 	argStr := func(key string) string {
@@ -1202,7 +1199,7 @@ func (a *App) execToolOnMain(name, argsJSON string) toolOutcome {
 	case "document_stats":
 		return a.toolDocumentStats(argStr("path"))
 	default:
-		return toolFail("未知工具 %q", name)
+		return toolFail("%s", locales.AiAgentUnknownTool(name))
 	}
 }
 
@@ -1217,7 +1214,7 @@ func (a *App) dropTreeCache(dir string) {
 // 编辑器跟着切到新路径。
 func (a *App) toolRenameDocument(rel, relNew string) toolOutcome {
 	if strings.TrimSpace(relNew) == "" {
-		return toolFail("new_path 不能为空")
+		return toolFail("%s", locales.AiAgentPathRequired())
 	}
 	path, err := a.resolveToolPath(rel)
 	if err != nil {
@@ -1231,16 +1228,16 @@ func (a *App) toolRenameDocument(rel, relNew string) toolOutcome {
 		return toolOK(map[string]any{"path": newPath, "moved": false})
 	}
 	if !isEditableFile(newPath) {
-		return toolFail("新路径必须是可编辑的文本文件（md / markdown / txt 等）")
+		return toolFail("%s", locales.AiAgentPathEditableText())
 	}
 	if _, err := os.Stat(newPath); err == nil {
-		return toolFail("目标路径已存在：%s", relNew)
+		return toolFail("%s", locales.AiAgentTargetExists(relNew))
 	}
 	if _, err := os.Stat(path); err != nil {
 		return toolFail("%v", err)
 	}
 	if err := os.Rename(path, newPath); err != nil {
-		return toolFail("重命名失败：%v", err)
+		return toolFail("%s", locales.AiAgentRenameFailed(err.Error()))
 	}
 	a.dropTreeCache(filepath.Dir(path))
 	a.dropTreeCache(filepath.Dir(newPath))
@@ -1260,13 +1257,13 @@ func (a *App) toolDeleteDocument(rel string) toolOutcome {
 		return toolFail("%v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
-		return toolFail("路径不存在：%v", err)
+		return toolFail("%s", locales.AiAgentPathNotFound(err.Error()))
 	}
 	if path == a.path && a.dirty {
-		return toolFail("当前文档有未保存的修改；请先保存或放弃，再删除它")
+		return toolFail("%s", locales.AiAgentDirtyDelete())
 	}
 	if err := trashItem(path); err != nil {
-		return toolFail("删除失败：%v", err)
+		return toolFail("%s", locales.AiAgentDeleteFailed(err.Error()))
 	}
 	a.dropTreeCache(filepath.Dir(path))
 	if path == a.path {
@@ -1278,17 +1275,17 @@ func (a *App) toolDeleteDocument(rel string) toolOutcome {
 // toolCreateFolder 新建一个文件夹（可含子目录）。
 func (a *App) toolCreateFolder(rel string) toolOutcome {
 	if strings.TrimSpace(rel) == "" {
-		return toolFail("path 不能为空")
+		return toolFail("%s", locales.AiAgentPathRequired())
 	}
 	path, err := a.resolveToolPath(rel)
 	if err != nil {
 		return toolFail("%v", err)
 	}
 	if _, err := os.Stat(path); err == nil {
-		return toolFail("目录已存在：%s", rel)
+		return toolFail("%s", locales.AiAgentFolderExists(rel))
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
-		return toolFail("创建失败：%v", err)
+		return toolFail("%s", locales.AiAgentCreateFailed(err.Error()))
 	}
 	a.dropTreeCache(filepath.Dir(path))
 	return toolOK(map[string]any{"path": path, "created": true})
@@ -1305,7 +1302,7 @@ func (a *App) toolWorkspaceTree(rel string, depth int) toolOutcome {
 		root = resolved
 	}
 	if root == "" {
-		return toolFail("没有打开的工作区")
+		return toolFail("%s", locales.AiAgentNoWorkspace())
 	}
 	if depth <= 0 || depth > 4 {
 		depth = 2
@@ -1362,10 +1359,10 @@ func (a *App) toolOpenDocument(rel string) toolOutcome {
 		return toolFail("%v", err)
 	}
 	if !isEditableFile(path) {
-		return toolFail("不是可编辑的文本文件")
+		return toolFail("%s", locales.AiAgentNotEditable())
 	}
 	if path == a.path {
-		return toolOK(map[string]any{"path": path, "opened": true, "note": "已经是当前文档"})
+		return toolOK(map[string]any{"path": path, "opened": true, "note": locales.AiAgentAlreadyCurrentDocument()})
 	}
 	a.requestOpen(path)
 	return toolOK(map[string]any{"path": path, "opened": true})
@@ -1395,9 +1392,9 @@ func (a *App) toolDocumentStats(rel string) toolOutcome {
 // 相对路径相对工作区根目录，结果必须落在工作区之内。
 func (a *App) resolveToolPath(p string) (string, error) {
 	p = strings.TrimSpace(p)
-	if p == "" || p == "current" || p == "当前文档" {
+	if p == "" || p == "current" {
 		if a.path == "" {
-			return "", errors.New("当前文档还没保存；请先保存，或给出工作区内的相对路径")
+			return "", errors.New(locales.AiAgentCurrentNotSaved())
 		}
 		return a.path, nil
 	}
@@ -1405,18 +1402,18 @@ func (a *App) resolveToolPath(p string) (string, error) {
 		if a.root != "" && underDir(p, a.root) {
 			return filepath.Clean(p), nil
 		}
-		return "", errors.New("只允许访问工作区内的文件")
+		return "", errors.New(locales.AiAgentWorkspaceOnly())
 	}
 	root := a.root
 	if root == "" {
 		if a.path == "" {
-			return "", errors.New("没有打开的工作区，也没有已保存的文档")
+			return "", errors.New(locales.AiAgentNoWorkspaceOrDocument())
 		}
 		root = filepath.Dir(a.path)
 	}
 	full := filepath.Clean(filepath.Join(root, p))
 	if !underDir(full, root) {
-		return "", fmt.Errorf("路径 %q 越出了工作区", p)
+		return "", errors.New(locales.AiAgentPathEscapesWorkspace(p))
 	}
 	return full, nil
 }
@@ -1425,14 +1422,14 @@ func (a *App) resolveToolPath(p string) (string, error) {
 // 文档：已保存或有草稿时直接用编辑器里的最新内容（未保存也能读）。
 func (a *App) toolTargetDoc(rel string) (string, string, error) {
 	p := strings.TrimSpace(rel)
-	if p == "" || p == "current" || p == "当前文档" {
+	if p == "" || p == "current" {
 		if a.path == "" && a.source == "" {
-			return "", "", errors.New("当前文档是空的；先写点内容，或给出工作区内的路径")
+			return "", "", errors.New(locales.AiAgentCurrentDocumentEmpty())
 		}
 		if a.path != "" {
 			return a.path, a.source, nil
 		}
-		return "(未命名)", a.source, nil
+		return locales.AiAgentUntitled(), a.source, nil
 	}
 	path, err := a.resolveToolPath(p)
 	if err != nil {
@@ -1469,10 +1466,10 @@ func (a *App) toolDocContent(path string) (string, error) {
 		return "", err
 	}
 	if len(data) > 2<<20 {
-		return "", errors.New("文件超过 2MB，太大了")
+		return "", errors.New(locales.AiAgentFileTooLarge())
 	}
 	if !isTextData(data) {
-		return "", errors.New("不是文本文件")
+		return "", errors.New(locales.AiAgentNotTextFile())
 	}
 	return string(data), nil
 }
@@ -1487,11 +1484,11 @@ func (a *App) toolListDocuments(rel string) toolOutcome {
 		dir = resolved
 	}
 	if dir == "" {
-		return toolFail("没有打开的工作区")
+		return toolFail("%s", locales.AiAgentNoWorkspace())
 	}
 	des, err := os.ReadDir(dir)
 	if err != nil {
-		return toolFail("读目录失败：%v", err)
+		return toolFail("%s", locales.AiAgentReadDirectoryFailed(err.Error()))
 	}
 	type entry struct {
 		Name string `json:"name"`
@@ -1532,7 +1529,7 @@ func (a *App) toolReadDocument(rel string, offset, limit int) toolOutcome {
 		offset = 1
 	}
 	if offset > total {
-		return toolFail("offset %d 超出了总行数 %d", offset, total)
+		return toolFail("%s", locales.AiAgentOffsetOutOfRange(offset, total))
 	}
 	if limit <= 0 || limit > 800 {
 		limit = 800
@@ -1566,7 +1563,7 @@ func (a *App) toolReadDocument(rel string, offset, limit int) toolOutcome {
 func (a *App) toolSearchDocument(query, rel string, useRegex bool) toolOutcome {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return toolFail("query 不能为空")
+		return toolFail("%s", locales.AiAgentQueryEmpty())
 	}
 	path, content, err := a.toolTargetDoc(rel)
 	if err != nil {
@@ -1578,7 +1575,7 @@ func (a *App) toolSearchDocument(query, rel string, useRegex bool) toolOutcome {
 	if useRegex {
 		re, err := regexp.Compile(query)
 		if err != nil {
-			return toolFail("正则无效：%v", err)
+			return toolFail("%s", locales.AiAgentRegexInvalid(err.Error()))
 		}
 		match = re.MatchString
 	}
@@ -1627,24 +1624,24 @@ func (a *App) toolReadOutline(rel string) toolOutcome {
 		count++
 	}
 	if count == 0 {
-		return toolOK(map[string]any{"path": path, "outline": "(没有标题)"})
+		return toolOK(map[string]any{"path": path, "outline": locales.AiAgentNoHeadings()})
 	}
 	return toolOK(map[string]any{"path": path, "outline": strings.TrimRight(b.String(), "\n")})
 }
 
 func (a *App) toolEditDocument(rel, oldText, newText string) toolOutcome {
 	if oldText == "" {
-		return toolFail("old_text 不能为空；先 read_document 核对原文，再逐字复制要替换的片段")
+		return toolFail("%s", locales.AiAgentOldTextEmpty())
 	}
 	// 未保存的当前文档：直接改编辑器里的内容。
 	p := strings.TrimSpace(rel)
-	if p == "" || p == "current" || p == "当前文档" {
+	if p == "" || p == "current" {
 		updated, err := replaceOnce(a.source, oldText, newText)
 		if err != nil {
 			return toolFail("%v", err)
 		}
 		a.applyToolSourceEdit(updated)
-		return toolOK(map[string]any{"path": "(当前文档)", "replaced": true, "new_chars": len(updated)})
+		return toolOK(map[string]any{"path": locales.AiAgentCurrentDocumentLabel(), "replaced": true, "new_chars": len(updated)})
 	}
 	path, err := a.resolveToolPath(p)
 	if err != nil {
@@ -1672,17 +1669,17 @@ func (a *App) toolEditDocument(rel, oldText, newText string) toolOutcome {
 func replaceOnce(content, oldText, newText string) (string, error) {
 	switch n := strings.Count(content, oldText); n {
 	case 0:
-		return "", errors.New("old_text 在文档里没有找到；请先 read_document 核对原文（注意空格与换行）")
+		return "", errors.New(locales.AiAgentOldTextNotFound())
 	case 1:
 		return strings.Replace(content, oldText, newText, 1), nil
 	default:
-		return "", fmt.Errorf("old_text 出现了 %d 次，请加长片段让它唯一", n)
+		return "", errors.New(locales.AiAgentOldTextRepeated(n))
 	}
 }
 
 func (a *App) toolWriteDocument(rel, content string) toolOutcome {
 	if strings.TrimSpace(rel) == "" {
-		return toolFail("path 不能为空；相对工作区根目录，例如 notes/meeting.md")
+		return toolFail("%s", locales.AiAgentWritePathExample())
 	}
 	path, err := a.resolveToolPath(rel)
 	if err != nil {
@@ -1691,7 +1688,7 @@ func (a *App) toolWriteDocument(rel, content string) toolOutcome {
 	if !strings.HasSuffix(strings.ToLower(path), ".md") &&
 		!strings.HasSuffix(strings.ToLower(path), ".markdown") &&
 		!strings.HasSuffix(strings.ToLower(path), ".txt") {
-		return toolFail("只支持 .md / .markdown / .txt 文件")
+		return toolFail("%s", locales.AiAgentSupportedFileTypes())
 	}
 	created := true
 	if _, err := os.Stat(path); err == nil {
@@ -1701,14 +1698,14 @@ func (a *App) toolWriteDocument(rel, content string) toolOutcome {
 		a.applyToolSourceEdit(content)
 	} else {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return toolFail("创建目录失败：%v", err)
+			return toolFail("%s", locales.AiAgentCreateDirectoryFailed(err.Error()))
 		}
 		expected, err := a.destinationRevision(path, "", "")
 		if err == nil {
 			err = a.writeDocument(path, content, expected)
 		}
 		if err != nil {
-			return toolFail("写入失败：%v", err)
+			return toolFail("%s", locales.AiAgentWriteFailed(err.Error()))
 		}
 		a.dirMu.Lock()
 		delete(a.dirs, filepath.Dir(path))
@@ -1724,10 +1721,10 @@ func (a *App) toolWriteDocument(rel, content string) toolOutcome {
 
 func (a *App) toolInsertIntoDocument(text, position string) toolOutcome {
 	if strings.TrimSpace(text) == "" {
-		return toolFail("text 不能为空")
+		return toolFail("%s", locales.AiAgentInsertTextEmpty())
 	}
 	if a.path == "" && a.source == "" && a.root == "" {
-		return toolFail("没有可写入的文档；先新建或打开一个")
+		return toolFail("%s", locales.AiAgentNoWritableDocument())
 	}
 	if position == "start" {
 		a.insertTextAtStart(text)
@@ -1759,6 +1756,6 @@ func (a *App) applyToolFileEdit(path, content, revision string) error {
 func (a *App) insertTextAtStart(text string) {
 	a.ed.PrependBlock(text)
 	a.docChanged()
-	a.notice("已插入到文档开头")
+	a.notice(locales.DocumentInsertedAtStart())
 	a.invalidate()
 }

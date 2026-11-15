@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"muse/locales"
 
 	"strings"
 
@@ -23,10 +24,10 @@ func (a *App) aiView(c *ui.Context) {
 	if !a.aiConfigured() {
 		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
 			ui.Icon(c, iconAI).Size(28, 28).TextColor(iconTint(t))
-			ui.Text(c, "先设置模型").FontSize(13).FontWeight(600)
-			ui.Text(c, "Muse 使用 OpenAI 兼容的接口，密钥只保存在本机。").
+			ui.Text(c, locales.AiSetupModelTitle()).FontSize(13).FontWeight(600)
+			ui.Text(c, locales.AiSetupModelDetail()).
 				FontSize(11.5).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
-			ui.Button(c, "设置模型").OnClick(func() {
+			ui.Button(c, locales.AiSetupModel()).OnClick(func() {
 				a.settingsOpen = true
 				a.settingsTab = 2
 			})
@@ -66,14 +67,14 @@ func (a *App) aiEmpty(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).FillWidth().Padding(24, 0, 8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Icon(c, iconAI).Size(26, 26).TextColor(iconTint(t))
-		ui.Text(c, "问问 Muse 的 Agent").FontSize(13).FontWeight(600)
-		ui.Text(c, "它可以浏览、搜索和编辑工作区里的文档。").
+		ui.Text(c, locales.AiChatWelcomeTitle()).FontSize(13).FontWeight(600)
+		ui.Text(c, locales.AiChatWelcomeDetail()).
 			FontSize(11.5).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
 		ui.Box(c).Height(6)
 		ui.Row(c).Gap(6).Children(func() {
-			a.aiSuggestion(c, "总结这篇文档")
-			a.aiSuggestion(c, "改得更正式")
-			a.aiSuggestion(c, "起 5 个标题")
+			a.aiSuggestion(c, locales.AiSuggestionSummarize())
+			a.aiSuggestion(c, locales.AiSuggestionFormalize())
+			a.aiSuggestion(c, locales.AiSuggestionTitles())
 		})
 	})
 }
@@ -157,12 +158,12 @@ func (a *App) aiPart(c *ui.Context, m *chatMessage, i int) {
 func (a *App) aiThinkPart(c *ui.Context, p *chatPart) {
 	t := c.Theme()
 	thinking := p.Ms == 0 && p.open // 流式进行中
-	label := "思考过程"
+	label := locales.AiThinkProcess()
 	switch {
 	case thinking:
-		label = "深度思考中…"
+		label = locales.AiThinkingLong()
 	case p.Ms > 0:
-		label = fmt.Sprintf("已思考 %.1f 秒", float64(p.Ms)/1000)
+		label = locales.AiThinkingDuration(fmt.Sprintf("%.1f", float64(p.Ms)/1000))
 	}
 	hasBody := strings.TrimSpace(p.Text) != ""
 
@@ -279,11 +280,11 @@ func (a *App) aiApprovalCard(c *ui.Context, p *chatPart) {
 	tool := p.Tool
 	target := toolTarget(tool.Args)
 
-	title := "请求修改文档"
+	title := locales.AiApprovalEditDocument()
 	if tool.Name == "write_document" {
-		title = "请求新建文档"
+		title = locales.AiApprovalCreateDocument()
 	} else if tool.Name == "insert_into_document" {
-		title = "请求插入内容"
+		title = locales.AiApprovalInsertContent()
 	}
 
 	card := ui.Column(c).FillWidth().Radius(10).Padding(9, 10).Gap(7)
@@ -295,7 +296,7 @@ func (a *App) aiApprovalCard(c *ui.Context, p *chatPart) {
 	card.Children(func() {
 		ui.Row(c).Gap(6).AlignItems(ui.Center).FillWidth().Children(func() {
 			ui.Icon(c, toolIcon(tool.Name)).Size(13, 13).TextColor(t.Accent)
-			ui.Textf(c, "%s？", title).FontSize(11.5).FontWeight(600).TextColor(t.Text)
+			ui.Text(c, title).FontSize(11.5).FontWeight(600).TextColor(t.Text)
 			ui.Spacer(c)
 			if target != "" {
 				ui.Text(c, target).FontSize(10).TextColor(t.TextMuted).
@@ -307,34 +308,34 @@ func (a *App) aiApprovalCard(c *ui.Context, p *chatPart) {
 		}
 		ui.Row(c).Gap(6).AlignItems(ui.Center).FillWidth().Wrap().Children(func() {
 			allow := ui.ButtonBase(c).Height(24).Padding(0, 11).Radius(7).
-				Label("同意修改").Description("同意修改")
+				Label(locales.AiApproveChange()).Description(locales.AiApproveChange())
 			allow.Background(t.Accent)
 			if allow.Hovered() {
 				allow.Background(t.AccentHover)
 			}
 			allow.OnClick(func() { a.decideApproval(tool.ID, approvalAllow) })
 			allow.Children(func() {
-				ui.Text(c, "同意修改").FontSize(10.5).FontWeight(600).TextColor(t.AccentText)
+				ui.Text(c, locales.AiApproveChange()).FontSize(10.5).FontWeight(600).TextColor(t.AccentText)
 			})
 			always := ui.ButtonBase(c).Height(24).Padding(0, 11).Radius(7).
-				Label("总是允许").Description("总是允许：本会话内修改免确认")
+				Label(locales.AiAlwaysAllow()).Description(locales.AiAlwaysAllowSession())
 			always.Background(t.Background).Border(1, t.Border)
 			if always.Hovered() {
 				always.Background(t.SurfaceHover)
 			}
 			always.OnClick(func() { a.decideApproval(tool.ID, approvalAlways) })
 			always.Children(func() {
-				ui.Text(c, "总是允许").FontSize(10.5).TextColor(t.Text)
+				ui.Text(c, locales.AiAlwaysAllow()).FontSize(10.5).TextColor(t.Text)
 			})
 			deny := ui.ButtonBase(c).Height(24).Padding(0, 11).Radius(7).
-				Label("拒绝").Description("拒绝")
+				Label(locales.CommonReject()).Description(locales.CommonReject())
 			deny.Background(t.Background).Border(1, t.Border)
 			if deny.Hovered() {
 				deny.Background(t.SurfaceHover)
 			}
 			deny.OnClick(func() { a.decideApproval(tool.ID, approvalDeny) })
 			deny.Children(func() {
-				ui.Text(c, "拒绝").FontSize(10.5).TextColor(t.TextMuted)
+				ui.Text(c, locales.CommonReject()).FontSize(10.5).TextColor(t.TextMuted)
 			})
 		})
 	})
@@ -362,11 +363,11 @@ func toolDescription(tool *toolCall) string {
 	}
 	switch tool.Name {
 	case "edit_document":
-		return fmt.Sprintf("把「%s」改成「%s」。", clip(args.OldText, 80), clip(args.NewText, 80))
+		return locales.AiToolDescriptionEdit(clip(args.OldText, 80), clip(args.NewText, 80))
 	case "write_document":
-		return fmt.Sprintf("写入 %s（%d 字符）。", baseName(args.Path), len(args.Content))
+		return locales.AiToolDescriptionWrite(baseName(args.Path), len([]rune(args.Content)))
 	case "insert_into_document":
-		return fmt.Sprintf("插入「%s」。", clip(args.Text, 120))
+		return locales.AiToolDescriptionInsert(clip(args.Text, 120))
 	}
 	return strings.TrimSpace(tool.Args)
 }
@@ -428,7 +429,7 @@ func (a *App) aiBusyRow(c *ui.Context) {
 		ui.Spinner(c).TextColor(t.TextMuted)
 		phase := a.aiPhase
 		if phase == "" {
-			phase = "思考中…"
+			phase = locales.AiThinkingShort()
 		}
 		ui.Text(c, phase).FontSize(11).TextColor(t.TextMuted)
 	})
@@ -452,7 +453,7 @@ func (a *App) aiComposer(c *ui.Context) {
 		card.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
 				ta := ui.TextAreaBase(c, &a.aiInput).Grow(1).
-					Placeholder("让 Agent 总结、改写或编辑这篇文档…").
+					Placeholder(locales.AiPromptPlaceholder()).
 					Lines(1, 7).FontSize(12.5).Padding(4, 2).LineHeight(1.5)
 				if ta.Shortcut(ui.Cmd, ui.KeyEnter) && !a.aiBusy {
 					a.sendAI()
@@ -471,7 +472,7 @@ func (a *App) aiComposer(c *ui.Context) {
 			ui.Text(c, a.ai.Model).FontSize(10).TextColor(t.TextMuted).
 				Grow(1).MinWidth(0).SingleLine().Ellipsis("…")
 			if !a.aiBusy {
-				a.aiMiniButton(c, "清空", a.clearAIChat)
+				a.aiMiniButton(c, locales.AiClearConversation(), a.clearAIChat)
 			}
 		})
 	})
@@ -498,10 +499,10 @@ func (a *App) aiPermButton(c *ui.Context) {
 func (a *App) aiSendButton(c *ui.Context) {
 	t := c.Theme()
 	b := ui.ButtonBase(c).Width(28).Height(28).Radius(14).Padding(0).
-		Justify(ui.Center).AlignItems(ui.Center).Label("发送").Description("发送")
+		Justify(ui.Center).AlignItems(ui.Center).Label(locales.CommonSend()).Description(locales.CommonSend())
 	switch {
 	case a.aiBusy:
-		b.Label("停止").Description("停止")
+		b.Label(locales.CommonStop()).Description(locales.CommonStop())
 		b.Background(t.SurfaceHover)
 		b.OnClick(a.abortAI)
 		b.Children(func() {

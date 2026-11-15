@@ -9,6 +9,7 @@
 package nativeui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"muse/notestore"
@@ -19,14 +20,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/shader"
 
 	"muse/appearance"
+	"muse/frontmatter"
 	"muse/iconlibrary"
+	"muse/locales"
 	"muse/mdedit"
 	"muse/mdoc"
 	"muse/navicons"
@@ -91,6 +96,14 @@ type heading struct {
 // main loop, which a headless test does not run.
 var clipboardWrite = mygo.Clipboard.WriteText
 
+// handoffTreeNativeDrag promotes the active UI drag. Keep this seam so tests
+// can inspect the serialized payload without opening an OS drag session.
+var handoffTreeNativeDrag = func(c *ui.Context, data transfer.Data, opts mygo.DragOptions) error {
+	// Serialized metadata carries the complete selected set. A process-local
+	// single-item value would make same-process native drops bypass it.
+	return c.HandoffDataDrag(data, nil, opts)
+}
+
 // setAppAppearance tells the system which way to draw its own surfaces —
 // the acrylic material behind the rail and the panel, the title bar — so
 // they follow the theme the page draws instead of the desktop's. It is a
@@ -115,47 +128,74 @@ var (
 
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
-	documents              *documentRuntime
-	vault                  *vaultRuntime
-	pendingLinks           bool
-	pendingWiki            string
-	workspaceSearch        bool
-	workspaceQuery         string
-	workspaceSearchSel     int
-	workspaceScroll        ui.ScrollState
-	workspaceIndicator     scrollui.Indicator
-	workspaceReveal        bool
-	workspaceSubmit        bool
-	workspaceInputFocus    ui.Handle
-	indexedPath            string
-	indexedOffset          int
-	indexedRevision        string
-	win                    *mygo.Window
-	imagePreview           imagePreviewState
-	linkPreview            wikiLinkPreviewState
-	wikiSuggestionRoot     string
-	wikiSuggestionRevision uint64
-	wikiSuggestionCache    []string
-	wikiSuggestionReady    bool
-	navIconStore           *navicons.Store
-	navIconPickerOpen      bool
-	navIconPickerPath      string
-	navIconPickerQuery     string
-	navIconPickerLastQuery string
-	navIconPickerScroll    ui.ScrollState
-	navIconPickerMu        sync.Mutex
-	navIconPickerResults   []iconlibrary.Icon
-	navIconPickerLoading   bool
-	navIconPickerRequest   uint64
-	imageDocument          imageDocumentState
-	restoreEditorFocus     bool
+	documents                   *documentRuntime
+	vault                       *vaultRuntime
+	pendingLinks                bool
+	pendingWiki                 string
+	workspaceSearch             bool
+	workspaceQuery              string
+	workspaceSearchSel          int
+	workspaceScroll             ui.ScrollState
+	workspaceSearchResults      ui.ListState
+	workspaceIndicator          scrollui.Indicator
+	workspaceReveal             bool
+	workspaceSubmit             bool
+	workspaceInputFocus         ui.Handle
+	indexedPath                 string
+	indexedOffset               int
+	indexedRevision             string
+	win                         *mygo.Window
+	imagePreview                imagePreviewState
+	treePreviewPath             string
+	treePreviewRect             ui.Rect
+	treePreviewLeave            time.Time
+	treePreviewPopupHovered     bool
+	linkPreview                 wikiLinkPreviewState
+	wikiSuggestionRoot          string
+	wikiSuggestionVault         *vaultRuntime
+	wikiSuggestionRevision      uint64
+	wikiSuggestionFilesRevision uint64
+	wikiSuggestionCache         []string
+	wikiSuggestionReady         bool
+	wikiSuggestionDetailsCache  []mdedit.WikiSuggestion
+	wikiSuggestionDetailsReady  bool
+	navIconStore                *navicons.Store
+	navIconPickerOpen           bool
+	navIconPickerPath           string
+	navIconPickerQuery          string
+	navIconPickerLastQuery      string
+	navIconPickerScroll         ui.ScrollState
+	navIconPickerMu             sync.Mutex
+	navIconPickerResults        []iconlibrary.Icon
+	navIconPickerLoading        bool
+	navIconPickerRequest        uint64
+	imageDocument               imageDocumentState
+	restoreEditorFocus          bool
 
 	folderToggled map[string]time.Time
 
 	// quick open (⌘O): fuzzy file jump inside the workspace
-	quickOpen      bool
-	quickOpenValue string
-	quickOpenSel   int
+	quickOpen                                      bool
+	quickOpenValue                                 string
+	quickOpenSel                                   int
+	quickOpenCatalogRoot                           string
+	quickOpenIndexRevision, quickOpenFilesRevision uint64
+	quickOpenCatalogReady                          bool
+	quickOpenCatalogVault                          *vaultRuntime
+	quickOpenRows                                  []fileRow
+	quickOpenTitles                                map[string]string
+	quickOpenAliases                               map[string][]string
+	quickOpenCandidateQuery                        string
+	quickOpenCandidateVault                        *vaultRuntime
+	quickOpenCandidateRoot                         string
+	quickOpenCandidateIndexRevision                uint64
+	quickOpenCandidateFilesRevision                uint64
+	quickOpenCandidatesReady                       bool
+	quickOpenCandidateRows                         []quickOpenCandidate
+	coreMigration                                  *coreMigrationPreview
+	coreMigrationOpen                              bool
+	coreMigrationLoading                           bool
+	coreMigrationRunning                           bool
 
 	// command palette (⌘P): searchable menu actions
 	cmdPalette bool
@@ -200,6 +240,7 @@ type App struct {
 	// catch the final handle position rather than following its initial delta.
 	panelAwaitHandle bool
 	panelDragging    bool
+	panelGripHeld    bool
 	panelTransition  bool
 	panelDirect      bool
 	panelDrag        float32
@@ -213,22 +254,62 @@ type App struct {
 	// mainMu 在 headless 下把 onMain 和渲染帧串起来：没有窗口事件循环
 	// 时 onMain 就地执行，后台 Agent 会与测试的帧同时改编辑器和 AI
 	// 状态；有窗口时 onMain 本来就在帧的线程上，锁空转。
-	mainMu            sync.Mutex
-	root              string
-	dirs              map[string][]string
-	isDir             map[string]bool
-	expanded          map[string]bool
-	fileList          ui.ListState
-	fileScroll        ui.ScrollState
-	fileIndicator     scrollui.Indicator
-	outlineScroll     ui.ScrollState
-	outlineIndicator  scrollui.Indicator
-	searchScroll      ui.ScrollState
-	searchIndicator   scrollui.Indicator
-	selectedPath      string
-	propertiesOpen    bool
-	propertyScroll    ui.ScrollState
-	propertyIndicator scrollui.Indicator
+	mainMu                  sync.Mutex
+	root                    string
+	dirs                    map[string][]string
+	isDir                   map[string]bool
+	expanded                map[string]bool
+	fileList                ui.ListState
+	fileRowsCache           []fileRow
+	fileRowsCacheRoot       string
+	fileRowsDirty           bool
+	fileScroll              ui.ScrollState
+	fileIndicator           scrollui.Indicator
+	treeDragging            bool
+	treeDragItem            mdedit.VaultItemDrag
+	treeDragPointer         ui.Point
+	treeDragPointerValid    bool
+	treePointerReleased     bool
+	treeDragOperation       string
+	treeDragTarget          string
+	treeDropTarget          treeDropTarget
+	treeDropHoverPath       string
+	treeDropHoverSince      time.Time
+	treeAutoExpandDropPath  string
+	treeDragStarted         time.Time
+	treeDragFrames          int
+	treeNativeHandoff       bool
+	nativeDropHandled       bool
+	treeNativeDropSuggested transfer.Operation
+	treeTrashTargetActive   bool
+	treeSelection           map[string]bool
+	treeSelectionAnchor     string
+	treeDragSelection       []string
+	treePressPath           string
+	treePressMods           ui.Modifiers
+	treePressX              float32
+	treePressY              float32
+	treePressApplied        bool
+	outlineScroll           ui.ScrollState
+	outlineIndicator        scrollui.Indicator
+	searchScroll            ui.ScrollState
+	searchIndicator         scrollui.Indicator
+	selectedPath            string
+	focusedPanel            PanelID
+	treeFocusPath           string
+	treeFocusHandle         ui.Handle
+	treeFocusRequested      bool
+	treeClipboard           []treeClipboardItem
+	treeClipboardCut        bool
+	treeKeySequences        *KeySequenceMatcher
+	panelKeySequences       *KeySequenceMatcher
+	treeSequenceKeymap      string
+	treeHelpOpen            bool
+	panelActions            *ActionDispatcher
+	lastPanelAction         ActionID
+	propertiesOpen          bool
+	propertyScroll          ui.ScrollState
+	propertyIndicator       scrollui.Indicator
 
 	// document: the editor owns the Markdown being written; source mirrors
 	// it for what reads the document (saving, search, the AI's tools), and
@@ -255,19 +336,32 @@ type App struct {
 	propertyHiddenOpen   bool
 	propertyAddOpen      bool
 	propertyOpenedAt     time.Time
-	propertyBacklinks    propertyBacklinkCache
+	linkIndexDue         time.Time
+	linkIndexGeneration  uint64
 
 	// settings
-	settingsOpen      bool
-	settingsTab       int
-	settingsDrag      ui.Point
-	settingsScroll    ui.ScrollState
-	settingsIndicator scrollui.Indicator
-	aiEnabled         bool
-	aiIndicator       scrollui.Indicator
-	fontSize          float64
-	lineHeight        float64
-	smartTypography   bool
+	settingsOpen           bool
+	settingsTab            int
+	localeSetting          string
+	localeConfigured       bool
+	settingsDrag           ui.Point
+	settingsScroll         ui.ScrollState
+	settingsIndicator      scrollui.Indicator
+	aiEnabled              bool
+	aiIndicator            scrollui.Indicator
+	fontSize               float64
+	lineHeight             float64
+	smartTypography        bool
+	headingMarkerReveal    bool
+	vimVirtualImageRows    bool
+	cursorFade             bool
+	smoothCursor           bool
+	hideMouseCursor        bool
+	mouseCursorHidden      bool
+	mouseCursorHiddenUntil time.Time
+	searchMatchPulse       bool
+	smoothPageJumps        bool
+	vimYankFlash           bool
 
 	// AI
 	ai          aiSettings
@@ -333,6 +427,7 @@ func New() *App {
 		themeMode:       themeSystem,
 		accentID:        "red",
 		panel:           panelFiles,
+		focusedPanel:    PanelIDEditor,
 		panelOpen:       true,
 		flat:            true,
 		headerFade:      true,
@@ -357,6 +452,27 @@ func New() *App {
 	if s.SmartTypography != nil {
 		a.smartTypography = *s.SmartTypography
 	}
+	if s.HeadingMarkerReveal != nil {
+		a.headingMarkerReveal = *s.HeadingMarkerReveal
+	}
+	if s.VimVirtualImageRows != nil {
+		a.vimVirtualImageRows = *s.VimVirtualImageRows
+	}
+	if s.CursorFade != nil {
+		a.cursorFade = *s.CursorFade
+	}
+	if s.SmoothCursor != nil {
+		a.smoothCursor = *s.SmoothCursor
+	}
+	if s.HideMouseCursor != nil {
+		a.hideMouseCursor = *s.HideMouseCursor
+	}
+	if s.SearchMatchPulse != nil {
+		a.searchMatchPulse = *s.SearchMatchPulse
+	}
+	if s.VimYankFlash != nil {
+		a.vimYankFlash = *s.VimYankFlash
+	}
 	a.ed = mdedit.New("", a.editorOptions())
 	a.ed.SetKeymap(s.Keymap)
 	a.loadDoc("")
@@ -367,6 +483,7 @@ func New() *App {
 // View
 
 func (a *App) View(c *ui.Context) {
+	logMemoryDiagnostics(a)
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
 	closedImagePreview := false
@@ -389,14 +506,71 @@ func (a *App) View(c *ui.Context) {
 		closedImagePreview = true
 		a.invalidate()
 	}
+	if !a.anyModalOwnsKeyboard() {
+		a.handlePanelShortcuts(c)
+	} else {
+		a.cancelPanelSequences()
+		a.cancelTreeSequences()
+	}
+	if !a.anyModalOwnsKeyboard() && c.Shortcut(ui.Cmd, ui.KeyO) {
+		a.openWorkspaceSearch()
+	}
 	if !a.imagePreview.open && a.restoreEditorFocus && !closedImagePreview {
 		a.ed.Focus()
 		a.restoreEditorFocus = false
 	}
 	a.vaultTick(c)
+	a.clearQuickOpenCatalogIfVaultChanged()
 	a.documentTick(c)
+	a.linkIndexTick(c)
 	a.applyTheme(c)
 	row := ui.Row(c).Fill()
+	rootElement := c.Root()
+	rootBounds := rootElement.Bounds()
+	rootElement.ObserveInput(func(ev ui.InputEvent) {
+		if ev.Kind == ui.InputPointerDown {
+			a.treePointerReleased = false
+		}
+		if ev.Kind == ui.InputPointerUp && ev.Canceled {
+			a.treePointerReleased = false
+			a.treeDragPointerValid = false
+			a.treeAutoExpandDropPath = ""
+			a.treeDropTarget = treeDropTarget{}
+			return
+		}
+		if !a.treeDragStarted.IsZero() && (ev.Kind == ui.InputPointerMove || ev.Kind == ui.InputPointerUp) {
+			a.treeDragPointer = ui.Point{X: rootBounds.X + ev.X, Y: rootBounds.Y + ev.Y}
+			a.treeDragPointerValid = true
+			if ev.Kind == ui.InputPointerUp {
+				a.treePointerReleased = true
+			}
+		}
+	})
+	row.ObserveInput(func(ev ui.InputEvent) {
+		if !a.hideMouseCursor || !a.ed.Focused() {
+			return
+		}
+		if (a.ed.Keymap() == "vim" || a.ed.Keymap() == "helix") && ev.Kind == ui.InputKeyDown {
+			a.mouseCursorHidden = true
+			a.mouseCursorHiddenUntil = ev.Time.Add(1500 * time.Millisecond)
+		} else if ev.Kind == ui.InputText || ev.Kind == ui.InputCompose {
+			a.mouseCursorHidden = true
+			a.mouseCursorHiddenUntil = ev.Time.Add(1500 * time.Millisecond)
+		}
+	})
+	if a.mouseCursorHidden && !c.Now().Before(a.mouseCursorHiddenUntil) {
+		a.mouseCursorHidden = false
+	}
+	if a.mouseCursorHidden {
+		row.Cursor(ui.CursorNone)
+		c.After(a.mouseCursorHiddenUntil.Sub(c.Now()))
+	}
+	row.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputPointerDown && a.mouseCursorHidden {
+			a.mouseCursorHidden = false
+		}
+		return false
+	})
 	if c.Vibrancy() {
 		// 亚克力在视图没画背景的地方透出来：轨道与面板后面是材料，
 		// 编辑卡片仍是不透明的表面。材料只在支持它的窗口上有，其余
@@ -412,6 +586,9 @@ func (a *App) View(c *ui.Context) {
 			a.propertiesSidebar(c)
 		}
 	})
+	if a.ed != nil && a.ed.Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
+		a.setFocusedPanel(PanelIDEditor)
+	}
 
 	a.sidebarToggle(c)
 	a.windowControls(c)
@@ -419,6 +596,7 @@ func (a *App) View(c *ui.Context) {
 		a.settingsDialog(c)
 		a.renameDialog(c)
 		a.documentDialogs(c)
+		a.coreMetadataMigrationDialog(c)
 		a.historyDialog(c)
 		a.linksDialog(c)
 		a.quickOpenDialog(c)
@@ -427,6 +605,12 @@ func (a *App) View(c *ui.Context) {
 	}
 	a.imagePreviewDialog(c)
 	a.wikiLinkPreviewDialog(c)
+	if a.treePreviewPath != "" {
+		a.treeImagePreview(c, a.treePreviewPath, a.treePreviewRect)
+	}
+	if a.treeAutoExpandDropPath != "" && !a.treePointerReleased {
+		a.treeDragSessionProjection(c)
+	}
 }
 
 // windowBG is a single flat color, not a wash: the light side is a neutral
@@ -489,7 +673,7 @@ func (a *App) syncAppearance() {
 	}
 }
 
-func sidebarColor(t *ui.Theme) ui.Color { return t.Background.Alpha(0.94) }
+func sidebarColor(t *ui.Theme) ui.Color { return t.Background.Alpha(0.8) }
 
 // canvas is the floating editor card: 8px away from the window's top, right
 // and bottom, and 8px from the context panel. The rail and the panel paint
@@ -541,15 +725,15 @@ func (a *App) sidebarToggle(c *ui.Context) {
 	if bar := c.TitleBar(); bar.Left+6 > x {
 		x = bar.Left + 6
 	}
-	tooltip := "显示侧栏"
+	tooltip := locales.AiSidebarShow()
 	icon := iconPanelLeftClose
 	if a.panelOpen {
-		tooltip = "隐藏侧栏"
+		tooltip = locales.AiSidebarHide()
 		icon = iconPanelLeftOpen
 	}
 	btn := ui.ButtonBase(c).Key("sidebar-toggle").Absolute().Left(x).
 		Top(a.topLine(c) - 13).Width(26).Height(26).Radius(6).Padding(0).
-		Justify(ui.Center).AlignItems(ui.Center).Label("侧栏").Tooltip(tooltip)
+		Justify(ui.Center).AlignItems(ui.Center).Label(locales.SidebarLabel()).Tooltip(tooltip)
 	if btn.Hovered() {
 		btn.Background(c.Theme().SurfaceHover)
 	}
@@ -573,22 +757,22 @@ func (a *App) rail(c *ui.Context) {
 		// on the window's one top line.
 		ui.Box(c).Height(max(bar.Height, topLineCenter-railButtonSize/2-railGapY)).DragWindow()
 		// 最左侧只放模块切换；新建/打开都是文件模块的内容（面板顶部与菜单）。
-		a.railButton(c, iconFiles, "文件", a.panelOpen && a.panel == panelFiles, func() {
+		a.railButton(c, iconFiles, locales.MenuFile(), a.panelOpen && a.panel == panelFiles, func() {
 			a.showPanel(panelFiles)
 		})
-		a.railButton(c, iconOutline, "大纲", a.panelOpen && a.panel == panelOutline, func() {
+		a.railButton(c, iconOutline, locales.MenuOutline(), a.panelOpen && a.panel == panelOutline, func() {
 			a.showPanel(panelOutline)
 		})
-		a.railButton(c, iconSearch, "搜索笔记库", false, func() {
+		a.railButton(c, iconSearch, locales.MenuSearchWorkspace(), false, func() {
 			a.openWorkspaceSearch()
 		})
 		if a.aiEnabled {
-			a.railButton(c, iconAI, "AI 助手", a.panelOpen && a.panel == panelAI, func() {
+			a.railButton(c, iconAI, locales.AiAssistant(), a.panelOpen && a.panel == panelAI, func() {
 				a.showPanel(panelAI)
 			})
 		}
 		ui.Spacer(c)
-		a.railButton(c, iconSettings, "设置", a.settingsOpen, a.openSettings)
+		a.railButton(c, iconSettings, locales.SettingsTitle(), a.settingsOpen, a.openSettings)
 		ui.Box(c).Height(8)
 	})
 }
@@ -718,6 +902,9 @@ func (a *App) contextPanel(c *ui.Context) {
 			if !a.flat {
 				a.panelResizeHandle(c)
 			}
+			if a.treeTrashTargetActive && a.panel == panelFiles && !a.treeNativeHandoff {
+				a.treeTrashDropTarget(c)
+			}
 		})
 	})
 }
@@ -725,13 +912,15 @@ func (a *App) contextPanel(c *ui.Context) {
 // panelResizeHandle stays on the editor edge, including while folded.
 // Crossing the fold threshold acts immediately; reversing the held drag reopens it.
 func (a *App) panelResizeHandle(c *ui.Context) {
-	left := a.panelWidth - 12
+	left, handleWidth := a.panelWidth-12, float32(12)
 	if a.flat {
+		// Preserve the original placement: the hit target begins at the editor
+		// edge and the grip is centered 6px inside the editor.
 		left = 0
 	}
 	h := ui.Box(c).Key("panel-resize").Absolute().Left(left).
 		Top(canvasPadding + cardBorder + editorHeaderH).
-		Bottom(0).Width(12).Cursor(ui.CursorResizeEW).Label("调整面板宽度").
+		Bottom(0).Width(handleWidth).Cursor(ui.CursorResizeEW).Label(locales.SidebarResize()).
 		Column().AlignItems(ui.Center)
 	if dx, _, ok := h.Dragged(); ok {
 		if !a.panelDragging {
@@ -787,9 +976,12 @@ func (a *App) panelResizeHandle(c *ui.Context) {
 		a.invalidate()
 	}
 	h.Children(func() {
-		ui.Box(c).Grow(1)
+		// Shift the visual grip slightly above the resize region's midpoint;
+		// the title/header area above the region otherwise makes it look low
+		// relative to the whole window.
+		ui.Box(c).Grow(0.9)
 		a.panelGrip(c, h)
-		ui.Box(c).Grow(1)
+		ui.Box(c).Grow(1.1)
 	})
 }
 
@@ -798,23 +990,40 @@ func (a *App) panelResizeHandle(c *ui.Context) {
 // while it is dragged. It is a child of the edge box, so it is part of what a
 // drag grabs and never takes the pointer away from it.
 func (a *App) panelGrip(c *ui.Context, edge ui.Element) {
-	if !edge.Hovered() && !a.panelDragging {
-		return
-	}
 	t := c.Theme()
-	drag := a.panelDragging
-	height := float32(40)
-	if drag {
-		height = 56
-	}
-	col, op := t.TextMuted, float32(0.5)
+	_, _, pointerOver := edge.PointerPosition()
+	hovered := edge.Hovered() || pointerOver
+	held := edge.Pressed() || edge.Dragging() || a.panelDragging
+	height, width, opacity := float32(8), float32(2), float32(0)
+	col := t.TextMuted
 	switch {
-	case drag && a.panelNarrow:
-		col, op = t.Accent, 0.95
-	case drag:
-		col, op = t.Text, 0.85
+	case held && a.panelNarrow:
+		height, width, opacity = 56, 4, 0.95
+		col = t.Accent
+	case held:
+		height, width, opacity = 56, 4, 0.85
+		col = t.Text
+	case hovered:
+		height, width, opacity = 40, 3, 0.5
 	}
-	ui.Box(c).Width(3).Height(height).Radius(1.5).Background(col.Alpha(op))
+	grip := ui.Box(c).Key("panel-grip").Label(locales.SidebarHandle()).Radius(2).Background(col.Alpha(opacity))
+	if held || a.panelGripHeld {
+		// Hover shows the normal grip immediately. Holding it stretches the
+		// grip with a short spring; releasing springs back to its normal or
+		// hidden size without animating the hover-only appearance.
+		motion := ui.Animation{Spring: ui.SpringOptions{Duration: 220 * time.Millisecond, Bounce: 0.16}}
+		grip.Width(grip.AnimateTo("width", width, motion)).
+			Height(grip.AnimateTo("height", height, motion))
+		if !held && grip.Settled("width") && grip.Settled("height") {
+			a.panelGripHeld = false
+		}
+	} else {
+		grip.Width(grip.Jump("width", width)).
+			Height(grip.Jump("height", height))
+	}
+	if held {
+		a.panelGripHeld = true
+	}
 }
 
 // panelHeader is the line over the context panel: the module names show on
@@ -829,17 +1038,17 @@ func (a *App) sidebarHeader(c *ui.Context) {
 	}
 	ui.Row(c).Height(a.headerH(c)).Shrink(0).Padding(0, 8, 0, left).DragWindow().AlignItems(ui.Center).Children(func() {
 		if a.aiEnabled {
-			a.smallIcon(c, iconAI, "AI 助手", func() { a.showPanel(panelAI) })
+			a.smallIcon(c, iconAI, locales.AiAssistant(), func() { a.showPanel(panelAI) })
 		}
 	})
 	ui.Row(c).Height(44).Shrink(0).Padding(0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 		name := a.spaceName()
-		space := ui.ButtonBase(c).Height(28).Padding(0, 4).Radius(6).Label(name).Tooltip("工作区")
+		space := ui.ButtonBase(c).Height(28).Padding(0, 4).Radius(6).Label(name).Tooltip(locales.WorkspaceLabel())
 		space.Menu(func(m *ui.Menu) {
-			if m.Item("打开文件夹…").Chosen() {
+			if m.Item(locales.FilesOpenFolderMenu()).Chosen() {
 				a.openFolderDialog()
 			}
-			if m.Item("打开文件…").Chosen() {
+			if m.Item(locales.FilesOpenFileMenu()).Chosen() {
 				a.openFileDialog()
 			}
 		})
@@ -850,18 +1059,18 @@ func (a *App) sidebarHeader(c *ui.Context) {
 			})
 		})
 		ui.Spacer(c)
-		a.smallIcon(c, iconSearch, "搜索笔记库", func() { a.openWorkspaceSearch() })
+		a.smallIcon(c, iconSearch, locales.MenuSearchWorkspace(), func() { a.openWorkspaceSearch() })
 		ui.Row(c).Height(28).Radius(8).Background(t.Surface).AlignItems(ui.Center).Children(func() {
-			a.smallIcon(c, iconEdit, "新建文档", func() {
+			a.smallIcon(c, iconEdit, locales.DocumentNew(), func() {
 				if a.root != "" {
 					a.newFileIn(a.createTarget())
 				} else {
 					a.newDoc()
 				}
 			})
-			more := ui.ButtonBase(c).Size(20, 28).Padding(0).Label("新建菜单").Tooltip("新建菜单")
+			more := ui.ButtonBase(c).Size(20, 28).Padding(0).Label(locales.DocumentNewMenu()).Tooltip(locales.DocumentNewMenu())
 			more.Menu(func(m *ui.Menu) {
-				if m.Item("新建文件夹").Chosen() {
+				if m.Item(locales.FilesNewFolderMenu()).Chosen() {
 					a.newFolderIn(a.createTarget())
 				}
 			})
@@ -870,15 +1079,15 @@ func (a *App) sidebarHeader(c *ui.Context) {
 	})
 	if a.panel != panelFiles {
 		ui.Row(c).Height(30).Padding(0, 10).AlignItems(ui.Center).Children(func() {
-			a.smallIcon(c, iconChevronLeft, "返回文件树", func() { a.showPanel(panelFiles) })
+			a.smallIcon(c, iconChevronLeft, locales.FilesBackToTree(), func() { a.showPanel(panelFiles) })
 		})
 	}
 }
 
 // sidebarFooter holds the settings of the app itself, at the sidebar's foot.
 func (a *App) sidebarFooter(c *ui.Context) {
-	ui.Row(c).Shrink(0).Padding(0, 8, 10, 8).Gap(2).Children(func() {
-		a.smallIcon(c, iconSettings, "设置", a.openSettings)
+	ui.Row(c).Shrink(0).Padding(0, 8, 10, 8).Gap(2).Label(locales.SidebarFixedFooter()).Children(func() {
+		a.smallIcon(c, iconSettings, locales.SettingsTitle(), a.openSettings)
 	})
 }
 
@@ -891,7 +1100,7 @@ func (a *App) spaceName() string {
 	case a.path != "":
 		return filepath.Base(filepath.Dir(a.path))
 	}
-	return "未命名"
+	return locales.DocumentUntitled()
 }
 
 func (a *App) smallIcon(c *ui.Context, icon *ui.SVG, label string, fn func()) {
@@ -917,17 +1126,26 @@ func (a *App) smallIconTint(c *ui.Context, icon *ui.SVG, label string, fn func()
 // only the rows in view, so a large repository is still quick.
 func (a *App) filesView(c *ui.Context) {
 	t := c.Theme()
+	wasDragging := a.treeDragging
+	a.treeDragging = false
+	treeDropCommitted := false
+	a.treeTrashTargetActive = false
+	a.nativeDropHandled = false
+	a.treeNativeDropSuggested = transfer.None
+	if !wasDragging {
+		a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(a.root))
+	}
 	if a.root == "" {
 		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
 			ui.Icon(c, iconFolderOpen).Size(30, 30).TextColor(iconTint(t))
 			// 一个入口、一个按钮：文件与文件夹都会结束空态；下拉里还有
 			// 最近打开过的记录，点一下直接回到那里。
-			open := ui.Button(c, "打开文件或文件夹")
+			open := ui.Button(c, locales.CommonOpenFileOrFolder())
 			open.Menu(func(m *ui.Menu) {
-				if m.Item("打开文件…").Chosen() {
+				if m.Item(locales.FilesOpenFileMenu()).Chosen() {
 					a.openFileDialog()
 				}
-				if m.Item("打开文件夹…").Chosen() {
+				if m.Item(locales.FilesOpenFolderMenu()).Chosen() {
 					a.openFolderDialog()
 				}
 				live, labels := a.liveRecents()
@@ -946,10 +1164,17 @@ func (a *App) filesView(c *ui.Context) {
 	}
 
 	rows := a.fileRows()
+	if !a.treeDragStarted.IsZero() && !a.treePointerReleased {
+		root := c.Root()
+		if x, y, over := root.PointerPosition(); over {
+			a.treeDragPointer = ui.Point{X: x, Y: y}
+			a.treeDragPointerValid = true
+		}
+	}
 	if len(rows) == 0 {
 		ui.Column(c).Fill().Center().Gap(6).Padding(20).Children(func() {
-			ui.Text(c, "没有可编辑的文本文件").FontSize(12).TextColor(t.TextMuted)
-			ui.Text(c, "支持 md / txt / json 等文本类型").FontSize(10.5).TextColor(t.TextMuted)
+			ui.Text(c, locales.FilesNoEditableText()).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, locales.FilesEditableTypes()).FontSize(10.5).TextColor(t.TextMuted)
 		})
 		return
 	}
@@ -957,12 +1182,21 @@ func (a *App) filesView(c *ui.Context) {
 	if showScrollbar {
 		c.After(a.fileIndicator.Remaining(c.Now()))
 	}
-	ui.List(c, &a.fileList, len(rows), func(i int) {
+	a.treePreviewPopupHovered = false
+	imageRowHovered := false
+	treePointerPressed := false
+	treeRowDropHovered := false
+	treeRootDropHovered := false
+	dropRowBounds := make(map[int]ui.Rect)
+	list := ui.List(c, &a.fileList, len(rows), func(i int) {
 		r := rows[i]
-		row := ui.Row(c).Height(28).Radius(6).Gap(5).
-			Padding(0, 8, 0, 4+float32(r.depth*14)).Cursor(ui.CursorPointer)
+		row := ui.Row(c).Key("file-tree-row-"+r.path).FillWidth().Height(28).Radius(6).Gap(5).
+			Padding(0, 8, 0, 4+float32(r.depth*14)).Cursor(ui.CursorPointer).Label(filepath.Base(r.path))
+		dragItem := mdedit.VaultItemDrag{Path: r.path, Name: filepath.Base(r.path), Directory: r.dir}
+		// Drop targets live on the unchanged visible row. The transparent
+		// handle below supplies the styled clone MyGo paints at the pointer.
 		switch {
-		case r.path == a.selectedPath:
+		case r.path == a.selectedPath || a.treeSelection[r.path]:
 			if t.Dark {
 				row.Background(ui.RGBA(255, 255, 255, 0.08))
 			} else {
@@ -975,6 +1209,10 @@ func (a *App) filesView(c *ui.Context) {
 		case row.Hovered():
 			row.Background(t.SurfaceHover)
 		}
+		if a.treeDropTarget.path != "" && i >= a.treeDropTarget.start && i < a.treeDropTarget.end && !a.treeSelection[r.path] {
+			row.Background(t.Focus.Alpha(0.08))
+		}
+		var handle ui.Element
 		row.Children(func() {
 			if r.dir {
 				if a.expanded[r.path] {
@@ -991,10 +1229,153 @@ func (a *App) filesView(c *ui.Context) {
 				}
 				ui.Icon(c, icon).Size(14, 14).TextColor(iconTint(t))
 			}
-			ui.Text(c, filepath.Base(r.path)).FontSize(12.5).TextColor(t.Text).
+			ui.Text(c, filepath.Base(r.path)).IgnoreInput(true).FontSize(12.5).TextColor(t.Text).
 				SingleLine().Ellipsis("…")
+			if a.treeClipboardCut && a.treeClipboardContains(r.path) {
+				ui.Text(c, locales.FilesCut()).Label(locales.FilesCutHint()).FontSize(9).TextColor(t.TextMuted.Alpha(0.58)).
+					Padding(1, 4).Radius(4).Background(t.Surface)
+			}
+			handle = a.treeDragHandle(c, dragItem)
 		})
-		row.OnClick(func() {
+		handle.HandleInput(func(ev ui.InputEvent) bool {
+			if ev.Kind == ui.InputPointerDown {
+				a.recordTreePointerDown(r.path, ev.Mods, ev.X, ev.Y)
+			} else if ev.Kind == ui.InputPointerMove && ev.Button == 0 && a.treeDragStarted.IsZero() && a.treePressPath == r.path && !a.treePressApplied && treePointerMovePassedThreshold(a.treePressX, a.treePressY, ev.X, ev.Y) {
+				a.prepareTreeDragPress(r.path, a.treePressMods, rows)
+				a.treeDragSelection = a.selectedTreePaths(r.path)
+				a.treePressApplied = true
+			}
+			return false
+		})
+		if handle.Pressed() {
+			treePointerPressed = true
+		}
+		if handle.Hovered() {
+			row.Background(t.SurfaceHover)
+		}
+		if r.path == a.treeFocusPath || r.path == a.treeDropTarget.path {
+			row.Border(1, t.Focus.Alpha(0.48))
+		}
+		rowBounds := row.Bounds()
+		dropRowBounds[i] = rowBounds
+		dataTarget := transfer.DropOptions{Formats: []transfer.Format{transfer.Format("application/x-muse-vault-item+json")}, Operations: transfer.Copy | transfer.Move}
+		_, internalOver := ui.DragOver[mdedit.VaultItemDrag](handle)
+		offer, nativeOver := ui.DataDragOver(handle, dataTarget)
+		fileOver := handle.FileDragOver()
+		if internalOver || nativeOver || fileOver {
+			treeRowDropHovered = true
+			x, _, _ := handle.PointerPosition()
+			if target, ok := resolveTreeDropTarget(rows, i, x, a.root); ok {
+				if a.treeAutoExpandDropPath != "" && target.path != a.treeAutoExpandDropPath {
+					a.treeAutoExpandDropPath = ""
+				}
+				a.treeDropTarget = target
+				a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
+				if nativeOver {
+					a.treeNativeDropSuggested = offer.Suggested
+				}
+				row.Tooltip(a.treeDragOperationLabel())
+				if r.path == target.path {
+					row.Background(t.SurfaceHover)
+				}
+				if r.dir && target.path == r.path && !a.expanded[r.path] {
+					if a.treeDropHoverPath != r.path {
+						a.treeDropHoverPath, a.treeDropHoverSince = r.path, c.Now()
+					}
+					remaining := 600*time.Millisecond - c.Now().Sub(a.treeDropHoverSince)
+					if remaining <= 0 {
+						a.expanded[r.path] = true
+						a.fileRowsDirty = true
+						a.treeDropHoverPath = ""
+						a.treeAutoExpandDropPath = r.path
+						c.After(time.Millisecond)
+					} else {
+						c.After(remaining)
+					}
+				} else {
+					a.treeDropHoverPath, a.treeDropHoverSince = "", time.Time{}
+				}
+			}
+			if fileOver {
+				if target, ok := defaultTreeDropTarget(rows, i, a.root); ok {
+					if a.treeAutoExpandDropPath != "" && target.path != a.treeAutoExpandDropPath {
+						a.treeAutoExpandDropPath = ""
+					}
+					a.treeDropTarget = target
+					a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
+				}
+			}
+		}
+		if dropped, ok := ui.Drop[mdedit.VaultItemDrag](handle); ok {
+			treeDropCommitted = true
+			treeRowDropHovered = true
+			if pointerWithinElement(c, handle) && treePointerWithinRect(a.treeDragPointer, a.treeDragPointerValid, dropRowBounds[i]) {
+				target := a.treeDropTarget
+				if target.path == "" {
+					target, _ = defaultTreeDropTarget(rows, i, a.root)
+				}
+				if target.path != "" {
+					a.moveTreeItems(a.treeDraggedPaths(dropped.Path), target.path)
+				}
+			}
+		}
+		if dropped, ok := ui.DropData(handle, dataTarget); ok {
+			treeRowDropHovered = true
+			a.nativeDropHandled = true
+			if a.treeDropTarget.path != "" {
+				a.applyTreeNativeDrop(dropped, a.treeDropTarget.path)
+			}
+		}
+		if paths := handle.DroppedFiles(); len(paths) > 0 {
+			treeRowDropHovered = true
+			a.nativeDropHandled = true
+			target := a.treeDropTarget
+			if target.path == "" {
+				target, _ = defaultTreeDropTarget(rows, i, a.root)
+			}
+			if target.path != "" {
+				a.importDroppedInto(paths, target.path)
+			}
+		}
+		if handle.Dragging() {
+			a.treeDragging = true
+			a.treeDragFrames++
+			a.treeDragItem = dragItem
+			if a.treeDragStarted.IsZero() {
+				if a.treePressPath == r.path && !a.treePressApplied {
+					a.prepareTreeDragPress(r.path, a.treePressMods, rows)
+				}
+				a.treeDragSelection = a.selectedTreePaths(r.path)
+			}
+			if a.treeDragStarted.IsZero() {
+				a.treeDragStarted = c.Now()
+			}
+			root := c.Root()
+			if x, y, over := root.PointerPosition(); over {
+				a.treeDragPointer = ui.Point{X: x, Y: y}
+			} else if !a.treeNativeHandoff {
+				var items []mdedit.VaultItemDrag
+				for _, path := range a.treeDraggedPaths(r.path) {
+					info, err := os.Stat(path)
+					if err == nil {
+						items = append(items, mdedit.VaultItemDrag{Path: path, Name: filepath.Base(path), Directory: info.IsDir()})
+					}
+				}
+				a.beginTreeNativeHandoffItems(c, items)
+			}
+		}
+		openRow := func() {
+			a.setFocusedPanel(PanelIDFiles)
+			a.treeFocusPath = r.path
+			a.treeFocusRequested = true
+			mods := handle.ClickModifiers()
+			if mods == 0 {
+				mods = row.ClickModifiers()
+			}
+			a.selectTreeRow(r.path, mods, rows)
+			if mods&(ui.Cmd|ui.Shift) != 0 {
+				return
+			}
 			if r.dir {
 				// 双击的第二下不算：连点不再表现为"展开又立刻折叠"。
 				if last, ok := a.folderToggled[r.path]; ok && time.Since(last) < 300*time.Millisecond {
@@ -1002,18 +1383,490 @@ func (a *App) filesView(c *ui.Context) {
 				}
 				a.folderToggled[r.path] = time.Now()
 				a.expanded[r.path] = !a.expanded[r.path]
+				a.fileRowsDirty = true
 			} else if isImageFile(r.path) {
 				a.requestOpen(r.path)
 			} else {
 				a.selectedPath = r.path
 				a.requestOpen(r.path)
 			}
-		})
+		}
+		row.OnClick(openRow)
+		handle.OnClick(openRow)
 		a.fileMenu(c, row, r.path)
+		treeDragSuppressesPreview := a.treeDragging || wasDragging || a.treeNativeHandoff || !a.treeDragStarted.IsZero()
+		if treeDragSuppressesPreview {
+			a.treePreviewPath = ""
+			a.treePreviewLeave = time.Time{}
+		} else if !r.dir && isImageFile(r.path) && (row.Hovered() || handle.Hovered()) {
+			imageRowHovered = true
+			a.treePreviewPath, a.treePreviewRect = r.path, row.Bounds()
+			a.treePreviewLeave = time.Time{}
+		}
 		if a.navIconPickerOpen && a.navIconPickerPath == r.path {
 			a.navIconPickerPopover(c, row)
 		}
+	}).Focusable().Bind(&a.treeFocusHandle).Label(locales.FilesTreeLabel()).HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind != ui.InputKeyDown || a.anyModalOwnsKeyboard() {
+			return false
+		}
+		return a.handleTreeKey(ev.Mods, ev.Key)
 	}).Grow(1).Padding(0, 8).Gap(1).TrackScroll(&a.fileScroll).Scrollbars(showScrollbar)
+	a.fileRootMenu(list)
+	if a.treeFocusRequested {
+		a.treeFocusHandle.Focus(c)
+		if a.treeFocusHandle.Focused(c) {
+			a.treeFocusRequested = false
+		}
+	}
+	if a.treeFocusHandle.Focused(c) {
+		a.setFocusedPanel(PanelIDFiles)
+	}
+	if _, over := ui.DragOver[mdedit.VaultItemDrag](list); over && !treeRowDropHovered {
+		if target, rowIndex, ok := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root); ok {
+			treeRowDropHovered = true
+			a.treeDropTarget = target
+			a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
+			_ = rowIndex
+		} else {
+			treeRootDropHovered = true
+			a.setTreeRootDropTarget(rows)
+		}
+		list.Tooltip(a.treeDragOperationLabel())
+	}
+	if dropped, ok := ui.Drop[mdedit.VaultItemDrag](list); ok && !treeRowDropHovered {
+		treeDropCommitted = true
+		if pointerWithinElement(c, list) && treePointerWithinRect(a.treeDragPointer, a.treeDragPointerValid, list.Bounds()) {
+			destination := a.root
+			if target, _, inRow := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root); inRow {
+				treeRowDropHovered = true
+				destination = target.path
+			} else {
+				treeRootDropHovered = true
+			}
+			a.moveTreeItems(a.treeDraggedPaths(dropped.Path), destination)
+		}
+	}
+	rootDataTarget := transfer.DropOptions{Formats: []transfer.Format{transfer.Format("application/x-muse-vault-item+json")}, Operations: transfer.Copy | transfer.Move}
+	rootFileOver := list.FileDragOver()
+	if rootFileOver && !treeRowDropHovered {
+		// Visible row handles consume row-level file hover. The list-level
+		// native target is only the blank-area fallback, and native file drag
+		// events do not provide a fresh PointerPosition to resolve here.
+		treeRootDropHovered = true
+		a.setTreeRootDropTarget(rows)
+		list.Tooltip(a.treeDragOperationLabel())
+	}
+	if offer, over := ui.DataDragOver(list, rootDataTarget); over && !treeRowDropHovered {
+		treeRootDropHovered = true
+		a.setTreeRootDropTarget(rows)
+		a.treeNativeDropSuggested = offer.Suggested
+	}
+	if dropped, ok := ui.DropData(list, rootDataTarget); ok && !treeRowDropHovered {
+		// Per-row targets consume drops on visible rows. Reaching the list
+		// handler therefore means the pointer is on its blank area; do not reuse
+		// a directory left over from an earlier hover.
+		destination := a.root
+		treeRootDropHovered = true
+		a.setTreeRootDropTarget(rows)
+		a.nativeDropHandled = true
+		a.applyTreeNativeDrop(dropped, destination)
+	}
+	if a.treePreviewPath != "" && !imageRowHovered && !a.treePreviewPopupHovered {
+		if a.treePreviewLeave.IsZero() {
+			a.treePreviewLeave = c.Now().Add(220 * time.Millisecond)
+		}
+		if remaining := a.treePreviewLeave.Sub(c.Now()); remaining <= 0 {
+			a.treePreviewPath = ""
+		} else {
+			c.After(remaining)
+		}
+	}
+	if !a.treeDragStarted.IsZero() && a.treeAutoExpandDropPath != "" && !a.treePointerReleased && !a.treeDragging {
+		// The source row's MyGo drag state is tied to its virtual-list node.
+		// Keep the app-owned session alive when expanding the tree rebuilds that
+		// node, and render its projection independently of the row handle.
+		a.treeDragging = true
+	}
+	if paths := list.DroppedFiles(); len(paths) > 0 && !a.nativeDropHandled && !treeRowDropHovered {
+		// Row handles own file drops inside rows. A list-level drop is on blank
+		// space, where the vault root is the stable fallback destination.
+		destination := a.root
+		treeRootDropHovered = true
+		a.setTreeRootDropTarget(rows)
+		a.nativeDropHandled = true
+		a.importDroppedInto(paths, destination)
+	}
+	if (a.treeDragging || wasDragging) && !treeRowDropHovered && !treeRootDropHovered && a.treeAutoExpandDropPath == "" {
+		a.treeDropTarget = treeDropTarget{}
+	}
+	// MyGo rebuilds virtual-list row nodes when a hovered folder auto-expands.
+	// In that transition the release can be delivered to the original drag
+	// source without a Drop value reaching the newly built target row. Preserve
+	// the last resolved path and commit once on the source drag's release frame.
+	releaseTarget, _, releaseOverRow := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root)
+	if a.treeDragPointerValid {
+		releaseTarget, _, releaseOverRow = treeDropTargetAtWindowPoint(rows, dropRowBounds, a.root, a.treeDragPointer.X, a.treeDragPointer.Y)
+	}
+	if !a.treeDragging && !treeDropCommitted && !a.treeNativeHandoff && a.treePointerReleased && a.treeDragPointerValid &&
+		a.treeAutoExpandDropPath != "" && a.treeDropTarget.path == a.treeAutoExpandDropPath &&
+		a.treeDragOperation == treeDragMoveToFolder && a.treeDragTarget == filepath.Base(a.treeDropTarget.path) &&
+		releaseOverRow && releaseTarget.path == a.treeAutoExpandDropPath {
+		a.moveTreeItems(a.treeDraggedPaths(a.treeDragItem.Path), a.treeDropTarget.path)
+		a.treeAutoExpandDropPath = ""
+	}
+	if a.treePointerReleased && a.treeAutoExpandDropPath != "" {
+		a.treeAutoExpandDropPath = ""
+		a.treeDropTarget = treeDropTarget{}
+	}
+	if !a.treeDragging && !a.treeNativeHandoff && (a.treePointerReleased || (!wasDragging && !treeRowDropHovered && !treeRootDropHovered && a.treeAutoExpandDropPath == "")) {
+		a.treeDropTarget = treeDropTarget{}
+		a.treeDropHoverPath, a.treeDropHoverSince = "", time.Time{}
+		a.treeAutoExpandDropPath = ""
+		if !a.treeNativeHandoff {
+			a.treeDragSelection = nil
+		}
+		a.treeDragStarted = time.Time{}
+		a.treeDragFrames = 0
+		a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(a.root))
+		a.treeDragItem = mdedit.VaultItemDrag{}
+		a.treeDragPointerValid = false
+		a.treePointerReleased = false
+		if !treePointerPressed {
+			a.treePressPath = ""
+			a.treePressMods = 0
+			a.treePressApplied = false
+		}
+	}
+	a.treeTrashTargetActive = (a.treeDragging || wasDragging) && !a.treeNativeHandoff
+}
+
+// treeTrashDropTarget covers the sidebar's bottom content while an in-window
+// tree drag is active. Its inset keeps it off the panel edges and its weak
+// default colors make it read as a drop affordance rather than a button.
+func (a *App) treeTrashDropTarget(c *ui.Context) {
+	t := c.Theme()
+	// Leave the fixed footer (settings gear) outside the drop hit area. The
+	// 48 DIP bottom offset is the footer's 38 DIP height plus the usual 10 DIP
+	// visual gap.
+	trash := ui.Box(c).Absolute().Left(10).Right(10).Bottom(48).Height(64).
+		Key("tree-trash-drop-target").Label(locales.TreeTrashDropTarget()).Radius(12).
+		Background(t.Background.Alpha(0.04)).Border(1, t.Border.Alpha(0.30)).BorderStyle(ui.BorderDashed).
+		Padding(0, 12).AlignItems(ui.Center).Justify(ui.Center)
+	_, over := ui.DragOver[mdedit.VaultItemDrag](trash)
+	if over {
+		a.setTreeDragMoveOperation(treeDragMoveToTrash, "")
+		trash.Background(ui.RGBA(128, 66, 72, 0.10)).BorderColor(t.Border.Alpha(0.48))
+	}
+	if dropped, ok := ui.Drop[mdedit.VaultItemDrag](trash); ok {
+		a.trashTreeItems(a.treeDraggedPaths(dropped.Path))
+	}
+	trash.Children(func() {
+		ui.Column(c).Width(110).FillHeight().AlignItems(ui.Center).Justify(ui.Center).Gap(4).
+			Label(locales.TreeTrashHintColumn()).Children(func() {
+			glyph := iconTrash
+			iconColor := t.TextMuted.Alpha(0.18)
+			labelColor := t.TextMuted.Alpha(0.23)
+			if over {
+				glyph = iconTrashOpen
+				iconColor = ui.Hex("#d98b92").Alpha(0.72)
+				labelColor = t.Text.Alpha(0.68)
+			}
+			trashGlyph := ui.Icon(c, glyph).Size(18, 18).TextColor(iconColor)
+			if over {
+				trashGlyph.Label(locales.TreeTrashHoverIcon())
+			} else {
+				ui.Text(c, locales.FilesMoveToTrash()).Label(locales.TreeTrashHint()).FontSize(12).TextColor(labelColor)
+			}
+		})
+	})
+}
+
+func (a *App) setTreeRootDropTarget(rows []fileRow) {
+	a.treeDropTarget = treeDropTarget{path: a.root, start: 0, end: len(rows)}
+	a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(a.root))
+}
+
+func (a *App) importDroppedInto(paths []string, destination string) {
+	for _, source := range paths {
+		if source == "" || source == destination {
+			continue
+		}
+		info, err := os.Lstat(source)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		if info.IsDir() {
+			if rel, err := filepath.Rel(source, destination); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue // Never recursively copy a directory into itself.
+			}
+		}
+		name := filepath.Base(source)
+		target := filepath.Join(destination, name)
+		if _, err := os.Stat(target); err == nil {
+			target = uniquePath(destination, strings.TrimSuffix(name, filepath.Ext(name)), filepath.Ext(name))
+		}
+		if info.IsDir() {
+			err = copyTree(source, target)
+		} else {
+			err = copyFile(source, target)
+		}
+		if err != nil {
+			a.notice(locales.CommonImportFailed(err.Error()))
+			return
+		}
+	}
+	a.clearTreeCache()
+	a.invalidate()
+}
+
+func (a *App) beginTreeNativeHandoffItems(c *ui.Context, items []mdedit.VaultItemDrag) {
+	if a.treeNativeHandoff || len(items) == 0 || items[0].Path == "" {
+		return
+	}
+	data, err := treeItemsTransferData(items)
+	if err != nil {
+		a.notice(locales.CommonMoveAcrossWindowsFailed(err.Error()))
+		return
+	}
+	sourcePath := items[0].Path
+	a.treeNativeHandoff = true
+	opts := a.treeNativeDragOptions(sourcePath)
+	if err := handoffTreeNativeDrag(c, data, opts); err != nil && a.treeNativeHandoff {
+		a.treeNativeHandoff = false
+		a.notice(locales.CommonMoveAcrossWindowsFailed(err.Error()))
+	}
+}
+
+func (a *App) treeNativeDragOptions(sourcePath string) mygo.DragOptions {
+	return mygo.DragOptions{
+		Operations: transfer.Copy | transfer.Move,
+		Done: func(result transfer.Result) {
+			a.treeNativeHandoff = false
+			a.treeDragging = false
+			a.treeDragStarted = time.Time{}
+			a.treeDragFrames = 0
+			a.treeDragSelection = nil
+			if result.Err == nil && result.Operation != transfer.None && isWithinRoot(a.root, sourcePath) {
+				// The receiver owns any filesystem move. Refresh only the
+				// source window's cached listings after an accepted native drop;
+				// clearing after Copy is harmless and keeps explicit copies fresh.
+				a.clearTreeCache()
+			}
+			if result.Err != nil {
+				a.notice(locales.CommonWindowDragFailed(result.Err.Error()))
+			}
+			a.invalidate()
+		},
+	}
+}
+
+func treeItemTransferData(item mdedit.VaultItemDrag) (transfer.Data, error) {
+	return treeItemsTransferData([]mdedit.VaultItemDrag{item})
+}
+
+func treeItemsTransferData(items []mdedit.VaultItemDrag) (transfer.Data, error) {
+	if len(items) == 0 {
+		return transfer.Data{}, fmt.Errorf("%s", locales.FilesNoDraggableItems())
+	}
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		if !filepath.IsAbs(item.Path) {
+			return transfer.Data{}, fmt.Errorf("%s", locales.FilesAbsolutePathRequired())
+		}
+		paths = append(paths, item.Path)
+	}
+	files, err := transfer.FileData(paths...)
+	if err != nil {
+		return transfer.Data{}, err
+	}
+	for i := range items {
+		if items[i].Name == "" {
+			items[i].Name = filepath.Base(items[i].Path)
+		}
+	}
+	b, err := json.Marshal(struct {
+		Path      string                 `json:"path"`
+		Name      string                 `json:"name"`
+		Directory bool                   `json:"directory"`
+		Items     []mdedit.VaultItemDrag `json:"items,omitempty"`
+	}{items[0].Path, items[0].Name, items[0].Directory, items})
+	if err != nil {
+		return transfer.Data{}, err
+	}
+	fileItems := files.Items()
+	dataItems := make([]transfer.Item, 0, len(fileItems))
+	for i, file := range fileItems {
+		fileList, err := file.Read(transfer.FileList)
+		if err != nil {
+			return transfer.Data{}, err
+		}
+		uriList, err := file.Read(transfer.URIList)
+		if err != nil {
+			return transfer.Data{}, err
+		}
+		reps := []transfer.Representation{
+			transfer.Bytes(transfer.FileList, fileList),
+			transfer.Bytes(transfer.URIList, uriList),
+			transfer.Bytes(transfer.Text, []byte(items[i].Path)),
+		}
+		if i == 0 {
+			reps = append(reps, transfer.Bytes(transfer.Format("application/x-muse-vault-item+json"), b))
+		}
+		dataItems = append(dataItems, transfer.NewItem(reps...))
+	}
+	return transfer.New(dataItems...), nil
+}
+
+// applyTreeNativeDrop handles Muse's cross-window payload before the platform
+// file-list fallback. The native source never removes its item in Done; the
+// receiving window performs a same-vault Move exactly once here.
+func (a *App) applyTreeNativeDrop(drop transfer.Drop, destination string) {
+	b, err := drop.Data.Read(transfer.Format("application/x-muse-vault-item+json"))
+	if err != nil {
+		return
+	}
+	var payload struct {
+		Path      string                 `json:"path"`
+		Name      string                 `json:"name"`
+		Directory bool                   `json:"directory"`
+		Items     []mdedit.VaultItemDrag `json:"items"`
+	}
+	if err := json.Unmarshal(b, &payload); err != nil {
+		a.notice(locales.FilesReadDropFailed())
+		return
+	}
+	items := payload.Items
+	if len(items) == 0 && payload.Path != "" {
+		items = []mdedit.VaultItemDrag{{Path: payload.Path, Name: payload.Name, Directory: payload.Directory}}
+	}
+	if len(items) == 0 {
+		a.notice(locales.FilesReadDropFailed())
+		return
+	}
+	// Native negotiation defaults to Copy when no modifier is suggested.
+	// Muse's same-vault tree semantics are Move unless the user explicitly
+	// requested Copy in the native drag session.
+	move := drop.Operation == transfer.Move || (drop.Operation == transfer.Copy && a.treeNativeDropSuggested != transfer.Copy)
+	if move && isWithinRoot(a.root, items[0].Path) {
+		paths := make([]string, 0, len(items))
+		for _, item := range items {
+			if item.Path != "" && isWithinRoot(a.root, item.Path) {
+				paths = append(paths, item.Path)
+			}
+		}
+		a.moveTreeItems(paths, destination)
+		return
+	}
+	// Copy remains non-destructive. A Move from another vault/process falls
+	// back to import semantics because this workspace cannot own its source.
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.Path != "" {
+			paths = append(paths, item.Path)
+		}
+	}
+	a.importDroppedInto(paths, destination)
+}
+
+func isWithinRoot(root, path string) bool {
+	if root == "" || path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func copyFile(source, destination string) error {
+	b, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(destination, b, info.Mode().Perm())
+}
+
+func copyTree(source, destination string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		return copyFile(path, target)
+	})
+}
+
+// moveTreeItem moves a dragged item into a directory in the workspace.
+// Existing names are preserved; collisions get a numbered suffix.
+func (a *App) moveTreeItem(source, destination string) {
+	if source == "" || destination == "" || source == destination || destination == filepath.Dir(source) {
+		return
+	}
+	if rel, err := filepath.Rel(a.root, source); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return
+	}
+	info, err := os.Stat(destination)
+	if err != nil || !info.IsDir() || strings.HasPrefix(destination, source+string(filepath.Separator)) {
+		return
+	}
+	name := filepath.Base(source)
+	target := filepath.Join(destination, name)
+	if _, err := os.Stat(target); err == nil {
+		ext := filepath.Ext(name)
+		base := strings.TrimSuffix(name, ext)
+		target = uniquePath(destination, base, ext)
+	}
+	if err := os.Rename(source, target); err != nil {
+		a.notice(locales.CommonMoveFailed(err.Error()))
+		return
+	}
+	remap := func(path string) string {
+		if rel, err := filepath.Rel(source, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.Join(target, rel)
+		}
+		return path
+	}
+	a.path = remap(a.path)
+	a.selectedPath = remap(a.selectedPath)
+	a.treeFocusPath = remap(a.treeFocusPath)
+	if a.treeSelection != nil {
+		selection := make(map[string]bool, len(a.treeSelection))
+		for path, selected := range a.treeSelection {
+			if selected {
+				selection[remap(path)] = true
+			}
+		}
+		a.treeSelection = selection
+	}
+	a.treeSelectionAnchor = remap(a.treeSelectionAnchor)
+	for i, path := range a.treeDragSelection {
+		a.treeDragSelection[i] = remap(path)
+	}
+	for old, expanded := range a.expanded {
+		if next := remap(old); next != old {
+			delete(a.expanded, old)
+			a.expanded[next] = expanded
+		}
+	}
+	a.clearTreeCache()
+	a.notice(locales.FilesMovedToFolder(filepath.Base(destination)))
+	a.invalidate()
 }
 
 type fileRow struct {
@@ -1023,10 +1876,13 @@ type fileRow struct {
 }
 
 func (a *App) fileRows() []fileRow {
-	var out []fileRow
 	if a.root == "" {
 		return nil
 	}
+	if !a.fileRowsDirty && a.fileRowsCacheRoot == a.root {
+		return a.fileRowsCache
+	}
+	var out []fileRow
 	var walk func(dir string, depth int)
 	walk = func(dir string, depth int) {
 		for _, p := range a.children(dir) {
@@ -1040,14 +1896,156 @@ func (a *App) fileRows() []fileRow {
 		}
 	}
 	walk(a.root, 0)
-	return out
+	a.fileRowsCache = out
+	a.fileRowsCacheRoot = a.root
+	a.fileRowsDirty = false
+	return a.fileRowsCache
+}
+
+func (a *App) selectTreeRow(path string, mods ui.Modifiers, rows []fileRow) {
+	if a.treeSelection == nil {
+		a.treeSelection = make(map[string]bool)
+	}
+	switch {
+	case mods&ui.Shift != 0:
+		anchor := a.treeSelectionAnchor
+		if anchor == "" {
+			anchor = path
+		}
+		indices := make(map[string]int, len(rows))
+		for i, row := range rows {
+			indices[row.path] = i
+		}
+		start, startOK := indices[anchor]
+		end, endOK := indices[path]
+		if !startOK || !endOK {
+			return
+		}
+		clear(a.treeSelection)
+		if start > end {
+			start, end = end, start
+		}
+		for _, row := range rows[start : end+1] {
+			a.treeSelection[row.path] = true
+		}
+	case mods&ui.Cmd != 0:
+		if a.treeSelection[path] {
+			delete(a.treeSelection, path)
+		} else {
+			a.treeSelection[path] = true
+		}
+		if a.treeSelectionAnchor == "" {
+			a.treeSelectionAnchor = path
+		}
+	default:
+		clear(a.treeSelection)
+		a.treeSelection[path] = true
+		a.treeSelectionAnchor = path
+	}
+}
+
+// prepareTreeDragPress applies selection semantics at pointer-down so a drag
+// that crosses the toolkit threshold (and therefore suppresses OnClick) still
+// carries the intended item group. Pressing an already-selected row preserves
+// the group until release; Cmd adds an unselected row, and Shift extends the
+// anchored range.
+func (a *App) prepareTreeDragPress(path string, mods ui.Modifiers, rows []fileRow) {
+	if a.treeSelection == nil {
+		a.treeSelection = make(map[string]bool)
+	}
+	switch {
+	case mods&ui.Shift != 0:
+		a.selectTreeRow(path, ui.Shift, rows)
+	case mods&ui.Cmd != 0:
+		if !a.treeSelection[path] {
+			a.treeSelection[path] = true
+		}
+		if a.treeSelectionAnchor == "" {
+			a.treeSelectionAnchor = path
+		}
+	default:
+		if !a.treeSelection[path] {
+			clear(a.treeSelection)
+			a.treeSelection[path] = true
+			a.treeSelectionAnchor = path
+		}
+	}
+}
+
+func (a *App) recordTreePointerDown(path string, mods ui.Modifiers, x, y float32) {
+	a.treePressPath, a.treePressMods = path, mods
+	a.treePressX, a.treePressY = x, y
+	a.treePressApplied = false
+}
+
+func treePointerMovePassedThreshold(x0, y0, x1, y1 float32) bool {
+	dx, dy := x1-x0, y1-y0
+	return dx*dx+dy*dy >= 16 // MyGo's dragStart is 4 DIP.
+}
+
+func (a *App) selectedTreePaths(fallback string) []string {
+	rows := a.fileRows()
+	var selected []string
+	for _, row := range rows {
+		if a.treeSelection[row.path] {
+			selected = append(selected, row.path)
+		}
+	}
+	if len(selected) == 0 && fallback != "" {
+		selected = append(selected, fallback)
+	}
+	return selected
+}
+
+func (a *App) treeDraggedPaths(primary string) []string {
+	var paths []string
+	if len(a.treeDragSelection) > 0 {
+		paths = append(paths, a.treeDragSelection...)
+	} else if a.treeSelection[primary] {
+		paths = a.selectedTreePaths(primary)
+	} else if primary != "" {
+		paths = []string{primary}
+	}
+	// If both a directory and one of its visible descendants are selected,
+	// moving/removing the directory already acts on the descendant.
+	selected := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		selected[path] = true
+	}
+	filtered := make([]string, 0, len(paths))
+	for _, path := range paths {
+		covered := false
+		for parent := filepath.Dir(path); parent != path; {
+			if selected[parent] {
+				if info, err := os.Stat(parent); err == nil && info.IsDir() {
+					covered = true
+					break
+				}
+			}
+			next := filepath.Dir(parent)
+			if next == parent {
+				break
+			}
+			parent = next
+		}
+		if !covered {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
+}
+
+func (a *App) moveTreeItems(paths []string, destination string) {
+	for _, path := range paths {
+		a.moveTreeItem(path, destination)
+	}
 }
 
 func (a *App) outlineView(c *ui.Context) {
 	t := c.Theme()
 	if len(a.headings) == 0 {
 		ui.Column(c).Fill().Center().Padding(20).Children(func() {
-			ui.Text(c, "这篇文档还没有标题").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, locales.DocumentNoHeading()).FontSize(12).TextColor(t.TextMuted)
 		})
 		return
 	}
@@ -1093,7 +2091,7 @@ func (a *App) outlineView(c *ui.Context) {
 		})
 		row.OnClick(func() {
 			a.outlineRow = i
-			a.ed.ScrollToOffset(h.offset)
+			a.ed.NavigateToOffset(h.offset, mdedit.PageJumpTopMargin)
 			a.ed.Focus()
 		})
 	}).Grow(1).Padding(0, 8).Gap(0).TrackScroll(&a.outlineScroll).Scrollbars(showScrollbar)
@@ -1115,11 +2113,76 @@ func snippetParts(snippet, query string) (string, string, string) {
 	return snippet[:idx], snippet[idx : idx+len(q)], snippet[idx+len(q):]
 }
 
+// workspaceSearchText keeps the entire result label readable while marking
+// every visible occurrence of each query term. Positions are rune-based so
+// CJK text before a match does not shift the highlight.
+func workspaceSearchText(c *ui.Context, t *ui.Theme, text, query string, color ui.Color, size float32) ui.Element {
+	runes := []rune(text)
+	lower := make([]rune, len(runes))
+	for i, r := range runes {
+		lower[i] = unicode.ToLower(r)
+	}
+	hits := make(map[int]struct{})
+	for _, term := range strings.Fields(query) {
+		needle := []rune(term)
+		for i := range needle {
+			needle[i] = unicode.ToLower(needle[i])
+		}
+		if len(needle) == 0 || len(needle) > len(lower) {
+			continue
+		}
+		for start := 0; start+len(needle) <= len(lower); {
+			matched := true
+			for j, r := range needle {
+				if lower[start+j] != r {
+					matched = false
+					break
+				}
+			}
+			if !matched {
+				start++
+				continue
+			}
+			for j := range needle {
+				hits[start+j] = struct{}{}
+			}
+			start += len(needle)
+		}
+	}
+	if len(hits) == 0 {
+		return ui.RichText(c, ui.Span{Text: text}).FontSize(size).TextColor(color).SingleLine().Ellipsis("…")
+	}
+	spans := make([]ui.Span, 0, len(hits)*2+1)
+	for start := 0; start < len(runes); {
+		_, highlighted := hits[start]
+		end := start + 1
+		for end < len(runes) {
+			_, nextHighlighted := hits[end]
+			if nextHighlighted != highlighted {
+				break
+			}
+			end++
+		}
+		span := ui.Span{Text: string(runes[start:end])}
+		if highlighted {
+			span.Color = t.Accent
+			span.Background = ui.RGBA(t.Accent.R, t.Accent.G, t.Accent.B, 0.18)
+			span.Radius = 2
+		}
+		spans = append(spans, span)
+		start = end
+	}
+	return ui.RichText(c, spans...).FontSize(size).TextColor(color).SingleLine().Ellipsis("…")
+}
+
 func (a *App) searchView(c *ui.Context) {
 	a.documentSearchView(c)
 }
 
 func (a *App) openWorkspaceSearch() {
+	a.quickOpen = false
+	a.clearQuickOpenCatalog()
+	a.cmdPalette = false
 	if a.root == "" && a.path != "" {
 		a.root = filepath.Dir(a.path)
 	}
@@ -1234,81 +2297,92 @@ func (a *App) workspaceSearchDialog(c *ui.Context) {
 		a.workspaceSearchSel = max(0, count-1)
 	}
 	t := c.Theme()
-	ui.Box(c).Absolute().Top(0).Right(0).Bottom(0).Left(0).Background(ui.RGBA(0, 0, 0, 0.30)).Children(func() {
-		ui.Column(c).Fill().AlignItems(ui.Center).Justify(ui.Center).Padding(24).Children(func() {
-			ui.Column(c).Width(760).Height(620).MaxWidthPercent(94).MaxHeightPercent(86).Radius(14).
-				Background(t.Background).Border(1, t.Border).
-				Shadow(0, 18, 44, -8, ui.RGBA(0, 0, 0, 0.32)).Clip().Children(func() {
-				ui.Row(c).Height(58).Padding(0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, iconSearch).Size(18, 18).TextColor(t.TextMuted)
-					ui.TextInputBase(c, &a.workspaceQuery).Ref(&a.workspaceInputFocus).Grow(1).MinWidth(0).
-						Placeholder("搜索笔记库…").Label("搜索笔记库").AutoFocus().
-						OnSubmit(func() { a.submitWorkspaceSearch() })
-					fullLabel, literalLabel := "全文", "字面量"
-					if v == nil || !v.searchLiteral {
-						fullLabel = "✓ 全文"
-					} else {
-						literalLabel = "✓ 字面量"
-					}
-					if ui.Button(c, fullLabel).Clicked() && v != nil && v.searchLiteral {
-						v.searchLiteral = false
-						v.queryToken++
-						v.hits = nil
-						a.workspaceReveal = true
-						v.due = time.Now()
-						a.workspaceInputFocus.Focus(c)
-					}
-					if ui.Button(c, literalLabel).Clicked() && v != nil && !v.searchLiteral {
-						v.searchLiteral = true
-						v.queryToken++
-						v.hits = nil
-						a.workspaceReveal = true
-						v.due = time.Now()
-						a.workspaceInputFocus.Focus(c)
-					}
-				})
-				ui.Box(c).Height(1).FillWidth().Background(t.Border)
-				if !querying {
-					showSearchScroll := a.workspaceIndicator.Visible(c.Now(), a.workspaceScroll.X, a.workspaceScroll.Y)
-					if showSearchScroll {
-						c.After(a.workspaceIndicator.Remaining(c.Now()))
-					}
-					quietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
-						recent := a.workspaceRecentNotes()
-						if len(recent) == 0 {
-							ui.Text(c, "最近没有打开的笔记").FontSize(12).TextColor(t.TextMuted)
+	ui.DialogBase(c, &a.workspaceSearch, func(backdrop, panel ui.Element) {
+		backdrop.Background(ui.RGBA(0, 0, 0, 0.30))
+		panel.Width(760).Height(620).MaxWidthPercent(94).MaxHeightPercent(86).Padding(0).Gap(0).Radius(14).
+			Background(t.Background).Border(1, t.Border).
+			Shadow(0, 18, 44, -8, ui.RGBA(0, 0, 0, 0.32)).Clip().Children(func() {
+			ui.Row(c).Height(58).Padding(0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconSearch).Size(18, 18).TextColor(t.TextMuted)
+				ui.TextInputBase(c, &a.workspaceQuery).Ref(&a.workspaceInputFocus).Grow(1).MinWidth(0).
+					Placeholder(locales.WorkspaceSearchPlaceholder()).Label(locales.MenuSearchWorkspace()).AutoFocus().
+					OnSubmit(func() { a.submitWorkspaceSearch() }).
+					OnTextKey(func(k ui.TextKey) bool {
+						if k.Mods != ui.Ctrl || (k.Key != ui.KeyN && k.Key != ui.KeyP) || count == 0 {
+							return false
 						}
-						for i, entry := range recent {
-							e := entry
-							a.workspaceSearchRow(c, t, i == a.workspaceSearchSel, filepath.Base(e.Path), e.Path, "", func() { a.openWorkspaceRecent(e) })
+						step := 1
+						if k.Key == ui.KeyP {
+							step = -1
 						}
+						a.workspaceSearchSel = (a.workspaceSearchSel + step + count) % count
+						a.workspaceReveal = true
+						return true
 					})
-				} else if a.root == "" {
-					ui.Text(c, "先打开一个笔记文件夹，再搜索整个笔记库").FontSize(12).TextColor(t.TextMuted)
+				fullLabel, literalLabel := locales.WorkspaceSearchFullText(), locales.WorkspaceSearchLiteral()
+				if v == nil || !v.searchLiteral {
+					fullLabel = locales.WorkspaceSearchFullTextSelected()
 				} else {
-					a.workspaceSearchView(c)
+					literalLabel = locales.WorkspaceSearchLiteralSelected()
 				}
-				ui.Box(c).Height(1).FillWidth().Background(t.Border)
-				ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
-					if querying && v != nil && v.search != nil {
-						if v.searchLiteral {
-							ui.Textf(c, "%d 处匹配", len(v.hits)).FontSize(10.5).TextColor(t.TextMuted)
-						} else {
-							ui.Textf(c, "%d 篇笔记", len(v.hits)).FontSize(10.5).TextColor(t.TextMuted)
-						}
-					} else if !querying {
-						ui.Text(c, "最近笔记").FontSize(10.5).TextColor(t.TextMuted)
+				if ui.Button(c, fullLabel).Clicked() && v != nil && v.searchLiteral {
+					v.searchLiteral = false
+					v.queryToken++
+					v.hits = nil
+					a.workspaceReveal = true
+					v.due = time.Now()
+					a.workspaceInputFocus.Focus(c)
+				}
+				if ui.Button(c, literalLabel).Clicked() && v != nil && !v.searchLiteral {
+					v.searchLiteral = true
+					v.queryToken++
+					v.hits = nil
+					a.workspaceReveal = true
+					v.due = time.Now()
+					a.workspaceInputFocus.Focus(c)
+				}
+			})
+			ui.Box(c).Height(1).FillWidth().Background(t.Border)
+			if !querying {
+				showSearchScroll := a.workspaceIndicator.Visible(c.Now(), a.workspaceScroll.X, a.workspaceScroll.Y)
+				if showSearchScroll {
+					c.After(a.workspaceIndicator.Remaining(c.Now()))
+				}
+				quietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
+					recent := a.workspaceRecentNotes()
+					if len(recent) == 0 {
+						ui.Text(c, locales.WorkspaceRecentEmpty()).FontSize(12).TextColor(t.TextMuted)
 					}
-					ui.Spacer(c)
-					ui.Text(c, "↑↓ 选择   ↵ 打开   Esc 关闭").FontSize(10.5).TextColor(t.TextMuted)
+					for i, entry := range recent {
+						e := entry
+						a.workspaceSearchRow(c, t, i == a.workspaceSearchSel, filepath.Base(e.Path), a.workspacePathLabel(e.Path), "", func() { a.openWorkspaceRecent(e) })
+					}
 				})
+			} else if a.root == "" {
+				ui.Text(c, locales.WorkspaceSearchHint()).FontSize(12).TextColor(t.TextMuted)
+			} else {
+				a.workspaceSearchView(c)
+			}
+			ui.Box(c).Height(1).FillWidth().Background(t.Border)
+			ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
+				if querying && v != nil && v.search != nil {
+					if v.searchLiteral {
+						ui.Text(c, locales.SearchMatchCount(len(v.hits))).FontSize(10.5).TextColor(t.TextMuted)
+					} else {
+						ui.Text(c, locales.WorkspaceNoteCount(len(v.hits))).FontSize(10.5).TextColor(t.TextMuted)
+					}
+				} else if !querying {
+					ui.Text(c, locales.WorkspaceRecentNotes()).FontSize(10.5).TextColor(t.TextMuted)
+				}
+				ui.Spacer(c)
+				ui.Text(c, locales.WorkspaceQuickKeys()).FontSize(10.5).TextColor(t.TextMuted)
 			})
 		})
 	})
 }
 
 func (a *App) workspaceSearchRow(c *ui.Context, t *ui.Theme, selected bool, title, path, snippet string, open func()) {
-	row := ui.Row(c).FillWidth().Height(64).Shrink(0).Padding(9, 11).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label("打开笔记：" + title)
+	row := ui.Row(c).FillWidth().Height(64).Shrink(0).Padding(9, 11).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(locales.WorkspaceOpenNote(title))
 	if selected {
 		row.Background(t.SurfaceHover)
 	} else if row.Hovered() {
@@ -1333,26 +2407,26 @@ func (a *App) workspaceSearchRow(c *ui.Context, t *ui.Theme, selected bool, titl
 func (a *App) documentSearchView(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Padding(10).Gap(8).Children(func() {
-		ui.TextInput(c, &a.query).Placeholder("在当前文档中查找").Label("查找")
+		ui.TextInput(c, &a.query).Placeholder(locales.DocumentFindPlaceholder()).Label(locales.DocumentFind())
 		a.refreshSearch()
 		if a.query == "" {
-			ui.Text(c, "输入关键词，点击结果跳到对应位置").FontSize(11.5).TextColor(t.TextMuted).Wrap()
+			ui.Text(c, locales.DocumentFindHint()).FontSize(11.5).TextColor(t.TextMuted).Wrap()
 			return
 		}
 		if a.matches == 0 {
-			ui.Text(c, "没有匹配").FontSize(11.5).TextColor(t.TextMuted)
+			ui.Text(c, locales.SearchNoMatches()).FontSize(11.5).TextColor(t.TextMuted)
 			return
 		}
 		ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.TextInput(c, &a.replaceWith).Placeholder("替换为").Label("替换为").Grow(1).MinWidth(0)
-			if ui.Button(c, "替换").Clicked() {
+			ui.TextInput(c, &a.replaceWith).Placeholder(locales.DocumentReplace()).Label(locales.DocumentReplace()).Grow(1).MinWidth(0)
+			if ui.Button(c, locales.DocumentReplaceOne()).Clicked() {
 				a.replaceHit()
 			}
-			if ui.Button(c, "全部").Tooltip("全部替换").Clicked() {
+			if ui.Button(c, locales.CommonAll()).Tooltip(locales.DocumentReplaceAll()).Clicked() {
 				a.replaceAllHits()
 			}
 		})
-		ui.Textf(c, "%d 处匹配", a.matches).FontSize(11).TextColor(t.TextMuted)
+		ui.Text(c, locales.SearchMatchCount(a.matches)).FontSize(11).TextColor(t.TextMuted)
 		showScrollbar := a.searchIndicator.Visible(c.Now(), a.searchScroll.X, a.searchScroll.Y)
 		if showScrollbar {
 			c.After(a.searchIndicator.Remaining(c.Now()))
@@ -1422,7 +2496,7 @@ func (a *App) goToHit(i int) {
 		ranges[k] = mdedit.Range{Start: x.start, End: x.end}
 	}
 	a.ed.SetHighlights(ranges, i)
-	a.ed.Select(h.start, h.end)
+	a.ed.NavigateToRange(h.start, h.end)
 	a.ed.Focus()
 }
 
@@ -1457,7 +2531,7 @@ func (a *App) replaceAllHits() {
 	n := len(a.searchHits)
 	a.editDoc(b.String())
 	a.refreshSearch()
-	a.notice(fmt.Sprintf("已替换 %d 处", n))
+	a.notice(locales.CommonReplaceSuccess(n))
 }
 
 // findHits returns the matches of query in src, ignoring case, at most 500,
@@ -1517,17 +2591,27 @@ func (a *App) editorContent(c *ui.Context) {
 		a.imageDocumentView(c)
 		return
 	}
+	if a.root != "" && a.path == "" && a.source == "" {
+		a.vaultHome(c)
+		return
+	}
 	ui.Column(c).Fill().Children(func() {
 		opts := a.editorOptions()
 		if !a.flat {
 			a.editorHeader(c)
 			a.ed.SetOptions(opts)
-			a.ed.View(c).Grow(1)
+			ed := a.ed.View(c).Grow(1)
+			if a.mouseCursorHidden {
+				ed.Cursor(ui.CursorNone)
+			}
 			return
 		}
 		opts.TopInset = a.headerH(c)
 		a.ed.SetOptions(opts)
-		a.ed.View(c).Grow(1)
+		ed := a.ed.View(c).Grow(1)
+		if a.mouseCursorHidden {
+			ed.Cursor(ui.CursorNone)
+		}
 		a.headerVeil(c)
 		a.editorHeader(c)
 	})
@@ -1557,14 +2641,14 @@ func (a *App) editorHeader(c *ui.Context) {
 		ui.Box(c).Width(max(float32(30), bar.Left+38-a.panelW)).Shrink(0)
 		tint := iconTint(t)
 		if a.canNav(-1) {
-			a.smallIcon(c, iconChevronLeft, "后退", func() { a.nav(-1) })
+			a.smallIcon(c, iconChevronLeft, locales.ToolbarBack(), func() { a.nav(-1) })
 		} else {
-			a.smallIconTint(c, iconChevronLeft, "后退", nil, tint.Alpha(0.35))
+			a.smallIconTint(c, iconChevronLeft, locales.ToolbarBack(), nil, tint.Alpha(0.35))
 		}
 		if a.canNav(1) {
-			a.smallIcon(c, iconChevron, "前进", func() { a.nav(1) })
+			a.smallIcon(c, iconChevron, locales.ToolbarForward(), func() { a.nav(1) })
 		} else {
-			a.smallIconTint(c, iconChevron, "前进", nil, tint.Alpha(0.35))
+			a.smallIconTint(c, iconChevron, locales.ToolbarForward(), nil, tint.Alpha(0.35))
 		}
 		// The path sits in the middle of what is left, its end kept: the file
 		// name is the part that says which document this is.
@@ -1575,53 +2659,67 @@ func (a *App) editorHeader(c *ui.Context) {
 				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
 		})
 		if a.imageDocument.open {
-			a.smallIcon(c, iconImage, "全局预览", func() { a.openImagePreview(a.imageDocument.path) })
+			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocument.path) })
 		}
 		if label := a.ed.ModeLabel(); label != "" {
-			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label("编辑模式")
+			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label(locales.DocumentMode())
 		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
 		if a.dirty && !a.imageDocument.open {
-			a.smallIcon(c, iconSave, "保存", func() { a.save() })
+			a.smallIcon(c, iconSave, locales.MenuSave(), func() { a.save() })
 		}
 		if a.propertiesEnabled() {
-			a.smallIconTint(c, iconInfo, "信息", func() { a.openProperties() }, tint)
+			a.smallIconTint(c, iconInfo, locales.DocumentInfo(), func() { a.openProperties() }, tint)
 		} else {
-			info := a.smallIconTint(c, iconInfo, "信息", nil, tint)
+			info := a.smallIconTint(c, iconInfo, locales.DocumentInfo(), nil, tint)
 			info.Menu(func(m *ui.Menu) {
 				chars, _, lines := countText(a.source)
-				m.Item("路径：" + a.docPath())
-				m.Item(fmt.Sprintf("%d 字 · %d 行", chars, lines))
+				m.Item(locales.DocumentPathValue(a.docPath()))
+				m.Item(locales.DocumentCharacterLineCount(chars, lines))
 				if st, err := os.Stat(a.path); err == nil {
-					m.Item("修改于 " + st.ModTime().Format("2006-01-02 15:04"))
+					m.Item(locales.DocumentModifiedAt(st.ModTime()))
 				}
 				m.Separator()
-				if m.Item("在访达中显示").Chosen() && a.path != "" {
+				if m.Item(locales.FilesInFinder()).Chosen() && a.path != "" {
 					mygo.Shell.ShowItemInFolder(a.path)
 				}
 			})
 		}
-		more := a.smallIconTint(c, iconMore, "更多", nil, tint)
+		more := a.smallIconTint(c, iconMore, locales.DocumentMore(), nil, tint)
 		more.Menu(func(m *ui.Menu) {
-			if m.Item("版本历史…").Chosen() {
+			if !a.imageDocument.open && codeLanguage(a.path) == "" {
+				m.Submenu(locales.DocumentExport(), func(export *ui.Menu) {
+					if export.Item(locales.DocumentExportMarkdown()).Chosen() {
+						a.exportDocument(noteExportMarkdown)
+					}
+					if export.Item(locales.DocumentExportHTML()).Chosen() {
+						a.exportDocument(noteExportHTML)
+					}
+					if export.Item(locales.DocumentExportPDF()).Chosen() {
+						a.exportDocument(noteExportPDF)
+					}
+				})
+				m.Separator()
+			}
+			if m.Item(locales.DocumentHistoryMenu()).Chosen() {
 				a.openHistory()
 			}
-			if m.Item("恢复草稿…").Chosen() {
+			if m.Item(locales.DocumentRecoveryMenu()).Chosen() {
 				a.openRecovery()
 			}
-			if m.Item("关联笔记…").Chosen() {
+			if m.Item(locales.DocumentLinksMenu()).Chosen() {
 				a.openLinks()
 			}
-			if m.Item("保存").Chosen() {
+			if m.Item(locales.MenuSave()).Chosen() {
 				a.save()
 			}
-			if m.Item("复制路径").Chosen() && a.path != "" {
+			if m.Item(locales.DocumentCopyPathMenu()).Chosen() && a.path != "" {
 				clipboardWrite(a.path)
-				a.notice("已复制路径")
+				a.notice(locales.DocumentCopiedPath())
 			}
-			if m.Item("设为工作区").Chosen() && a.path != "" {
+			if m.Item(locales.FilesSetWorkspace()).Chosen() && a.path != "" {
 				a.setWorkspace(filepath.Dir(a.path))
 			}
 		})
@@ -1632,7 +2730,14 @@ func (a *App) editorHeader(c *ui.Context) {
 // Files
 
 func (a *App) setWorkspace(root string) {
+	// A workspace is the start of a new editing context. Do not leave the
+	// previous vault's document visible after switching folders.
+	if filepath.Clean(root) != filepath.Clean(a.root) {
+		a.clearQuickOpenCatalog()
+		a.resetDoc()
+	}
 	a.root = root
+	a.fileRowsDirty = true
 	a.dirMu.Lock()
 	a.dirs = map[string][]string{}
 	a.isDir = map[string]bool{}
@@ -1740,7 +2845,7 @@ func (a *App) openFolderDialog() {
 	go func() {
 		paths, err := openDialog(mygo.OpenDialogOptions{
 			Parent:    a.win,
-			Title:     "打开文件夹",
+			Title:     locales.CommonDialogFolderTitle(),
 			Directory: true,
 		})
 		a.finish(func() {
@@ -1759,9 +2864,9 @@ func (a *App) openFileDialog() {
 	go func() {
 		paths, err := openDialog(mygo.OpenDialogOptions{
 			Parent: a.win,
-			Title:  "打开文件",
+			Title:  locales.CommonDialogFileTitle(),
 			Filters: []mygo.FileFilter{
-				{Name: "文本与图片", Extensions: append(textFileFilter(), imageFileExtensions()...)},
+				{Name: locales.CommonDialogOpenFileFilter(), Extensions: append(textFileFilter(), imageFileExtensions()...)},
 			},
 		})
 		if err != nil || len(paths) == 0 {
@@ -1778,12 +2883,12 @@ func (a *App) openFileDialog() {
 		}
 		data, err := os.ReadFile(paths[0])
 		if err != nil {
-			errorDialog("打开失败", err.Error())
+			errorDialog(locales.DialogOpenFailed(), err.Error())
 			a.finish(nil)
 			return
 		}
 		if !isTextData(data) {
-			errorDialog("无法打开", "这个文件不是文本文件。")
+			errorDialog(locales.DialogCannotOpen(), locales.DialogNotTextFile())
 			a.finish(nil)
 			return
 		}
@@ -1797,18 +2902,18 @@ func (a *App) openPathNow(path string) {
 		return
 	}
 	if !isEditableFile(path) {
-		a.notice("不支持的文件类型：" + filepath.Base(path))
+		a.notice(locales.FilesUnsupportedType(filepath.Base(path)))
 		a.invalidate()
 		return
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		a.notice(fmt.Sprintf("打开失败：%v", err))
+		a.notice(locales.CommonOpenFileFailed(err.Error()))
 		a.invalidate()
 		return
 	}
 	if !isTextData(data) {
-		a.notice("这个文件不是文本文件：" + filepath.Base(path))
+		a.notice(locales.DocumentNotTextWithName(filepath.Base(path)))
 		a.invalidate()
 		return
 	}
@@ -1824,7 +2929,7 @@ func (a *App) requestOpen(path string) {
 		return
 	}
 	if !isEditableFile(path) {
-		a.notice("不支持的文件类型：" + filepath.Base(path))
+		a.notice(locales.FilesUnsupportedType(filepath.Base(path)))
 		a.invalidate()
 		return
 	}
@@ -1843,7 +2948,7 @@ func (a *App) requestOpen(path string) {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			errorDialog("打开失败", err.Error())
+			errorDialog(locales.DialogOpenFailed(), err.Error())
 			a.finish(nil)
 			return
 		}
@@ -1856,7 +2961,7 @@ func (a *App) applyOpen(path, data string) {
 		rel, _ := filepath.Rel(a.vault.root, path)
 		hit := vaultsearch.Hit{Path: filepath.ToSlash(rel), Revision: a.indexedRevision}
 		a.indexedPath, a.indexedRevision = "", ""
-		a.notice("笔记在打开前已变化，正在重新定位搜索结果")
+		a.notice(locales.WorkspaceSearchMoved())
 		a.navigateSearchHit(hit)
 		return
 	}
@@ -1908,12 +3013,13 @@ func (a *App) resetDoc() {
 }
 
 func (a *App) save() {
+	a.flushManagedTimestamp()
 	if a.path == "" {
 		a.saveAs()
 		return
 	}
 	if !isEditableFile(a.path) {
-		a.notice("不支持的文件类型：" + filepath.Base(a.path))
+		a.notice(locales.FilesUnsupportedType(filepath.Base(a.path)))
 		a.invalidate()
 		return
 	}
@@ -1926,14 +3032,17 @@ func (a *App) save() {
 			a.documents.conflict = a.path
 			a.documents.conflictOpen = true
 		}
-		a.notice(fmt.Sprintf("保存失败：%v", err))
+		a.notice(locales.CommonSaveError(err.Error()))
 	} else {
 		a.dirty = false
 		if a.documents != nil {
 			a.documents.revision = notestore.Revision(a.diskSource())
+			a.documents.baseSource = a.diskSource()
+			a.documents.due = time.Time{}
+			a.documents.updatedAtDue = time.Time{}
 			_ = a.documents.store.DeleteDraft(a.path)
 		}
-		a.notice("已保存")
+		a.notice(locales.DocumentSaved())
 	}
 	a.updateTitle()
 	a.invalidate()
@@ -1950,9 +3059,9 @@ func (a *App) confirmDiscardOffUI() bool {
 	res, err := messageDialog(mygo.MessageOptions{
 		Parent:        a.win,
 		Type:          mygo.MessageWarning,
-		Message:       "要保存对「" + name + "」的更改吗？",
-		Detail:        "如果不保存，更改会丢失。",
-		Buttons:       []string{"保存", "不保存", "取消"},
+		Message:       locales.DocumentSaveChanges(name),
+		Detail:        locales.DocumentDiscardWarning(),
+		Buttons:       []string{locales.DocumentSaveButton(), locales.DocumentDontSaveButton(), locales.CommonCancel()},
 		DefaultButton: 0,
 		CancelButton:  2,
 	})
@@ -1966,23 +3075,23 @@ func (a *App) confirmDiscardOffUI() bool {
 	savePath := path
 	if savePath == "" {
 		defaultName := name
-		if defaultName == "" || defaultName == "未命名" {
+		if defaultName == "" || defaultName == locales.DocumentUntitled() {
 			defaultName = "Untitled.md"
 		} else if !strings.HasSuffix(strings.ToLower(defaultName), ".md") {
 			defaultName += ".md"
 		}
 		savePath, err = saveDialog(mygo.SaveDialogOptions{
 			Parent:      a.win,
-			Title:       "保存文件",
+			Title:       locales.CommonSaveFile(),
 			DefaultPath: defaultName,
-			Filters:     []mygo.FileFilter{{Name: "文本文件", Extensions: textFileFilter()}},
+			Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: textFileFilter()}},
 		})
 		if err != nil || savePath == "" {
 			return false
 		}
 	}
 	if !isEditableFile(savePath) {
-		errorDialog("无法保存", "请选择文本文件扩展名。")
+		errorDialog(locales.DialogCannotSave(), locales.DialogChooseTextExtension())
 		return false
 	}
 	expected, err := a.destinationRevision(savePath, path, revision)
@@ -1990,7 +3099,7 @@ func (a *App) confirmDiscardOffUI() bool {
 		err = a.writeDocument(savePath, source, expected)
 	}
 	if err != nil {
-		errorDialog("保存失败", err.Error())
+		errorDialog(locales.DialogSaveFailed(), err.Error())
 		return false
 	}
 	a.onMain(func() {
@@ -1998,6 +3107,7 @@ func (a *App) confirmDiscardOffUI() bool {
 		a.selectedPath = savePath
 		if a.documents != nil {
 			a.documents.revision = notestore.Revision(source)
+			a.documents.baseSource = source
 		}
 		a.dirty = a.diskSource() != source
 		a.updateTitle()
@@ -2009,9 +3119,10 @@ func (a *App) saveAs() {
 	if a.busy {
 		return
 	}
+	a.flushManagedTimestamp()
 	var name, source, originalPath, revision string
 	a.onMain(func() {
-		name = "Untitled.md"
+		name = locales.DocumentUntitled() + ".md"
 		if a.path != "" {
 			name = filepath.Base(a.path)
 		}
@@ -2025,25 +3136,34 @@ func (a *App) saveAs() {
 	go func() {
 		path, err := saveDialog(mygo.SaveDialogOptions{
 			Parent:      a.win,
-			Title:       "保存文件",
+			Title:       locales.CommonSaveFile(),
 			DefaultPath: name,
-			Filters:     []mygo.FileFilter{{Name: "文本文件", Extensions: textFileFilter()}},
+			Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: textFileFilter()}},
 		})
 		if err != nil || path == "" {
 			a.finish(nil)
 			return
 		}
 		if !isEditableFile(path) {
-			errorDialog("无法保存", "请选择文本文件扩展名。")
+			errorDialog(locales.DialogCannotSave(), locales.DialogChooseTextExtension())
 			a.finish(nil)
 			return
+		}
+		createdAt := ""
+		if originalPath == "" && codeLanguage(path) == "" {
+			source, createdAt, err = ensureCreatedAt(source, time.Now())
+			if err != nil {
+				errorDialog(locales.DialogSaveFailed(), err.Error())
+				a.finish(nil)
+				return
+			}
 		}
 		expected, err := a.destinationRevision(path, originalPath, revision)
 		if err == nil {
 			err = a.writeDocument(path, source, expected)
 		}
 		if err != nil {
-			errorDialog("保存失败", err.Error())
+			errorDialog(locales.DialogSaveFailed(), err.Error())
 			a.finish(nil)
 			return
 		}
@@ -2052,6 +3172,24 @@ func (a *App) saveAs() {
 			a.selectedPath = path
 			if a.documents != nil {
 				a.documents.revision = notestore.Revision(source)
+				a.documents.baseSource = source
+				a.documents.due = time.Time{}
+				a.documents.updatedAtDue = time.Time{}
+			}
+			if createdAt != "" && codeLanguage(path) == "" {
+				createdTime, _ := time.Parse(time.RFC3339Nano, createdAt)
+				current, _, metadataErr := ensureCreatedAt(a.ed.Source(), createdTime)
+				if metadataErr != nil {
+					a.notice(locales.CommonExternalUpdateTimestampFailed(metadataErr.Error()))
+				} else {
+					if a.documents != nil {
+						a.documents.applyingMetadata = true
+					}
+					a.ed.ReplaceSystemAll(current)
+					if a.documents != nil {
+						a.documents.applyingMetadata = false
+					}
+				}
 			}
 			a.dirty = a.diskSource() != source
 			a.updateTitle()
@@ -2065,6 +3203,7 @@ func (a *App) collapseAll() {
 	for p := range a.expanded {
 		a.expanded[p] = false
 	}
+	a.fileRowsDirty = true
 	a.folderToggled = map[string]time.Time{}
 	a.invalidate()
 }
@@ -2082,9 +3221,18 @@ func (a *App) createTarget() string {
 }
 
 func (a *App) newFileIn(dir string) {
-	path := uniquePath(dir, "未命名", ".md")
-	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
-		a.notice(fmt.Sprintf("新建失败：%v", err))
+	path := uniquePath(dir, locales.DocumentUntitled(), ".md")
+	source, err := frontmatter.EnsureCore("")
+	if err == nil {
+		source, err = frontmatter.SetTyped(source, "created_at", time.Now().UTC().Format(time.RFC3339Nano), "text")
+	}
+	if err != nil {
+		a.notice(locales.CommonCreateFailed(err.Error()))
+		a.invalidate()
+		return
+	}
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		a.notice(locales.CommonCreateFailed(err.Error()))
 		a.invalidate()
 		return
 	}
@@ -2093,9 +3241,9 @@ func (a *App) newFileIn(dir string) {
 }
 
 func (a *App) newFolderIn(dir string) {
-	path := uniquePath(dir, "新建文件夹", "")
+	path := uniquePath(dir, locales.FilesNewFolderDefault(), "")
 	if err := os.Mkdir(path, 0o755); err != nil {
-		a.notice(fmt.Sprintf("新建失败：%v", err))
+		a.notice(locales.CommonCreateFailed(err.Error()))
 	} else {
 		a.clearTreeCache()
 	}
@@ -2103,6 +3251,9 @@ func (a *App) newFolderIn(dir string) {
 }
 
 func (a *App) clearTreeCache() {
+	a.fileRowsCache = nil
+	a.fileRowsCacheRoot = ""
+	a.fileRowsDirty = true
 	a.dirMu.Lock()
 	a.dirs = map[string][]string{}
 	a.isDir = map[string]bool{}
@@ -2113,7 +3264,15 @@ func (a *App) clearTreeCache() {
 // (relative or absolute), rename, trash and reveal.
 func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 	row.ContextMenu(func(m *ui.Menu) {
-		if m.Item("全部折叠").Chosen() {
+		if a.treeSelection == nil {
+			a.treeSelection = make(map[string]bool)
+		}
+		if !a.treeSelection[path] {
+			clear(a.treeSelection)
+			a.treeSelection[path] = true
+			a.treeSelectionAnchor = path
+		}
+		if m.Item(locales.FilesCollapseMenu()).Chosen() {
 			a.collapseAll()
 		}
 		m.Separator()
@@ -2121,35 +3280,66 @@ func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 		isDir := a.isDir[path]
 		a.dirMu.Unlock()
 		if isDir {
-			if m.Item("新建文件").Chosen() {
-				a.newFileIn(path)
+			if m.Item(locales.FilesNewFile()).Chosen() {
+				a.dispatchTreeAction(path, ActionCreateFile, nil)
 			}
-			if m.Item("新建文件夹").Chosen() {
-				a.newFolderIn(path)
+			if m.Item(locales.FilesNewFolderMenu()).Chosen() {
+				a.dispatchTreeAction(path, ActionCreateFolder, nil)
 			}
 			m.Separator()
 		}
-		if m.Item("更改图标…").Chosen() {
+		if m.Item(locales.FilesCopyItem()).Chosen() {
+			a.dispatchTreeAction(path, ActionCopy, nil)
+		}
+		if m.Item(locales.FilesCutItem()).Chosen() {
+			a.dispatchTreeAction(path, ActionCut, nil)
+		}
+		if len(a.treeClipboard) > 0 {
+			if m.Item(locales.FilesPasteItem()).Chosen() {
+				a.dispatchTreeAction(path, ActionPaste, nil)
+			}
+		}
+		m.Separator()
+		if m.Item(locales.FilesChangeIcon()).Chosen() {
 			a.openNavIconPicker(path)
 		}
-		if m.Item("复制相对路径").Chosen() {
-			a.copyPath(path, true)
+		if m.Item(locales.FilesCopyRelativePath()).Chosen() {
+			a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": true})
 		}
-		if m.Item("复制绝对路径").Chosen() {
-			a.copyPath(path, false)
-		}
-		m.Separator()
-		if m.Item("重命名…").Chosen() {
-			a.renamePath = path
-			a.renameValue = filepath.Base(path)
-			a.renameOpen = true
-		}
-		if m.Item("移到废纸篓").Chosen() {
-			a.trash(path)
+		if m.Item(locales.FilesCopyAbsolutePath()).Chosen() {
+			a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": false})
 		}
 		m.Separator()
-		if m.Item("在 Finder 中显示").Chosen() {
-			mygo.Shell.ShowItemInFolder(path)
+		if m.Item(locales.FilesRenameEllipsis()).Chosen() {
+			a.dispatchTreeAction(path, ActionRename, nil)
+		}
+		if m.Item(locales.FilesMoveToTrash()).Chosen() {
+			a.dispatchTreeAction(path, ActionTrash, nil)
+		}
+		m.Separator()
+		if m.Item(locales.FilesRevealInFinder()).Chosen() {
+			a.dispatchTreeAction(path, ActionRevealInFinder, nil)
+		}
+	})
+}
+
+// fileRootMenu serves context clicks on the tree panel's empty area. It only
+// exposes actions whose destination is the vault root; destructive item
+// actions remain available only from a concrete row menu.
+func (a *App) fileRootMenu(list ui.Element) {
+	list.ContextMenu(func(m *ui.Menu) {
+		if m.Item(locales.FilesNewFile()).Chosen() {
+			a.dispatchTreeAction(a.root, ActionCreateFile, nil)
+		}
+		if m.Item(locales.FilesNewFolderMenu()).Chosen() {
+			a.dispatchTreeAction(a.root, ActionCreateFolder, nil)
+		}
+		if len(a.treeClipboard) > 0 && m.Item(locales.FilesPasteItem()).Chosen() {
+			a.dispatchTreeAction(a.root, ActionPaste, nil)
+		}
+		m.Separator()
+		if m.Item(locales.FilesCollapseMenu()).Chosen() {
+			a.collapseAll()
 		}
 	})
 }
@@ -2163,9 +3353,9 @@ func (a *App) copyPath(path string, relative bool) {
 	}
 	clipboardWrite(text)
 	if relative {
-		a.notice("已复制相对路径")
+		a.notice(locales.DocumentCopiedRelativePath())
 	} else {
-		a.notice("已复制绝对路径")
+		a.notice(locales.DocumentCopiedAbsolutePath())
 	}
 	a.invalidate()
 }
@@ -2180,9 +3370,9 @@ func (a *App) trash(path string) {
 		res, err := messageDialog(mygo.MessageOptions{
 			Parent:        a.win,
 			Type:          mygo.MessageWarning,
-			Message:       "确定把「" + name + "」移到废纸篓？",
-			Detail:        "可以从废纸篓恢复。",
-			Buttons:       []string{"移到废纸篓", "取消"},
+			Message:       locales.CommonTrashConfirm(name),
+			Detail:        locales.CommonTrashRecoverable(),
+			Buttons:       []string{locales.CommonTrashButton(), locales.CommonCancel()},
 			DefaultButton: 0,
 			CancelButton:  1,
 		})
@@ -2191,7 +3381,7 @@ func (a *App) trash(path string) {
 			return
 		}
 		if err := trashItem(path); err != nil {
-			errorDialog("删除失败", err.Error())
+			errorDialog(locales.DialogDeleteFailed(), err.Error())
 			a.finish(nil)
 			return
 		}
@@ -2204,7 +3394,57 @@ func (a *App) trash(path string) {
 				a.updateTitle()
 			}
 			a.clearTreeCache()
-			a.notice("已移到废纸篓")
+			a.notice(locales.FilesMovedToTrash())
+		})
+	}()
+}
+
+func (a *App) trashTreeItems(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	if len(paths) == 1 {
+		a.trash(paths[0])
+		return
+	}
+	if a.busy {
+		return
+	}
+	a.startBusy()
+	go func() {
+		res, err := messageDialog(mygo.MessageOptions{
+			Parent:        a.win,
+			Type:          mygo.MessageWarning,
+			Message:       locales.CommonTrashManyConfirm(len(paths)),
+			Detail:        locales.CommonTrashRecoverable(),
+			Buttons:       []string{locales.CommonTrashButton(), locales.CommonCancel()},
+			DefaultButton: 0,
+			CancelButton:  1,
+		})
+		if err != nil || res.Button != 0 {
+			a.finish(nil)
+			return
+		}
+		for _, path := range paths {
+			if err := trashItem(path); err != nil {
+				errorDialog(locales.DialogDeleteFailed(), err.Error())
+				a.finish(nil)
+				return
+			}
+		}
+		a.finish(func() {
+			for _, path := range paths {
+				delete(a.treeSelection, path)
+				if a.path == path || strings.HasPrefix(a.path, path+string(filepath.Separator)) {
+					a.path = ""
+					a.selectedPath = ""
+					a.loadDoc("")
+					a.dirty = false
+					a.updateTitle()
+				}
+			}
+			a.clearTreeCache()
+			a.notice(locales.FilesMovedToTrash())
 		})
 	}()
 }
@@ -2215,13 +3455,13 @@ func (a *App) renameDialog(c *ui.Context) {
 		ui.Column(c).Width(420).Gap(12).Padding(18).Radius(12).
 			Background(t.Background).Border(1, t.Border).
 			Shadow(0, 18, 50, 0, ui.RGBA(0, 0, 0, 0.22)).Children(func() {
-			ui.Text(c, "重命名").FontSize(14).FontWeight(600)
-			input := ui.TextInput(c, &a.renameValue).AutoFocus().Label("新名称")
+			ui.Text(c, locales.FilesRenameTitle()).FontSize(14).FontWeight(600)
+			input := ui.TextInput(c, &a.renameValue).AutoFocus().Label(locales.FilesNewName())
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "取消").Clicked() {
+				if ui.Button(c, locales.CommonCancel()).Clicked() {
 					a.renameOpen = false
 				}
-				if ui.PrimaryButton(c, "重命名").Clicked() || input.Submitted() {
+				if ui.PrimaryButton(c, locales.CommonRenameButton()).Clicked() || input.Submitted() {
 					a.applyRename()
 				}
 			})
@@ -2238,7 +3478,7 @@ func (a *App) applyRename() {
 	old := a.renamePath
 	newPath := filepath.Join(filepath.Dir(old), name)
 	if err := os.Rename(old, newPath); err != nil {
-		a.notice(fmt.Sprintf("重命名失败：%v", err))
+		a.notice(locales.CommonRenameFailed(err.Error()))
 		a.renameOpen = false
 		a.invalidate()
 		return
@@ -2249,7 +3489,7 @@ func (a *App) applyRename() {
 	a.renameOpen = false
 	a.renamePath = ""
 	a.clearTreeCache()
-	a.notice("已重命名")
+	a.notice(locales.FilesRenamed())
 	a.updateTitle()
 	a.invalidate()
 }
@@ -2289,30 +3529,29 @@ func (a *App) settingsDialog(c *ui.Context) {
 			Draggable(&a.settingsDrag, ui.DraggableOptions{Bounds: &bounds, Rigid: true}).
 			Children(func() {
 				ui.Row(c).Height(44).Shrink(0).Padding(0, 10, 0, 16).Gap(10).Children(func() {
-					ui.Text(c, "设置").FontSize(14).FontWeight(600)
-					ui.Text(c, "更改会立即生效").FontSize(11.5).TextColor(t.TextMuted)
+					ui.Text(c, locales.SettingsTitle()).FontSize(14).FontWeight(600)
+					ui.Text(c, locales.SettingsImmediate()).FontSize(11.5).TextColor(t.TextMuted)
 					ui.Spacer(c)
-					a.smallIcon(c, iconClose, "关闭设置", func() { a.settingsOpen = false })
+					a.smallIcon(c, iconClose, locales.SettingsClose(), func() { a.settingsOpen = false })
 				})
 				ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 					// Left navigation, 184px.
 					ui.Column(c).Width(184).Shrink(0).FillHeight().Padding(0, 8, 8, 4).Gap(2).Children(func() {
-						ui.Text(c, "外观").FontSize(11).FontWeight(600).TextColor(t.TextMuted).Padding(10, 10, 4, 10)
-						a.settingsNavItem(c, "主题", 0)
-						a.settingsNavItem(c, "排版", 1)
-						a.settingsNavItem(c, "模型", 2)
+						a.settingsNavItem(c, locales.SettingsAppearance(), 0)
+						a.settingsNavItem(c, locales.SettingsEditor(), 1)
+						a.settingsNavItem(c, locales.SettingsAI(), 2)
 					})
 					// Right content card, with its own 44px page header.
 					ui.Column(c).Grow(1).MinWidth(0).FillHeight().Padding(0, 8, 8, 8).Children(func() {
 						card := ui.Column(c).FillWidth().FillHeight().Radius(14).Clip().
 							Background(t.Background).Border(1, t.Border)
 						card.Children(func() {
-							title := "主题"
+							title := locales.SettingsAppearance()
 							switch a.settingsTab {
 							case 1:
-								title = "排版"
+								title = locales.SettingsEditor()
 							case 2:
-								title = "模型"
+								title = locales.SettingsAI()
 							}
 							ui.Row(c).Height(44).Shrink(0).Padding(0, 18).AlignItems(ui.Center).
 								BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
@@ -2324,18 +3563,20 @@ func (a *App) settingsDialog(c *ui.Context) {
 									case 0:
 										a.appearanceSettings(c)
 									case 1:
-										a.typographySettings(c)
+										a.editorSettings(c)
 									default:
-										a.modelSettings(c)
+										a.aiSettings(c)
 									}
 								})
 							})
 						})
 					})
 				})
-				footer := "设置会立即生效"
+				footer := locales.SettingsFooter()
 				if a.settingsTab == 2 {
-					footer = "模型设置保存后生效"
+					footer = locales.SettingsAIFooter()
+				} else {
+					footer = locales.SettingsFooter()
 				}
 				ui.Row(c).Height(34).Shrink(0).Padding(0, 16).Gap(7).AlignItems(ui.Center).
 					BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
@@ -2406,7 +3647,7 @@ func settingsRowToggleAction(c *ui.Context, label, detail string, on *bool, togg
 		})
 		checked := *on
 		control := ui.ButtonBase(c).Width(38).Height(22).Radius(11).Padding(2).
-			Label(label + "开关").Tooltip(label).AlignItems(ui.Center)
+			Label(locales.SettingsToggleStateLabel(label)).Tooltip(label).AlignItems(ui.Center)
 		if checked {
 			control.Background(t.Accent)
 		} else {
@@ -2426,12 +3667,33 @@ func settingsRowToggleAction(c *ui.Context, label, detail string, on *bool, togg
 
 func (a *App) appearanceSettings(c *ui.Context) {
 	t := c.Theme()
-	settingsGroup(c, "", func() {
+	settingsGroup(c, locales.Language(), func() {
+		settingsRow(c, locales.SettingsLanguage(), locales.SettingsLanguageDetail(), func() {
+			choices := []struct{ tag, label string }{
+				{"", locales.LanguageSystem()},
+				{"zh-Hans", locales.LanguageChinese()},
+				{"en", locales.LanguageEnglish()},
+			}
+			for _, choice := range choices {
+				choice := choice
+				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(choice.label)
+				selected := (choice.tag == "" && (!a.localeConfigured || a.localeSetting == "")) ||
+					(choice.tag != "" && a.localeConfigured && a.localeSetting == choice.tag)
+				if selected {
+					b.Background(c.Theme().Background).Border(1, c.Theme().Border)
+				} else if b.Hovered() {
+					b.Background(c.Theme().SurfaceHover)
+				}
+				b.OnClick(func() { a.setLocale(choice.tag) }).Children(func() { ui.Text(c, choice.label) })
+			}
+		})
+	})
+	settingsGroup(c, locales.ThemeTitle(), func() {
 		a.settingsDivider(c, false)
-		settingsRow(c, "主题", "编辑器与系统界面同步切换，也可跟随 macOS 外观。", func() {
-			for mode, label := range []string{"浅色", "深色", "跟随系统"} {
+		settingsRow(c, locales.ThemeTitle(), locales.ThemeDescription(), func() {
+			for mode, label := range []string{locales.ThemeLight(), locales.ThemeDark(), locales.ThemeSystem()} {
 				mode, label := mode, label
-				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label("主题：" + label)
+				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(locales.ThemeControl(label))
 				if a.themeMode == mode {
 					b.Background(c.Theme().Background).Border(1, c.Theme().Border)
 				} else if b.Hovered() {
@@ -2443,29 +3705,67 @@ func (a *App) appearanceSettings(c *ui.Context) {
 		a.settingsDivider(c, true)
 		a.accentSettings(c)
 		a.settingsDivider(c, true)
-		settingsRowToggle(c, "顶部模糊", "扁平风格下，头部浮在文档上：页面滚到它下面时模糊、淡出。关掉只有一块不透明的头部底色。", &a.headerFade)
+		settingsRowToggle(c, locales.MenuHeaderFade(), locales.SettingsHeaderFadeDetail(), &a.headerFade)
 	})
-	settingsGroup(c, "功能", func() {
-		settingsRowToggleAction(c, "AI 助手", "启用侧栏中的 AI 对话与 Agent 工具。", &a.aiEnabled, func() { a.setAIEnabled(!a.aiEnabled) })
+	settingsGroup(c, locales.SettingsNavigation(), func() {
+		settingsRowToggleAction(c, locales.SettingsSmoothPageJumps(), locales.SettingsSmoothPageJumpsDetail(), &a.smoothPageJumps, func() {
+			a.setSmoothPageJumps(!a.smoothPageJumps)
+		})
 	})
-	ui.Text(c, "native 渲染与编辑器共用同一套颜色；切换后立即生效。").
+	a.typographySettings(c)
+	ui.Text(c, locales.NativeRenderingNote()).
 		FontSize(11.5).TextColor(t.TextMuted).Padding(0, 4)
 }
 
 func (a *App) typographySettings(c *ui.Context) {
-	a.keymapSettings(c)
-	settingsGroup(c, "", func() {
+	settingsGroup(c, locales.SettingsTypography(), func() {
 		a.settingsDivider(c, false)
-		settingsRowToggleAction(c, "智能排版", "自动优化换行与间距，让段落更易读。", &a.smartTypography, func() { a.setSmartTypography(!a.smartTypography) })
+		settingsRowToggleAction(c, locales.SettingsSmartTypography(), locales.SettingsSmartTypographyDetail(), &a.smartTypography, func() { a.setSmartTypography(!a.smartTypography) })
 		a.settingsDivider(c, true)
-		settingsRow(c, "字号", "编辑器正文的基准字号。", func() {
+		settingsRow(c, locales.SettingsFontSize(), locales.SettingsFontSizeDetail(), func() {
 			ui.Textf(c, "%.0fpx", a.fontSize).FontSize(12).TextColor(c.Theme().TextMuted).Width(38)
-			ui.Slider(c, &a.fontSize, 12, 22).Width(190).Label("字号")
+			ui.Slider(c, &a.fontSize, 12, 22).Width(190).Label(locales.SettingsFontSize())
 		})
 		a.settingsDivider(c, true)
-		settingsRow(c, "行高", "正文的行距倍数。", func() {
+		settingsRow(c, locales.SettingsLineHeight(), locales.SettingsLineHeightDetail(), func() {
 			ui.Textf(c, "%.1f", a.lineHeight).FontSize(12).TextColor(c.Theme().TextMuted).Width(38)
-			ui.Slider(c, &a.lineHeight, 1.4, 2.2).Width(190).Label("行高")
+			ui.Slider(c, &a.lineHeight, 1.4, 2.2).Width(190).Label(locales.SettingsLineHeight())
+		})
+	})
+}
+
+func (a *App) editorSettings(c *ui.Context) {
+	settingsGroup(c, locales.SettingsKeymap(), func() { a.keymapSettings(c) })
+	settingsGroup(c, locales.SettingsCursor(), func() {
+		settingsRowToggleAction(c, locales.SettingsHideMouseCursor(), locales.SettingsHideMouseCursorDetail(), &a.hideMouseCursor, func() {
+			a.setHideMouseCursor(!a.hideMouseCursor)
+		})
+		a.settingsDivider(c, true)
+		settingsRowToggleAction(c, locales.SettingsCursorFade(), locales.SettingsCursorFadeDetail(), &a.cursorFade, func() { a.setCursorFade(!a.cursorFade) })
+		if a.ed.Keymap() == "vim" || a.ed.Keymap() == "helix" {
+			a.settingsDivider(c, true)
+			settingsRowToggleAction(c, locales.SettingsSmoothCursor(), locales.SettingsSmoothCursorDetail(), &a.smoothCursor, func() { a.setSmoothCursor(!a.smoothCursor) })
+		}
+	})
+	settingsGroup(c, locales.SettingsEditorGroup(), func() {
+		settingsRowToggleAction(c, locales.SettingsHeadingMarkerReveal(), locales.SettingsHeadingMarkerRevealDetail(), &a.headingMarkerReveal, func() {
+			a.setHeadingMarkerReveal(!a.headingMarkerReveal)
+		})
+	})
+	if a.ed.Keymap() == "vim" {
+		settingsGroup(c, "Vim", func() {
+			settingsRowToggleAction(c, locales.SettingsVimImageRows(), locales.SettingsVimImageRowsDetail(), &a.vimVirtualImageRows, func() {
+				a.setVimVirtualImageRows(!a.vimVirtualImageRows)
+			})
+			a.settingsDivider(c, true)
+			settingsRowToggleAction(c, locales.SettingsVimYankFlash(), locales.SettingsVimYankFlashDetail(), &a.vimYankFlash, func() {
+				a.setVimYankFlash(!a.vimYankFlash)
+			})
+		})
+	}
+	settingsGroup(c, locales.SettingsSearch(), func() {
+		settingsRowToggleAction(c, locales.SettingsSearchMatchPulse(), locales.SettingsSearchMatchPulseDetail(), &a.searchMatchPulse, func() {
+			a.setSearchMatchPulse(!a.searchMatchPulse)
 		})
 	})
 }
@@ -2494,8 +3794,16 @@ func (a *App) docDir() string {
 func (a *App) editorOptions() mdedit.Options {
 	return mdedit.Options{
 		DisableSmartTypography:  !a.smartTypography,
+		HeadingMarkerReveal:     a.headingMarkerReveal,
 		SoftBreaksAsSpaces:      false,
 		PreserveTypedLineBreaks: true,
+		VimVirtualImageRows:     a.vimVirtualImageRows,
+		CursorFade:              a.cursorFade,
+		SmoothCursor:            a.smoothCursor,
+		SmoothPageJumps:         a.smoothPageJumps,
+		SearchMatchPulse:        a.searchMatchPulse,
+		VimYankFlash:            a.vimYankFlash,
+		HideMouseCursor:         a.mouseCursorHidden,
 		Header:                  a.propertyHeader(),
 		HeaderHeight:            a.propertyHeaderHeight(),
 		HideFrontmatter:         a.propertiesEnabled() && !a.propertySourceMode && a.propertyDocument().Err == nil,
@@ -2504,8 +3812,8 @@ func (a *App) editorOptions() mdedit.Options {
 		MaxWidth:                800,
 		PadX:                    56,
 		BaseDir:                 a.docDir(),
-		Placeholder:             "开始写作…",
-		Label:                   "文档",
+		Placeholder:             locales.DocumentStartWriting(),
+		Label:                   locales.DocumentDefaultLabel(),
 		Code:                    codeLanguage(a.path),
 		Invalidate:              a.invalidate,
 		OnChange:                a.docChanged,
@@ -2513,24 +3821,27 @@ func (a *App) editorOptions() mdedit.Options {
 		OnWikiLinkHover: func(target string, x, y float32, bounds ui.Rect) {
 			a.hoverWikiLinkAt(target, x, y, bounds)
 		},
-		WikiLinkSuggestions: a.wikiLinkSuggestions,
-		ResolveWikiEmbed:    a.resolveWikiEmbed,
-		CurrentPath:         a.path,
-		ResolveWikiLink:     a.resolveWikiLinkStyle,
-		LinkRevision:        a.editorLinkRevision(),
-		LinkContext:         a.editorLinkContext(),
-		AssetRoot:           a.root,
-		OnImagePreview:      a.openImagePreview,
-		SaveImage:           a.saveImage,
-		OnDropFiles:         a.openDropped,
+		WikiLinkSuggestions:       a.wikiLinkSuggestions,
+		WikiLinkSuggestionDetails: a.wikiLinkSuggestionDetails,
+		ResolveWikiEmbed:          a.resolveWikiEmbed,
+		CurrentPath:               a.path,
+		ResolveWikiLink:           a.resolveWikiLinkStyle,
+		LinkRevision:              a.editorLinkRevision(),
+		LinkContext:               a.editorLinkContext(),
+		AssetRoot:                 a.root,
+		ResolveImage:              a.resolveVaultImage,
+		OnImagePreview:            a.openImagePreview,
+		SaveImage:                 a.saveImage,
+		OnDropFiles:               a.openDropped,
+		OnVaultItemDragOver:       func() { a.setTreeDragMoveOperation(treeDragInsertIntoEditor, "") },
 	}
 }
 
 func (a *App) editorLinkRevision() uint64 {
-	if a.vault == nil {
+	if a.vault == nil || a.vault.index == nil {
 		return 0
 	}
-	return a.vault.linkRevision
+	return a.vault.index.Revision()
 }
 
 func (a *App) editorLinkContext() string {
@@ -2632,6 +3943,7 @@ func (a *App) docChanged() {
 	a.source = src
 	a.dirty = true
 	a.documentChanged()
+	a.queueLinkIndexSnapshot()
 	a.refreshHeadings()
 	a.updateTitle()
 }
@@ -2678,7 +3990,7 @@ func (a *App) openLink(href string) {
 		slug := strings.TrimPrefix(href, "#")
 		for _, h := range a.headings {
 			if headingSlug(h.text) == strings.ToLower(slug) {
-				a.ed.ScrollToOffset(h.offset)
+				a.ed.NavigateToOffset(h.offset, mdedit.PageJumpTopMargin)
 				return
 			}
 		}
@@ -2897,7 +4209,7 @@ func (a *App) docPath() string {
 		return path
 	}
 	if a.path == "" {
-		return "未命名"
+		return locales.DocumentUntitled()
 	}
 	if a.root == "" {
 		return a.path
@@ -2940,14 +4252,14 @@ func (a *App) displayName() string {
 		return filepath.Base(a.imageDocument.path)
 	}
 	if a.path == "" {
-		return "未命名"
+		return locales.DocumentUntitled()
 	}
 	return filepath.Base(a.path)
 }
 
 func (a *App) location() string {
 	if a.path == "" {
-		return "未保存"
+		return locales.DocumentNotSaved()
 	}
 	if a.root != "" {
 		if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
@@ -3070,7 +4382,7 @@ func (a *App) updateTitle() {
 	if a.dirty {
 		name = "● " + name
 	}
-	a.win.SetTitle(name + " — Muse")
+	a.win.SetTitle(name + " — " + locales.AppTitle())
 }
 
 func (a *App) invalidate() {

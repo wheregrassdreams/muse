@@ -40,6 +40,33 @@ func TestWikiLinkHoverPreviewDelayAndDismissal(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSearchModalCoversWikiPreview(t *testing.T) {
+	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{
+		"Target.md": "# Preview target\n\nThis hover preview must stay below the search dialog.",
+	})
+	waitDocument(t, tt, func() bool {
+		_, ok := a.vault.index.Document("Target.md")
+		return ok
+	})
+	trigger := ui.Rect{X: 1000, Y: 700, W: 80, H: 20}
+	a.hoverWikiLinkAt("Target", trigger.X, trigger.Y, trigger)
+	time.Sleep(wikiLinkPreviewDelay + 20*time.Millisecond)
+	a.openWorkspaceSearch()
+	tt.Frame()
+	if !a.workspaceSearch || !tt.HasText("搜索笔记库") {
+		t.Fatal("workspace search did not open over the hover preview")
+	}
+
+	// The preview is positioned partly under the dialog. A pointer over that
+	// overlap must belong to the modal, not activate the obscured preview.
+	tt.Move(940, 600)
+	tt.Frame()
+	if tt.HasText("This hover preview must stay below the search dialog") || a.linkPreview.overlayHovered {
+		t.Fatal("hover preview stayed visible or received the pointer above the search dialog")
+	}
+	runtimeShot(t, tt, "workspace-search-over-link-preview")
+}
+
 func TestWikiPreviewClosesAfterScrolledExit(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
@@ -248,9 +275,9 @@ func TestFixtureBacklinksDisplayAndNavigateNestedVaultSource(t *testing.T) {
 		for _, link := range a.vault.incoming {
 			seen[link.Source] = true
 		}
-		return seen["Home.md"] && seen["Journal/2026-11-12.md"] && seen["Projects/Atlas/Design Notes.md"]
+		return seen["Home.md"] && seen["Journal/2026-11-12.md"] && seen["Projects/Atlas/Design Notes.md"] && seen["Projects/Atlas/Rendering Notes.md"]
 	})
-	for _, path := range []string{"Home.md", "Journal/2026-11-12.md", "Projects/Atlas/Design Notes.md"} {
+	for _, path := range []string{"Home.md", "Journal/2026-11-12.md", "Projects/Atlas/Design Notes.md", "Projects/Atlas/Rendering Notes.md"} {
 		if !tt.HasText(path) {
 			t.Errorf("fixture backlinks UI omitted %q: %q", path, tt.Texts())
 		}
@@ -269,9 +296,7 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool { return a.vault != nil && a.vault.index != nil })
 	item := filepath.Join(a.root, "Home.md")
-	if err := tt.RightClick("Home.md"); err != nil {
-		t.Fatalf("right-click vault tree note: %v", err)
-	}
+	rightClickTreeRow(t, tt, "Home.md")
 	if err := tt.ChooseMenuItem("更改图标…"); err != nil {
 		t.Fatalf("open tree icon picker from context menu: %v", err)
 	}
@@ -347,9 +372,7 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 		t.Fatalf("persisted icon key lookup = %q", got)
 	}
 	runtimeShot(t, tt, "nav-tree-custom-icon")
-	if err := tt.RightClick("Home.md"); err != nil {
-		t.Fatalf("reopen tree context menu: %v", err)
-	}
+	rightClickTreeRow(t, tt, "Home.md")
 	if err := tt.ChooseMenuItem("更改图标…"); err != nil {
 		t.Fatalf("reopen tree icon picker: %v", err)
 	}
@@ -373,7 +396,7 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 }
 
 func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
-	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Projects/Atlas/Note.md": "nested"})
+	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Projects/Atlas/Note.md": "---\naliases: [Quick Tag]\n---\n# Display title\n\nnested"})
 	waitDocument(t, tt, func() bool {
 		_, ok := a.vault.index.Document("Projects/Atlas/Note.md")
 		return ok
@@ -382,6 +405,10 @@ func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
 	got := a.wikiLinkSuggestions("Not")
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("wiki suggestion targets = %#v, want %#v", got, want)
+	}
+	details := a.wikiLinkSuggestionDetails("Quick Tag")
+	if len(details) != 1 || details[0].Target != "Projects/Atlas/Note" || details[0].Title != "Display title" || len(details[0].Aliases) != 1 || details[0].Aliases[0] != "Quick Tag" {
+		t.Fatalf("wiki suggestion details = %#v", details)
 	}
 }
 

@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	"muse/locales"
 	"sort"
 	"strings"
 
@@ -23,21 +24,22 @@ func (a *App) paletteCommands() []paletteCommand {
 		return func() { a.togglePanel(p) }
 	}
 	cmds := []paletteCommand{
-		{name: "新建文档", hint: "⌘N", run: a.newDoc},
-		{name: "保存", hint: "⌘S", run: a.save},
-		{name: "另存为…", hint: "⇧⌘S", run: a.saveAs},
-		{name: "跳转到文件", hint: "⌘O", run: a.openQuickOpen},
-		{name: "打开文件…", hint: "", run: a.openFileDialog},
-		{name: "打开文件夹…", hint: "⇧⌘O", run: a.openFolderDialog},
-		{name: "新建文件", hint: "", run: func() { a.newFileIn(a.createTarget()) }},
-		{name: "新建文件夹", hint: "", run: func() { a.newFolderIn(a.createTarget()) }},
-		{name: "文件面板", hint: "", run: toggle(panelFiles)},
-		{name: "大纲面板", hint: "", run: toggle(panelOutline)},
-		{name: "搜索笔记库", hint: "⇧⌘F", run: a.openWorkspaceSearch},
-		{name: "设置…", hint: "", run: a.openSettings},
+		{name: locales.DocumentNew(), hint: "⌘N", run: a.newDoc},
+		{name: locales.MenuSave(), hint: "⌘S", run: a.save},
+		{name: locales.CommonSaveAs(), hint: "⇧⌘S", run: a.saveAs},
+		{name: locales.MenuWorkspaceSearch(), hint: "⌘O", run: a.openWorkspaceSearch},
+		{name: locales.WorkspaceQuickOpenPath(), run: a.openQuickOpen},
+		{name: locales.CommonOpenFile(), hint: "", run: a.openFileDialog},
+		{name: locales.CommonOpenFolder(), hint: "⇧⌘O", run: a.openFolderDialog},
+		{name: locales.PaletteNewFile(), hint: "", run: func() { a.newFileIn(a.createTarget()) }},
+		{name: locales.PaletteNewFolder(), hint: "", run: func() { a.newFolderIn(a.createTarget()) }},
+		{name: locales.WorkspaceFilePanel(), hint: "", run: toggle(panelFiles)},
+		{name: locales.WorkspaceOutlinePanel(), hint: "", run: toggle(panelOutline)},
+		{name: locales.MenuSearchWorkspace(), hint: "⇧⌘F", run: a.openWorkspaceSearch},
+		{name: locales.MenuSettings(), hint: "", run: a.openSettings},
 	}
 	if a.aiEnabled {
-		cmds = append(cmds, paletteCommand{name: "AI 助手面板", run: toggle(panelAI)})
+		cmds = append(cmds, paletteCommand{name: locales.AiAssistantPanel(), run: toggle(panelAI)})
 	}
 	return cmds
 }
@@ -126,11 +128,11 @@ func (a *App) commandPaletteDialog(c *ui.Context) {
 			Background(t.Background).Border(1, t.Border).
 			Shadow(0, 12, 32, -6, ui.RGBA(0, 0, 0, 0.28)).
 			Padding(10).Gap(8).Children(func() {
-			ui.TextInput(c, &a.cmdValue).Placeholder("运行命令…").Label("命令面板").
+			ui.TextInput(c, &a.cmdValue).Placeholder(locales.CommandPalettePlaceholder()).Label(locales.CommandPaletteTitle()).
 				AutoFocus().OnSubmit(func() { a.applyCommandPalette() })
 			cands := a.paletteCandidates()
 			if len(cands) == 0 {
-				ui.Text(c, "没有匹配的命令").FontSize(12).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+				ui.Text(c, locales.CommandPaletteNoMatch()).FontSize(12).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 				return
 			}
 			if a.cmdSel >= len(cands) {
@@ -171,7 +173,7 @@ func (a *App) commandPaletteDialog(c *ui.Context) {
 				})
 			}
 			ui.Row(c).Height(18).Padding(0, 2).Children(func() {
-				ui.Textf(c, "%d 条命令 · ↑↓ 选择 · ↵ 运行 · Esc 关闭", len(cands)).
+				ui.Text(c, locales.CommandPaletteCount(len(cands))).
 					FontSize(10).TextColor(t.TextMuted)
 			})
 		})

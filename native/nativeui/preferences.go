@@ -3,8 +3,11 @@ package nativeui
 import (
 	"encoding/json"
 	"muse/appearance"
+	"muse/locales"
 	"os"
 	"path/filepath"
+
+	"github.com/egoist/mygo"
 )
 
 const (
@@ -14,9 +17,12 @@ const (
 )
 
 type nativePreferences struct {
-	Theme     string `json:"theme,omitempty"`
-	Accent    string `json:"accent,omitempty"`
-	AIEnabled bool   `json:"aiEnabled,omitempty"`
+	Theme            string `json:"theme,omitempty"`
+	Accent           string `json:"accent,omitempty"`
+	AIEnabled        bool   `json:"aiEnabled,omitempty"`
+	SmoothPageJumps  bool   `json:"smoothPageJumps,omitempty"`
+	Locale           string `json:"locale,omitempty"`
+	LocaleConfigured bool   `json:"localeConfigured,omitempty"`
 }
 
 func nativePreferencesPath() string {
@@ -41,6 +47,15 @@ func loadNativePreferences() nativePreferences {
 
 func (a *App) applyNativePreferences(p nativePreferences) {
 	a.aiEnabled = p.AIEnabled
+	a.smoothPageJumps = p.SmoothPageJumps
+	a.localeConfigured = p.LocaleConfigured
+	a.localeSetting = p.Locale
+	if p.LocaleConfigured {
+		mygo.App.SetLocale(p.Locale)
+	}
+	if a.ed != nil {
+		a.ed.SetOptions(a.editorOptions())
+	}
 	a.accentID = appearance.Normalize(p.Accent)
 	if mode, ok := themeModeFromPreference(p.Theme); ok {
 		a.themeMode = mode
@@ -63,7 +78,11 @@ func themeModeFromPreference(value string) (int, bool) {
 }
 
 func (a *App) saveNativePreferences() error {
-	p := nativePreferences{AIEnabled: a.aiEnabled, Accent: appearance.Normalize(a.accentID)}
+	p := nativePreferences{
+		AIEnabled: a.aiEnabled, SmoothPageJumps: a.smoothPageJumps,
+		Accent: appearance.Normalize(a.accentID), Locale: a.localeSetting,
+		LocaleConfigured: a.localeConfigured,
+	}
 	switch a.themeMode {
 	case themeDark:
 		p.Theme = "dark"
@@ -83,6 +102,18 @@ func (a *App) saveNativePreferences() error {
 	return os.WriteFile(path, b, 0o600)
 }
 
+func (a *App) setLocale(tag string) {
+	if a.localeConfigured && a.localeSetting == tag {
+		return
+	}
+	a.localeConfigured = true
+	a.localeSetting = tag
+	if err := a.saveNativePreferences(); err != nil {
+		a.notice(locales.CommonSettingSaveError(err.Error()))
+	}
+	mygo.App.SetLocale(tag)
+}
+
 func (a *App) setThemeMode(mode int) {
 	if mode < themeLight || mode > themeSystem || a.themeMode == mode {
 		return
@@ -90,7 +121,7 @@ func (a *App) setThemeMode(mode int) {
 	a.themeMode = mode
 	a.themeApplied = -1
 	if err := a.saveNativePreferences(); err != nil {
-		a.notice("保存设置失败：" + err.Error())
+		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}
 	a.invalidate()
 }
@@ -104,7 +135,19 @@ func (a *App) setAIEnabled(enabled bool) {
 		a.showPanel(panelFiles)
 	}
 	if err := a.saveNativePreferences(); err != nil {
-		a.notice("保存设置失败：" + err.Error())
+		a.notice(locales.CommonSettingSaveError(err.Error()))
+	}
+	a.invalidate()
+}
+
+func (a *App) setSmoothPageJumps(enabled bool) {
+	if a.smoothPageJumps == enabled {
+		return
+	}
+	a.smoothPageJumps = enabled
+	a.ed.SetOptions(a.editorOptions())
+	if err := a.saveNativePreferences(); err != nil {
+		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}
 	a.invalidate()
 }
