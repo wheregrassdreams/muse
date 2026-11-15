@@ -1,7 +1,6 @@
 package nativeui
 
 import (
-	"os"
 	"path/filepath"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	doctypes "muse/nativeui/components/doctypes"
 	"muse/nativeui/interactions"
 	"muse/nativeui/panels/filetree"
+	vaultfiles "muse/vault/files"
 )
 
 const (
@@ -108,8 +108,8 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 	}
 	drag := filetree.DragPort[mdedit.VaultItemDrag]{
 		Make: func(entryID string, _ []string) mdedit.VaultItemDrag {
-			info, err := os.Stat(entryID)
-			return mdedit.VaultItemDrag{Path: entryID, Name: filepath.Base(entryID), Directory: err == nil && info.IsDir()}
+			entry, ok := a.catalogEntry(entryID)
+			return mdedit.VaultItemDrag{Path: entryID, Name: filepath.Base(entryID), Directory: ok && entry.Kind == vaultfiles.EntryDirectory}
 		},
 		IDs: func(payload mdedit.VaultItemDrag) []string {
 			if payload.Path == "" {
@@ -196,8 +196,8 @@ func (a *App) fileTreeDragProjection(c *ui.Context, rows []fileRow, wasDragging 
 			}
 			continue
 		}
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
+		entry, ok := a.catalogEntry(path)
+		if !ok || entry.Kind != vaultfiles.EntryRegular {
 			selectedFilesOnly = false
 			break
 		}
@@ -224,14 +224,13 @@ func (a *App) fileTreeDragProjection(c *ui.Context, rows []fileRow, wasDragging 
 	}
 }
 
-func treeProjectionSelectionLabel(paths []string) (int, bool) {
+func treeProjectionSelectionLabel(paths []string, isDirectory func(string) bool) (int, bool) {
 	if len(paths) == 0 {
 		return 0, false
 	}
 	allFiles := true
 	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
+		if isDirectory == nil || isDirectory(path) {
 			allFiles = false
 			break
 		}
@@ -314,11 +313,6 @@ func (a *App) handleFileTreeAction(c *ui.Context, action filetree.Action[mdedit.
 		a.treeDragging = true
 		a.treeDragFrames++
 		a.treeDragSelection = append(a.treeDragSelection[:0], action.ItemIDs...)
-		if len(action.ItemIDs) > 0 {
-			if info, err := os.Stat(action.ItemIDs[0]); err == nil {
-				a.treeDragItem = mdedit.VaultItemDrag{Path: action.ItemIDs[0], Name: filepath.Base(action.ItemIDs[0]), Directory: info.IsDir()}
-			}
-		}
 		a.treeDragItem = action.Payload
 		if a.treeDragStarted.IsZero() {
 			a.treeDragStarted = c.Now()
@@ -393,8 +387,7 @@ func (a *App) invokeFileTreeContextCommand(path, command string) {
 }
 
 func (a *App) treeDropDestination(path string) string {
-	info, err := os.Stat(path)
-	if err == nil && info.IsDir() {
+	if a.catalogIsDirectory(path) {
 		return path
 	}
 	return filepath.Dir(path)
@@ -403,9 +396,9 @@ func (a *App) treeDropDestination(path string) string {
 func (a *App) treeDragItems(paths []string) []mdedit.VaultItemDrag {
 	items := make([]mdedit.VaultItemDrag, 0, len(paths))
 	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err == nil {
-			items = append(items, mdedit.VaultItemDrag{Path: path, Name: filepath.Base(path), Directory: info.IsDir()})
+		entry, ok := a.catalogEntry(path)
+		if ok {
+			items = append(items, mdedit.VaultItemDrag{Path: path, Name: filepath.Base(path), Directory: entry.Kind == vaultfiles.EntryDirectory})
 		}
 	}
 	return items

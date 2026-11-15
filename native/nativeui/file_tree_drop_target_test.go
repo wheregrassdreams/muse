@@ -43,7 +43,7 @@ func TestTreeDragIntoNestedDescendantTargetsContainingDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.expanded[aPath], a.expanded[bPath] = true, true
 	tt := ui.NewTester(a.View, 1000, 720)
@@ -85,7 +85,7 @@ func TestTreeDragHoverExpandsCollapsedDirectFolderTarget(t *testing.T) {
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -128,7 +128,7 @@ func TestTreeDragAutoExpandDoesNotDropIfReleasedOutsideTree(t *testing.T) {
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -172,7 +172,7 @@ func TestTreeDragAutoExpandDoesNotDropOnTreeListBlank(t *testing.T) {
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -223,7 +223,7 @@ func TestTreeDragAutoExpandCanceledPressDoesNotCommit(t *testing.T) {
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -265,7 +265,7 @@ func TestExternalFileDropOverNestedSubtreeUsesResolvedParent(t *testing.T) {
 	if err := os.WriteFile(source, []byte("external"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.expanded[aPath], a.expanded[bPath] = true, true
 	tt := ui.NewTester(a.View, 1000, 720)
@@ -304,7 +304,7 @@ func TestExternalFileDropAfterFolderHoverFallsBackToRootOnListBlank(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.expanded[folder] = true
 	tt := ui.NewTester(a.View, 1000, 720)

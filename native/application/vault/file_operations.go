@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+
+	vaultfiles "muse/vault/files"
 )
 
 // FileSystem is the platform capability required by vault file operations.
@@ -33,6 +35,29 @@ type FileOperations struct{ fs FileSystem }
 
 func NewFileOperations(filesystem FileSystem) *FileOperations {
 	return &FileOperations{fs: filesystem}
+}
+
+// Kind returns a backend-neutral type for a path, including paths outside the
+// active vault (for example, an operating-system file drop). It does not
+// follow a final symlink.
+func (o *FileOperations) Kind(path string) (vaultfiles.EntryKind, error) {
+	if o == nil || o.fs == nil {
+		return vaultfiles.EntryOther, errors.New("vault file operations are not configured")
+	}
+	info, err := o.fs.Lstat(path)
+	if err != nil {
+		return vaultfiles.EntryOther, err
+	}
+	switch {
+	case info.Mode()&fs.ModeSymlink != 0:
+		return vaultfiles.EntrySymlink, nil
+	case info.IsDir():
+		return vaultfiles.EntryDirectory, nil
+	case info.Mode().IsRegular():
+		return vaultfiles.EntryRegular, nil
+	default:
+		return vaultfiles.EntryOther, nil
+	}
 }
 
 // Move moves valid non-symlink vault entries into a vault directory. Completed

@@ -19,7 +19,7 @@ func TestFileRowsCacheReusesAndInvalidatesFlattenedTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.root = root
 	first := a.fileRows()
 	second := a.fileRows()

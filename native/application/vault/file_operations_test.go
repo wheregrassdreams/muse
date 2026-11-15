@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	vaultfiles "muse/vault/files"
 )
 
 type localFileSystem struct {
@@ -60,6 +62,31 @@ func (localFileSystem) Copy(source, destination string) error {
 		}
 		return os.WriteFile(target, body, 0o644)
 	})
+}
+
+func TestFileOperationsKindReturnsTypedPathInformation(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "note.md")
+	if err := os.WriteFile(file, []byte("note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ops := NewFileOperations(&localFileSystem{})
+	for _, tc := range []struct {
+		path string
+		want vaultfiles.EntryKind
+	}{{root, vaultfiles.EntryDirectory}, {file, vaultfiles.EntryRegular}} {
+		got, err := ops.Kind(tc.path)
+		if err != nil || got != tc.want {
+			t.Errorf("Kind(%q) = %v, %v; want %v", tc.path, got, err, tc.want)
+		}
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(root, link); err == nil {
+		got, err := ops.Kind(link)
+		if err != nil || got != vaultfiles.EntrySymlink {
+			t.Errorf("Kind(symlink) = %v, %v; want symlink", got, err)
+		}
+	}
 }
 
 func TestFileOperationsMoveCollisionAndRejectsOutsideRoot(t *testing.T) {

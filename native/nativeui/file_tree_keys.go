@@ -3,7 +3,6 @@ package nativeui
 import (
 	"errors"
 	"muse/locales"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -728,7 +727,7 @@ func (a *App) treeIsDir(path string) bool {
 func (a *App) treeActionTarget() string {
 	path := a.treeFocusPath
 	if path != "" {
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
+		if a.catalogIsDirectory(path) {
 			return path
 		}
 		return filepath.Dir(path)
@@ -798,7 +797,7 @@ func (a *App) pasteTreeClipboard() error {
 		return errors.New("vault file operations are not configured")
 	}
 	if !a.treeIsDir(destination) {
-		if info, err := os.Stat(destination); err != nil || !info.IsDir() {
+		if !a.catalogIsDirectory(destination) {
 			destination = filepath.Dir(destination)
 		}
 	}

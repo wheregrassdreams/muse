@@ -50,7 +50,8 @@ import (
 	vaultsearch "muse/search"
 	appearance "muse/theme"
 	iconlibrary "muse/ui/iconlibrary"
-	scrollui "muse/ui/scrollbar"
+	"muse/ui/scrollbar"
+	vaultfiles "muse/vault/files"
 	vaultwatch "muse/vault/watch"
 	"muse/workspace"
 )
@@ -166,7 +167,7 @@ type App struct {
 	vaultSearchSubmittedLiteral bool
 	vaultSearchDue              time.Time
 	vaultLinksScroll            ui.ScrollState
-	vaultLinksIndicator         scrollui.Indicator
+	vaultLinksIndicator         scrollbar.Indicator
 	pendingLinks                bool
 	pendingWiki                 string
 	workspaceSearch             bool
@@ -174,7 +175,7 @@ type App struct {
 	workspaceSearchSel          int
 	workspaceScroll             ui.ScrollState
 	workspaceSearchResults      ui.ListState
-	workspaceIndicator          scrollui.Indicator
+	workspaceIndicator          scrollbar.Indicator
 	workspaceReveal             bool
 	workspaceSubmit             bool
 	workspaceInputFocus         ui.Handle
@@ -287,7 +288,7 @@ type App struct {
 	fileRowsCacheRoot       string
 	fileRowsDirty           bool
 	fileScroll              ui.ScrollState
-	fileIndicator           scrollui.Indicator
+	fileIndicator           scrollbar.Indicator
 	treeDragging            bool
 	treeDragItem            mdedit.VaultItemDrag
 	treeDragPointer         ui.Point
@@ -314,9 +315,9 @@ type App struct {
 	treePressY              float32
 	treePressApplied        bool
 	outlineScroll           ui.ScrollState
-	outlineIndicator        scrollui.Indicator
+	outlineIndicator        scrollbar.Indicator
 	searchScroll            ui.ScrollState
-	searchIndicator         scrollui.Indicator
+	searchIndicator         scrollbar.Indicator
 	selectedPath            string
 	focusedPanel            interactions.PanelID
 	treeFocusPath           string
@@ -332,7 +333,7 @@ type App struct {
 	lastPanelAction         interactions.ActionID
 	propertiesOpen          bool
 	propertyScroll          ui.ScrollState
-	propertyIndicator       scrollui.Indicator
+	propertyIndicator       scrollbar.Indicator
 
 	// document: the editor owns the Markdown being written; source mirrors
 	// it for what reads the document (saving, search, the AI's tools), and
@@ -369,9 +370,9 @@ type App struct {
 	localeConfigured       bool
 	settingsDrag           ui.Point
 	settingsScroll         ui.ScrollState
-	settingsIndicator      scrollui.Indicator
+	settingsIndicator      scrollbar.Indicator
 	aiEnabled              bool
-	aiIndicator            scrollui.Indicator
+	aiIndicator            scrollbar.Indicator
 	fontSize               float64
 	lineHeight             float64
 	smartTypography        bool
@@ -1575,7 +1576,7 @@ func (a *App) treeDraggedPaths(primary string) []string {
 		covered := false
 		for parent := filepath.Dir(path); parent != path; {
 			if selected[parent] {
-				if info, err := os.Stat(parent); err == nil && info.IsDir() {
+				if a.catalogIsDirectory(parent) {
 					covered = true
 					break
 				}
@@ -2232,8 +2233,10 @@ func (a *App) editorHeader(c *ui.Context) {
 				chars, _, lines := countText(a.source)
 				m.Item(locales.DocumentPathValue(a.docPath()))
 				m.Item(locales.DocumentCharacterLineCount(chars, lines))
-				if st, err := os.Stat(a.path); err == nil {
-					m.Item(locales.DocumentModifiedAt(st.ModTime()))
+				if a.metadataReader != nil {
+					if metadata, err := a.metadataReader.ReadMetadata(a.path); err == nil && !metadata.ModifiedAt.IsZero() {
+						m.Item(locales.DocumentModifiedAt(metadata.ModifiedAt))
+					}
 				}
 				m.Separator()
 				if m.Item(locales.FilesInFinder()).Chosen() && a.path != "" {
@@ -2317,25 +2320,30 @@ func (a *App) children(dir string) []string {
 	if entries, ok := a.dirs[dir]; ok {
 		return entries
 	}
-	des, err := os.ReadDir(dir)
-	if err != nil {
+	if a.vault == nil || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(a.root) {
 		a.dirs[dir] = nil
 		return nil
 	}
-	names := make([]string, 0, len(des))
-	for _, de := range des {
-		name := de.Name()
+	rel, err := filepath.Rel(a.root, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		a.dirs[dir] = nil
+		return nil
+	}
+	entries := a.vault.Children(filepath.ToSlash(rel))
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := filepath.Base(filepath.FromSlash(entry.Path))
 		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			continue
 		}
-		path := filepath.Join(dir, name)
-		if de.IsDir() {
-			a.isDir[path] = true
-			names = append(names, path)
+		fullPath := filepath.Join(a.root, filepath.FromSlash(entry.Path))
+		if entry.Kind == vaultfiles.EntryDirectory {
+			a.isDir[fullPath] = true
+			names = append(names, fullPath)
 			continue
 		}
-		if isVisibleWorkspaceFile(path) {
-			names = append(names, path)
+		if entry.Kind == vaultfiles.EntryRegular && isVisibleWorkspaceFile(fullPath) {
+			names = append(names, fullPath)
 		}
 	}
 	sort.SliceStable(names, func(i, j int) bool {
@@ -2347,6 +2355,32 @@ func (a *App) children(dir string) []string {
 	})
 	a.dirs[dir] = names
 	return names
+}
+
+func (a *App) catalogEntry(path string) (vaultfiles.Entry, bool) {
+	if a == nil || a.vault == nil || a.root == "" || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(a.root) {
+		return vaultfiles.Entry{}, false
+	}
+	rel, err := filepath.Rel(a.root, path)
+	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return vaultfiles.Entry{}, false
+	}
+	return a.vault.Entry(filepath.ToSlash(rel))
+}
+
+func (a *App) catalogIsDirectory(path string) bool {
+	entry, ok := a.catalogEntry(path)
+	return ok && entry.Kind == vaultfiles.EntryDirectory
+}
+
+func (a *App) pathKind(path string) (vaultfiles.EntryKind, error) {
+	if entry, ok := a.catalogEntry(path); ok {
+		return entry.Kind, nil
+	}
+	if a == nil || a.fileOperations == nil {
+		return vaultfiles.EntryOther, errors.New("vault file metadata is not configured")
+	}
+	return a.fileOperations.Kind(path)
 }
 
 func (a *App) startBusy() {
@@ -2440,7 +2474,8 @@ func (a *App) openFileDialog() {
 			a.finish(nil)
 			return
 		}
-		data, err := os.ReadFile(paths[0])
+		note, err := a.documentSession.Load(paths[0])
+		data := []byte(note.Source)
 		if err != nil {
 			errorDialog(locales.DialogOpenFailed(), err.Error())
 			a.finish(nil)
@@ -2465,7 +2500,8 @@ func (a *App) openPathNow(path string) {
 		a.invalidate()
 		return
 	}
-	data, err := os.ReadFile(path)
+	note, err := a.documentSession.Load(path)
+	data := []byte(note.Source)
 	if err != nil {
 		a.notice(locales.CommonOpenFileFailed(err.Error()))
 		a.invalidate()
@@ -2505,7 +2541,8 @@ func (a *App) requestOpen(path string) {
 			a.finish(func() { a.indexedPath = "" })
 			return
 		}
-		data, err := os.ReadFile(path)
+		note, err := a.documentSession.Load(path)
+		data := []byte(note.Source)
 		if err != nil {
 			errorDialog(locales.DialogOpenFailed(), err.Error())
 			a.finish(nil)
@@ -3467,7 +3504,8 @@ func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTarget
 // openDropped opens the first document among files dropped on the editor.
 func (a *App) openDropped(paths []string) {
 	for _, p := range paths {
-		if st, err := os.Stat(p); err == nil && st.IsDir() {
+		kind, err := a.pathKind(p)
+		if err == nil && kind == vaultfiles.EntryDirectory {
 			a.setWorkspace(p)
 			a.invalidate()
 			return
@@ -3599,7 +3637,7 @@ func (a *App) openLink(href string) {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(a.docDir(), filepath.FromSlash(p))
 	}
-	if st, err := os.Stat(p); err == nil && !st.IsDir() && isEditableFile(p) {
+	if kind, err := a.pathKind(p); err == nil && kind == vaultfiles.EntryRegular && isEditableFile(p) {
 		a.requestOpen(p)
 		return
 	}
@@ -3643,12 +3681,18 @@ func resolveWiki(root, docDir string, files []fileRow, target string) string {
 		target += ".md"
 	}
 	rel := filepath.FromSlash(target)
+	filesByPath := make(map[string]bool, len(files))
+	for _, file := range files {
+		if !file.dir {
+			filesByPath[filepath.Clean(file.path)] = true
+		}
+	}
 	for _, base := range []string{root, docDir} {
 		if base == "" {
 			continue
 		}
 		p := filepath.Join(base, rel)
-		if st, err := os.Stat(p); err == nil && !st.IsDir() && isEditableFile(p) {
+		if filesByPath[filepath.Clean(p)] && isEditableFile(p) {
 			return p
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -105,6 +106,38 @@ func sessionTestDependencies(t *testing.T, watcher *sessionTestWatcher) SessionD
 		},
 		NewWatcher:       func(string) (WatcherPort, error) { return watcher, nil },
 		SearchReconciler: inProcessSearchReconciler{store: cache},
+	}
+}
+
+func TestSessionExposesCatalogChildrenAndEntry(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes", "child.md"), []byte("# Child"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	watcher := newSessionTestWatcher()
+	session, err := NewSession(root, sessionTestDependencies(t, watcher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	waitSession(t, session, func(snapshot Snapshot) bool { return snapshot.Ready })
+
+	entries := session.Children("")
+	want := []vaultfiles.Entry{{Path: "empty", Kind: vaultfiles.EntryDirectory}, {Path: "notes", Kind: vaultfiles.EntryDirectory}}
+	if !reflect.DeepEqual(entries, want) {
+		t.Fatalf("root children = %+v, want %+v", entries, want)
+	}
+	if got := session.Children("notes"); !reflect.DeepEqual(got, []vaultfiles.Entry{{Path: "notes/child.md", Kind: vaultfiles.EntryRegular}}) {
+		t.Fatalf("notes children = %+v", got)
+	}
+	if got, ok := session.Entry("notes"); !ok || got.Kind != vaultfiles.EntryDirectory {
+		t.Fatalf("notes entry = %+v, %v", got, ok)
 	}
 }
 

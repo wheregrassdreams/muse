@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"muse/search"
+	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
 	vaultlinks "muse/vault/links"
 	vaultwatch "muse/vault/watch"
@@ -38,6 +39,8 @@ type CatalogPort interface {
 	Paths() []string
 	ImagePaths() []string
 	FindImage(name string) string
+	Children(directory string) []vaultfiles.Entry
+	Entry(path string) (vaultfiles.Entry, bool)
 }
 
 type CatalogFactory func(root string) (CatalogPort, error)

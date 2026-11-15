@@ -120,6 +120,10 @@ func (a *App) handleVaultResult(session *applicationvault.Session, result applic
 	a.vaultSnapshot = result.Snapshot
 	switch result.Kind {
 	case applicationvault.SessionReady:
+		// setWorkspace can be called before vaultTick creates the session. In
+		// that interval children(root) caches an empty result; invalidate it as
+		// soon as the initial catalog is ready so the first tree render sees it.
+		a.clearTreeCache()
 		if result.Err != nil {
 			a.notice(locales.VaultIndexWatchError(result.Err.Error()))
 		}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"muse/search"
+	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
 	vaultlinks "muse/vault/links"
 	vaultwatch "muse/vault/watch"
@@ -436,6 +437,37 @@ func (s *Session) ImagePaths() []string {
 		return nil
 	}
 	return append([]string(nil), catalog.ImagePaths()...)
+}
+
+// Children returns a detached list of immediate entries under a
+// vault-relative directory. The empty path addresses the vault root.
+func (s *Session) Children(directory string) []vaultfiles.Entry {
+	if s == nil || !s.beginOperation() {
+		return nil
+	}
+	defer s.endOperation()
+	s.mu.RLock()
+	catalog, closed := s.catalog, s.closed
+	s.mu.RUnlock()
+	if closed || catalog == nil {
+		return nil
+	}
+	return append([]vaultfiles.Entry(nil), catalog.Children(directory)...)
+}
+
+// Entry returns the current catalog kind for one vault-relative path.
+func (s *Session) Entry(path string) (vaultfiles.Entry, bool) {
+	if s == nil || !s.beginOperation() {
+		return vaultfiles.Entry{}, false
+	}
+	defer s.endOperation()
+	s.mu.RLock()
+	catalog, closed := s.catalog, s.closed
+	s.mu.RUnlock()
+	if closed || catalog == nil {
+		return vaultfiles.Entry{}, false
+	}
+	return catalog.Entry(path)
 }
 
 // HasImage reports whether the active catalog contains the exact image path.

@@ -25,7 +25,7 @@ func keyTestWorkspace(t *testing.T) string {
 
 func TestFileTreeFocusNavigationDoesNotMoveEditorSelection(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetSource("line one\nline two\nline three")
 	a.ed.SetKeymap("vim")
@@ -76,7 +76,7 @@ func TestFileTreeFocusNavigationDoesNotMoveEditorSelection(t *testing.T) {
 func TestFileTreeMultiCopyCutPasteUsesAppClipboard(t *testing.T) {
 	root := keyTestWorkspace(t)
 	dest := filepath.Join(root, "dest")
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -139,7 +139,7 @@ func TestFileTreeMultiCopyCutPasteUsesAppClipboard(t *testing.T) {
 
 func TestFileTreeModalKeepsShortcutsFromTree(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
@@ -196,7 +196,7 @@ func TestFileTreeVimNodeSelectionAndRefreshOperations(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dest, "note.md"), []byte("# note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetKeymap("vim")
 	a.expanded[dest] = true
@@ -275,7 +275,7 @@ func TestFileTreeVimNodeSelectionAndRefreshOperations(t *testing.T) {
 
 func TestVimTreeBindingsDoNotRunOutsideVimTreeFocus(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetKeymap("default")
 	tt := ui.NewTester(a.View, 1000, 720)
@@ -308,7 +308,7 @@ func TestVimTreeBindingsDoNotRunOutsideVimTreeFocus(t *testing.T) {
 
 func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetKeymap("vim")
 	a.ed.Focus()
@@ -406,7 +406,7 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 
 func TestTreeSequencePrefixesAreCanceledByPointerFocusTransitions(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetKeymap("vim")
 	a.ed.SetSource("line one\n\nline two")
@@ -459,7 +459,7 @@ func TestTreeSequencePrefixesAreCanceledByPointerFocusTransitions(t *testing.T) 
 func TestTreeContextMenuClipboardActionsUseSelectionAndFocusedTarget(t *testing.T) {
 	root := keyTestWorkspace(t)
 	dest := filepath.Join(root, "dest")
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.ed.SetSource("editor text remains untouched")
 	tt := ui.NewTester(a.View, 1000, 720)
@@ -539,7 +539,7 @@ func TestTreeContextMenuClipboardActionsUseSelectionAndFocusedTarget(t *testing.
 
 func TestTreeContextPasteIntoFileUsesParent(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := newFileTreeTestApp()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()

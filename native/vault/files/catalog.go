@@ -16,7 +16,9 @@ type Catalog struct {
 	mu       sync.RWMutex
 	source   Source
 	root     string
-	files    map[string]struct{} // slash-separated vault-relative paths
+	files    map[string]struct{}         // slash-separated vault-relative paths
+	dirs     map[string]struct{}         // slash-separated vault-relative directory paths
+	children map[string]map[string]Entry // immediate children keyed by vault-relative directory
 	images   map[string]map[string]struct{}
 	revision uint64
 }
@@ -26,7 +28,11 @@ func New(source Source) *Catalog {
 	if source != nil {
 		root = source.Root()
 	}
-	c := &Catalog{source: source, root: cleanRoot(root), files: make(map[string]struct{}), images: make(map[string]map[string]struct{})}
+	c := &Catalog{
+		source: source, root: cleanRoot(root), files: make(map[string]struct{}),
+		dirs: make(map[string]struct{}), children: make(map[string]map[string]Entry),
+		images: make(map[string]map[string]struct{}),
+	}
 	return c
 }
 
@@ -48,6 +54,8 @@ func (c *Catalog) Rebuild() error {
 		return err
 	}
 	next := make(map[string]struct{})
+	nextDirs := make(map[string]struct{})
+	nextChildren := make(map[string]map[string]Entry)
 	err := source.Walk(func(entry Entry) error {
 		rel, err := validateEntryPath(entry.Path)
 		if err != nil {
@@ -56,18 +64,26 @@ func (c *Catalog) Rebuild() error {
 		if entry.Kind == EntryDirectory && strings.HasPrefix(path.Base(rel), ".") {
 			return ErrSkipDir
 		}
+		if entry.Kind == EntryDirectory && !hasHiddenComponent(rel) {
+			nextDirs[rel] = struct{}{}
+			addChildEntry(nextChildren, Entry{Path: rel, Kind: EntryDirectory})
+			return nil
+		}
 		if entry.Kind != EntryRegular || hasHiddenComponent(rel) {
 			return nil
 		}
 		next[rel] = struct{}{}
+		addChildEntry(nextChildren, Entry{Path: rel, Kind: EntryRegular})
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
-	if !samePaths(c.files, next) {
+	if !samePaths(c.files, next) || !samePaths(c.dirs, nextDirs) {
 		c.files = next
+		c.dirs = nextDirs
+		c.children = nextChildren
 		c.revision++
 	}
 	c.images = imageIndex(next)
@@ -144,20 +160,39 @@ func (c *Catalog) Update(path string) {
 	key := filepath.ToSlash(rel)
 	valid := !hasHiddenComponent(rel)
 	entry, statErr := source.Stat(key)
-	if statErr != nil || entry.Kind != EntryRegular {
+	if statErr != nil || entry.Kind != EntryRegular && entry.Kind != EntryDirectory {
 		valid = false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_, had := c.files[key]
-	if valid && !had {
-		c.files[key] = struct{}{}
-		c.addImageLocked(key)
-		c.revision++
+	changed := false
+	_, wasFile := c.files[key]
+	_, wasDir := c.dirs[key]
+	switch {
+	case !valid:
+		changed = c.removeTreeLocked(key)
+	case entry.Kind == EntryRegular:
+		if wasDir {
+			changed = c.removeTreeLocked(key)
+		}
+		if !wasFile {
+			c.files[key] = struct{}{}
+			c.addImageLocked(key)
+			changed = true
+		}
+	case entry.Kind == EntryDirectory:
+		if wasFile {
+			changed = c.removeTreeLocked(key)
+		}
+		if !wasDir {
+			c.dirs[key] = struct{}{}
+			changed = true
+		}
 	}
-	if !valid && had {
-		delete(c.files, key)
-		c.removeImageLocked(key)
+	if changed && valid {
+		addChildEntry(c.children, Entry{Path: key, Kind: entry.Kind})
+	}
+	if changed {
 		c.revision++
 	}
 }
@@ -179,17 +214,105 @@ func (c *Catalog) Remove(path string) {
 	key := filepath.ToSlash(rel)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	changed := false
-	for p := range c.files {
-		if p == key || strings.HasPrefix(p, key+"/") {
-			delete(c.files, p)
-			c.removeImageLocked(p)
-			changed = true
-		}
-	}
+	changed := c.removeTreeLocked(key)
 	if changed {
 		c.revision++
 	}
+}
+
+// Children returns the immediate catalog entries under a vault-relative
+// directory. The empty path addresses the vault root. Paths in the result
+// remain slash-separated and include empty directories.
+func (c *Catalog) Children(directory string) []Entry {
+	if c == nil {
+		return nil
+	}
+	directory, ok := normalizeDirectory(directory)
+	if !ok {
+		return nil
+	}
+	c.mu.RLock()
+	entries := make([]Entry, 0)
+	for _, entry := range c.children[directory] {
+		entries = append(entries, entry)
+	}
+	c.mu.RUnlock()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries
+}
+
+// Entry returns the catalog kind for a tracked vault-relative path.
+func (c *Catalog) Entry(pathValue string) (Entry, bool) {
+	if c == nil {
+		return Entry{}, false
+	}
+	rel, err := validateEntryPath(pathValue)
+	if err != nil || hasHiddenComponent(rel) {
+		return Entry{}, false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	parent := path.Dir(rel)
+	if parent == "." {
+		parent = ""
+	}
+	entry, ok := c.children[parent][path.Base(rel)]
+	return entry, ok
+}
+
+func normalizeDirectory(value string) (string, bool) {
+	if value == "" || value == "." {
+		return "", true
+	}
+	clean := path.Clean(value)
+	if strings.Contains(value, "\\") || path.IsAbs(value) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", false
+	}
+	return clean, true
+}
+
+func addChildEntry(children map[string]map[string]Entry, entry Entry) {
+	parent := path.Dir(entry.Path)
+	if parent == "." {
+		parent = ""
+	}
+	if children[parent] == nil {
+		children[parent] = make(map[string]Entry)
+	}
+	children[parent][path.Base(entry.Path)] = entry
+}
+
+func (c *Catalog) removeTreeLocked(root string) bool {
+	changed := false
+	for file := range c.files {
+		if file == root || strings.HasPrefix(file, root+"/") {
+			delete(c.files, file)
+			c.removeImageLocked(file)
+			changed = true
+		}
+	}
+	for dir := range c.dirs {
+		if dir == root || strings.HasPrefix(dir, root+"/") {
+			delete(c.dirs, dir)
+			changed = true
+		}
+	}
+	for parent := range c.children {
+		if parent == root || strings.HasPrefix(parent, root+"/") {
+			delete(c.children, parent)
+		}
+	}
+	parent := path.Dir(root)
+	if parent == "." {
+		parent = ""
+	}
+	if siblings := c.children[parent]; siblings != nil {
+		if _, exists := siblings[path.Base(root)]; exists {
+			delete(siblings, path.Base(root))
+			changed = true
+		}
+	}
+	return changed
 }
 
 func hasHiddenComponent(path string) bool {

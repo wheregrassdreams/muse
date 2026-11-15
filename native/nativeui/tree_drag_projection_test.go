@@ -36,7 +36,7 @@ func TestTreeMultiSelectionProjectionShowsCountAndStackedIcon(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			a := New()
+			a := newFileTreeTestApp(t, root)
 			a.setWorkspace(root)
 			tt := ui.NewTester(a.View, 1000, 720)
 			tt.SetDark(true)
@@ -124,7 +124,7 @@ func TestTreeProjectionNamesMixedSelectionAsProjects(t *testing.T) {
 	if err := os.WriteFile(file, []byte("note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if count, filesOnly := treeProjectionSelectionLabel([]string{file, folder}); count != 2 || filesOnly {
+	if count, filesOnly := treeProjectionSelectionLabel([]string{file, folder}, func(path string) bool { return path == folder }); count != 2 || filesOnly {
 		t.Fatalf("mixed selection = %d items, filesOnly=%v; want 2 items and filesOnly=false", count, filesOnly)
 	}
 }
@@ -134,7 +134,7 @@ func TestTreeTrashHoverKeepsCompactTwoLineProjection(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.SetDark(true)
@@ -204,7 +204,7 @@ func TestTreeDragProjectionSurvivesCollapsedFolderExpansion(t *testing.T) {
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()

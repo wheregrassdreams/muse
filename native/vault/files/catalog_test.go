@@ -52,6 +52,60 @@ func TestCatalogRebuildAndIncrementalUpdates(t *testing.T) {
 	}
 }
 
+func TestCatalogChildrenAndEntryIncludeDirectoriesWithoutRescanning(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "notes/child.md")
+	write(t, root, "root.md")
+	catalog := catalogForTest(t, root)
+
+	got := catalog.Children("")
+	want := []Entry{{Path: "empty", Kind: EntryDirectory}, {Path: "notes", Kind: EntryDirectory}, {Path: "root.md", Kind: EntryRegular}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("root children = %+v, want %+v", got, want)
+	}
+	if got := catalog.Children("notes"); !reflect.DeepEqual(got, []Entry{{Path: "notes/child.md", Kind: EntryRegular}}) {
+		t.Fatalf("notes children = %+v", got)
+	}
+	if got, ok := catalog.Entry("empty"); !ok || got.Kind != EntryDirectory {
+		t.Fatalf("empty directory entry = %+v, %v", got, ok)
+	}
+	if got, ok := catalog.Entry("root.md"); !ok || got.Kind != EntryRegular {
+		t.Fatalf("file entry = %+v, %v", got, ok)
+	}
+	if _, ok := catalog.Entry("../root.md"); ok {
+		t.Fatal("catalog accepted a path outside the vault")
+	}
+}
+
+func TestCatalogUpdateTracksDirectoryKindAndChildren(t *testing.T) {
+	root := t.TempDir()
+	catalog := catalogForTest(t, root)
+	directory := filepath.Join(root, "new")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog.Update(directory)
+	if got, ok := catalog.Entry("new"); !ok || got.Kind != EntryDirectory {
+		t.Fatalf("new directory entry = %+v, %v", got, ok)
+	}
+	file := filepath.Join(directory, "note.md")
+	write(t, root, "new/note.md")
+	catalog.Update(file)
+	if got := catalog.Children("new"); !reflect.DeepEqual(got, []Entry{{Path: "new/note.md", Kind: EntryRegular}}) {
+		t.Fatalf("new directory children = %+v", got)
+	}
+	if err := os.RemoveAll(directory); err != nil {
+		t.Fatal(err)
+	}
+	catalog.Remove(directory)
+	if got := catalog.Children(""); len(got) != 0 {
+		t.Fatalf("root children after directory removal = %+v", got)
+	}
+}
+
 func TestCatalogDuplicateSelectionAndDirectoryRemoval(t *testing.T) {
 	root := t.TempDir()
 	long := write(t, root, "longer/path/shared.png")
