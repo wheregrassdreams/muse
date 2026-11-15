@@ -30,6 +30,31 @@ func newAssistantPanel(app *App) *assistantPanel {
 		client = agent.NewProviderClient(app.aiClient)
 	}
 	panel.session = agent.NewSession(app.ai, client, agent.Capabilities{Tools: appAgentTools{app}, Policy: appAgentPolicy{app}})
+	legacy := make([]agent.Message, 0, len(app.aiMessages))
+	for _, message := range app.aiMessages {
+		role := agent.Assistant
+		if message.Role == "user" {
+			role = agent.User
+		}
+		converted := agent.Message{Role: role, Content: message.Content}
+		for _, part := range message.Parts {
+			kind := agent.TextPart
+			if part.Kind == partThink {
+				kind = agent.ThoughtPart
+			}
+			if part.Kind == partTool {
+				kind = agent.ToolPart
+			}
+			tool := agent.ToolPartState{}
+			if part.Tool != nil {
+				tool = agent.ToolPartState{ID: part.Tool.ID, Name: part.Tool.Name, Arguments: part.Tool.Args, Result: part.Tool.Result, Error: part.Tool.Err}
+			}
+			converted.Parts = append(converted.Parts, agent.Part{Kind: kind, Text: part.Text, Duration: time.Duration(part.Ms) * time.Millisecond, Expanded: part.open, Tool: tool})
+		}
+		legacy = append(legacy, converted)
+	}
+	panel.session.RestoreMessages(legacy)
+	panel.draft = app.aiInput
 	return panel
 }
 
@@ -93,6 +118,7 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		case agentpanel.ApproveTool:
 			_ = p.session.DecideApproval(action.ToolID, agent.Approve)
 		case agentpanel.AlwaysAllowTool:
+			app.aiPerm = permFull
 			_ = p.session.DecideApproval(action.ToolID, agent.AlwaysApprove)
 		case agentpanel.RejectTool:
 			_ = p.session.DecideApproval(action.ToolID, agent.Reject)

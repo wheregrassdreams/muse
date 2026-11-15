@@ -169,6 +169,27 @@ func (s *Session) Snapshot() Snapshot {
 	return Snapshot{Revision: s.revision, Messages: append([]Message(nil), s.messages...), Busy: s.busy, Phase: s.phase, Error: s.lastError}
 }
 
+func (s *Session) RestoreMessages(messages []Message) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if !s.busy && !s.closed {
+		s.messages = cloneMessages(messages)
+		s.revision++
+	}
+	s.mu.Unlock()
+}
+
+func cloneMessages(messages []Message) []Message {
+	copyMessages := make([]Message, len(messages))
+	for i, message := range messages {
+		copyMessages[i] = message
+		copyMessages[i].Parts = append([]Part(nil), message.Parts...)
+	}
+	return copyMessages
+}
+
 func (s *Session) SetSettings(settings config.AssistantSettings) {
 	if s == nil {
 		return
