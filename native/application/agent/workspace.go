@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -251,6 +253,202 @@ func (s WorkspaceReadTools) DocumentStats(ctx context.Context, in ToolInput) (an
 		}
 	}
 	return map[string]any{"path": path, "chars": utf8.RuneCountInString(source), "lines": strings.Count(source, "\n") + 1, "headings": headings}, nil
+}
+
+// WorkspaceMutationPort supplies durable document/file mutations and the
+// current-buffer edit capability. UI-only effects are returned as ToolEffect
+// values for the presenter to execute after the application call completes.
+type WorkspaceMutationPort interface {
+	WorkspacePort
+	DestinationRevision(path string) (string, error)
+	SaveDocument(path, content, expectedRevision string) error
+	ApplyCurrentDocument(content string) error
+	MoveDocument(root, source, target string) (string, error)
+	TrashDocuments(root string, paths []string) error
+	CreateFolder(path string) error
+}
+
+type ToolEffectKind string
+
+const (
+	OpenDocumentEffect   ToolEffectKind = "open_document"
+	InsertDocumentEffect ToolEffectKind = "insert_document"
+)
+
+type ToolEffect struct {
+	Kind     ToolEffectKind `json:"kind"`
+	Path     string         `json:"path,omitempty"`
+	Text     string         `json:"text,omitempty"`
+	Position string         `json:"position,omitempty"`
+}
+
+// WorkspaceWriteTools applies assistant document and file mutations using
+// injected capabilities; it never reaches into editor or widget state.
+type WorkspaceWriteTools struct{ Workspace WorkspaceMutationPort }
+
+func (s WorkspaceWriteTools) OpenDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	if !editablePath(path) {
+		return nil, errors.New("file is not an editable text document")
+	}
+	return ToolEffect{Kind: OpenDocumentEffect, Path: path}, nil
+}
+func (s WorkspaceWriteTools) InsertIntoDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Text) == "" {
+		return nil, errors.New("insert text is empty")
+	}
+	if in.Position != "start" && in.Position != "end" {
+		return nil, errors.New("insert position must be start or end")
+	}
+	return ToolEffect{Kind: InsertDocumentEffect, Text: in.Text, Position: in.Position}, nil
+}
+func (s WorkspaceWriteTools) EditDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if in.OldText == "" {
+		return nil, errors.New("old text is empty")
+	}
+	path, source, err := s.target(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := replaceUnique(source, in.OldText, in.NewText)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.Clean(path) == filepath.Clean(s.currentPath()) {
+		if err := s.Workspace.ApplyCurrentDocument(updated); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.Workspace.SaveDocument(path, updated, revisionOf(source)); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"path": path, "replaced": true, "new_chars": len(updated)}, nil
+}
+func (s WorkspaceWriteTools) WriteDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Path) == "" {
+		return nil, errors.New("write path is required")
+	}
+	path, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	if !supportedWritePath(path) {
+		return nil, errors.New("only Markdown and text files are supported")
+	}
+	if filepath.Clean(path) == filepath.Clean(s.currentPath()) {
+		if err := s.Workspace.ApplyCurrentDocument(in.Content); err != nil {
+			return nil, err
+		}
+	} else {
+		rev, err := s.Workspace.DestinationRevision(path)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.Workspace.SaveDocument(path, in.Content, rev); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"path": path, "new_chars": len(in.Content)}, nil
+}
+func (s WorkspaceWriteTools) RenameDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	from, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	to, err := s.resolve(in.NewPath)
+	if err != nil {
+		return nil, err
+	}
+	if !editablePath(to) {
+		return nil, errors.New("destination is not editable")
+	}
+	target, err := s.Workspace.MoveDocument(s.Workspace.Root(), from, to)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": target, "moved": true}, nil
+}
+func (s WorkspaceWriteTools) DeleteDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	current, _ := s.Workspace.CurrentDocument()
+	if filepath.Clean(path) == filepath.Clean(current) {
+		return nil, errors.New("cannot delete the current document through this operation")
+	}
+	if err := s.Workspace.TrashDocuments(s.Workspace.Root(), []string{path}); err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": path, "trashed": true}, nil
+}
+func (s WorkspaceWriteTools) CreateFolder(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Workspace.CreateFolder(path); err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": path, "created": true}, nil
+}
+
+func (s WorkspaceWriteTools) resolve(value string) (string, error) {
+	return (WorkspaceReadTools{Workspace: s.Workspace}).resolve(value)
+}
+func (s WorkspaceWriteTools) target(value string) (string, string, error) {
+	return (WorkspaceReadTools{Workspace: s.Workspace}).target(value)
+}
+func (s WorkspaceWriteTools) currentPath() string {
+	if s.Workspace == nil {
+		return ""
+	}
+	p, _ := s.Workspace.CurrentDocument()
+	return p
+}
+func replaceUnique(source, old, replacement string) (string, error) {
+	switch n := strings.Count(source, old); n {
+	case 0:
+		return "", errors.New("old text not found")
+	case 1:
+		return strings.Replace(source, old, replacement, 1), nil
+	default:
+		return "", fmt.Errorf("old text appears %d times", n)
+	}
+}
+func revisionOf(source string) string {
+	sum := sha256.Sum256([]byte(source))
+	return hex.EncodeToString(sum[:])
+}
+func editablePath(path string) bool { return supportedWritePath(path) || filepath.Ext(path) != "" }
+func supportedWritePath(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".md" || ext == ".markdown" || ext == ".txt"
 }
 
 func (s WorkspaceReadTools) resolve(value string) (string, error) {
