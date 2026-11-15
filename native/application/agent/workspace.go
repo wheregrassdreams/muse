@@ -1,0 +1,325 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"unicode/utf8"
+
+	"muse/markdown"
+)
+
+// WorkspacePort is a narrow capability for assistant workspace tools. The
+// application service owns path policy and result limits; platform code owns
+// filesystem access and UI code supplies the active document snapshot.
+type WorkspacePort interface {
+	Root() string
+	CurrentDocument() (path, source string)
+	ReadFile(path string) ([]byte, error)
+	ReadDir(path string) ([]os.DirEntry, error)
+}
+
+// WorkspaceReadTools implements bounded, read-only assistant workspace actions.
+type WorkspaceReadTools struct{ Workspace WorkspacePort }
+
+type ToolFileEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+func (s WorkspaceReadTools) ListDocuments(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dir, err := s.resolve(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.Workspace.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ToolFileEntry, 0, min(200, len(entries)))
+	truncated := false
+	for _, entry := range entries {
+		if hidden(entry.Name()) {
+			continue
+		}
+		if len(out) == 200 {
+			truncated = true
+			break
+		}
+		kind := "file"
+		if entry.IsDir() {
+			kind = "dir"
+		}
+		out = append(out, ToolFileEntry{Name: entry.Name(), Type: kind})
+	}
+	return map[string]any{"path": dir, "entries": out, "truncated": truncated}, nil
+}
+
+func (s WorkspaceReadTools) ReadDocument(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, source, err := s.target(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(source, "\n")
+	start := in.Offset
+	if start < 1 {
+		start = 1
+	}
+	if start > len(lines) {
+		return nil, fmt.Errorf("line offset %d is outside document with %d lines", start, len(lines))
+	}
+	limit := in.Limit
+	if limit <= 0 || limit > 800 {
+		limit = 800
+	}
+	end := min(start+limit-1, len(lines))
+	truncated := end < len(lines)
+	var b strings.Builder
+	last := start - 1
+	for i := start; i <= end; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		line := fmt.Sprintf("%5d| %s\n", i, lines[i-1])
+		if b.Len()+len(line) > 20000 {
+			truncated = true
+			break
+		}
+		b.WriteString(line)
+		last = i
+	}
+	return map[string]any{"path": path, "total_lines": len(lines), "start_line": start, "end_line": last, "truncated": truncated, "content": b.String()}, nil
+}
+
+func (s WorkspaceReadTools) SearchDocuments(ctx context.Context, in ToolInput) (any, error) {
+	query := strings.TrimSpace(in.Query)
+	if query == "" {
+		return nil, errors.New("search query is empty")
+	}
+	path, source, err := s.target(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	match := func(line string) bool { return strings.Contains(strings.ToLower(line), strings.ToLower(query)) }
+	if in.IsRegex {
+		re, err := regexp.Compile(query)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex: %w", err)
+		}
+		match = re.MatchString
+	}
+	type hit struct {
+		Line int    `json:"line"`
+		Text string `json:"text"`
+	}
+	hits := make([]hit, 0, 50)
+	truncated := false
+	for i, line := range strings.Split(source, "\n") {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !match(line) {
+			continue
+		}
+		if len(hits) == 50 {
+			truncated = true
+			break
+		}
+		text := strings.TrimSpace(line)
+		if len(text) > 200 {
+			text = text[:200] + "…"
+		}
+		hits = append(hits, hit{Line: i + 1, Text: text})
+	}
+	return map[string]any{"path": path, "matches": len(hits), "truncated": truncated, "hits": hits}, nil
+}
+
+func (s WorkspaceReadTools) ReadOutline(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, source, err := s.target(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	var b strings.Builder
+	count := 0
+	for _, block := range markdown.Parse(source).Blocks {
+		if block.Kind != markdown.Heading {
+			continue
+		}
+		if count == 100 {
+			b.WriteString("…\n")
+			break
+		}
+		fmt.Fprintf(&b, "H%d %s\n", block.Level, strings.TrimSpace(plainInline(block.Inlines)))
+		count++
+	}
+	if count == 0 {
+		return map[string]any{"path": path, "outline": "No headings"}, nil
+	}
+	return map[string]any{"path": path, "outline": strings.TrimRight(b.String(), "\n")}, nil
+}
+
+func (s WorkspaceReadTools) WorkspaceTree(ctx context.Context, in ToolInput) (any, error) {
+	path := in.Path
+	if strings.TrimSpace(path) == "" {
+		if s.Workspace == nil {
+			return nil, errors.New("workspace capability is unavailable")
+		}
+		path = s.Workspace.Root()
+	}
+	root, err := s.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	depth := in.Depth
+	if depth <= 0 || depth > 4 {
+		depth = 2
+	}
+	var b strings.Builder
+	count := 0
+	truncated := false
+	var walk func(string, string, int) error
+	walk = func(dir, prefix string, level int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, err := s.Workspace.ReadDir(dir)
+		if err != nil {
+			return nil
+		}
+		sort.SliceStable(entries, func(i, j int) bool {
+			di, dj := entries[i].IsDir(), entries[j].IsDir()
+			if di != dj {
+				return di
+			}
+			return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+		})
+		for _, entry := range entries {
+			name := entry.Name()
+			if hidden(name) {
+				continue
+			}
+			if count == 200 {
+				truncated = true
+				return nil
+			}
+			count++
+			if entry.IsDir() {
+				fmt.Fprintf(&b, "%s%s/\n", prefix, name)
+				if level < depth {
+					if err := walk(filepath.Join(dir, name), prefix+"  ", level+1); err != nil {
+						return err
+					}
+				}
+			} else {
+				fmt.Fprintf(&b, "%s%s\n", prefix, name)
+			}
+		}
+		return nil
+	}
+	if err := walk(root, "", 1); err != nil {
+		return nil, err
+	}
+	return map[string]any{"root": root, "tree": strings.TrimRight(b.String(), "\n"), "entries": count, "truncated": truncated}, nil
+}
+
+func (s WorkspaceReadTools) DocumentStats(ctx context.Context, in ToolInput) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, source, err := s.target(in.Path)
+	if err != nil {
+		return nil, err
+	}
+	headings := 0
+	for _, block := range markdown.Parse(source).Blocks {
+		if block.Kind == markdown.Heading {
+			headings++
+		}
+	}
+	return map[string]any{"path": path, "chars": utf8.RuneCountInString(source), "lines": strings.Count(source, "\n") + 1, "headings": headings}, nil
+}
+
+func (s WorkspaceReadTools) resolve(value string) (string, error) {
+	if s.Workspace == nil {
+		return "", errors.New("workspace capability is unavailable")
+	}
+	root := filepath.Clean(s.Workspace.Root())
+	if root == "." || root == "" {
+		return "", errors.New("workspace is unavailable")
+	}
+	current, _ := s.Workspace.CurrentDocument()
+	p := strings.TrimSpace(value)
+	if p == "" || p == "current" {
+		if current == "" {
+			return "", errors.New("current document is not saved")
+		}
+		return filepath.Clean(current), nil
+	}
+	full := p
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(root, p)
+	}
+	full = filepath.Clean(full)
+	rel, err := filepath.Rel(root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("path escapes workspace")
+	}
+	return full, nil
+}
+func (s WorkspaceReadTools) target(value string) (string, string, error) {
+	p := strings.TrimSpace(value)
+	current, source := "", ""
+	if s.Workspace == nil {
+		return "", "", errors.New("workspace capability is unavailable")
+	}
+	current, source = s.Workspace.CurrentDocument()
+	if p == "" || p == "current" {
+		if current == "" && source == "" {
+			return "", "", errors.New("current document is empty")
+		}
+		if current == "" {
+			current = "Untitled"
+		}
+		return current, source, nil
+	}
+	path, err := s.resolve(p)
+	if err != nil {
+		return "", "", err
+	}
+	if filepath.Clean(path) == filepath.Clean(current) {
+		return path, source, nil
+	}
+	data, err := s.Workspace.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	if len(data) > 2<<20 {
+		return "", "", errors.New("file exceeds 2 MiB limit")
+	}
+	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+		return "", "", errors.New("file is not text")
+	}
+	return path, string(data), nil
+}
+func hidden(name string) bool { return strings.HasPrefix(name, ".") || name == "node_modules" }
+func plainInline(in []markdown.Span) string {
+	var b strings.Builder
+	for _, item := range in {
+		b.WriteString(item.Text)
+	}
+	return b.String()
+}
