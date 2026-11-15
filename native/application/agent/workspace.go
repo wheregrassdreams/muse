@@ -16,6 +16,10 @@ import (
 	"muse/markdown"
 )
 
+// CurrentDocument supplies an immutable snapshot of the active editor note.
+// Presentation code owns the callback; platform adapters only invoke it.
+type CurrentDocument func() (path, source string)
+
 // WorkspacePort is a narrow capability for assistant workspace tools. The
 // application service owns path policy and result limits; platform code owns
 // filesystem access and UI code supplies the active document snapshot.

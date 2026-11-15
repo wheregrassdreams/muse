@@ -7,7 +7,7 @@
 //	AI.WebSearch       Brave Search API 联网搜索 -> { ok, results?, message? }
 //
 // 事件（Go -> 渲染进程）：ai:chat-chunk / ai:chat-end / ai:chat-error
-package services
+package agent
 
 import (
 	"bytes"
@@ -231,23 +231,6 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 	}
 	return ModelsResult{TestConnResult: TestConnResult{Ok: true, Status: res.StatusCode,
 		Message: locales.AiServiceModelsLoaded(len(models))}, Models: models}
-}
-
-// ChatStream 发起流式对话：POST {baseUrl}/chat/completions（stream: true），
-// 按 SSE 事件边界（\n\n）切块后经 ai:chat-chunk 转发；渲染进程负责拼回流。
-// 方法与 Electron 版语义一致：调用在整个流结束后才返回。
-func (a *AI) ChatStream(req ChatStreamRequest) ChatResult {
-	return a.ChatStreamWith(req, ChatSink{
-		Chunk: func(chunk string) {
-			_ = EvChatChunk.Broadcast(map[string]any{"requestId": req.RequestID, "chunk": chunk})
-		},
-		End: func() {
-			_ = EvChatEnd.Broadcast(map[string]any{"requestId": req.RequestID})
-		},
-		Error: func(message string) {
-			_ = EvChatError.Broadcast(map[string]any{"requestId": req.RequestID, "message": message})
-		},
-	})
 }
 
 // ChatStreamWith is ChatStream without the web event bus: the caller gets the
