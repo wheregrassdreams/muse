@@ -124,6 +124,7 @@
   "editorTableColumnAlignment": "Column Alignment",
   "editorWikiLinkSuggestions": "Note Link Suggestions",
   "diagramCellLabel": "Cell",
+  "editorDiagramPreviewAction": "Preview Diagram",
   "documentInserted": "Inserted into document",
   "documentInsertedAtStart": "Inserted at the start of the document",
   "aiSetupModelTitle": "Set Up a Model First",

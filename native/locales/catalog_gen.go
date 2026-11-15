@@ -1279,6 +1279,16 @@ func (msgs Messages) DiagramCellLabel() string {
 	return Catalog.Format(msgs.locale, "diagramCellLabel", nil)
 }
 
+// EditorDiagramPreviewAction says "预览图表"
+// in the language the app shows.
+func EditorDiagramPreviewAction() string { return In(i18n.Locale()).EditorDiagramPreviewAction() }
+
+// EditorDiagramPreviewAction says "预览图表"
+// in the language of msgs.
+func (msgs Messages) EditorDiagramPreviewAction() string {
+	return Catalog.Format(msgs.locale, "editorDiagramPreviewAction", nil)
+}
+
 // DocumentInserted says "已插入文档"
 // in the language the app shows.
 func DocumentInserted() string { return In(i18n.Locale()).DocumentInserted() }

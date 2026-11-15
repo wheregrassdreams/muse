@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/locales"
+	"muse/markdown/diagrams"
 )
 
 // wideDiagram is a Mermaid graph wider than the editor's column: pele lays a
@@ -34,6 +36,42 @@ func diagramHarness(t *testing.T) (*harness, *leaf) {
 		t.Fatal("the mermaid block did not draw as a diagram")
 	}
 	return h, l
+}
+
+func TestDiagramPreviewExportsNeutralSnapshotWithoutEditingDocument(t *testing.T) {
+	h, l := diagramHarness(t)
+	beforeSource := h.e.Source()
+	beforeSelection := h.e.Session.Selection()
+	var gotSource string
+	var got diagrams.Result
+	opts := h.e.Options()
+	opts.OnDiagramPreview = func(source string, result diagrams.Result) {
+		gotSource, got = source, result
+	}
+	h.e.SetOptions(opts)
+	box, _ := h.e.diagramBox(l, l.view, 0, 0)
+	h.tt.RightClickAt(box.X+box.W/2, box.Y+box.H/2)
+	h.frame()
+	menu := h.tt.Menu()
+	found := false
+	for _, item := range menu {
+		found = found || item == locales.EditorDiagramPreviewAction()
+	}
+	if !found {
+		t.Fatalf("diagram context menu = %#v, missing preview action", menu)
+	}
+	if err := h.tt.ChooseMenuItem(locales.EditorDiagramPreviewAction()); err != nil {
+		t.Fatalf("choose diagram preview: %v", err)
+	}
+	if gotSource != strings.TrimSuffix(strings.TrimPrefix(wideDiagram, "```mermaid\n"), "\n```") {
+		t.Fatalf("preview source = %q", gotSource)
+	}
+	if got.Width <= 0 || got.Height <= 0 || got.Shapes == "" || len(got.Labels) == 0 {
+		t.Fatalf("preview result is incomplete: %+v", got)
+	}
+	if h.e.Source() != beforeSource || h.e.Session.Selection() != beforeSelection {
+		t.Fatalf("preview changed document state: source equal=%v selection=%+v want %+v", h.e.Source() == beforeSource, h.e.Session.Selection(), beforeSelection)
+	}
 }
 
 func TestDiagramScrollsSideways(t *testing.T) {

@@ -79,10 +79,14 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		e.pointerX, e.pointerY = ev.X, ev.Y
 		if ev.Button == 1 {
 			e.layoutIfNeeded()
+			e.contextDiagramSource = ""
 			if hit, ok := e.imageAt(ev.X, ev.Y); ok && hit.obj != nil {
 				e.contextImagePath = hit.obj.imagePath
 			} else {
 				e.contextImagePath = ""
+				if leaf, _, ok := e.diagramBodyAt(ev.X, ev.Y); ok && isMermaid(leaf) {
+					e.contextDiagramSource = e.codeText(leaf)
+				}
 			}
 		}
 		if ev.Button == 0 {
@@ -1150,6 +1154,12 @@ func (e *Editor) menu(m *ui.Menu) {
 			e.opts.OnImagePreview(imagePath)
 		}
 		return
+	}
+	if source := e.contextDiagramSource; source != "" {
+		if m.Item(locales.EditorDiagramPreviewAction()).Chosen() {
+			e.previewDiagram(source)
+		}
+		m.Separator()
 	}
 	a, z := e.selection()
 	if m.Item(locales.CommonCutAction()).Shortcut(ui.Cmd, ui.KeyX).Disabled(a == z).Chosen() {

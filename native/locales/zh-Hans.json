@@ -124,6 +124,7 @@
   "editorTableColumnAlignment": "列对齐",
   "editorWikiLinkSuggestions": "笔记链接建议",
   "diagramCellLabel": "单元格",
+  "editorDiagramPreviewAction": "预览图表",
   "documentInserted": "已插入文档",
   "documentInsertedAtStart": "已插入到文档开头",
   "aiSetupModelTitle": "先设置模型",

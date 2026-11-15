@@ -15,6 +15,7 @@ import (
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/internal/textlayout"
 	layoutindex "muse/editor/layout"
+	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	markdownui "muse/nativeui/components/markdown"
 	"muse/ui/scrollbar"
@@ -125,6 +126,9 @@ type Options struct {
 	LinkContext string
 	// OnImagePreview opens an image preview for its resolved local path or URL.
 	OnImagePreview func(pathOrURL string)
+	// OnDiagramPreview opens the selected Mermaid block in an app-owned
+	// surface. Result is a detached backend-neutral diagram snapshot.
+	OnDiagramPreview func(source string, result diagrams.Result)
 	// Code makes the document code rather than Markdown, as a .json or a
 	// .go file is: its lines show as they are, highlighted as the language
 	// of that name, or plain when the name is "text".
@@ -304,13 +308,14 @@ type Editor struct {
 	dragFrom [2]int
 	// tableCellDrag is transient pointer gesture state. The active region itself
 	// remains owned by tableSelection and this capture never enters history.
-	tableCellDrag    *tableCellDragState
-	frozen           bool
-	frozenAt         int
-	pointerX         float32
-	pointerY         float32
-	contextImagePath string
-	hoverLink        Range
+	tableCellDrag        *tableCellDragState
+	frozen               bool
+	frozenAt             int
+	pointerX             float32
+	pointerY             float32
+	contextImagePath     string
+	contextDiagramSource string
+	hoverLink            Range
 	// diagDrag is a diagram's scroll bar being dragged, if one is; diagPan
 	// is the pointer dragging a rendered diagram itself sideways.
 	diagDrag       *diagDrag
