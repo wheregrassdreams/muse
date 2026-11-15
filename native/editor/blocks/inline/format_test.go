@@ -68,3 +68,15 @@ func TestMarkerLengthsForVariableDelimiters(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapSelectionRejectsSplitRuneRanges(t *testing.T) {
+	source := "甲乙"
+	for _, selection := range []Range{{Start: 1, End: 3}, {Start: 0, End: 1}} {
+		if _, ok := WrapSelection(source, selection, Range{}, false, "**", "**"); ok {
+			t.Fatalf("WrapSelection(%+v) accepted a split UTF-8 rune", selection)
+		}
+	}
+	if _, _, ok := MarkerLengths("**甲**", Range{Start: 3, End: 4}, MarkerStrong, "**", "**"); ok {
+		t.Fatal("MarkerLengths accepted a split UTF-8 rune")
+	}
+}

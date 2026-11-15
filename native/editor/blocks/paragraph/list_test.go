@@ -44,6 +44,7 @@ func TestPlanListToggleRejectsInvalidRanges(t *testing.T) {
 		{Source: "x", Caret: 2, Marker: "-", EligibleText: true, InsertAt: 0},
 		{Source: "x", Caret: 0, Marker: "-", Item: true, MarkerStart: 1, ContentStart: 0},
 		{Source: "x", Caret: 0, Marker: ""},
+		{Source: "甲", Caret: 0, Marker: "-", EligibleText: true, InsertAt: 1},
 	} {
 		if _, ok := PlanListToggle(input); ok {
 			t.Fatalf("PlanListToggle(%+v) unexpectedly succeeded", input)

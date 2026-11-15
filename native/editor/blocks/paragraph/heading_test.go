@@ -47,6 +47,7 @@ func TestPlanHeadingRejectsInvalidRangesAndLevels(t *testing.T) {
 		{Source: "x", Caret: 2, Level: 1, InsertAt: 0},
 		{Source: "x", Caret: 0, Level: 7, InsertAt: 0},
 		{Source: "x", Caret: 0, Level: 1, Shape: ATXHeading, PrefixFrom: 1, PrefixTo: 0},
+		{Source: "甲", Caret: 1, Level: 1, InsertAt: 0},
 	} {
 		if _, ok := PlanHeading(input); ok {
 			t.Fatalf("PlanHeading(%+v) unexpectedly succeeded", input)

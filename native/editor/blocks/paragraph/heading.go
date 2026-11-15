@@ -1,5 +1,7 @@
 package paragraph
 
+import "unicode/utf8"
+
 // HeadingShape describes the source form of the paragraph at the caret.
 type HeadingShape uint8
 
@@ -40,7 +42,7 @@ type Edit struct {
 // level. The caller supplies parser-derived source positions; it owns applying
 // the transaction and updating history.
 func PlanHeading(in HeadingInput) (HeadingPlan, bool) {
-	if in.Level < 0 || in.Level > 6 || in.Caret < 0 || in.Caret > len(in.Source) {
+	if in.Level < 0 || in.Level > 6 || !validBoundary(in.Source, in.Caret) {
 		return HeadingPlan{}, false
 	}
 	prefix := ""
@@ -50,7 +52,7 @@ func PlanHeading(in HeadingInput) (HeadingPlan, bool) {
 	plan := HeadingPlan{Caret: in.Caret}
 	switch {
 	case in.Shape == SetextHeading:
-		if !validEditRange(in.Source, in.SetextFrom, in.SetextTo) || in.SetextTo <= in.SetextFrom || in.PrefixFrom < 0 || in.PrefixFrom > len(in.Source) {
+		if !validEditRange(in.Source, in.SetextFrom, in.SetextTo) || in.SetextTo <= in.SetextFrom || !validBoundary(in.Source, in.PrefixFrom) {
 			return HeadingPlan{}, false
 		}
 		plan.Edits = append(plan.Edits, Edit{Start: in.SetextFrom, End: in.SetextTo})
@@ -65,7 +67,7 @@ func PlanHeading(in HeadingInput) (HeadingPlan, bool) {
 		plan.Edits = append(plan.Edits, Edit{Start: in.PrefixFrom, End: in.PrefixTo, Text: prefix})
 		plan.Caret += len(prefix) - (in.PrefixTo - in.PrefixFrom)
 	default:
-		if in.InsertAt < 0 || in.InsertAt > len(in.Source) {
+		if !validBoundary(in.Source, in.InsertAt) {
 			return HeadingPlan{}, false
 		}
 		if prefix != "" {
@@ -77,7 +79,11 @@ func PlanHeading(in HeadingInput) (HeadingPlan, bool) {
 }
 
 func validEditRange(source string, start, end int) bool {
-	return start >= 0 && end >= start && end <= len(source)
+	return validBoundary(source, start) && validBoundary(source, end) && end >= start
+}
+
+func validBoundary(source string, at int) bool {
+	return at >= 0 && at <= len(source) && (at == len(source) || utf8.RuneStart(source[at]))
 }
 
 func stringsOf(char byte, count int) string {

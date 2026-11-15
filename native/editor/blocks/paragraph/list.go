@@ -32,11 +32,11 @@ type ListPlan struct {
 // PlanListToggle decides whether a list item should be left, have its marker
 // changed, or whether a paragraph should receive a new list marker.
 func PlanListToggle(in ListInput) (ListPlan, bool) {
-	if in.Marker == "" || in.Caret < 0 || in.Caret > len(in.Source) {
+	if in.Marker == "" || !validBoundary(in.Source, in.Caret) {
 		return ListPlan{}, false
 	}
 	if in.Item {
-		if in.MarkerStart < 0 || in.ContentStart < in.MarkerStart || in.ContentStart > len(in.Source) {
+		if !validEditRange(in.Source, in.MarkerStart, in.ContentStart) {
 			return ListPlan{}, false
 		}
 		wantOrdered := strings.HasSuffix(in.Marker, ".")
@@ -50,8 +50,11 @@ func PlanListToggle(in ListInput) (ListPlan, bool) {
 			Caret:  in.Caret + len(in.Marker) + 1 - (in.ContentStart - in.MarkerStart),
 		}, true
 	}
-	if !in.EligibleText || in.InsertAt < 0 || in.InsertAt > len(in.Source) {
+	if !in.EligibleText {
 		return ListPlan{Action: ListNoop, Caret: in.Caret}, true
+	}
+	if !validBoundary(in.Source, in.InsertAt) {
+		return ListPlan{}, false
 	}
 	return ListPlan{
 		Action: ListEdit,

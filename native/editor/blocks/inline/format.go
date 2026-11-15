@@ -1,6 +1,9 @@
 package inline
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Edit is a source replacement in original UTF-8 byte coordinates.
 type Edit struct {
@@ -103,5 +106,9 @@ func MarkerLengths(source string, span Range, kind MarkerKind, open, close strin
 }
 
 func validRange(source string, r Range) bool {
-	return r.Start >= 0 && r.End >= r.Start && r.End <= len(source)
+	return validBoundary(source, r.Start) && validBoundary(source, r.End) && r.End >= r.Start
+}
+
+func validBoundary(source string, at int) bool {
+	return at >= 0 && at <= len(source) && (at == len(source) || utf8.RuneStart(source[at]))
 }
