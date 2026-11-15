@@ -21,6 +21,10 @@ func TestDocumentPropertyPreferencesRoundTripByNotePath(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("preferences = %#v, want %#v", got, want)
 	}
+	normalized, err := LoadDocumentPropertyPreferences("notes/archive/../today.md")
+	if err != nil || !reflect.DeepEqual(normalized, want) {
+		t.Fatalf("normalized preferences = %#v, err=%v", normalized, err)
+	}
 	other, err := LoadDocumentPropertyPreferences("notes/other.md")
 	if err != nil || len(other.Fields) != 0 {
 		t.Fatalf("other note preferences = %#v, err=%v", other, err)

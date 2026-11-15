@@ -21,6 +21,13 @@ type DocumentPropertyPreferences struct {
 
 type documentPropertyFile map[string]DocumentPropertyPreferences
 
+func documentPropertyKey(notePath string) string {
+	if notePath == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(notePath))
+}
+
 func documentPropertyPreferencesPath() string {
 	return filepath.Join(filepath.Dir(PreferencesPath()), "document-properties.json")
 }
@@ -28,6 +35,7 @@ func documentPropertyPreferencesPath() string {
 // LoadDocumentPropertyPreferences returns an empty preference set when no
 // saved state exists. JSON errors are reported to let callers surface them.
 func LoadDocumentPropertyPreferences(notePath string) (DocumentPropertyPreferences, error) {
+	notePath = documentPropertyKey(notePath)
 	var all documentPropertyFile
 	data, err := os.ReadFile(documentPropertyPreferencesPath())
 	if os.IsNotExist(err) {
@@ -44,6 +52,7 @@ func LoadDocumentPropertyPreferences(notePath string) (DocumentPropertyPreferenc
 
 // SaveDocumentPropertyPreferences persists view preferences outside Markdown.
 func SaveDocumentPropertyPreferences(notePath string, preferences DocumentPropertyPreferences) error {
+	notePath = documentPropertyKey(notePath)
 	filename := documentPropertyPreferencesPath()
 	var all documentPropertyFile
 	data, err := os.ReadFile(filename)

@@ -53,6 +53,28 @@ func IsManagedKey(key string) bool {
 	}
 }
 
+// OmitFromPropertySummary lists metadata keys that remain available in YAML
+// but are intentionally not rendered in the compact document header.
+func OmitFromPropertySummary(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "title", "created by", "created_by", "createdby", "last modified by", "modified_by", "links":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsSecondaryProperty groups infrequently used timestamps in the collapsed
+// hidden section while retaining their authored frontmatter values.
+func IsSecondaryProperty(key string) bool {
+	switch CanonicalKey(key) {
+	case "updated_at", "last_opened":
+		return true
+	default:
+		return false
+	}
+}
+
 // HasField tests semantic identity so legacy spellings behave consistently.
 func HasField(d Document, key string) bool {
 	canonical := CanonicalKey(key)

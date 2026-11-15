@@ -18,6 +18,9 @@ func TestCorePropertiesProjectDefaultsAndManagedReadOnlyFields(t *testing.T) {
 	if !IsCoreKey("Created") || CanonicalKey("last modified date") != "updated_at" {
 		t.Fatal("core canonicalization did not normalize authored aliases")
 	}
+	if !OmitFromPropertySummary("title") || !IsSecondaryProperty("last opened date") || IsSecondaryProperty("tags") {
+		t.Fatal("property summary and secondary-field projection rules are inconsistent")
+	}
 }
 
 func TestSetPropertyKeepsTitleAndListSemantics(t *testing.T) {

@@ -582,21 +582,11 @@ func propertyValueColor(t *ui.Theme) ui.Color {
 }
 
 func propertyOmitted(key string) bool {
-	switch strings.ToLower(key) {
-	case "title", "created by", "created_by", "createdby", "last modified by", "modified_by", "links":
-		return true
-	default:
-		return false
-	}
+	return frontmatter.OmitFromPropertySummary(key)
 }
 
 func propertySecondary(key string) bool {
-	switch strings.ToLower(key) {
-	case "updated", "modified", "modified_at", "last_modified", "last modified date", "last_opened", "last opened date":
-		return true
-	default:
-		return false
-	}
+	return frontmatter.IsSecondaryProperty(key)
 }
 
 func propertyLabel(key string) string {
@@ -648,7 +638,15 @@ func (a *App) documentBacklinkSources() []vaultlinks.BacklinkSource {
 	if v == nil || v.index == nil || path == "" || v.links == nil {
 		return nil
 	}
-	return v.links.BacklinkSources(relativeVaultPath(v.root, path))
+	return v.links.BacklinkSources(propertyVaultPath(v.root, path))
+}
+
+func propertyVaultPath(root, path string) string {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(relative)
 }
 
 func (a *App) openPropertySource() {
