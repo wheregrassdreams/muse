@@ -7,7 +7,8 @@ aliases:
 ## Architecture
 
 The architecture note has a nested path and can be reached by an alias.
-It links back to [[Home]] and to [[Design Notes]].
+It links back to [[Home]] and to [[Design Notes]]. The rendering examples live
+in [[Rendering Notes]].
 
 Deep-only search token: vaultfixturedeepsearchunique.
 

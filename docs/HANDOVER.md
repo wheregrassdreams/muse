@@ -55,6 +55,8 @@ live preview 只是**显示**，不改变编辑语义）。
 sh scripts/go.sh -C native test ./... # 包含原生 Tantivy 链接
 ```
 
+macOS 本机测试优先通过 `scripts/go.sh`，不要直接调用 `go test`：当前 Nix clang 环境下裸跑可能在链接阶段报 `library not found for -lresolv`。包装脚本会准备并链接版本匹配的 Tantivy 静态库，并为 Darwin 设置系统 clang 与 SDK。`CGO_ENABLED=0` 也不能作为绕过方案，Tantivy 绑定依赖 CGO。
+
 跑起来（仓库根目录）：
 
 ```bash

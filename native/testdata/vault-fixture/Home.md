@@ -1,6 +1,7 @@
 # Home
 
-This note points to [[Projects/Atlas/Overview|the Atlas overview]].
+This note points to [[Projects/Atlas/Overview|the Atlas overview]] and the
+[[Projects/Atlas/Rendering Notes|Atlas rendering notes]].
 
 The overview links back here, and this note contains a deliberately unique
 search phrase: vaultfixturehomeunique.
