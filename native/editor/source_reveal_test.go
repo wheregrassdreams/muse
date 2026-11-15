@@ -136,13 +136,13 @@ func TestVirtualSearchHeightCorrectionUsesIndexedDeltas(t *testing.T) {
 	h.e.anchor, h.e.caret = len(src), len(src)
 	h.e.wantReveal = false
 	h.frame()
-	if !h.e.virtualIndexReady {
+	if !h.e.virtualIndex.Ready(len(h.e.visibleLeaves)) {
 		t.Fatal("fixture did not initialize virtual height index")
 	}
 	target := h.e.leaves[0]
 	oldHeight := target.h
 	oldNextY := h.e.virtualY(1)
-	baseDocH := h.e.virtualBaseDocH
+	baseDocH := h.e.virtualIndex.BaseDocumentHeight()
 	match := strings.Index(src, "findme")
 	h.e.SetHighlights([]Range{{Start: match, End: match + len("findme")}}, -1)
 	h.frame()
@@ -153,7 +153,7 @@ func TestVirtualSearchHeightCorrectionUsesIndexedDeltas(t *testing.T) {
 	if math.Abs(float64(h.e.virtualY(1)-oldNextY-delta)) > 0.05 {
 		t.Fatalf("following leaf did not move by indexed height delta: before=%v after=%v delta=%v", oldNextY, h.e.virtualY(1), delta)
 	}
-	if want := h.e.virtualBaseDocH + h.e.virtualHeightPrefix(len(h.e.visibleLeaves)); math.Abs(float64(h.e.docH-want)) > 0.05 || math.Abs(float64(h.e.docH-baseDocH-delta)) > 0.05 {
+	if want := h.e.virtualIndex.BaseDocumentHeight() + h.e.virtualHeightPrefix(len(h.e.visibleLeaves)); math.Abs(float64(h.e.docH-want)) > 0.05 || math.Abs(float64(h.e.docH-baseDocH-delta)) > 0.05 {
 		t.Fatalf("document extent did not use indexed correction: before=%v got=%v want=%v", baseDocH, h.e.docH, want)
 	}
 	h.e.scroll.Y = max(h.e.virtualY(len(h.e.visibleLeaves)-10)-h.e.viewH/2, 0)

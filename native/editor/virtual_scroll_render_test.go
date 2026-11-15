@@ -21,7 +21,7 @@ func TestVirtualScrollShapesEveryVisibleProseLeafAfterLargeScrolls(t *testing.T)
 		top, bottom := e.scroll.Y, e.scroll.Y+e.viewH
 		for i, leaf := range e.visibleLeaves {
 			y := leaf.y
-			if e.virtualIndexReady {
+			if e.virtualIndex.Ready(len(e.visibleLeaves)) {
 				y = e.virtualY(i)
 			}
 			if leaf.kind == kPara && y+leaf.h > top && y < bottom && leaf.view == nil {

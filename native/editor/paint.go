@@ -130,7 +130,7 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 func (e *Editor) paintVisibleSpan(top, bottom float32) []*leaf {
 	leaves := e.visibleLeaves
 	yAt := func(i int) float32 {
-		if e.virtualIndexReady && len(e.virtualBaseY) == len(leaves) {
+		if e.virtualIndex.Ready(len(leaves)) {
 			return e.virtualY(i)
 		}
 		return leaves[i].y
@@ -144,7 +144,7 @@ func (e *Editor) paintVisibleSpan(top, bottom float32) []*leaf {
 	if start >= end {
 		return nil
 	}
-	if e.virtualIndexReady && len(e.virtualBaseY) == len(leaves) {
+	if e.virtualIndex.Ready(len(leaves)) {
 		for i := start; i < end; i++ {
 			leaves[i].y = yAt(i)
 		}

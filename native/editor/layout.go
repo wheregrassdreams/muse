@@ -1179,7 +1179,7 @@ func tightAfter(prev, l *leaf) bool {
 // the rest an estimated height: the text of a large document is not
 // shaped off screen, where nobody reads it.
 func (e *Editor) layoutDoc(x, width float32, virtual bool) {
-	e.virtualIndexReady = false
+	e.virtualIndex.Reset()
 	// Only the real caret starts a session. Speculative navigation views
 	// must be pure projections and must not replace the editing interval.
 	e.activeInlineMath()

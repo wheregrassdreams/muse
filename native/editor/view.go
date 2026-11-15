@@ -290,7 +290,7 @@ func (e *Editor) layoutVirtualBand() bool {
 		return false
 	}
 	leaves := e.visibleLeaves
-	if !e.virtualIndexReady || len(e.virtualBaseY) != len(leaves) || len(e.virtualHeightDelta) != len(leaves)+1 {
+	if !e.virtualIndex.Ready(len(leaves)) {
 		return false
 	}
 	s := e.lk.size
@@ -300,11 +300,8 @@ func (e *Editor) layoutVirtualBand() bool {
 		if rounds > len(leaves) {
 			return false
 		}
-		start := sort.Search(len(leaves), func(i int) bool {
-			return e.virtualY(i)+max(leaves[i].h, s) >= e.viewTop-s
-		})
-		end := sort.Search(len(leaves), func(i int) bool {
-			return e.virtualY(i) > e.viewBottom+s
+		start, end := e.virtualIndex.VisibleRange(e.viewTop-s, e.viewBottom+s, func(i int) float32 {
+			return max(leaves[i].h, s)
 		})
 		shaped := false
 		for i := start; i < end; i++ {
@@ -340,7 +337,7 @@ func (e *Editor) layoutVirtualBand() bool {
 			}
 			l.horizontal.x = min(l.horizontal.x, max(blockContentWidth(l)-l.w, 0))
 		}
-		e.docH = e.virtualBaseDocH + e.virtualHeightPrefix(len(leaves))
+		e.docH = e.virtualIndex.DocumentHeight()
 		for i := start; i < end; i++ {
 			leaves[i].y = e.virtualY(i)
 		}
@@ -360,15 +357,11 @@ func (e *Editor) layoutVirtualBand() bool {
 }
 
 func (e *Editor) virtualY(i int) float32 {
-	y := e.virtualBaseY[i]
-	for at := i; at > 0; at -= at & -at {
-		y += e.virtualHeightDelta[at]
-	}
-	return y
+	return e.virtualIndex.Y(i)
 }
 
 func (e *Editor) virtualYFor(l *leaf) float32 {
-	if !e.virtualIndexReady || l == nil {
+	if !e.virtualIndex.Ready(len(e.visibleLeaves)) || l == nil {
 		if l == nil {
 			return 0
 		}
@@ -386,37 +379,19 @@ func (e *Editor) virtualYFor(l *leaf) float32 {
 }
 
 func (e *Editor) virtualHeightPrefix(n int) float32 {
-	var sum float32
-	for at := n; at > 0; at -= at & -at {
-		sum += e.virtualHeightDelta[at]
-	}
-	return sum
+	return e.virtualIndex.Prefix(n)
 }
 
 func (e *Editor) virtualAddHeight(i int, delta float32) {
-	for at := i + 1; at < len(e.virtualHeightDelta); at += at & -at {
-		e.virtualHeightDelta[at] += delta
-	}
+	e.virtualIndex.AddHeight(i, delta)
 }
 
 func (e *Editor) captureVirtualLayoutIndex() {
 	n := len(e.visibleLeaves)
-	if cap(e.virtualBaseY) < n {
-		e.virtualBaseY = make([]float32, n)
-	} else {
-		e.virtualBaseY = e.virtualBaseY[:n]
-	}
-	if cap(e.virtualHeightDelta) < n+1 {
-		e.virtualHeightDelta = make([]float32, n+1)
-	} else {
-		e.virtualHeightDelta = e.virtualHeightDelta[:n+1]
-		clear(e.virtualHeightDelta)
-	}
+	e.virtualIndex.CaptureCount(n, e.docH)
 	for i, l := range e.visibleLeaves {
-		e.virtualBaseY[i] = l.y
+		e.virtualIndex.SetBaseY(i, l.y)
 	}
-	e.virtualBaseDocH = e.docH
-	e.virtualIndexReady = true
 }
 
 // virtualLayout reports whether the layout shapes only the leaves near

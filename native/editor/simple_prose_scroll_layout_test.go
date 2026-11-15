@@ -9,7 +9,7 @@ func TestVirtualScrollHeightIndexKeepsViewportShaped(t *testing.T) {
 	tt := stressTester(e)
 	tt.Frame()
 	tt.Frame()
-	if !e.virtualIndexReady || len(e.virtualBaseY) != len(e.visibleLeaves) {
+	if !e.virtualIndex.Ready(len(e.visibleLeaves)) || e.virtualIndex.Len() != len(e.visibleLeaves) {
 		t.Fatal("virtual scroll height index was not initialized")
 	}
 
@@ -36,7 +36,7 @@ func TestVirtualScrollHeightIndexKeepsViewportShaped(t *testing.T) {
 				t.Fatalf("visible paragraph %d at y=%.1f h=%.1f is still estimated", i, y, leaf.h)
 			}
 		}
-		indexedHeight := e.virtualBaseDocH + e.virtualHeightPrefix(len(e.visibleLeaves))
+		indexedHeight := e.virtualIndex.BaseDocumentHeight() + e.virtualHeightPrefix(len(e.visibleLeaves))
 		if delta := indexedHeight - e.docH; delta < -0.05 || delta > 0.05 {
 			t.Fatalf("indexed document height=%f, reported height=%f", indexedHeight, e.docH)
 		}

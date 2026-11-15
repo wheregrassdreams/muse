@@ -97,8 +97,8 @@ func TestSetSourceReleasesDocumentScopedState(t *testing.T) {
 	e.wordIndexCache = []*displayWordIndex{{}}
 	e.tableEdgeIndex = []tableEdgePosition{{leaf: old}}
 	e.wikiEmbeds = map[string]*wikiEmbedCache{"old": {editor: New("embedded", Options{})}}
-	e.virtualBaseY = []float32{1}
-	e.virtualHeightDelta = []float32{1}
+	e.virtualIndex.Capture([]float32{1}, 1)
+
 	e.u16ix = u16Index{
 		bytes: []int{1}, units: []int{1}, midB: []int{1}, midU: []int{1}, nb: []int{1}, nu: []int{1},
 	}
@@ -123,7 +123,7 @@ func TestSetSourceReleasesDocumentScopedState(t *testing.T) {
 	if len(e.imageHits) != 0 || len(e.wordIndexCache) != 0 || len(e.tableEdgeIndex) != 0 || len(e.wikiEmbeds) != 0 {
 		t.Fatal("SetSource retained document caches")
 	}
-	if e.virtualBaseY != nil || e.virtualHeightDelta != nil {
+	if e.virtualIndex.Len() != 0 {
 		t.Fatal("SetSource retained large-document layout indexes")
 	}
 	if e.u16ix.bytes != nil || e.u16ix.units != nil || e.u16ix.midB != nil || e.u16ix.midU != nil || e.u16ix.nb != nil || e.u16ix.nu != nil {

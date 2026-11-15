@@ -12,6 +12,7 @@ import (
 
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/internal/textlayout"
+	layoutindex "muse/editor/layout"
 	"muse/markdown"
 	"muse/markdown/images"
 	"muse/ui/scrollbar"
@@ -167,14 +168,11 @@ type Editor struct {
 	// visibleLeaves is the layout-ordered subset of leaves that participate in
 	// document geometry. Hidden folded leaves stay in leaves for source access,
 	// but are excluded here so painting can binary-search the viewport.
-	visibleLeaves      []*leaf
-	visibleIndexRev    uint64
-	visibleIndexFolds  uint64
-	visibleIndexReady  bool
-	virtualBaseY       []float32
-	virtualHeightDelta []float32
-	virtualBaseDocH    float32
-	virtualIndexReady  bool
+	visibleLeaves     []*leaf
+	visibleIndexRev   uint64
+	visibleIndexFolds uint64
+	visibleIndexReady bool
+	virtualIndex      layoutindex.VirtualIndex
 	// p is what the parser reads, and what the editor derives from the
 	// source for it: the document, the masked source it holds, the comments
 	// that mask hides, where the front matter ends. Only p.set and p.edit
@@ -571,8 +569,7 @@ func (e *Editor) SetSource(src string) {
 	e.wordIndexCache, e.wordIndexCacheCost = nil, 0
 	e.tableEdgeIndex = nil
 	e.typographyCache.Clear()
-	e.virtualBaseY, e.virtualHeightDelta = nil, nil
-	e.virtualBaseDocH, e.virtualIndexReady = 0, false
+	e.virtualIndex.Release()
 	e.visibleIndexReady = false
 	e.unitList = nil
 	e.unitIndexCache.first, e.unitIndexCache.valid = nil, false
