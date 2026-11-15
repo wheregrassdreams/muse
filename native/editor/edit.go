@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"muse/editor/blocks/paragraph"
 	syntax "muse/markdown/syntax"
 )
 
@@ -1183,7 +1184,6 @@ func (e *Editor) leafBefore(l *leaf) *leaf {
 // unquote takes a leaf out of its innermost quotation: its lines lose the
 // quotation's marker.
 func (e *Editor) unquote(l *leaf) {
-	end := blockEnd(e.src, l)
 	q := l.conts[len(l.conts)-1]
 	depth := 0
 	for _, c := range l.conts {
@@ -1191,47 +1191,8 @@ func (e *Editor) unquote(l *leaf) {
 			depth++
 		}
 	}
-	e.begin(stepEdit)
-	// From the last line up, so the offsets above stay.
-	var starts []int
-	for off := lineStartAt(e.src, max(q.start, l.lineStart)); off <= end; {
-		starts = append(starts, off)
-		n := lineEndAt(e.src, off)
-		if n >= end || n >= len(e.src) {
-			break
-		}
-		off = n + 1
-	}
-	caret := e.caret
-	for i := len(starts) - 1; i >= 0; i-- {
-		s := starts[i]
-		le := lineEndAt(e.src, s)
-		// The depth-th > of the line.
-		seen, at := 0, -1
-		for k := s; k < le; k++ {
-			if e.src[k] == '>' {
-				seen++
-				if seen == depth {
-					at = k
-					break
-				}
-			} else if e.src[k] != ' ' && e.src[k] != '\t' {
-				break
-			}
-		}
-		if at < 0 {
-			continue
-		}
-		n := 1
-		if at+1 < le && e.src[at+1] == ' ' {
-			n = 2
-		}
-		e.replace(at, at+n, "")
-		if caret > at {
-			caret -= min(n, caret-at)
-		}
-	}
-	e.commit(caret, caret)
+	plan, ok := paragraph.PlanUnquote(e.src, max(q.start, l.lineStart), blockEnd(e.src, l), depth, e.caret)
+	e.applyParagraphLinePlan(plan, ok)
 }
 
 // tableShortcut turns a paragraph of one line of cells between pipes into
@@ -1504,67 +1465,24 @@ func markerWidth(src string, at int) int {
 
 // indentLines puts pad at column col of every line from start to end.
 func (e *Editor) indentLines(start, end int, pad string, col int) {
-	e.begin(stepEdit)
-	anchor, caret := e.anchor, e.caret
-	var starts []int
-	for off := start; off <= end && off <= len(e.src); {
-		starts = append(starts, off)
-		n := lineEndAt(e.src, off)
-		if n >= end || n >= len(e.src) {
-			break
-		}
-		off = n + 1
-	}
-	for i := len(starts) - 1; i >= 0; i-- {
-		s := starts[i]
-		le := lineEndAt(e.src, s)
-		at := min(s+col, le)
-		if strings.TrimSpace(e.src[s:le]) == "" {
-			continue
-		}
-		e.replace(at, at, pad)
-		if anchor >= at {
-			anchor += len(pad)
-		}
-		if caret >= at {
-			caret += len(pad)
-		}
-	}
-	e.commit(anchor, caret)
+	plan, ok := paragraph.PlanIndentLines(e.src, start, end, pad, col, e.anchor, e.caret)
+	e.applyParagraphLinePlan(plan, ok)
 }
 
 // outdentLines takes up to n spaces from column col of every line from
 // start to end.
 func (e *Editor) outdentLines(start, end, n, col int) {
+	plan, ok := paragraph.PlanOutdentLines(e.src, start, end, n, col, e.anchor, e.caret)
+	e.applyParagraphLinePlan(plan, ok)
+}
+
+func (e *Editor) applyParagraphLinePlan(plan paragraph.LinePlan, ok bool) {
+	if !ok || len(plan.Edits) == 0 {
+		return
+	}
 	e.begin(stepEdit)
-	anchor, caret := e.anchor, e.caret
-	var starts []int
-	for off := start; off <= end && off <= len(e.src); {
-		starts = append(starts, off)
-		le := lineEndAt(e.src, off)
-		if le >= end || le >= len(e.src) {
-			break
-		}
-		off = le + 1
+	for _, edit := range plan.Edits {
+		e.replace(edit.Start, edit.End, edit.Text)
 	}
-	for i := len(starts) - 1; i >= 0; i-- {
-		s := starts[i]
-		le := lineEndAt(e.src, s)
-		at := min(s+max(col, 0), le)
-		k := 0
-		for k < n && at+k < le && e.src[at+k] == ' ' {
-			k++
-		}
-		if k == 0 {
-			continue
-		}
-		e.replace(at, at+k, "")
-		if anchor > at {
-			anchor -= min(k, anchor-at)
-		}
-		if caret > at {
-			caret -= min(k, caret-at)
-		}
-	}
-	e.commit(anchor, caret)
+	e.commit(plan.Anchor, plan.Head)
 }
