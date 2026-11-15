@@ -9,11 +9,19 @@
 # A rebuild is a new binary, so the window closes and opens again; the window
 # keeps its place (window-state.json), so the note comes back where it was.
 # The options pass through: MUSE_THEME=dark sh scripts/play.sh.
+# Memory diagnostics are enabled by default for play runs: five-second Go/image
+# cache snapshots, GC traces, a startup heap profile, and a second profile after
+# the Go heap crosses 50 MiB under .mygo/play/diagnostics.
+# Set MUSE_MEMORY_DIAGNOSTICS=0 to disable snapshots or override
+# MUSE_MEMORY_PROFILE_PATH to choose another heap profile location.
 set -eu
 cd "$(dirname "$0")/.."
 . scripts/signing.sh
 
 out=native/.mygo/play
+diagnostics_abs=$(pwd)/$out/diagnostics
+diagnostics_log=$diagnostics_abs/play.log
+memory_profile=${MUSE_MEMORY_PROFILE_PATH:-$diagnostics_abs/heap.pprof}
 fixture=native/testdata/vault-fixture
 vault_abs=$(pwd)/$out/vault
 cache_abs=$(pwd)/$out/cache
@@ -43,7 +51,26 @@ build() {
 # The editor resolves its resources from its own directory, so it starts
 # there; exec keeps the pid the one to stop.
 launch() {
-  ( cd native && MUSE_WORKSPACE="$vault_abs" MUSE_OPEN="$note_abs" MUSE_CACHE_DIR="${MUSE_CACHE_DIR:-$cache_abs}" exec ./.mygo/play/Muse ) &
+  mkdir -p "$diagnostics_abs"
+  if [ "$diagnostics_log_started" = 0 ]; then
+    : > "$diagnostics_log"
+    rm -f "$memory_profile.high"
+    diagnostics_log_started=1
+  fi
+  printf '\n--- Muse play launch %s ---\n' "$(date '+%Y-%m-%d %H:%M:%S %z')" >> "$diagnostics_log"
+  if [ "${MUSE_MEMORY_DIAGNOSTICS:-1}" = 1 ]; then
+    echo "memory diagnostics enabled; log: $diagnostics_log; heap profiles: $memory_profile and $memory_profile.high"
+  else
+    echo "memory diagnostics disabled (MUSE_MEMORY_DIAGNOSTICS=$MUSE_MEMORY_DIAGNOSTICS); log: $diagnostics_log"
+  fi
+  ( cd native && \
+      MUSE_WORKSPACE="$vault_abs" \
+      MUSE_OPEN="$note_abs" \
+      MUSE_CACHE_DIR="${MUSE_CACHE_DIR:-$cache_abs}" \
+      MUSE_MEMORY_DIAGNOSTICS="${MUSE_MEMORY_DIAGNOSTICS:-1}" \
+      MUSE_MEMORY_PROFILE_PATH="$memory_profile" \
+      GODEBUG="${GODEBUG:-gctrace=1}" \
+      exec ./.mygo/play/Muse ) >> "$diagnostics_log" 2>&1 &
   pid=$!
 }
 
@@ -56,6 +83,7 @@ sources() {
 }
 
 pid=
+diagnostics_log_started=0
 stop() {
   [ -n "$pid" ] || return 0
   kill "$pid" 2>/dev/null || true
