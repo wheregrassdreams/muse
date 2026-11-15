@@ -102,7 +102,7 @@ for package in \
   native/nativeui/panels/filetree \
   native/nativeui/panels/outline \
   native/nativeui/panels/search \
-  native/nativeui/panels/quickopen \
+  native/nativeui/surfaces/quickopen \
   native/nativeui/panels/naviconpicker \
   native/nativeui/panels/vaulthome \
   native/nativeui/panels/properties \
