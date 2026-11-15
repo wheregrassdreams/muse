@@ -49,10 +49,10 @@ type WatcherPort interface {
 }
 
 type SessionDependencies struct {
-	NewIndex   func(root string) (IndexPort, error)
-	NewCatalog func(root string) (CatalogPort, error)
-	NewWatcher func(root string) (WatcherPort, error)
-	Search     SearchIndexStore
+	NewIndex         func(root string) (IndexPort, error)
+	NewCatalog       func(root string) (CatalogPort, error)
+	NewWatcher       func(root string) (WatcherPort, error)
+	SearchReconciler SearchReconciler
 }
 
 type SearchSnapshot struct {

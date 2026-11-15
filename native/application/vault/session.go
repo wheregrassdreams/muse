@@ -655,16 +655,12 @@ func (s *Session) startup() {
 		}
 	}
 	var searchIndex *search.Index
-	if indexReady && s.deps.Search != nil {
-		searchIndex, err = s.deps.Search.Open(s.root)
+	if indexReady && s.deps.SearchReconciler != nil {
+		searchIndex, err = s.deps.SearchReconciler.OpenAndReconcile(s.ctx, s.root, index)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("open search index: %w", err))
-		} else if err := searchIndex.ReconcileCorpus(s.ctx, index); err != nil {
-			errs = append(errs, fmt.Errorf("reconcile search index: %w", err))
-			_ = searchIndex.Close()
-			searchIndex = nil
 		}
-	} else if s.deps.Search == nil {
+	} else if s.deps.SearchReconciler == nil {
 		errs = append(errs, errors.New("search index store is not configured"))
 	} else if index != nil && !indexReady {
 		errs = append(errs, errors.New("search index unavailable because vault index failed to rebuild"))
@@ -764,6 +760,12 @@ func (s *Session) runQuery(request queryRequest) ([]search.Hit, error) {
 		return nil, err
 	}
 	defer release(s.searchGate)
+	s.mu.RLock()
+	searchIndex = s.search
+	s.mu.RUnlock()
+	if searchIndex == nil {
+		return nil, ErrSessionNotReady
+	}
 	if request.literal {
 		return searchIndex.Literal(request.ctx, request.query, searchLimit, overlays...)
 	}
@@ -918,14 +920,22 @@ func (s *Session) refresh(events map[string]vaultwatch.Event, full bool) {
 			}
 		}
 	}
-	if searchIndex != nil {
+	if (full && indexReady && s.deps.SearchReconciler != nil) || (!full && searchIndex != nil) {
 		if err := acquire(ctx, s.searchGate); err != nil {
 			errs = append(errs, err)
 		} else {
+			s.mu.RLock()
+			current := s.search
+			s.mu.RUnlock()
 			if full && indexReady {
-				errs = appendIfError(errs, searchIndex.ReconcileCorpus(ctx, index))
-			} else if !full {
-				errs = appendIfError(errs, searchIndex.Apply(ctx, upserts, deletes))
+				next, err := s.deps.SearchReconciler.Reconcile(ctx, s.root, current, index)
+				errs = appendIfError(errs, err)
+				s.mu.Lock()
+				s.search = next
+				s.snapshot.SearchAvailable = next != nil
+				s.mu.Unlock()
+			} else if current != nil {
+				errs = appendIfError(errs, current.Apply(ctx, upserts, deletes))
 			}
 			release(s.searchGate)
 		}

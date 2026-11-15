@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	vaultfilessource "muse/platform/filesystem/vaultfilessource"
 	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	vaultsearchstore "muse/platform/filesystem/vaultsearchstore"
+	"muse/search"
 	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
 	vaultwatch "muse/vault/watch"
@@ -29,6 +31,27 @@ type blockingCatalog struct {
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+type inProcessSearchReconciler struct{ store SearchIndexStore }
+
+func (r inProcessSearchReconciler) OpenAndReconcile(ctx context.Context, root string, corpus search.Corpus) (*search.Index, error) {
+	index, err := r.store.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := index.ReconcileCorpus(ctx, corpus); err != nil {
+		_ = index.Close()
+		return nil, err
+	}
+	return index, nil
+}
+
+func (r inProcessSearchReconciler) Reconcile(ctx context.Context, root string, current *search.Index, corpus search.Corpus) (*search.Index, error) {
+	if current == nil {
+		return r.OpenAndReconcile(ctx, root, corpus)
+	}
+	return current, current.ReconcileCorpus(ctx, corpus)
 }
 
 func (c *blockingCatalog) Paths() []string {
@@ -80,8 +103,8 @@ func sessionTestDependencies(t *testing.T, watcher *sessionTestWatcher) SessionD
 			}
 			return vaultfiles.New(source), nil
 		},
-		NewWatcher: func(string) (WatcherPort, error) { return watcher, nil },
-		Search:     cache,
+		NewWatcher:       func(string) (WatcherPort, error) { return watcher, nil },
+		SearchReconciler: inProcessSearchReconciler{store: cache},
 	}
 }
 

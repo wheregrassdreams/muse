@@ -4,6 +4,7 @@
 package app
 
 import (
+	"errors"
 	"path/filepath"
 	"sync"
 
@@ -24,6 +25,7 @@ import (
 	"muse/platform/filesystem/vaultsearchstore"
 	filesystemwatcher "muse/platform/filesystem/watcher"
 	"muse/platform/filesystem/workspacestore"
+	"muse/platform/process/vaultsearchindexer"
 	vaultfilecatalog "muse/vault/files"
 	vaultindex "muse/vault/index"
 	vaultwatch "muse/vault/watch"
@@ -33,20 +35,22 @@ import (
 // Runtime is the process-scoped set of feature ports selected by the
 // composition root. Its event dispatchers are owned here and closed with it.
 type Runtime struct {
-	Workspace         workspace.Repository
-	WorkspaceEvents   *events.Dispatcher[workspace.WorkspaceRestored]
-	Documents         document.Repository
-	Recovery          document.RecoveryRepository
-	History           document.HistoryRepository
-	DocumentEvents    *events.Dispatcher[document.DocumentSaved]
-	VaultSearch       applicationvault.SearchIndexStore
-	NewVaultIndex     applicationvault.IndexFactory
-	NewVaultCatalog   applicationvault.CatalogFactory
-	FileOperations    *applicationvault.FileOperations
-	RecentItems       *workspaceapp.RecentItems
-	NavIcons          applicationvault.NavigationIconRepository
-	ImageCacheStore   images.CacheStore
-	NewWatcherBackend func() (vaultwatch.Backend, error)
+	Workspace             workspace.Repository
+	WorkspaceEvents       *events.Dispatcher[workspace.WorkspaceRestored]
+	Documents             document.Repository
+	Recovery              document.RecoveryRepository
+	History               document.HistoryRepository
+	DocumentEvents        *events.Dispatcher[document.DocumentSaved]
+	VaultSearch           applicationvault.SearchIndexStore
+	VaultSearchReconciler applicationvault.SearchReconciler
+	NewVaultIndex         applicationvault.IndexFactory
+	NewVaultCatalog       applicationvault.CatalogFactory
+	FileOperations        *applicationvault.FileOperations
+	RecentItems           *workspaceapp.RecentItems
+	NavIcons              applicationvault.NavigationIconRepository
+	ImageCacheStore       images.CacheStore
+	NewWatcherBackend     func() (vaultwatch.Backend, error)
+	vaultSearchWorker     *vaultsearchindexer.Reconciler
 
 	closeOnce sync.Once
 }
@@ -74,21 +78,24 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 	documents := documentstore.New(filepath.Join(filepath.Dir(config.PreferencesPath()), "recovery"))
 	workspaceEvents := events.New[workspace.WorkspaceRestored]()
 	documentEvents := events.New[document.DocumentSaved]()
+	newVaultIndex := func(root string) (applicationvault.IndexPort, error) {
+		source, err := vaultindexsource.New(root)
+		if err != nil {
+			return nil, err
+		}
+		return vaultindex.New(source), nil
+	}
+	searchWorker := vaultsearchindexer.New(searchStore, newVaultIndex)
 	return &Runtime{
-		Workspace:       workspacestore.New(workspacestore.DefaultPath()),
-		WorkspaceEvents: workspaceEvents,
-		Documents:       documents,
-		Recovery:        documents,
-		History:         documents,
-		DocumentEvents:  documentEvents,
-		VaultSearch:     searchStore,
-		NewVaultIndex: func(root string) (applicationvault.IndexPort, error) {
-			source, err := vaultindexsource.New(root)
-			if err != nil {
-				return nil, err
-			}
-			return vaultindex.New(source), nil
-		},
+		Workspace:             workspacestore.New(workspacestore.DefaultPath()),
+		WorkspaceEvents:       workspaceEvents,
+		Documents:             documents,
+		Recovery:              documents,
+		History:               documents,
+		DocumentEvents:        documentEvents,
+		VaultSearch:           searchStore,
+		VaultSearchReconciler: searchWorker,
+		NewVaultIndex:         newVaultIndex,
 		NewVaultCatalog: func(root string) (applicationvault.CatalogPort, error) {
 			source, err := vaultfilessource.New(root)
 			if err != nil {
@@ -103,7 +110,16 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 		NewWatcherBackend: func() (vaultwatch.Backend, error) {
 			return filesystemwatcher.New()
 		},
+		vaultSearchWorker: searchWorker,
 	}, nil
+}
+
+// RebuildVaultSearchIndex performs the child-process indexing operation.
+func (r *Runtime) RebuildVaultSearchIndex(root string) error {
+	if r == nil || r.vaultSearchWorker == nil {
+		return errors.New("app: vault search indexer is unavailable")
+	}
+	return r.vaultSearchWorker.Rebuild(root)
 }
 
 // Close releases process-scoped event subscriptions and is safe to call more

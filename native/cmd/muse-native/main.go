@@ -6,11 +6,13 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/egoist/mygo"
 
 	"muse/app"
 	"muse/nativeui"
+	"muse/platform/process/vaultsearchindexer"
 )
 
 func main() {
@@ -19,6 +21,13 @@ func main() {
 		log.Fatal(err)
 	}
 	defer runtime.Close()
+	if len(os.Args) == 3 && os.Args[1] == vaultsearchindexer.WorkerArgument {
+		if err := runtime.RebuildVaultSearchIndex(os.Args[2]); err != nil {
+			runtime.Close()
+			log.Fatal(err)
+		}
+		return
+	}
 	nativeui.Run(nativeui.Dependencies{
 		Workspace:         runtime.Workspace,
 		WorkspaceEvents:   runtime.WorkspaceEvents,
