@@ -54,6 +54,7 @@ sh scripts/go.sh -C native test ./...    # 测试，含原生搜索链接
 
 ```
 native/
+├── cmd/muse-native/   仅负责调用 app.Run 的原生入口
 ├── app/               进程组合根与平台适配器装配
 ├── application/       文档、笔记库和工作区用例
 ├── document/          笔记、版本、元数据与持久化端口
