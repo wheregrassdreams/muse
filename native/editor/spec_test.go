@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 type specExample struct {
@@ -49,7 +49,7 @@ func loadSpec(t *testing.T) []specExample {
 // HTML. This is the base every dialect is built on.
 func TestCommonMarkSpecHTML(t *testing.T) {
 	for _, ex := range loadSpec(t) {
-		d := parser.New(0)
+		d := syntax.NewIncrementalDocument(0)
 		d.Set(ex.Markdown)
 		if got := d.HTML(); got != ex.HTML {
 			t.Errorf("example %d (%s):\nmarkdown %q\nwant %q\ngot  %q",
@@ -67,7 +67,7 @@ var gfmLinkifyExamples = map[int]bool{602: true, 606: true, 608: true, 611: true
 func TestGFMSpecHTML(t *testing.T) {
 	seen := map[int]bool{}
 	for _, ex := range loadSpec(t) {
-		d := parser.New(parser.GFM)
+		d := syntax.NewIncrementalDocument(syntax.IncrementalGFM)
 		d.Set(ex.Markdown)
 		got := d.HTML()
 		if got == ex.HTML {

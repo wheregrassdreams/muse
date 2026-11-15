@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -43,7 +44,12 @@ func TestJPEGEmbedsResolveDocumentVaultAndBareAttachmentPaths(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 		if len(h.e.imageHits) == 0 || h.e.imageHits[0].obj.bmp == nil {
-			t.Fatalf("JPEG did not render: %s", src)
+			var assetState string
+			if len(h.e.imageHits) > 0 && h.e.imageHits[0].obj.asset != nil {
+				asset := h.e.imageHits[0].obj.asset
+				assetState = fmt.Sprintf(" loaded=%v failed=%v frame=%v version=%d", asset.Loaded(), asset.Failed(), asset.CurrentFrame() != nil, asset.FrameVersion())
+			}
+			t.Fatalf("JPEG did not render: %s%s", src, assetState)
 		}
 		if got := h.e.imageHits[0].obj; got.w != 120 || got.h != 60 {
 			t.Fatalf("decoded JPEG dimensions were not laid out for %s: got %.1fx%.1f, want 120x60", src, got.w, got.h)

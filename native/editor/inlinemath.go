@@ -1,6 +1,6 @@
 package editor
 
-import "muse/editor/internal/parser"
+import syntax "muse/markdown/syntax"
 
 func (e *Editor) isInlineMathRange(start, end int) bool {
 	if start < 0 || end > len(e.src) || end <= start {
@@ -16,7 +16,7 @@ func (e *Editor) isInlineMathRange(start, end int) bool {
 		return false
 	}
 	for _, in := range e.p.doc.Inlines(l.id) {
-		if in.Kind == parser.Math && in.Start == start && in.End == end {
+		if in.Kind == syntax.IncrementalMath && in.Start == start && in.End == end {
 			return true
 		}
 	}
@@ -44,7 +44,7 @@ func (e *Editor) activeInlineMath() (start, end int, tex string, ok bool) {
 			return
 		}
 		for _, in := range e.p.doc.Inlines(l.id) {
-			if in.Kind == parser.Math && in.Start <= e.caret && e.caret <= in.End {
+			if in.Kind == syntax.IncrementalMath && in.Start <= e.caret && e.caret <= in.End {
 				e.inlineMath.Begin(in.Start, in.End)
 				break
 			}

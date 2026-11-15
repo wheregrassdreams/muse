@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func isSourceRuneBoundary(src string, off int) bool {
@@ -203,7 +203,7 @@ func (e *Editor) isCell(u *leaf) bool {
 // unitView returns the view of a unit as it shows with the caret at off.
 func (e *Editor) unitView(u *leaf, off int) *leafView {
 	if u.view == nil || e.revealFor(u, off) != e.revealAt(u) {
-		header, align := false, parser.AlignNone
+		header, align := false, syntax.IncrementalAlignNone
 		if t := e.tableOf(u); t != nil {
 			for r, row := range t.tab.rows {
 				for c, cell := range row {

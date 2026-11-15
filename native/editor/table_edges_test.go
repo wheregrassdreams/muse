@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +44,7 @@ func TestTableEdgesControls(t *testing.T) {
 					label, name = "在右侧新增列", "table-edge-column"
 				}
 				rows, cols := len(target.tab.rows), target.tab.cols()
-				align := append([]parser.Align(nil), target.tab.align...)
+				align := append([]syntax.IncrementalAlign(nil), target.tab.align...)
 				a, b, scroll := e.anchor, e.caret, e.scroll.Y
 				h.tt.Move(x, y)
 				h.frame()

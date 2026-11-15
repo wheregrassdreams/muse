@@ -1,73 +1,84 @@
 package editor
 
-import "muse/markdown"
-
-// MemoryDiagnostics is a point-in-time estimate of image memory still
-// reachable from an editor. Pixel bytes exclude allocator overhead and GPU
-// copies; the snapshot is intended for opt-in diagnostics only.
-type MemoryDiagnostics struct {
+// LayoutMemorySnapshot reports editor-owned source and layout state without
+// exposing MyGo types or the renderer's decoded assets.
+type LayoutMemorySnapshot struct {
 	SourceBytes          int
 	Leaves               int
 	VirtualLayout        bool
 	ImageCandidateLeaves int
 	ImageAssetViews      int
-	ImageAssets          int
-	LoadedImageAssets    int
-	ImagePixelBytes      int64
 }
 
-// MemoryDiagnostics reports image assets retained by the document's current
-// leaves and document-local data-image map, including assets already evicted
-// from the process-wide LRU.
-func (e *Editor) MemoryDiagnostics() MemoryDiagnostics {
+// ImageMemoryHandle is the narrow diagnostics contract implemented by the
+// UI adapter's decoded image handle. It deliberately exposes no bitmap.
+type ImageMemoryHandle interface {
+	Loaded() bool
+	ApproxPixelBytes() int64
+}
+
+func (e *Editor) LayoutMemorySnapshot() LayoutMemorySnapshot {
 	if e == nil {
-		return MemoryDiagnostics{}
+		return LayoutMemorySnapshot{}
 	}
-	stats := MemoryDiagnostics{
+	snapshot := LayoutMemorySnapshot{
 		SourceBytes:   len(e.src),
 		Leaves:        len(e.leaves),
 		VirtualLayout: e.virtualLayout(),
 	}
-	assets := make(map[*markdown.ImageAsset]struct{})
-	addAsset := func(asset *markdown.ImageAsset) {
+	for _, leaf := range e.leaves {
+		if leafMayContainImage(e.src, leaf) {
+			snapshot.ImageCandidateLeaves++
+		}
+		if leaf.view != nil && leaf.view.hasImageAsset() {
+			snapshot.ImageAssetViews++
+		}
+	}
+	for _, view := range e.views {
+		if view != nil && view.hasImageAsset() {
+			snapshot.ImageAssetViews++
+		}
+	}
+	return snapshot
+}
+
+// ImageMemoryHandles returns unique retained image resources through their
+// backend-neutral diagnostics contract. UI objects remain owned by the adapter.
+func (e *Editor) ImageMemoryHandles() []ImageMemoryHandle {
+	if e == nil {
+		return nil
+	}
+	seen := make(map[ImageMemoryHandle]struct{})
+	add := func(asset ImageMemoryHandle) {
 		if asset != nil {
-			assets[asset] = struct{}{}
+			seen[asset] = struct{}{}
 		}
 	}
 	addView := func(view *leafView) {
 		if view == nil {
 			return
 		}
-		if view.hasImageAsset() {
-			stats.ImageAssetViews++
-		}
 		if view.block != nil {
-			addAsset(view.block.asset)
+			add(view.block.asset)
 		}
 		for _, piece := range view.disp.pieces {
 			if piece.obj != nil {
-				addAsset(piece.obj.asset)
+				add(piece.obj.asset)
 			}
 		}
 	}
 	for _, leaf := range e.leaves {
-		if leafMayContainImage(e.src, leaf) {
-			stats.ImageCandidateLeaves++
-		}
 		addView(leaf.view)
 	}
 	for _, view := range e.views {
 		addView(view)
 	}
 	for _, asset := range e.dataImageAssets {
-		addAsset(asset)
+		add(asset)
 	}
-	stats.ImageAssets = len(assets)
-	for asset := range assets {
-		if asset.Loaded() {
-			stats.LoadedImageAssets++
-		}
-		stats.ImagePixelBytes += asset.ApproxPixelBytes()
+	assets := make([]ImageMemoryHandle, 0, len(seen))
+	for asset := range seen {
+		assets = append(assets, asset)
 	}
-	return stats
+	return assets
 }

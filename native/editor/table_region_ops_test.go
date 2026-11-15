@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tablemodel "muse/editor/blocks/table"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestTableCellRegionMatrixAndClear(t *testing.T) {
@@ -104,7 +104,7 @@ func TestTableCellRegionPasteReplacesSelectionAndUndoRestores(t *testing.T) {
 	h.e.layoutIfNeeded()
 	table := documentTestTable(t, h.e)
 	h.e.selectTableCellRegion(table, 1, 0, 2, 1)
-	h.e.modal.registerTable = &tableRegister{axis: tableCells, region: true, rows: [][]string{{"x"}}, align: []parser.Align{parser.AlignCenter}}
+	h.e.modal.registerTable = &tableRegister{axis: tableCells, region: true, rows: [][]string{{"x"}}, align: []syntax.IncrementalAlign{syntax.IncrementalAlignCenter}}
 	if !h.e.pasteTableRegister(false) {
 		t.Fatal("paste into active region failed")
 	}
@@ -133,7 +133,7 @@ func TestTableCellRegionPutBeforeAndAfterCurrentCell(t *testing.T) {
 			h.e.layoutIfNeeded()
 			table := documentTestTable(t, h.e)
 			h.e.caret = table.tab.rows[1][0].start
-			h.e.modal.registerTable = &tableRegister{axis: tableCells, region: true, rows: [][]string{{"x", "y"}}, align: []parser.Align{parser.AlignLeft, parser.AlignRight}}
+			h.e.modal.registerTable = &tableRegister{axis: tableCells, region: true, rows: [][]string{{"x", "y"}}, align: []syntax.IncrementalAlign{syntax.IncrementalAlignLeft, syntax.IncrementalAlignRight}}
 			if !h.e.pasteTableRegister(before) {
 				t.Fatal("region register put failed")
 			}
@@ -229,7 +229,7 @@ func TestTableCellRegionPasteExpandsRowsPreservesCellsAndAlignment(t *testing.T)
 	h.e.modal.registerTable = &tableRegister{
 		axis: tableCells, region: true,
 		rows:  [][]string{{"x", "y"}, {"z", "w"}},
-		align: []parser.Align{parser.AlignCenter, parser.AlignRight},
+		align: []syntax.IncrementalAlign{syntax.IncrementalAlignCenter, syntax.IncrementalAlignRight},
 	}
 	if !h.e.pasteTableRegister(false) {
 		t.Fatal("paste from last body row failed")

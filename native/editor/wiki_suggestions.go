@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	"muse/editor/input"
+	syntax "muse/markdown/syntax"
 )
 
 const wikiSuggestionLimit = 8
@@ -201,31 +202,32 @@ func oddBacktickRun(s string) bool {
 	return count%2 == 1
 }
 
-func (e *Editor) wikiSuggestionKey(key ui.Key, mods ui.Modifiers) bool {
+func (e *Editor) wikiSuggestionKey(event input.KeyEvent) bool {
 	if !e.wikiPopup.open {
 		return false
 	}
-	if mods&ui.Ctrl != 0 {
+	key := event.Key
+	if event.Modifiers&input.ModCtrl != 0 {
 		switch key {
-		case ui.KeyN:
-			key = ui.KeyDown
-		case ui.KeyP:
-			key = ui.KeyUp
+		case input.KeyN:
+			key = input.KeyDown
+		case input.KeyP:
+			key = input.KeyUp
 		}
 	}
 	switch key {
-	case ui.KeyUp:
+	case input.KeyUp:
 		e.wikiPopup.selected = (e.wikiPopup.selected + len(e.wikiPopup.items) - 1) % len(e.wikiPopup.items)
 		e.invalidate()
 		return true
-	case ui.KeyDown:
+	case input.KeyDown:
 		e.wikiPopup.selected = (e.wikiPopup.selected + 1) % len(e.wikiPopup.items)
 		e.invalidate()
 		return true
-	case ui.KeyEnter, ui.KeyTab:
+	case input.KeyEnter, input.KeyTab:
 		e.acceptWikiSuggestion(e.wikiPopup.selected)
 		return true
-	case ui.KeyEscape:
+	case input.KeyEscape:
 		e.wikiPopup.dismissed = true
 		e.wikiPopup.dismissKey = e.wikiPopup.query
 		e.wikiPopup.open = false
@@ -288,7 +290,7 @@ func (e *Editor) wikiLinkTargetAt(x, y float32, off int) string {
 		return ""
 	}
 	for _, in := range e.p.doc.Inlines(u.id) {
-		if in.Kind != parser.Text {
+		if in.Kind != syntax.IncrementalText {
 			continue
 		}
 		for _, w := range wikiLinks(e.src, in.Start, in.End) {

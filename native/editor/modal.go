@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"github.com/egoist/mygo/ui"
 	"github.com/go-text/typesetting/segmenter"
 	"muse/editor/input"
 	"sort"
@@ -88,28 +87,29 @@ func (e *Editor) ModeLabel() string {
 
 // ModalAcceptsText must guard all native composition/replacement entry points.
 func (e *Editor) ModalAcceptsText() bool { return e.Keymap() == "default" || e.modal.mode == "Insert" }
-func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
-	if e.Keymap() == "default" || m&ui.Cmd != 0 {
+func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
+	k, m := event.Key, event.Modifiers
+	if e.Keymap() == "default" || m&input.ModCommand != 0 {
 		return false
 	}
 	if e.modal.searching {
 		switch k {
-		case ui.KeyEscape:
+		case input.KeyEscape:
 			e.ApplyOperation(EditorOperation{Kind: OperationCancelSearch})
 			return true
-		case ui.KeyEnter:
+		case input.KeyEnter:
 			e.ApplyOperation(EditorOperation{Kind: OperationSubmitSearch})
 			return true
-		case ui.KeyBackspace:
+		case input.KeyBackspace:
 			e.modalSearchBackspace()
 			return true
 		default:
-			if m&(ui.Alt|ui.Ctrl) != 0 {
+			if m&(input.ModAlt|input.ModCtrl) != 0 {
 				return true
 			}
 		}
 	}
-	if k == ui.KeyR && m == ui.Ctrl {
+	if k == input.KeyR && m == input.ModCtrl {
 		e.Redo()
 		e.modal.mode = "Normal"
 		e.modal.sequence.Linewise = false
@@ -118,7 +118,7 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 		e.anchor = e.caret
 		return true
 	}
-	if k == ui.KeyV && m == ui.Ctrl {
+	if k == input.KeyV && m == input.ModCtrl {
 		e.caret = e.selectionFocus()
 		if t, row, col, ok := e.tableRegionAtCaret(); ok {
 			e.tableBridge = nil
@@ -150,7 +150,7 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 		e.invalidate()
 		return true
 	}
-	if k == ui.KeyEscape {
+	if k == input.KeyEscape {
 		e.modal.vimTextVisualActive = false
 		if e.vimHighlightsActive {
 			e.clearVimSearchHighlights()
@@ -185,16 +185,16 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 	}
 	if e.blockInput != nil {
 		switch k {
-		case ui.KeyBackspace:
+		case input.KeyBackspace:
 			e.editBlockInputDelete(true)
 			return true
-		case ui.KeyDelete:
+		case input.KeyDelete:
 			e.editBlockInputDelete(false)
 			return true
-		case ui.KeyEnter:
+		case input.KeyEnter:
 			e.typeBlockInput("\n")
 			return true
-		case ui.KeyTab:
+		case input.KeyTab:
 			e.typeBlockInput("\t")
 			return true
 		}
@@ -203,22 +203,22 @@ func (e *Editor) modalKey(k ui.Key, m ui.Modifiers) bool {
 	if e.ModalAcceptsText() {
 		return false
 	}
-	if m&(ui.Alt|ui.Ctrl) != 0 {
+	if m&(input.ModAlt|input.ModCtrl) != 0 {
 		return true
 	}
 	switch k {
-	case ui.KeyBackspace, ui.KeyDelete, ui.KeyEnter, ui.KeyTab:
+	case input.KeyBackspace, input.KeyDelete, input.KeyEnter, input.KeyTab:
 		return true
 	}
 	// Let printable keys reach the text callback (preserves case and keyboard layout).
 	switch k {
-	case ui.KeyLeft:
+	case input.KeyLeft:
 		return e.modalText("h")
-	case ui.KeyRight:
+	case input.KeyRight:
 		return e.modalText("l")
-	case ui.KeyUp:
+	case input.KeyUp:
 		return e.modalText("k")
-	case ui.KeyDown:
+	case input.KeyDown:
 		return e.modalText("j")
 	}
 	return false

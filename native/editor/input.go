@@ -8,7 +8,8 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	editorinput "muse/editor/input"
+	syntax "muse/markdown/syntax"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.
@@ -24,22 +25,23 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	defer e.invalidate()
 	switch ev.Kind {
 	case ui.InputKeyDown:
-		if e.wikiSuggestionKey(ev.Key, ev.Mods) {
+		keyEvent := keyEventFromUI(ev.Key, ev.Mods)
+		if e.wikiSuggestionKey(keyEvent) {
 			return true
 		}
 		if e.tableHandleDrag != nil {
-			if ev.Key == ui.KeyEscape {
+			if keyEvent.Key == editorinput.KeyEscape {
 				e.finishTableHandleDrag(true)
 			}
 			return true
 		}
-		if e.modalKey(ev.Key, ev.Mods) {
-			if ev.Key == ui.KeyEscape {
+		if e.modalKeyEvent(keyEvent) {
+			if keyEvent.Key == editorinput.KeyEscape {
 				e.inlineMath.SetPreviewHidden(true)
 			}
 			return true
 		}
-		if e.key(ev.Key, ev.Mods) {
+		if e.key(keyEvent) {
 			e.updateWikiSuggestions()
 			e.blinkStart = time.Now()
 			return true
@@ -149,6 +151,136 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	return false
 }
 
+// keyEventFromUI is the legacy widget bridge. The component adapter uses the
+// same neutral key values when it dispatches directly through Session.
+func keyEventFromUI(key ui.Key, mods ui.Modifiers) editorinput.KeyEvent {
+	var normalized editorinput.Key
+	switch key {
+	case ui.Key0:
+		normalized = editorinput.Key0
+	case ui.Key1:
+		normalized = editorinput.Key1
+	case ui.Key2:
+		normalized = editorinput.Key2
+	case ui.Key3:
+		normalized = editorinput.Key3
+	case ui.Key4:
+		normalized = editorinput.Key4
+	case ui.Key5:
+		normalized = editorinput.Key5
+	case ui.Key6:
+		normalized = editorinput.Key6
+	case ui.Key7:
+		normalized = editorinput.Key7
+	case ui.Key8:
+		normalized = editorinput.Key8
+	case ui.Key9:
+		normalized = editorinput.Key9
+	case ui.KeyA:
+		normalized = editorinput.KeyA
+	case ui.KeyB:
+		normalized = editorinput.KeyB
+	case ui.KeyC:
+		normalized = editorinput.KeyC
+	case ui.KeyD:
+		normalized = editorinput.KeyD
+	case ui.KeyE:
+		normalized = editorinput.KeyE
+	case ui.KeyF:
+		normalized = editorinput.KeyF
+	case ui.KeyG:
+		normalized = editorinput.KeyG
+	case ui.KeyH:
+		normalized = editorinput.KeyH
+	case ui.KeyI:
+		normalized = editorinput.KeyI
+	case ui.KeyJ:
+		normalized = editorinput.KeyJ
+	case ui.KeyK:
+		normalized = editorinput.KeyK
+	case ui.KeyL:
+		normalized = editorinput.KeyL
+	case ui.KeyM:
+		normalized = editorinput.KeyM
+	case ui.KeyN:
+		normalized = editorinput.KeyN
+	case ui.KeyO:
+		normalized = editorinput.KeyO
+	case ui.KeyP:
+		normalized = editorinput.KeyP
+	case ui.KeyQ:
+		normalized = editorinput.KeyQ
+	case ui.KeyR:
+		normalized = editorinput.KeyR
+	case ui.KeyS:
+		normalized = editorinput.KeyS
+	case ui.KeyT:
+		normalized = editorinput.KeyT
+	case ui.KeyU:
+		normalized = editorinput.KeyU
+	case ui.KeyV:
+		normalized = editorinput.KeyV
+	case ui.KeyW:
+		normalized = editorinput.KeyW
+	case ui.KeyX:
+		normalized = editorinput.KeyX
+	case ui.KeyY:
+		normalized = editorinput.KeyY
+	case ui.KeyZ:
+		normalized = editorinput.KeyZ
+	case ui.KeyBackquote:
+		normalized = editorinput.KeyBackquote
+	case ui.KeyBracketLeft:
+		normalized = editorinput.KeyBracketLeft
+	case ui.KeyBracketRight:
+		normalized = editorinput.KeyBracketRight
+	case ui.KeyBackspace:
+		normalized = editorinput.KeyBackspace
+	case ui.KeyDelete:
+		normalized = editorinput.KeyDelete
+	case ui.KeyDown:
+		normalized = editorinput.KeyDown
+	case ui.KeyEnd:
+		normalized = editorinput.KeyEnd
+	case ui.KeyEnter:
+		normalized = editorinput.KeyEnter
+	case ui.KeyEqual:
+		normalized = editorinput.KeyEqual
+	case ui.KeyEscape:
+		normalized = editorinput.KeyEscape
+	case ui.KeyHome:
+		normalized = editorinput.KeyHome
+	case ui.KeyLeft:
+		normalized = editorinput.KeyLeft
+	case ui.KeyMinus:
+		normalized = editorinput.KeyMinus
+	case ui.KeyPageDown:
+		normalized = editorinput.KeyPageDown
+	case ui.KeyPageUp:
+		normalized = editorinput.KeyPageUp
+	case ui.KeyRight:
+		normalized = editorinput.KeyRight
+	case ui.KeyTab:
+		normalized = editorinput.KeyTab
+	case ui.KeyUp:
+		normalized = editorinput.KeyUp
+	}
+	var modifiers editorinput.Modifiers
+	if mods&ui.Shift != 0 {
+		modifiers |= editorinput.ModShift
+	}
+	if mods&ui.Ctrl != 0 {
+		modifiers |= editorinput.ModCtrl
+	}
+	if mods&ui.Alt != 0 {
+		modifiers |= editorinput.ModAlt
+	}
+	if mods&ui.Cmd != 0 {
+		modifiers |= editorinput.ModCommand
+	}
+	return editorinput.KeyEvent{Key: normalized, Modifiers: modifiers}
+}
+
 // command runs an edit command of the menus.
 func (e *Editor) command(cmd string) bool {
 	switch cmd {
@@ -197,19 +329,20 @@ func (e *Editor) SelectAll() {
 }
 
 // key handles a key pressed, and reports whether it took it.
-func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
-	shift := mods&ui.Shift != 0
-	m := mods &^ ui.Shift
-	word := (isMac && m == ui.Alt) || (!isMac && m == ui.Ctrl)
-	if m == ui.Cmd || m == ui.Cmd|ui.Alt {
-		if e.shortcut(key, shift, m&ui.Alt != 0) {
+func (e *Editor) key(event editorinput.KeyEvent) bool {
+	key, mods := event.Key, event.Modifiers
+	shift := mods&editorinput.ModShift != 0
+	m := mods &^ editorinput.ModShift
+	word := (isMac && m == editorinput.ModAlt) || (!isMac && m == editorinput.ModCtrl)
+	if m == editorinput.ModCommand || m == editorinput.ModCommand|editorinput.ModAlt {
+		if e.shortcut(key, shift, m&editorinput.ModAlt != 0) {
 			return true
 		}
 	}
 	switch key {
-	case ui.KeyLeft, ui.KeyRight:
+	case editorinput.KeyLeft, editorinput.KeyRight:
 		dir := 1
-		if key == ui.KeyLeft {
+		if key == editorinput.KeyLeft {
 			dir = -1
 		}
 		if m == 0 && (shift || e.tableSelection != nil || e.tableBridge != nil) {
@@ -217,7 +350,7 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 			return true
 		}
 		switch {
-		case isMac && m == ui.Cmd:
+		case isMac && m == editorinput.ModCommand:
 			s, z := e.lineEdges(e.caret)
 			if dir < 0 {
 				e.setCaret(s, shift)
@@ -245,15 +378,15 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		e.hasGoal = false
 		e.upstream = false
 		return true
-	case ui.KeyUp, ui.KeyDown:
+	case editorinput.KeyUp, editorinput.KeyDown:
 		dir := 1
-		if key == ui.KeyUp {
+		if key == editorinput.KeyUp {
 			dir = -1
 		}
 		if m == 0 && e.moveStructuralRow(dir, shift) {
 			return true
 		}
-		if isMac && m == ui.Cmd {
+		if isMac && m == editorinput.ModCommand {
 			if dir < 0 {
 				e.setCaret(e.firstStop(), shift)
 			} else {
@@ -266,9 +399,9 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		e.nativeVertical(dir, shift)
 		return true
-	case ui.KeyHome, ui.KeyEnd:
-		if m == ui.Ctrl || m == ui.Cmd {
-			if key == ui.KeyHome {
+	case editorinput.KeyHome, editorinput.KeyEnd:
+		if m == editorinput.ModCtrl || m == editorinput.ModCommand {
+			if key == editorinput.KeyHome {
 				e.setCaret(e.firstStop(), shift)
 			} else {
 				e.setCaret(e.lastStop(), shift)
@@ -276,7 +409,7 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 			return true
 		}
 		s, z := e.lineEdges(e.caret)
-		if key == ui.KeyHome {
+		if key == editorinput.KeyHome {
 			e.setCaret(s, shift)
 			e.upstream = false
 		} else {
@@ -285,11 +418,11 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		e.hasGoal = false
 		return true
-	case ui.KeyPageUp, ui.KeyPageDown:
-		e.page(key == ui.KeyPageDown, shift)
+	case editorinput.KeyPageUp, editorinput.KeyPageDown:
+		e.page(key == editorinput.KeyPageDown, shift)
 		return true
-	case ui.KeyBackspace:
-		if isMac && m == ui.Cmd {
+	case editorinput.KeyBackspace:
+		if isMac && m == editorinput.ModCommand {
 			s, _ := e.lineEdges(e.caret)
 			if s < e.caret {
 				e.anchor = s
@@ -299,11 +432,11 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		e.backspace(word)
 		return true
-	case ui.KeyDelete:
+	case editorinput.KeyDelete:
 		e.deleteForward(word)
 		return true
-	case ui.KeyEnter:
-		if m == ui.Cmd {
+	case editorinput.KeyEnter:
+		if m == editorinput.ModCommand {
 			if t, r, c := e.cellPos(e.caret); t != nil {
 				e.insertRow(t, r, c)
 				return true
@@ -315,12 +448,12 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 		}
 		e.enter(shift)
 		return true
-	case ui.KeyTab:
+	case editorinput.KeyTab:
 		if m != 0 {
 			return false
 		}
 		return e.tab(shift)
-	case ui.KeyEscape:
+	case editorinput.KeyEscape:
 		if e.imageDrag != nil {
 			e.imageDrag = nil
 			e.assetGen.Add(1)
@@ -341,18 +474,18 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 }
 
 // shortcut runs the editor's own shortcut of Cmd (Ctrl) with key.
-func (e *Editor) shortcut(key ui.Key, shift, alt bool) bool {
+func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
 	if alt {
 		// Cmd+Alt (Ctrl+Alt): the blocks, and strikethrough as Typora's
 		// Alt+Shift+5.
 		switch {
-		case key == ui.KeyX && !shift:
+		case key == editorinput.KeyX && !shift:
 			e.ToggleList("- [ ]")
-		case key == ui.KeyC && !shift:
+		case key == editorinput.KeyC && !shift:
 			e.InsertCodeBlock()
-		case key == ui.KeyT && !shift:
+		case key == editorinput.KeyT && !shift:
 			e.InsertTable(3, 3)
-		case key == ui.Key5 && shift:
+		case key == editorinput.Key5 && shift:
 			e.ToggleStrike()
 		default:
 			return false
@@ -360,52 +493,52 @@ func (e *Editor) shortcut(key ui.Key, shift, alt bool) bool {
 		return true
 	}
 	switch {
-	case key == ui.KeyZ && !shift:
+	case key == editorinput.KeyZ && !shift:
 		e.Undo()
-	case key == ui.KeyZ && shift, key == ui.KeyY && !isMac:
+	case key == editorinput.KeyZ && shift, key == editorinput.KeyY && !isMac:
 		e.Redo()
-	case key == ui.KeyA && !shift:
+	case key == editorinput.KeyA && !shift:
 		e.SelectAll()
-	case key == ui.KeyC && !shift:
+	case key == editorinput.KeyC && !shift:
 		e.Copy()
-	case key == ui.KeyX && !shift:
+	case key == editorinput.KeyX && !shift:
 		e.Cut()
-	case key == ui.KeyV:
+	case key == editorinput.KeyV:
 		e.Paste(shift)
-	case key == ui.KeyB && !shift:
+	case key == editorinput.KeyB && !shift:
 		e.ToggleBold()
-	case key == ui.KeyI && !shift:
+	case key == editorinput.KeyI && !shift:
 		e.ToggleItalic()
-	case key == ui.KeyU && !shift:
+	case key == editorinput.KeyU && !shift:
 		e.ToggleUnderline()
-	case key == ui.KeyE && !shift, key == ui.KeyBackquote && shift:
+	case key == editorinput.KeyE && !shift, key == editorinput.KeyBackquote && shift:
 		e.ToggleCode()
-	case key == ui.KeyX && shift:
+	case key == editorinput.KeyX && shift:
 		e.ToggleStrike()
-	case key == ui.KeyH && shift:
+	case key == editorinput.KeyH && shift:
 		e.ToggleHighlight()
-	case key == ui.KeyK && !shift:
+	case key == editorinput.KeyK && !shift:
 		e.InsertLink()
-	case key == ui.KeyD && !shift:
+	case key == editorinput.KeyD && !shift:
 		a, z := e.wordRangeAt(e.caret)
 		e.Select(a, z)
-	case key >= ui.Key0 && key <= ui.Key6 && !shift:
-		e.SetHeading(int(key - ui.Key0))
-	case key == ui.KeyEqual && !shift:
+	case key >= editorinput.Key0 && key <= editorinput.Key6 && !shift:
+		e.SetHeading(int(key - editorinput.Key0))
+	case key == editorinput.KeyEqual && !shift:
 		e.ShiftHeading(1)
-	case key == ui.KeyMinus && !shift:
+	case key == editorinput.KeyMinus && !shift:
 		e.ShiftHeading(-1)
-	case key == ui.KeyQ && shift:
+	case key == editorinput.KeyQ && shift:
 		e.ToggleQuote()
-	case key == ui.KeyBracketLeft && shift:
+	case key == editorinput.KeyBracketLeft && shift:
 		e.ToggleList("1.")
-	case key == ui.KeyBracketRight && shift:
+	case key == editorinput.KeyBracketRight && shift:
 		e.ToggleList("-")
-	case key == ui.KeyK && shift:
+	case key == editorinput.KeyK && shift:
 		e.InsertCodeBlock()
-	case key == ui.KeyM && shift:
+	case key == editorinput.KeyM && shift:
 		e.InsertMathBlock()
-	case key == ui.KeyEnter && !shift:
+	case key == editorinput.KeyEnter && !shift:
 		if t, r, c := e.cellPos(e.caret); t != nil {
 			e.insertRow(t, r, c)
 		} else {
@@ -636,7 +769,7 @@ func (e *Editor) footnoteTargetAt(off int) (int, bool) {
 		return 0, false
 	}
 	for _, in := range e.p.doc.Inlines(u.id) {
-		if in.Kind != parser.FootnoteRef || off < in.Start || off > in.End {
+		if in.Kind != syntax.IncrementalFootnoteRef || off < in.Start || off > in.End {
 			continue
 		}
 		block, ok := e.p.doc.Footnote(in.Text)
@@ -1030,7 +1163,7 @@ func (e *Editor) taskBoxAt(x, y float32) (cont, bool) {
 		}
 		for _, k := range l.firstOf {
 			c := l.conts[k]
-			if c.kind != cItem || c.task == parser.NoTask {
+			if c.kind != cItem || c.task == syntax.IncrementalNoTask {
 				continue
 			}
 			if e.itemPrefixOpen(l) {
@@ -1071,11 +1204,11 @@ func (e *Editor) linkAt(off int) string {
 	}
 	for _, in := range e.p.doc.Inlines(u.id) {
 		switch in.Kind {
-		case parser.Link, parser.Image:
+		case syntax.IncrementalLink, syntax.IncrementalImage:
 			if in.Start <= off && off <= in.End {
 				return in.Dest
 			}
-		case parser.Text:
+		case syntax.IncrementalText:
 			for _, w := range wikiLinks(e.src, in.Start, in.End) {
 				if w.from <= off && off <= w.to {
 					if w.embed {
@@ -1095,10 +1228,10 @@ func (e *Editor) linkRangeAt(off int) (Range, bool) {
 		return Range{}, false
 	}
 	for _, in := range e.p.doc.Inlines(u.id) {
-		if in.Kind == parser.Link && in.Start <= off && off <= in.End {
+		if in.Kind == syntax.IncrementalLink && in.Start <= off && off <= in.End {
 			return Range{Start: in.Start, End: in.End}, true
 		}
-		if in.Kind == parser.Text {
+		if in.Kind == syntax.IncrementalText {
 			for _, w := range wikiLinks(e.src, in.Start, in.End) {
 				if !w.embed && w.from <= off && off <= w.to {
 					return Range{Start: w.from, End: w.to}, true
@@ -1155,7 +1288,7 @@ func (e *Editor) menu(m *ui.Menu) {
 		}
 		return
 	}
-	if source := e.contextDiagramSource; source != "" {
+	if source := e.contextDiagramSource; source != "" && e.opts.OnDiagramPreview != nil {
 		if m.Item(locales.EditorDiagramPreviewAction()).Chosen() {
 			e.previewDiagram(source)
 		}

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
 	"muse/locales"
+	syntax "muse/markdown/syntax"
 )
 
 func wideTableSource() string {
@@ -117,7 +117,7 @@ func TestTableScrollViewportKeepsGridTextAndColumnControlsAligned(t *testing.T) 
 	if table.horizontal.x <= 0 {
 		t.Fatal("column alignment reset the table's horizontal viewport")
 	}
-	if got := table.tab.align[4]; got != parser.AlignCenter {
+	if got := table.tab.align[4]; got != syntax.IncrementalAlignCenter {
 		t.Fatalf("scrolled cell menu aligned column %d as %v, want center", 4, got)
 	}
 }

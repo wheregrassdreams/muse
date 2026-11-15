@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/internal/core"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 type tableAxis uint8
@@ -200,7 +200,7 @@ func (e *Editor) selectionFocus() int {
 type tableRegister struct {
 	axis         tableAxis
 	rows         [][]string
-	align        []parser.Align
+	align        []syntax.IncrementalAlign
 	header       []string // source header when the selected rows exclude it
 	whole        bool
 	region       bool // rows are an arbitrary rectangular cell matrix
@@ -847,7 +847,7 @@ func (e *Editor) tableRegisterForSelection(t *leaf, s *tableSelection) *tableReg
 		return &tableRegister{axis: s.axis, whole: r.whole, rows: matrix.Cells, align: parserAlignmentsFromTable(matrix.Alignments), region: true, sourceHeader: top == 0}
 	}
 	if s.axis == tableRows || s.axis == tableWhole {
-		r.align = append([]parser.Align(nil), t.tab.align...)
+		r.align = append([]syntax.IncrementalAlign(nil), t.tab.align...)
 		if s.first > 0 && s.axis != tableWhole {
 			for _, cell := range t.tab.rows[0] {
 				r.header = append(r.header, e.src[cell.start:cell.end])
@@ -905,11 +905,11 @@ func (r *tableRegister) markdown() string {
 				for c := range row {
 					sep := "---"
 					switch alignAt(r.align, c) {
-					case parser.AlignLeft:
+					case syntax.IncrementalAlignLeft:
 						sep = ":---"
-					case parser.AlignCenter:
+					case syntax.IncrementalAlignCenter:
 						sep = ":---:"
-					case parser.AlignRight:
+					case syntax.IncrementalAlignRight:
 						sep = "---:"
 					}
 					b.WriteString(" " + sep + " |")
@@ -936,11 +936,11 @@ func (r *tableRegister) markdown() string {
 			for c := range row {
 				sep := "---"
 				switch alignAt(r.align, c) {
-				case parser.AlignLeft:
+				case syntax.IncrementalAlignLeft:
 					sep = ":---"
-				case parser.AlignCenter:
+				case syntax.IncrementalAlignCenter:
 					sep = ":---:"
-				case parser.AlignRight:
+				case syntax.IncrementalAlignRight:
 					sep = "---:"
 				}
 				b.WriteString(" " + sep + " |")
@@ -954,7 +954,7 @@ func (r *tableRegister) html() string {
 	if r == nil || !r.region || len(r.rows) == 0 {
 		return ""
 	}
-	html := parser.Parse(r.markdown()).HTML()
+	html := syntax.ParseIncrementalSource(r.markdown()).HTML()
 	if !r.sourceHeader {
 		html = strings.ReplaceAll(html, "<th>", "<td>")
 		html = strings.ReplaceAll(html, "</th>", "</td>")

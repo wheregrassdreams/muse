@@ -4,7 +4,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // Highlight, as Typora writes it: text between == and == is marked. The
@@ -25,12 +25,12 @@ type hlMark struct {
 // highlights returns the ==s that highlight among the Text inlines from i
 // to end of ins, siblings, in order: each opener pairs with the next ==
 // that closes.
-func highlights(src string, ins []parser.Inline, i, end int) []hlMark {
+func highlights(src string, ins []syntax.IncrementalInline, i, end int) []hlMark {
 	var out []hlMark
 	pending := -1
 	for k := i; k < end && k < len(ins); k = max(ins[k].Next, k+1) {
 		in := &ins[k]
-		if in.Kind != parser.Text {
+		if in.Kind != syntax.IncrementalText {
 			continue
 		}
 		for p := in.Start; p < in.End; {
@@ -68,7 +68,7 @@ func highlights(src string, ins []parser.Inline, i, end int) []hlMark {
 
 // allHighlights returns the ==s that highlight among all the inlines from
 // i to end, at every depth.
-func allHighlights(src string, ins []parser.Inline, i, end int) []hlMark {
+func allHighlights(src string, ins []syntax.IncrementalInline, i, end int) []hlMark {
 	out := highlights(src, ins, i, end)
 	for k := i; k < end && k < len(ins); k = max(ins[k].Next, k+1) {
 		if ins[k].Next > k+1 {

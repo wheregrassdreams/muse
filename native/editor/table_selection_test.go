@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestTableStructuralRowDelete(t *testing.T) {
@@ -165,7 +165,7 @@ func TestStructuralRowAndColumnPaste(t *testing.T) {
 				break
 			}
 		}
-		h.e.modal.registerTable = &tableRegister{axis: tableColumns, rows: [][]string{{"x"}, {"y"}}, align: []parser.Align{parser.AlignCenter}}
+		h.e.modal.registerTable = &tableRegister{axis: tableColumns, rows: [][]string{{"x"}, {"y"}}, align: []syntax.IncrementalAlign{syntax.IncrementalAlignCenter}}
 		h.e.caret = table.tab.rows[0][1].start
 		if !h.e.pasteTableRegister(true) {
 			t.Fatal("column paste was not applied")

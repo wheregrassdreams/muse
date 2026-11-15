@@ -70,6 +70,16 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 			case ui.InputText:
 				event = editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text}
 			case ui.InputKeyDown:
+				if key, ok := keyEventFromUI(ev); ok {
+					beforeSource, beforeSelection := session.Source(), session.Selection()
+					if session.DispatchKey(key) {
+						changed := session.Source() != beforeSource || session.Selection() != beforeSelection
+						if changed && opts.OnChange != nil {
+							opts.OnChange()
+						}
+						return true
+					}
+				}
 				switch ev.Key {
 				case ui.KeyBackspace:
 					event.Kind = editorinput.DeleteBackward

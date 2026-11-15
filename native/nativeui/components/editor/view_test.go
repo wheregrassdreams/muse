@@ -48,7 +48,7 @@ func TestViewInputEditsSessionAndRendersUpdatedMarkdown(t *testing.T) {
 	}
 }
 
-func TestViewDispatchesHorizontalMovementThroughProductionSessionOperation(t *testing.T) {
+func TestViewDispatchesHorizontalMovementThroughProductionSessionKeymap(t *testing.T) {
 	production := editor.New("abc", editor.Options{})
 	if err := production.Session.SetSelection(editor.Selection{Anchor: 1, Head: 1}); err != nil {
 		t.Fatal(err)
@@ -61,5 +61,25 @@ func TestViewDispatchesHorizontalMovementThroughProductionSessionOperation(t *te
 	tester.Frame()
 	if got := production.Session.Selection().Head; got != 2 {
 		t.Fatalf("selection after component key dispatch = %d, want 2", got)
+	}
+}
+
+func TestViewDispatchesVimKeysThroughProductionSession(t *testing.T) {
+	production := editor.New("abc", editor.Options{})
+	production.SetKeymap("vim")
+	tester := ui.NewTester(func(c *ui.Context) {
+		View(c, production.Session, Options{})
+	}, 640, 480)
+	tester.Frame()
+	tester.Type("l")
+	tester.Type("i")
+	tester.Type("X")
+	tester.KeyDown(ui.KeyEscape)
+	tester.Frame()
+	if got, want := production.Session.Source(), "aXbc"; got != want {
+		t.Fatalf("source after Vim input through component = %q, want %q", got, want)
+	}
+	if got := production.Session.Selection().Head; got != 2 {
+		t.Fatalf("selection after Vim input = %d, want 2", got)
 	}
 }

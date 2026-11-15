@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // Editing works on the source, as Typora's editing reads: typing goes in
@@ -484,11 +484,11 @@ func (e *Editor) deleteMixedCellSelection() bool {
 					if li == 1 {
 						value = " --- "
 						switch alignAt(t.tab.align, c) {
-						case parser.AlignLeft:
+						case syntax.IncrementalAlignLeft:
 							value = " :-- "
-						case parser.AlignCenter:
+						case syntax.IncrementalAlignCenter:
 							value = " :-: "
-						case parser.AlignRight:
+						case syntax.IncrementalAlignRight:
 							value = " --: "
 						}
 					} else {
@@ -1104,7 +1104,7 @@ func (e *Editor) nextMarker(it cont) string {
 	} else if it.marker == 0 {
 		m = "- "
 	}
-	if it.task != parser.NoTask {
+	if it.task != syntax.IncrementalNoTask {
 		m += "[ ] "
 	}
 	return m

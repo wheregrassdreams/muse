@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestLargeDataImageSourceStaysAtomicWhenCaretRevealsImage(t *testing.T) {
@@ -20,14 +20,14 @@ func TestLargeDataImageSourceStaysAtomicWhenCaretRevealsImage(t *testing.T) {
 	}
 	foundImage := false
 	for _, in := range e.viewInlines(e.leaves[0]) {
-		foundImage = foundImage || in.Kind == parser.Image
+		foundImage = foundImage || in.Kind == syntax.IncrementalImage
 	}
 	if !foundImage {
 		t.Fatal("large data image was not parsed as an image")
 	}
 	e.focused = true
 	e.caret = len(sourcePrefix) + 1
-	v := e.view(e.leaves[0], 720, false, parser.AlignNone)
+	v := e.view(e.leaves[0], 720, false, syntax.IncrementalAlignNone)
 	if !v.disp.hasObjects {
 		t.Fatal("large data image lost its object presentation")
 	}
@@ -75,10 +75,10 @@ func TestLargeDataImageInlineFastPathPreservesSourceAndAlt(t *testing.T) {
 	if len(ins) != 2 {
 		t.Fatalf("viewInlines returned %d tokens, want image and alt", len(ins))
 	}
-	if in := ins[0]; in.Kind != parser.Image || in.Start != 0 || in.End != wantEnd || in.Dest != src[wantDestStart:wantEnd-1] || in.Next != 2 {
+	if in := ins[0]; in.Kind != syntax.IncrementalImage || in.Start != 0 || in.End != wantEnd || in.Dest != src[wantDestStart:wantEnd-1] || in.Next != 2 {
 		t.Fatalf("image inline: kind=%v range=%d..%d dest=%d next=%d", in.Kind, in.Start, in.End, len(in.Dest), in.Next)
 	}
-	if in := ins[1]; in.Kind != parser.Text || in.Text != "pasted image" || in.Start != 2 || in.End != len("![pasted image") {
+	if in := ins[1]; in.Kind != syntax.IncrementalText || in.Text != "pasted image" || in.Start != 2 || in.End != len("![pasted image") {
 		t.Fatalf("alt inline: %+v", in)
 	}
 	if !e.pictureBlock(e.leaves[0]) {
@@ -353,7 +353,7 @@ func BenchmarkStressLargeDataImageOnlySource(b *testing.B) {
 	b.SetBytes(int64(len(src)))
 	for _, tc := range []struct {
 		name string
-		fn   func(string) ([]parser.Inline, bool)
+		fn   func(string) ([]syntax.IncrementalInline, bool)
 	}{
 		{name: "current", fn: largeDataImageOnlySource},
 		{name: "whole-source-newline-prefilter", fn: largeDataImageOnlySourceWithNewlinePrefilter},
@@ -372,7 +372,7 @@ func BenchmarkStressLargeDataImageOnlySource(b *testing.B) {
 
 // largeDataImageOnlySourceWithNewlinePrefilter is the former full-source
 // line check, kept as an A/B reference for the single-line fast path.
-func largeDataImageOnlySourceWithNewlinePrefilter(src string) ([]parser.Inline, bool) {
+func largeDataImageOnlySourceWithNewlinePrefilter(src string) ([]syntax.IncrementalInline, bool) {
 	if len(src) <= maxRevealedDataImageBytes || !strings.HasPrefix(src, "![") {
 		return nil, false
 	}
@@ -391,7 +391,7 @@ func largeDataImageOnlySourceWithNewlinePrefilter(src string) ([]parser.Inline, 
 		return nil, false
 	}
 	for _, inline := range inlines[1:] {
-		if inline.Kind != parser.Text {
+		if inline.Kind != syntax.IncrementalText {
 			continue
 		}
 		for i := 0; i < len(inline.Text); i++ {

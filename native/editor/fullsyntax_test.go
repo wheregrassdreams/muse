@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestFullSyntaxFixture(t *testing.T) {
@@ -106,7 +106,7 @@ func TestFullSyntaxFixture(t *testing.T) {
 		if v == nil && isMermaid(l) {
 			// Long documents virtualize offscreen blocks. Build this block's
 			// display view directly so the fixture still checks diagram rendering.
-			v = e.viewWith(l, e.opts.MaxWidth, false, parser.AlignNone, -1)
+			v = e.viewWith(l, e.opts.MaxWidth, false, syntax.IncrementalAlignNone, -1)
 		}
 		if v != nil && v.diagram != nil {
 			diagram = true

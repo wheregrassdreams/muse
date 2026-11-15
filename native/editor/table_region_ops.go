@@ -2,7 +2,7 @@ package editor
 
 import (
 	tablemodel "muse/editor/blocks/table"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // tableCellRegion is the key-independent rectangular cell selection value.
@@ -27,7 +27,7 @@ func (r tableCellRegion) bounds() (top, left, bottom, right int) {
 
 type tableCellMatrix = tablemodel.Matrix
 
-func tableAlignmentsFromParser(values []parser.Align) []tablemodel.Alignment {
+func tableAlignmentsFromParser(values []syntax.IncrementalAlign) []tablemodel.Alignment {
 	result := make([]tablemodel.Alignment, len(values))
 	for i, value := range values {
 		result[i] = tablemodel.Alignment(value)
@@ -35,10 +35,10 @@ func tableAlignmentsFromParser(values []parser.Align) []tablemodel.Alignment {
 	return result
 }
 
-func parserAlignmentsFromTable(values []tablemodel.Alignment) []parser.Align {
-	result := make([]parser.Align, len(values))
+func parserAlignmentsFromTable(values []tablemodel.Alignment) []syntax.IncrementalAlign {
+	result := make([]syntax.IncrementalAlign, len(values))
 	for i, value := range values {
-		result[i] = parser.Align(value)
+		result[i] = syntax.IncrementalAlign(value)
 	}
 	return result
 }

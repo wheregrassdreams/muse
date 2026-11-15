@@ -1,6 +1,6 @@
 package editor
 
-import "muse/editor/internal/parser"
+import syntax "muse/markdown/syntax"
 
 // parserSource is what the parser reads, and everything the editor derives
 // from the source for it: the document, the source it was built from, the
@@ -14,14 +14,14 @@ import "muse/editor/internal/parser"
 // between them — which is what keeps a fast path from drifting away from the
 // full one. Nothing else writes these fields.
 type parserSource struct {
-	doc *parser.Document
+	doc *syntax.IncrementalDocument
 	src string
 	// mask is a mutable parser-text copy, made on the first incremental edit
 	// only when masking changed the source. Before then doc.Source is enough.
 	mask         []byte
 	maskIsSource bool
 	comments     []cmt
-	imageInlines []parser.Inline
+	imageInlines []syntax.IncrementalInline
 	fm           int
 }
 
@@ -30,14 +30,14 @@ type parserSource struct {
 // parse, and the leaves are still built from a document — and set fills the
 // rest again.
 func (p *parserSource) clear() {
-	*p = parserSource{doc: parser.New(exts)}
+	*p = parserSource{doc: syntax.NewIncrementalDocument(exts)}
 }
 
 // set reads src whole: the comments and the front matter are masked out of
 // it, and the document is built from what the parser then reads.
 func (p *parserSource) set(src string, fm int) {
 	if p.doc == nil {
-		p.doc = parser.New(exts)
+		p.doc = syntax.NewIncrementalDocument(exts)
 	}
 	p.imageInlines = nil
 	p.comments = nil

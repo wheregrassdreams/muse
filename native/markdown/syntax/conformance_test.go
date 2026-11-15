@@ -58,7 +58,7 @@ func TestCommonMarkSpecBlockStructure(t *testing.T) {
 			// may make it panic.
 			_ = d.PlainText()
 
-			root := parser.Parser().Parse(text.NewReader([]byte(CJKFriendly(ex.Markdown))))
+			root := goldmarkParser.Parser().Parse(text.NewReader([]byte(CJKFriendly(ex.Markdown))))
 			var nodes []ast.Node
 			for c := root.FirstChild(); c != nil; c = c.NextSibling() {
 				// A link reference definition produces no block of its own.
@@ -68,8 +68,8 @@ func TestCommonMarkSpecBlockStructure(t *testing.T) {
 				nodes = append(nodes, c)
 			}
 			if len(d.Blocks) != len(nodes) {
-				t.Fatalf("markdown %q: model has %d blocks, parser has %d",
-					ex.Markdown, len(d.Blocks), len(nodes))
+				t.Fatalf("markdown %q: model has %d blocks, parser has %d; model=%#v",
+					ex.Markdown, len(d.Blocks), len(nodes), d.Blocks)
 			}
 			for i, n := range nodes {
 				if !kindFits(d.Blocks[i].Kind, n) {

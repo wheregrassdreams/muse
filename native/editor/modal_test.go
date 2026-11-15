@@ -6,6 +6,12 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// modalKey preserves the older UI-oriented test helper while production modal
+// behavior consumes backend-neutral key events.
+func (e *Editor) modalKey(key ui.Key, modifiers ui.Modifiers) bool {
+	return e.modalKeyEvent(keyEventFromUI(key, modifiers))
+}
+
 func TestModalEditingSequence(t *testing.T) {
 	e := New("alpha beta\n中文", Options{})
 	e.SetKeymap("vim")

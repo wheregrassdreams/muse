@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // exts is the Markdown the editor reads: GitHub's flavor, footnotes, math,
@@ -25,7 +25,7 @@ import (
 // GitHub's references are left out: `#123` parses as a reference to an
 // issue, which would take a numeric Obsidian tag (`#2024`) away from the
 // editor's own tag pass.
-const exts = (parser.Default &^ parser.ExtReferences) | parser.ExtDollarMath
+const exts = (syntax.IncrementalDefault &^ syntax.IncrementalExtReferences) | syntax.IncrementalExtDollarMath
 
 // leafKind is what a leaf of the document is: the units the editor lays
 // out one after another.
@@ -65,7 +65,7 @@ const (
 // a footnote's definition, outermost first in leaf.conts.
 type cont struct {
 	kind  contKind
-	alert parser.Alert
+	alert syntax.IncrementalAlert
 	title string
 	// id is the container's block in the parse, which identifies it while
 	// the source does not change.
@@ -82,7 +82,7 @@ type cont struct {
 	tight   bool
 	depth   int
 	// task is the item's check box, taskAt the offset of its [.
-	task   parser.Task
+	task   syntax.IncrementalTask
 	taskAt int
 	// label is a footnote's.
 	label string
@@ -227,7 +227,7 @@ func (l *leaf) opensItem() bool {
 // of its own, and how its columns align.
 type table struct {
 	rows  [][]*leaf
-	align []parser.Align
+	align []syntax.IncrementalAlign
 	// delim is the source range of the delimiter row, below the header.
 	delim [2]int
 }
@@ -609,7 +609,7 @@ func sameLeaf(a, b *leaf) bool {
 
 // buildLeaves turns the parse of src into the leaves the editor lays out,
 // in document order, from the arena's memory.
-func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
+func buildLeaves(src string, d *syntax.IncrementalDocument, fm int, a *leafArena) []*leaf {
 	// out grows through the arena's leaves; its length is the output's.
 	a.reset()
 	var out []*leaf
@@ -631,12 +631,12 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 				prevEnd = max(prevEnd, spanEnd(src, d, c))
 			}
 			switch b.Kind {
-			case parser.Quote:
+			case syntax.IncrementalQuote:
 				first := len(out)
 				n := len(conts)
 				conts = append(conts, quoteContainer(src, c, b))
 				ct := conts[len(conts)-1]
-				if isCalloutContainer(ct) && b.Alert != parser.NoAlert {
+				if isCalloutContainer(ct) && b.Alert != syntax.IncrementalNoAlert {
 					h := rawLeaf(a, src, lineStartAt(src, b.Start), lineEndAt(src, b.Start), false)
 					setConts(h, conts)
 					out = append(out, h)
@@ -647,7 +647,7 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 					out = append(out, emptyLeaf(a, src, b, conts, quoteContainer(src, c, b)))
 				}
 				markFirst(out[first:], len(conts))
-			case parser.List:
+			case syntax.IncrementalList:
 				n := 0
 				for it, end := c+1, d.Block(c).Next; it < end; it = d.Block(it).Next {
 					ib := d.Block(it)
@@ -656,7 +656,7 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 						ordered: b.Ordered, num: b.Number + n, marker: b.Marker, tight: b.Tight,
 						depth: listDepth, task: ib.Task, taskAt: -1,
 					}
-					if ib.Task != parser.NoTask {
+					if ib.Task != syntax.IncrementalNoTask {
 						ct.taskAt = taskBoxAt(src, ib.Start)
 					}
 					first := len(out)
@@ -670,7 +670,7 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 					markFirst(out[first:], len(conts))
 					n++
 				}
-			case parser.FootnoteDefinition:
+			case syntax.IncrementalFootnoteDefinition:
 				first := len(out)
 				ct := cont{kind: cFootnote, id: c, start: b.Start, label: b.Label()}
 				depth := len(conts)
@@ -681,27 +681,27 @@ func buildLeaves(src string, d *parser.Document, fm int, a *leafArena) []*leaf {
 					out = append(out, emptyLeaf(a, src, b, conts, ct))
 				}
 				markFirst(out[first:], len(conts))
-			case parser.Paragraph:
+			case syntax.IncrementalParagraph:
 				l := a.get()
 				l.kind, l.id, l.start, l.end = kPara, c, b.Start, paraEnd(src, b.End)
 				l.lineStart, l.syntaxStart = lineStartAt(src, b.Start), b.Start
 				setConts(l, conts)
 				out = append(out, l)
-			case parser.Heading:
+			case syntax.IncrementalHeading:
 				out = append(out, headingLeaf(a, src, d, c, conts))
-			case parser.ThematicBreak:
+			case syntax.IncrementalThematicBreak:
 				l := a.get()
 				l.kind, l.id, l.start, l.end = kRule, c, b.Start, b.End
 				l.lineStart, l.syntaxStart = lineStartAt(src, b.Start), b.Start
 				setConts(l, conts)
 				out = append(out, l)
-			case parser.CodeBlock:
+			case syntax.IncrementalCodeBlock:
 				out = append(out, codeLeaf(a, src, d, c, conts))
-			case parser.MathBlock:
+			case syntax.IncrementalMathBlock:
 				out = append(out, linesLeaf(a, src, d, c, kMath, conts))
-			case parser.HTMLBlock:
+			case syntax.IncrementalHTMLBlock:
 				out = append(out, linesLeaf(a, src, d, c, kHTML, conts))
-			case parser.Table:
+			case syntax.IncrementalTable:
 				out = append(out, tableLeaf(a, src, d, c, conts))
 			}
 		}
@@ -733,7 +733,7 @@ func paraEnd(src string, end int) int {
 
 // headingLeaf makes the leaf of a heading: an ATX heading's text after its
 // #s, or a setext heading's text above its underline.
-func headingLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont) *leaf {
+func headingLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	l := a.get()
 	l.kind, l.id, l.level = kHeading, c, b.Level
@@ -789,7 +789,7 @@ func closingHashes(rest string) bool {
 
 // codeLeaf makes the leaf of a fenced or indented block of code: its
 // lines, and its fence's info string.
-func codeLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont) *leaf {
+func codeLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	l := linesLeaf(a, src, d, c, kCode, conts)
 	l.fenced = b.Fenced
@@ -822,7 +822,7 @@ func codeLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont)
 }
 
 // linesLeaf makes the leaf of a block of lines: code, math or HTML.
-func linesLeaf(a *leafArena, src string, d *parser.Document, c int, kind leafKind, conts []cont) *leaf {
+func linesLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, kind leafKind, conts []cont) *leaf {
 	b := d.Block(c)
 	l := a.get()
 	l.kind, l.id = kind, c
@@ -881,11 +881,11 @@ const tabStop = 4
 // line, past what the parser's End leaves out (a table's last pipe, a
 // heading's closing #s or its underline, the closing $$ of math), and of
 // the last line of its descendants.
-func spanEnd(src string, d *parser.Document, c int) int {
+func spanEnd(src string, d *syntax.IncrementalDocument, c int) int {
 	b := d.Block(c)
 	end := lineEndAt(src, b.End)
 	switch b.Kind {
-	case parser.Heading:
+	case syntax.IncrementalHeading:
 		p := b.Start
 		for p < len(src) && (src[p] == ' ' || src[p] == '\t') {
 			p++
@@ -894,7 +894,7 @@ func spanEnd(src string, d *parser.Document, c int) int {
 			// A setext heading's underline.
 			end = lineEndAt(src, end+1)
 		}
-	case parser.MathBlock:
+	case syntax.IncrementalMathBlock:
 		if !b.Open {
 			// The closing $$ (or \]) ends the content's line, or the next.
 			if rest := src[b.End:end]; !strings.Contains(rest, "$$") && !strings.Contains(rest, `\]`) && end < len(src) {
@@ -912,7 +912,7 @@ func spanEnd(src string, d *parser.Document, c int) int {
 }
 
 // tableLeaf makes the leaf of a table: its rows of cells.
-func tableLeaf(a *leafArena, src string, d *parser.Document, c int, conts []cont) *leaf {
+func tableLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	t := &table{align: b.Align}
 	l := a.get()
@@ -967,7 +967,7 @@ func emptyCellAt(src string, at int) int {
 
 // emptyItemLeaf makes the leaf of a list item without content, "- " or
 // "1. ", for the caret to type in after its marker.
-func emptyItemLeaf(a *leafArena, src string, ib *parser.Block, conts []cont, ct cont) *leaf {
+func emptyItemLeaf(a *leafArena, src string, ib *syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
 	p := ib.Start
 	for p < len(src) && src[p] != ' ' && src[p] != '\t' && src[p] != '\n' && src[p] != '\r' {
 		p++
@@ -996,7 +996,7 @@ func emptyItemLeaf(a *leafArena, src string, ib *parser.Block, conts []cont, ct 
 }
 
 // emptyLeaf makes the leaf of a quotation or footnote without content.
-func emptyLeaf(a *leafArena, src string, b *parser.Block, conts []cont, ct cont) *leaf {
+func emptyLeaf(a *leafArena, src string, b *syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
 	e := lineEndAt(src, b.Start)
 	p := b.Start
 	if ct.kind == cQuote {

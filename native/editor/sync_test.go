@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // docShape is the parse of a document as text, for comparing an editor
 // that edited its way to a source with one that parsed the source whole.
-func docShape(d *parser.Document) string {
+func docShape(d *syntax.IncrementalDocument) string {
 	var b strings.Builder
 	var walk func(i, depth int)
 	walk = func(i, depth int) {

@@ -4,14 +4,14 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 
 	appearance "muse/theme"
 )
 
 // quoteContainer preserves parser-owned containers and extends alert headers
 // with Obsidian's optional title; source and byte offsets remain untouched.
-func quoteContainer(src string, id int, b *parser.Block) cont {
+func quoteContainer(src string, id int, b *syntax.IncrementalBlock) cont {
 	c := cont{kind: cQuote, id: id, start: b.Start, alert: b.Alert}
 	line := src[b.Start:]
 	if n := strings.IndexByte(line, '\n'); n >= 0 {
@@ -20,7 +20,7 @@ func quoteContainer(src string, id int, b *parser.Block) cont {
 	line = strings.TrimLeft(line, " >\t")
 	if strings.HasPrefix(line, "[!") {
 		if n := strings.IndexByte(line, ']'); n >= 0 {
-			for a := parser.AlertNote; a <= parser.AlertCaution; a++ {
+			for a := syntax.IncrementalAlertNote; a <= syntax.IncrementalAlertCaution; a++ {
 				if strings.EqualFold(line[2:n], a.String()) {
 					c.alert = a
 					c.title = strings.TrimSpace(line[n+1:])
@@ -34,17 +34,17 @@ func quoteContainer(src string, id int, b *parser.Block) cont {
 	}
 	return c
 }
-func isCalloutContainer(c cont) bool { return c.kind == cQuote && c.alert != parser.NoAlert }
+func isCalloutContainer(c cont) bool { return c.kind == cQuote && c.alert != syntax.IncrementalNoAlert }
 
-func calloutColor(a parser.Alert, accent ui.Color, dark bool) ui.Color {
+func calloutColor(a syntax.IncrementalAlert, accent ui.Color, dark bool) ui.Color {
 	switch a {
-	case parser.AlertWarning:
+	case syntax.IncrementalAlertWarning:
 		return ui.RGB(202, 135, 12)
-	case parser.AlertCaution:
+	case syntax.IncrementalAlertCaution:
 		return ui.RGB(218, 65, 70)
-	case parser.AlertTip:
+	case syntax.IncrementalAlertTip:
 		return ui.RGB(36, 155, 113)
-	case parser.AlertImportant:
+	case syntax.IncrementalAlertImportant:
 		return ui.RGB(139, 93, 211)
 	default:
 		return appearance.From(accent, dark).Accent
@@ -98,18 +98,18 @@ func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
 		p.Fill(ui.Rect{X: ox + v.x, Y: oy + v.y, W: e.colW - (v.x - e.colX), H: v.z - v.y + e.lk.size*.6}, col.Alpha(alpha), 8)
 		if e.lk.dark {
 			switch v.c.alert {
-			case parser.AlertWarning:
+			case syntax.IncrementalAlertWarning:
 				col = ui.RGB(240, 185, 75)
-			case parser.AlertCaution:
+			case syntax.IncrementalAlertCaution:
 				col = ui.RGB(255, 115, 120)
-			case parser.AlertTip:
+			case syntax.IncrementalAlertTip:
 				col = ui.RGB(80, 205, 155)
-			case parser.AlertImportant:
+			case syntax.IncrementalAlertImportant:
 				col = ui.RGB(185, 145, 255)
 			}
 		}
 		if !v.headerEditing {
-			paintCalloutIcon(p, ox+v.x+e.lk.size*1.4, oy+v.y+e.lk.size*.5, e.lk.size, col, v.c.alert == parser.AlertWarning || v.c.alert == parser.AlertCaution)
+			paintCalloutIcon(p, ox+v.x+e.lk.size*1.4, oy+v.y+e.lk.size*.5, e.lk.size, col, v.c.alert == syntax.IncrementalAlertWarning || v.c.alert == syntax.IncrementalAlertCaution)
 			p.RichText(ox+v.x+e.lk.size*2.8, oy+v.y+e.lk.size*.45, e.colW-(v.x-e.colX)-e.lk.size*4.2, ui.Span{Text: v.c.title, Color: col, Size: e.lk.size, Weight: 600})
 		}
 	}

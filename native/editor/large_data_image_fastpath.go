@@ -6,13 +6,13 @@ import (
 	"strings"
 	"sync"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 type largeDataImageInlineCache struct {
 	rev     uint64
 	leafID  int
-	inlines []parser.Inline
+	inlines []syntax.IncrementalInline
 	valid   bool
 }
 
@@ -23,7 +23,7 @@ var strictBase64 = base64.StdEncoding.Strict()
 // viewInlines avoids the general inline parser for a standalone image with a
 // plain alt and a large Base64 data URL. The cached inline tokens retain a
 // slice of the source, so sync drops them when the source revision changes.
-func (e *Editor) viewInlines(l *leaf) []parser.Inline {
+func (e *Editor) viewInlines(l *leaf) []syntax.IncrementalInline {
 	if l == nil || l.id < 0 || e.p.doc == nil {
 		return nil
 	}
@@ -44,7 +44,7 @@ func (e *Editor) viewInlines(l *leaf) []parser.Inline {
 // standalone image with plain ASCII alt text and a large Base64 data URL.
 // Exact offsets and token shape match the parser's output for this subset;
 // every other form uses the general Markdown parser.
-func largeDataImageInlines(src string, l *leaf) ([]parser.Inline, bool) {
+func largeDataImageInlines(src string, l *leaf) ([]syntax.IncrementalInline, bool) {
 	if l == nil || l.kind != kPara || l.start < 0 || l.end > len(src) || l.end <= l.start || l.end-l.start <= maxRevealedDataImageBytes {
 		return nil, false
 	}
@@ -54,7 +54,7 @@ func largeDataImageInlines(src string, l *leaf) ([]parser.Inline, bool) {
 // largeDataImageOnlySource recognizes a whole document containing one
 // standalone large image. This lets source initialization share its strict
 // tokenization result with the editor and skip unrelated full-source scans.
-func largeDataImageOnlySource(src string) ([]parser.Inline, bool) {
+func largeDataImageOnlySource(src string) ([]syntax.IncrementalInline, bool) {
 	if len(src) <= maxRevealedDataImageBytes || !strings.HasPrefix(src, "![") {
 		return nil, false
 	}
@@ -73,7 +73,7 @@ func largeDataImageOnlySource(src string) ([]parser.Inline, bool) {
 		return nil, false
 	}
 	for _, inline := range inlines[1:] {
-		if inline.Kind != parser.Text {
+		if inline.Kind != syntax.IncrementalText {
 			continue
 		}
 		for i := 0; i < len(inline.Text); i++ {
@@ -85,7 +85,7 @@ func largeDataImageOnlySource(src string) ([]parser.Inline, bool) {
 	return inlines, true
 }
 
-func largeDataImageInlineRange(src string, start, end int, decodePayload bool) ([]parser.Inline, bool) {
+func largeDataImageInlineRange(src string, start, end int, decodePayload bool) ([]syntax.IncrementalInline, bool) {
 	line := src[start:end]
 	lead := 0
 	for lead < len(line) && (line[lead] == ' ' || line[lead] == '\t') {
@@ -159,15 +159,15 @@ func largeDataImageInlineRange(src string, start, end int, decodePayload bool) (
 	imageEnd := start + close + 1
 	altStart := imageStart + 2
 	altEnd := altStart + len(alt)
-	parent := parser.Inline{Kind: parser.Image, Dest: dest, Start: imageStart, End: imageEnd, Next: 1}
+	parent := syntax.IncrementalInline{Kind: syntax.IncrementalImage, Dest: dest, Start: imageStart, End: imageEnd, Next: 1}
 	if alt != "" {
 		parent.Next = 2
-		return []parser.Inline{
+		return []syntax.IncrementalInline{
 			parent,
-			{Kind: parser.Text, Text: alt, Start: altStart, End: altEnd, Next: 2},
+			{Kind: syntax.IncrementalText, Text: alt, Start: altStart, End: altEnd, Next: 2},
 		}, true
 	}
-	return []parser.Inline{parent}, true
+	return []syntax.IncrementalInline{parent}, true
 }
 
 func invalidBase64DestinationByte(c byte) bool {

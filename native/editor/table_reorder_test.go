@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestEveryColumnHandleKeepsPointerCaptureAcrossPressedFrames(t *testing.T) {
@@ -87,7 +87,7 @@ func TestTableReorderPreservesContentAlignmentAndHistory(t *testing.T) {
 				t.Fatalf("row drag extended selection or damaged escaped content: %s", tableSelectionState(e))
 			}
 		} else {
-			if got := e.src[table.tab.rows[0][0].start:table.tab.rows[0][0].end]; got != "H2" || table.tab.align[0] != parser.AlignCenter || table.tab.align[1] != parser.AlignRight || table.tab.align[2] != parser.AlignLeft || e.tableSelection.first != 2 || e.tableSelection.last != 2 {
+			if got := e.src[table.tab.rows[0][0].start:table.tab.rows[0][0].end]; got != "H2" || table.tab.align[0] != syntax.IncrementalAlignCenter || table.tab.align[1] != syntax.IncrementalAlignRight || table.tab.align[2] != syntax.IncrementalAlignLeft || e.tableSelection.first != 2 || e.tableSelection.last != 2 {
 				t.Fatalf("columns did not carry their alignment/content: %q %v", moved, table.tab.align)
 			}
 		}
@@ -206,7 +206,7 @@ func TestColumnHandleDragPreviewsAndMovesItsAlignment(t *testing.T) {
 	h.tt.Release(table.x+table.geom.w+100, y)
 	h.frame()
 	table = documentTestTable(t, h.e)
-	if table.tab.align[2] != parser.AlignLeft || h.e.src[table.tab.rows[0][2].start:table.tab.rows[0][2].end] != "Left" || h.e.tableSelection.first != 2 || h.e.tableSelection.last != 2 {
+	if table.tab.align[2] != syntax.IncrementalAlignLeft || h.e.src[table.tab.rows[0][2].start:table.tab.rows[0][2].end] != "Left" || h.e.tableSelection.first != 2 || h.e.tableSelection.last != 2 {
 		t.Fatal("pointer column reorder did not move its values/alignment together")
 	}
 }

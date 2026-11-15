@@ -2,9 +2,10 @@ package editor
 
 import (
 	"fmt"
+	"time"
 	"unicode/utf8"
 
-	"github.com/egoist/mygo/ui"
+	editorinput "muse/editor/input"
 	"muse/markdown"
 	"muse/markdown/syntax"
 )
@@ -15,6 +16,31 @@ import (
 // the incremental parser, table controller and viewport invalidation.
 func (e *Editor) bindSessionAdapters() {
 	e.Session.dispatchInputFn = e.dispatchSessionInput
+	e.Session.dispatchKeyFn = func(event KeyEvent) bool {
+		e.paintMu.Lock()
+		defer e.paintMu.Unlock()
+		if e.wikiSuggestionKey(event) {
+			return true
+		}
+		if e.tableHandleDrag != nil {
+			if event.Key == editorinput.KeyEscape {
+				e.finishTableHandleDrag(true)
+			}
+			return true
+		}
+		if e.modalKeyEvent(event) {
+			if event.Key == editorinput.KeyEscape {
+				e.inlineMath.SetPreviewHidden(true)
+			}
+			return true
+		}
+		if e.key(event) {
+			e.updateWikiSuggestions()
+			e.blinkStart = time.Now()
+			return true
+		}
+		return false
+	}
 	e.Session.applyTransactionFn = func(tx Transaction) (DispatchResult, error) {
 		e.paintMu.Lock()
 		defer e.paintMu.Unlock()
@@ -40,7 +66,6 @@ func (e *Editor) bindSessionAdapters() {
 	e.Session.selectionFn = e.sessionSelection
 	e.Session.frameFn = e.sessionFrame
 }
-
 func (e *Editor) dispatchSessionInput(event InputEvent) (DispatchResult, error) {
 	attachedLock := event.Kind != InputSetSelection
 	if attachedLock {
@@ -56,11 +81,13 @@ func (e *Editor) dispatchSessionInput(event InputEvent) (DispatchResult, error) 
 		if !utf8.ValidString(event.Text) {
 			return DispatchResult{}, fmt.Errorf("inserted text is not valid UTF-8")
 		}
-		e.typeText(event.Text)
+		if !e.modalText(event.Text) {
+			e.typeText(event.Text)
+		}
 	case InputDeleteBackward:
-		e.key(ui.KeyBackspace, 0)
+		e.key(KeyEvent{Key: editorinput.KeyBackspace})
 	case InputDeleteForward:
-		e.key(ui.KeyDelete, 0)
+		e.key(KeyEvent{Key: editorinput.KeyDelete})
 	case InputMoveHorizontal:
 		if event.Direction != -1 && event.Direction != 1 {
 			return DispatchResult{}, fmt.Errorf("horizontal direction must be -1 or +1")

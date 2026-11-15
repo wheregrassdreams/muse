@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui/richtext"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 // Inline formats: a command on a selection wraps it in the format's
@@ -17,12 +17,12 @@ import (
 
 // inlineAround returns the innermost inline of kind around [a, z] in the
 // text unit holding the caret.
-func (e *Editor) inlineAround(kind parser.InlineKind, a, z int) (parser.Inline, bool) {
+func (e *Editor) inlineAround(kind syntax.IncrementalInlineKind, a, z int) (syntax.IncrementalInline, bool) {
 	u := e.unitAt(e.caret)
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
-		return parser.Inline{}, false
+		return syntax.IncrementalInline{}, false
 	}
-	var best parser.Inline
+	var best syntax.IncrementalInline
 	found := false
 	for _, in := range e.p.doc.Inlines(u.id) {
 		if in.Kind == kind && in.Start <= a && z <= in.End {
@@ -36,7 +36,7 @@ func (e *Editor) inlineAround(kind parser.InlineKind, a, z int) (parser.Inline, 
 
 // ToggleInline formats the selection with marker (as "**"), or takes the
 // format of kind away from it.
-func (e *Editor) ToggleInline(kind parser.InlineKind, open, close string) {
+func (e *Editor) ToggleInline(kind syntax.IncrementalInlineKind, open, close string) {
 	e.layoutIfNeeded()
 	a, z := e.selection()
 	if in, ok := e.inlineAround(kind, a, z); ok && e.phantom == nil {
@@ -91,17 +91,17 @@ func (e *Editor) wrapInline(open, close string) {
 
 // markerLens returns the lengths of an inline's opening and closing
 // markers in the source.
-func markerLens(src string, in parser.Inline, open, close string) (int, int) {
+func markerLens(src string, in syntax.IncrementalInline, open, close string) (int, int) {
 	s := src[in.Start:in.End]
 	ol, cl := len(open), len(close)
-	if in.Kind == parser.Code {
+	if in.Kind == syntax.IncrementalCode {
 		ol = 0
 		for ol < len(s) && s[ol] == '`' {
 			ol++
 		}
 		cl = ol
 	}
-	if in.Kind == parser.Emphasis || in.Kind == parser.Strong || in.Kind == parser.Strikethrough {
+	if in.Kind == syntax.IncrementalEmphasis || in.Kind == syntax.IncrementalStrong || in.Kind == syntax.IncrementalStrikethrough {
 		c := s[0]
 		ol = 0
 		for ol < len(s) && s[ol] == c {
@@ -113,9 +113,9 @@ func markerLens(src string, in parser.Inline, open, close string) (int, int) {
 		}
 		want := 1
 		switch in.Kind {
-		case parser.Strong:
+		case syntax.IncrementalStrong:
 			want = 2
-		case parser.Strikethrough:
+		case syntax.IncrementalStrikethrough:
 			want = min(ol, 2)
 		}
 		ol, cl = min(ol, want), min(cl, want)
@@ -132,10 +132,10 @@ func firstRune(s string) rune {
 
 // ToggleBold, ToggleItalic, ToggleStrike, ToggleCode and ToggleUnderline
 // format the selection.
-func (e *Editor) ToggleBold()   { e.ToggleInline(parser.Strong, "**", "**") }
-func (e *Editor) ToggleItalic() { e.ToggleInline(parser.Emphasis, "*", "*") }
-func (e *Editor) ToggleStrike() { e.ToggleInline(parser.Strikethrough, "~~", "~~") }
-func (e *Editor) ToggleCode()   { e.ToggleInline(parser.Code, "`", "`") }
+func (e *Editor) ToggleBold()   { e.ToggleInline(syntax.IncrementalStrong, "**", "**") }
+func (e *Editor) ToggleItalic() { e.ToggleInline(syntax.IncrementalEmphasis, "*", "*") }
+func (e *Editor) ToggleStrike() { e.ToggleInline(syntax.IncrementalStrikethrough, "~~", "~~") }
+func (e *Editor) ToggleCode()   { e.ToggleInline(syntax.IncrementalCode, "`", "`") }
 
 // ToggleUnderline wraps the selection in <u>, or takes it away.
 func (e *Editor) ToggleUnderline() {
@@ -147,7 +147,7 @@ func (e *Editor) ToggleUnderline() {
 		e.commit(a-3, z-3)
 		return
 	}
-	e.ToggleInline(parser.HTML, "<u>", "</u>")
+	e.ToggleInline(syntax.IncrementalHTML, "<u>", "</u>")
 }
 
 // InsertLink makes the selection a link, with the caret in its
@@ -155,7 +155,7 @@ func (e *Editor) ToggleUnderline() {
 func (e *Editor) InsertLink() {
 	e.layoutIfNeeded()
 	a, z := e.selection()
-	if in, ok := e.inlineAround(parser.Link, a, z); ok && !in.Auto {
+	if in, ok := e.inlineAround(syntax.IncrementalLink, a, z); ok && !in.Auto {
 		// Select the link's destination.
 		s := e.src[in.Start:in.End]
 		if i := strings.LastIndex(s, "]("); i >= 0 {
@@ -322,7 +322,7 @@ func (e *Editor) ToggleList(marker string) {
 	}
 	if l.opensItem() {
 		it, _ := l.innerItem()
-		task := it.task != parser.NoTask
+		task := it.task != syntax.IncrementalNoTask
 		same := it.ordered == strings.HasSuffix(marker, ".") && task == strings.Contains(marker, "[")
 		if same {
 			e.leaveItem(l)
@@ -481,7 +481,7 @@ func (e *Editor) toggleTaskAt(it cont) {
 		return
 	}
 	mark := "x"
-	if it.task == parser.Checked {
+	if it.task == syntax.IncrementalChecked {
 		mark = " "
 	}
 	anchor, caret := e.anchor, e.caret
@@ -691,19 +691,19 @@ func (e *Editor) Copy() bool {
 	if md == "" {
 		return false
 	}
-	html := parser.Parse(md).HTML()
+	html := syntax.ParseIncrementalSource(md).HTML()
 	parts := e.selectionParts()
 	var htmlParts []string
 	hasStructure := false
 	for _, part := range parts {
 		if part.structure == nil {
-			htmlParts = append(htmlParts, parser.Parse(e.src[part.source.Start:part.source.End]).HTML())
+			htmlParts = append(htmlParts, syntax.ParseIncrementalSource(e.src[part.source.Start:part.source.End]).HTML())
 			continue
 		}
 		t := e.tableByLineStart(part.structure.lineStart)
 		reg := e.tableRegisterForSelection(t, part.structure)
 		if reg == nil || !reg.region || part.structure.axis == tableWhole {
-			htmlParts = append(htmlParts, parser.Parse(e.src[part.source.Start:part.source.End]).HTML())
+			htmlParts = append(htmlParts, syntax.ParseIncrementalSource(e.src[part.source.Start:part.source.End]).HTML())
 			continue
 		}
 		// Markdown uses the rectangle's first row as its header. HTML keeps

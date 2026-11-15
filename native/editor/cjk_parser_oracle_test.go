@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/parser"
 	"muse/markdown"
+	syntax "muse/markdown/syntax"
 )
 
 func TestInternalParserCJKFlankingMatchesSourceNormalization(t *testing.T) {
@@ -47,7 +47,7 @@ func TestInternalParserCJKFlankingMatchesSourceNormalization(t *testing.T) {
 	}
 
 	shape := func(src string) []string {
-		d := parser.New(exts)
+		d := syntax.NewIncrementalDocument(exts)
 		d.Set(src)
 		out := make([]string, 0, d.Len())
 		for i := 1; i < d.Len(); i++ {

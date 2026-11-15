@@ -4,7 +4,6 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/egoist/mygo/ui"
 	"muse/markdown/diagrams"
 )
 
@@ -29,12 +28,13 @@ func (e *Editor) diagramTheme() *diagrams.Theme {
 		return nil
 	}
 	return &diagrams.Theme{
-		Bg: diagramColor(e.lk.panel), Fg: diagramColor(e.lk.text), Muted: diagramColor(e.lk.muted),
-		Line: diagramColor(e.lk.border), Surface: diagramColor(e.lk.panel), SurfaceAlt: diagramColor(e.lk.codeBg),
-		Border: diagramColor(e.lk.border), Accent: diagramColor(e.lk.accent), Radius: 4,
+		Bg:         color.RGBA{R: e.lk.panel.R, G: e.lk.panel.G, B: e.lk.panel.B, A: e.lk.panel.A},
+		Fg:         color.RGBA{R: e.lk.text.R, G: e.lk.text.G, B: e.lk.text.B, A: e.lk.text.A},
+		Muted:      color.RGBA{R: e.lk.muted.R, G: e.lk.muted.G, B: e.lk.muted.B, A: e.lk.muted.A},
+		Line:       color.RGBA{R: e.lk.border.R, G: e.lk.border.G, B: e.lk.border.B, A: e.lk.border.A},
+		Surface:    color.RGBA{R: e.lk.panel.R, G: e.lk.panel.G, B: e.lk.panel.B, A: e.lk.panel.A},
+		SurfaceAlt: color.RGBA{R: e.lk.codeBg.R, G: e.lk.codeBg.G, B: e.lk.codeBg.B, A: e.lk.codeBg.A},
+		Border:     color.RGBA{R: e.lk.border.R, G: e.lk.border.G, B: e.lk.border.B, A: e.lk.border.A},
+		Accent:     color.RGBA{R: e.lk.accent.R, G: e.lk.accent.G, B: e.lk.accent.B, A: e.lk.accent.A}, Radius: 4,
 	}
-}
-
-func diagramColor(c ui.Color) color.RGBA {
-	return color.RGBA{R: c.R, G: c.G, B: c.B, A: c.A}
 }

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
 	"muse/locales"
+	syntax "muse/markdown/syntax"
 )
 
 func TestCellAlignmentMenuTargetsDisplayedColumnAndKeepsTextSelection(t *testing.T) {
@@ -26,7 +26,7 @@ func TestCellAlignmentMenuTargetsDisplayedColumnAndKeepsTextSelection(t *testing
 	}
 	h.frame()
 	table := documentTestTable(t, e)
-	if table.tab.align[1] != parser.AlignCenter || table.tab.align[0] != parser.AlignNone || table.tab.align[2] != parser.AlignNone {
+	if table.tab.align[1] != syntax.IncrementalAlignCenter || table.tab.align[0] != syntax.IncrementalAlignNone || table.tab.align[2] != syntax.IncrementalAlignNone {
 		t.Fatalf("cell menu aligned the caret's table/column instead of its target: %v", table.tab.align)
 	}
 	if e.SelectedText() != "outside" || e.scroll.Y != beforeScroll {

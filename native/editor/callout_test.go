@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 	"strings"
 	"testing"
 )
@@ -23,7 +23,7 @@ func TestCalloutCardsSourceAndHeader(t *testing.T) {
 				}
 				if c, end, ok := h.e.calloutHeader(l); ok {
 					found = true
-					if c.alert == parser.NoAlert {
+					if c.alert == syntax.IncrementalNoAlert {
 						t.Fatal("missing alert")
 					}
 					if l.view == nil {
@@ -38,7 +38,7 @@ func TestCalloutCardsSourceAndHeader(t *testing.T) {
 							continue
 						}
 						h.caretAt(at)
-						v := h.e.view(l, l.w, false, parser.AlignNone)
+						v := h.e.view(l, l.w, false, syntax.IncrementalAlignNone)
 						if _, ok := v.disp.srcToDisp(at - l.lineStart); !ok {
 							t.Fatalf("header byte %d inaccessible", at)
 						}

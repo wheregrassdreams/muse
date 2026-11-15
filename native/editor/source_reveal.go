@@ -3,7 +3,7 @@ package editor
 import (
 	"sort"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func normalizeSourceRevealRanges(in []Range) []Range {
@@ -158,7 +158,7 @@ func quoteSourcePrefixes(e *Editor, l *leaf) []Range {
 	}
 	if l.id >= 0 {
 		for _, in := range e.p.doc.Inlines(l.id) {
-			if in.Kind != parser.SoftBreak && in.Kind != parser.LineBreak {
+			if in.Kind != syntax.IncrementalSoftBreak && in.Kind != syntax.IncrementalLineBreak {
 				continue
 			}
 			s, z, ok := quotePrefixForBreak(e.src, in.Start, in.End, depth)

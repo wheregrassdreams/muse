@@ -28,6 +28,7 @@ type TextRange = core.TextRange
 // intents owned by editor/input.
 type InputKind = editorinput.EventKind
 type InputEvent = editorinput.Event
+type KeyEvent = editorinput.KeyEvent
 
 const (
 	InputInsertText     = editorinput.InsertText
@@ -86,6 +87,7 @@ type Session struct {
 	hist               history
 	frame              Frame
 	dispatchInputFn    func(InputEvent) (DispatchResult, error)
+	dispatchKeyFn      func(KeyEvent) bool
 	applyTransactionFn func(core.Transaction) (DispatchResult, error)
 	setSelectionFn     func(Selection) error
 	applyOperationFn   func(EditorOperation) bool
@@ -176,6 +178,15 @@ func (s *Session) ApplyOperation(operation EditorOperation) bool {
 		return false
 	}
 	return s.applyOperationFn(operation)
+}
+
+// DispatchKey forwards a physical, toolkit-neutral key to the owning
+// keymap. Standalone sessions have no keymap and return false.
+func (s *Session) DispatchKey(event KeyEvent) bool {
+	if s == nil || s.dispatchKeyFn == nil {
+		return false
+	}
+	return s.dispatchKeyFn(event)
 }
 
 // Dispatch applies one backend-neutral input intent and records a normal

@@ -1,12 +1,6 @@
-// Package markdown is Muse's Markdown document model and its native renderer.
-//
-// Parse turns Markdown source into a flat block tree that a plugin, the
-// editor or the AI layer can read and rewrite; View draws that tree with
-// the mygo ui package, so a document shows in a native window with no
-// webview and no frontend build.
-//
-// The model is deliberately shallow: every block is a value, and the tree
-// is small enough to serialize, diff and hand to a model as context.
+// Package syntax owns Muse's Markdown grammar and backend-neutral document
+// model. Parse produces a block tree for the editor, AI layer and renderer;
+// widget drawing belongs to nativeui/components/markdown.
 package syntax
 
 // Kind is the sort of a block.
@@ -45,6 +39,10 @@ type Span struct {
 	Link      string // non-empty for a link target
 	Math      bool   // inline TeX
 	SoftBreak bool   // an ordinary source newline, distinguishable from a hard break
+	Mention   bool   // a people/team mention recognized by the syntax extensions
+	Reference bool   // an issue or pull request reference recognized by the syntax extensions
+	SourceStart int  // byte offset of the original inline source
+	SourceEnd   int
 }
 
 // Cell is one table cell: a run of styled spans.
@@ -58,6 +56,8 @@ type Item struct {
 	Children []Block
 	Task     bool // a GFM task-list item
 	Checked  bool
+	SourceStart int
+	SourceEnd   int
 }
 
 // Block is one block of a document. Which fields apply depends on Kind.
@@ -78,7 +78,24 @@ type Block struct {
 	Title     string   // Image: title
 	ImgWidth  float32  // Image: explicit width in DIPs, from HTML
 	ImgHeight float32  // Image: explicit height in DIPs, from HTML
+	SourceStart int    // byte offset range in the original Markdown source
+	SourceEnd   int
+	Open        bool   // the incremental parser is waiting for more input
+	Healed      bool   // streaming projection completes otherwise open inline syntax
+	Alert       Alert
 }
+
+// Alert identifies a GitHub-style alert quote, such as `> [!NOTE]`.
+type Alert uint8
+
+const (
+	NoAlert Alert = iota
+	AlertNote
+	AlertTip
+	AlertImportant
+	AlertWarning
+	AlertCaution
+)
 
 // Align is a table column's alignment.
 type Align uint8

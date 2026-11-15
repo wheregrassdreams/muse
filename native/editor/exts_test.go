@@ -3,7 +3,7 @@ package editor
 import (
 	"testing"
 
-	"muse/editor/internal/parser"
+	syntax "muse/markdown/syntax"
 )
 
 func TestNumericTagsAreNotReferences(t *testing.T) {
@@ -21,7 +21,7 @@ func TestAlertsComeFromTheParser(t *testing.T) {
 	e := shownEditor(t, "> [!NOTE]\n> 正文\n")
 	found := false
 	for i := 0; i < e.p.doc.Len(); i++ {
-		if b := e.p.doc.Block(i); b.Kind == parser.Quote && b.Alert != parser.NoAlert {
+		if b := e.p.doc.Block(i); b.Kind == syntax.IncrementalQuote && b.Alert != syntax.IncrementalNoAlert {
 			found = true
 		}
 	}
