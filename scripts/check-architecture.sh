@@ -102,6 +102,7 @@ for package in \
   native/platform/filesystem/documentstore \
   native/platform/filesystem/imagecache \
   native/platform/filesystem/naviconstore \
+  native/platform/filesystem/recentstore \
   native/platform/filesystem/vaultfiles \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \

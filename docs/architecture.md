@@ -53,6 +53,9 @@ native/
 │   ├── images/
 │   ├── math/
 │   └── diagrams/
+├── nativeui/components/
+│   ├── editor/                     # MyGo input/render adapter over editor.Session
+│   └── markdown/                   # MyGo painter over neutral Markdown models
 ├── agent/                         # AI session/tool/provider-independent flow
 ├── config/                        # serialized settings, defaults and migration
 ├── theme/                         # runtime palette and visual tokens
@@ -78,6 +81,8 @@ native/
 │       ├── documentstore/         # concrete note/recovery persistence
 │       ├── imagecache/            # atomic image cache persistence
 │       ├── naviconstore/          # concrete per-vault icon preference persistence
+│       ├── recentstore/           # concrete recent-document persistence
+│       ├── vaultfiles/             # concrete vault file operations
 │       ├── vaultsearchstore/      # concrete persistent search-index storage
 │       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher
@@ -94,7 +99,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 
 `nativeui` owns the application window and composes panels. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `components` owns reusable UI pieces such as document-type presentations and shared primitives; icon assets and lookup live in `ui/iconlibrary`. `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
 
-Source-position text navigation belongs to `editor/navigation`; MyGo event translation and viewport geometry stay at the editor/presentation edge. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
+Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/components/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/components/markdown` paints the neutral Markdown model for both editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
 ## Ownership and model boundaries
 
@@ -126,9 +131,12 @@ They must not be merged into one state object. Table syntax belongs to `markdown
 
 ```mermaid
 flowchart TD
-  Cmd[cmd/muse-native] --> App[app composition root]
-  App --> UI[nativeui]
+  DesktopCmd[cmd/muse-native] --> App[app module assembly]
+  CLIFuture[cmd/muse-cli future] -.-> App
+  DesktopCmd --> UI[nativeui desktop adapter]
   UI --> UseCases[application use cases]
+  App --> UseCases
+  App --> Platform[platform adapters]
   UseCases --> Document[document]
   UseCases --> Vault[vault]
   UseCases --> Search[search]
@@ -137,7 +145,7 @@ flowchart TD
   Editor --> Markdown[markdown syntax/render contracts]
   Vault --> Document
   SearchPort[search Corpus port] -.implemented by.-> Vault
-  Platform[platform adapters] -.implement consumer-owned ports.-> UseCases
+  Platform -.implements consumer-owned ports.-> UseCases
   UI --> SharedUI[ui]
   UI --> Theme[theme]
   DomainEvents[typed module events] --> Dispatcher[application event dispatch]
@@ -149,6 +157,25 @@ flowchart TD
 - Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. `workspace` owns its snapshot repository contract; `platform/filesystem/workspacestore` implements it. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
 - `app` is the only composition root that selects concrete implementations and registers extension contributions.
 - No cycles, package-level mutable service locator, or broad `common`, `model`, `strategy`, or `utils` packages.
+
+## Future capability seams
+
+The target should make later capabilities fit through existing module APIs without implementing them in this refactor:
+
+| Future capability | Existing seam | Boundary to preserve |
+|---|---|---|
+| First-party and third-party extensions | Feature-owned typed contributions, validated and registered by `app` | Keep extension contracts in public feature APIs; never expose `internal` packages, `nativeui.App`, filesystem paths, or global service locators as plugin APIs. Add dynamic loading, permissions and compatibility/version negotiation only when an actual plugin runtime is in scope. |
+| CRDT-backed collaboration with Markdown files retained as the durable format | `editor` transactions, `document.Repository`, and application save/session workflows | Keep CRDT state out of widgets and filesystem adapters. Treat the current path identity and disk revision as today's storage contract, not as a permanent collaboration identity or CRDT version. A future stable document ID and change/revision contract must be introduced deliberately; materialized Markdown remains an adapter concern. |
+| Headless operation | `application` use cases and domain models have no UI or MyGo dependency | Use cases must be callable without creating a window, UI event loop, or desktop singleton. Background work and lifetimes must be explicit and cancellable. |
+| CLI | Separate command adapter over the same application APIs and ports | A CLI command should parse arguments, call application use cases, and format results. It must not invoke nativeui rendering or duplicate vault/search/document rules. Keep the desktop executable similarly thin. |
+
+`app` assembles feature modules and platform capabilities; command packages select the runtime surface. The native desktop command connects that module assembly to `nativeui`. A future CLI command connects it to terminal input/output. If launching a headless workflow requires constructing a MyGo window or importing `nativeui`, the composition boundary has drifted and must be corrected before adding the CLI.
+
+For plugin readiness, prefer several narrow registries owned by their feature (for example search fields/operators/scorers, document-type metadata, and editor block capabilities). Validate duplicate IDs, dependencies and lifecycle ordering during assembly. These contracts are extension points for Muse modules first; they do not imply a dynamic plugin loader or a universal event/hook framework.
+
+For collaboration readiness, keep source materialization, document identity, and revision semantics separate in the model. The current implementation deliberately identifies notes by normalized path and uses a disk revision for conflict detection. Do not retrofit a path hash as a stable ID or reinterpret a file revision as a CRDT clock. When collaboration becomes active work, add its identity and transaction/sync contract at the document/application boundary while preserving the file adapter's Markdown compatibility.
+
+Headless and CLI readiness also constrains initialization: feature packages must not perform I/O or start goroutines from package initializers. `app` owns construction and shutdown; a command owns its signal handling and output loop, and may omit UI-only services entirely.
 
 ## Extension and lifecycle contracts
 
