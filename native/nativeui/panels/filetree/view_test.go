@@ -1,0 +1,147 @@
+package filetree
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
+
+func TestClickSelectsProjectedEntry(t *testing.T) {
+	var actions []Action
+	selected := -1
+	list := &ui.ListState{Selected: &selected}
+	model := ViewModel{
+		Entries: []Entry{
+			{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true},
+			{ID: "note", Label: "Roadmap.md", Kind: File, Depth: 1, CanSelect: true, CanOpen: true},
+		},
+		Scroll: ScrollPort{List: list},
+	}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 180)
+	tester.Frame()
+	tester.ClickAt(180, 43)
+	tester.Frame()
+	if len(actions) != 2 || actions[0].Kind != SelectEntry || actions[0].ID != "note" || actions[1].Kind != OpenEntry || actions[1].ID != "note" {
+		t.Fatalf("actions = %+v, want select then open note", actions)
+	}
+}
+
+func TestExpansionControlEmitsToggleAction(t *testing.T) {
+	var actions []Action
+	model := ViewModel{Entries: []Entry{{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true}}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.ClickAt(13, 14)
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != ToggleEntry || actions[0].ID != "folder" {
+		t.Fatalf("actions = %+v, want toggle folder", actions)
+	}
+}
+
+func TestSubmittedFileEmitsOpenAction(t *testing.T) {
+	var actions []Action
+	selected := 0
+	list := &ui.ListState{Selected: &selected}
+	model := ViewModel{Entries: []Entry{{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanOpen: true}}, Focused: true, Scroll: ScrollPort{List: list}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.ClickAt(160, 14)
+	tester.Frame()
+	actions = nil
+	tester.Key(0, ui.KeyEnter)
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != OpenEntry || actions[0].ID != "note" {
+		t.Fatalf("actions = %+v, want open note", actions)
+	}
+}
+
+func TestKeyboardMoveEmitsSelectionForFocusedTree(t *testing.T) {
+	var actions []Action
+	selected := 0
+	list := &ui.ListState{Selected: &selected}
+	model := ViewModel{
+		Entries: []Entry{
+			{ID: "one", Label: "One.md", Kind: File, CanSelect: true},
+			{ID: "two", Label: "Two.md", Kind: File, CanSelect: true},
+		},
+		Focused: true,
+		Scroll:  ScrollPort{List: list},
+	}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.ClickAt(160, 14)
+	tester.Frame()
+	actions = nil
+	tester.Key(0, ui.KeyDown)
+	tester.Frame()
+	if len(actions) != 1 || actions[0].Kind != SelectEntry || actions[0].ID != "two" {
+		t.Fatalf("keyboard actions = %+v, want selection of next row", actions)
+	}
+}
+
+func TestToolbarCommandAndDropAction(t *testing.T) {
+	var actions []Action
+	model := ViewModel{
+		Commands: []Command{{ID: "new-note", Label: "New note", Enabled: true}},
+		Entries: []Entry{
+			{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanDrop: true},
+			{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true, DragIDs: []string{"note"}},
+		},
+	}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 180)
+	tester.Frame()
+	if err := tester.Click("New note"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != InvokeCommand || actions[0].CommandID != "new-note" {
+		t.Fatalf("command actions = %+v", actions)
+	}
+}
+
+func TestDragAndDropEmitsGenericAction(t *testing.T) {
+	var actions []Action
+	model := ViewModel{Entries: []Entry{
+		{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanDrop: true},
+		{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true, DragIDs: []string{"note"}},
+	}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 320, 120)
+	tester.Frame()
+	tester.Press(160, 43)
+	tester.Move(160, 14)
+	tester.Frame()
+	tester.Release(160, 14)
+	tester.Frame()
+	for _, action := range actions {
+		if action.Kind == DropEntries && action.ID == "folder" && len(action.ItemIDs) == 1 && action.ItemIDs[0] == "note" {
+			return
+		}
+	}
+	t.Fatalf("actions = %+v, want opaque drop request onto folder", actions)
+}
+
+func TestInjectedScrollStateReceivesWheelInput(t *testing.T) {
+	entries := make([]Entry, 30)
+	for i := range entries {
+		entries[i] = Entry{ID: fmt.Sprintf("note-%02d", i), Label: fmt.Sprintf("Note %02d", i), Kind: File, CanSelect: true}
+	}
+	var selected int
+	state := ui.ScrollState{}
+	model := ViewModel{Entries: entries, Scroll: ScrollPort{List: &ui.ListState{Selected: &selected}, State: &state}}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, nil) }, 300, 120)
+	tester.Frame()
+	tester.Scroll(150, 90, 0, 100)
+	tester.Frame()
+	if state.Y <= 0 {
+		t.Fatalf("scroll state not updated: %+v", state)
+	}
+}
+
+func TestCloneIDsDetachesDropActionPayload(t *testing.T) {
+	input := []string{"a", "b"}
+	copy := cloneIDs(input)
+	input[0] = "changed"
+	if copy[0] != "a" {
+		t.Fatal("drag projection copy aliases caller memory")
+	}
+}
