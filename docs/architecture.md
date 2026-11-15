@@ -22,7 +22,7 @@ native/
 ├── events/                        # minimal typed in-process event contract
 ├── document/                      # durable note model and policies
 │   ├── frontmatter/
-│   ├── store/                     # document-owned persistence port/contracts
+│   ├── repository.go              # note/recovery ports and domain errors
 │   └── types/                     # stable value types only
 ├── vault/                         # vault identity and note relationships
 │   ├── files/                     # discovery/catalog
@@ -41,7 +41,7 @@ native/
 │   │   ├── paragraph/
 │   │   └── table/                 # table editing subsystem
 │   └── internal/textlayout/       # editor-private shaping/layout
-├── mdoc/                          # Markdown syntax tree and rendering
+├── markdown/                      # Markdown syntax tree and rendering
 │   ├── syntax/
 │   ├── render/
 │   ├── images/
@@ -58,7 +58,9 @@ native/
 │   ├── components/
 │   └── interactions/
 ├── platform/                      # OS/runtime adapters
-│   └── filesystem/                # document store and watcher implementations
+│   └── filesystem/
+│       ├── documentstore/         # concrete note/recovery persistence
+│       └── watcher/               # concrete filesystem watcher
 └── locales/                       # localization data and generated catalog
 ```
 
@@ -70,7 +72,7 @@ native/
 |---|---|---|
 | `document` | Durable `Note` identity, path, metadata, source/revision semantics, save/conflict/recovery policies | Cursor, selection, focus, scroll, widgets, parsed render nodes |
 | `editor` | Mutable `Buffer`, edit transactions, undo/redo, selection, input mode, navigation and block editing | Vault indexing, persistence implementation, durable note identity, OS APIs |
-| `mdoc` | Markdown syntax/AST and derived rendering structures for inline, paragraph, table, image, math and diagrams | Durable note aggregate, editor selection/commands, application panel state |
+| `markdown` | Markdown syntax/AST and derived rendering structures for inline, paragraph, table, image, math and diagrams | Durable note aggregate, editor selection/commands, application panel state |
 | `vault` | Vault identity, file catalog, index lifecycle, link resolution/backlinks and watcher-to-vault policy | Search query language/ranking, native UI, document editing buffer |
 | `search` | Query language/AST, field/operator meaning, execution plan, ranking and result contract | Filesystem traversal, concrete vault index layout, panel state |
 | `workspace` | Open documents, active view, tabs/panes/layout and persisted restoration snapshot | Note source of truth or editor implementation internals |
@@ -84,9 +86,9 @@ There are three separate representations of a note:
 
 1. `document.Note` is the durable domain record and source/revision boundary.
 2. `editor.Buffer` is the active mutable editing session and commits source changes as transactions.
-3. `mdoc`'s syntax/render tree is derived from a source revision and may be rebuilt or incrementally updated.
+3. `markdown`'s syntax/render tree is derived from a source revision and may be rebuilt or incrementally updated.
 
-They must not be merged into one state object. Table syntax belongs to `mdoc`; cell selection, hit testing, grid geometry and row/column commands belong to `editor/blocks/table`. Table edits commit through normal editor transactions. Fold/view mode is session state and is persisted by `workspace` only if restart restoration promises it.
+They must not be merged into one state object. Table syntax belongs to `markdown`; cell selection, hit testing, grid geometry and row/column commands belong to `editor/blocks/table`. Table edits commit through normal editor transactions. Fold/view mode is session state and is persisted by `workspace` only if restart restoration promises it.
 
 ## Dependency rules
 
@@ -100,7 +102,7 @@ flowchart TD
   UseCases --> Search[search]
   UseCases --> Workspace[workspace]
   UseCases --> Editor[editor]
-  Editor --> MDoc[mdoc syntax/render contracts]
+  Editor --> Markdown[markdown syntax/render contracts]
   Vault --> Document
   SearchPort[search Corpus port] -.implemented by.-> Vault
   Platform[platform adapters] -.implement consumer-owned ports.-> UseCases
@@ -110,9 +112,9 @@ flowchart TD
 ```
 
 - Domain packages do not import `nativeui`, MyGo widget packages, `platform`, or executable packages.
-- `mdoc` never imports `editor`; editor consumes parsed structures and owns edits.
+- `markdown` never imports `editor`; editor consumes parsed structures and owns edits.
 - `search` owns the corpus/query contracts; `vault/index` implements the corpus contract without exposing its storage layout.
-- Ports are declared by the module/use case that needs the capability. For example, `document/store` owns the persistence contract while `platform/filesystem` implements it. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
+- Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
 - `app` is the only composition root that selects concrete implementations and registers extension contributions.
 - No cycles, package-level mutable service locator, or broad `common`, `model`, `strategy`, or `utils` packages.
 
