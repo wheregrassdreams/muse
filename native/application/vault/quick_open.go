@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"muse/search"
+	"muse/search/quickopen"
 )
 
 // QuickOpen builds the source-agnostic candidate projection from the vault's
@@ -16,7 +17,7 @@ type QuickOpen struct {
 	root        string
 	files       CatalogPort
 	index       IndexPort
-	service     *search.QuickOpenService
+	service     *quickopen.Service
 	filesRev    uint64
 	indexRev    uint64
 	generation  uint64
@@ -35,7 +36,7 @@ func NewQuickOpen(root string, files CatalogPort, index IndexPort) *QuickOpen {
 		root:    filepath.Clean(root),
 		files:   files,
 		index:   index,
-		service: search.NewQuickOpenService(32),
+		service: quickopen.NewService(32),
 	}
 }
 
@@ -76,7 +77,7 @@ func quickOpenPathText(root, path string) string {
 	return filepath.ToSlash(rel)
 }
 
-func (q *QuickOpen) candidates() []search.QuickOpenItem {
+func (q *QuickOpen) candidates() []quickopen.Candidate {
 	paths := []string(nil)
 	if q.files != nil {
 		paths = q.files.Paths()
@@ -91,7 +92,7 @@ func (q *QuickOpen) candidates() []search.QuickOpenItem {
 			metadata[filepath.ToSlash(filepath.Clean(doc.Path))] = doc
 		}
 	}
-	items := make([]search.QuickOpenItem, 0, len(paths))
+	items := make([]quickopen.Candidate, 0, len(paths))
 	for _, path := range paths {
 		path = filepath.ToSlash(filepath.Clean(path))
 		doc := metadata[path]
@@ -99,7 +100,7 @@ func (q *QuickOpen) candidates() []search.QuickOpenItem {
 		if title == "" {
 			title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		}
-		items = append(items, search.QuickOpenItem{
+		items = append(items, quickopen.Candidate{
 			Path:     filepath.Join(q.root, filepath.FromSlash(path)),
 			PathText: path,
 			Title:    title,

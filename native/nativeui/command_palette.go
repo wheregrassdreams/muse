@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/nativeui/panels/commandpalette"
-	vaultsearch "muse/search"
+	"muse/search/quickopen"
 )
 
 type paletteCommand struct {
@@ -48,13 +48,13 @@ func (a *App) paletteCandidates() []paletteCommand {
 	if query == "" {
 		return cmds
 	}
-	items := make([]vaultsearch.QuickOpenItem, len(cmds))
+	items := make([]quickopen.Candidate, len(cmds))
 	byName := make(map[string]paletteCommand, len(cmds))
 	for i, cmd := range cmds {
-		items[i] = vaultsearch.QuickOpenItem{Path: cmd.name, PathText: cmd.name, Title: cmd.name}
+		items[i] = quickopen.Candidate{Path: cmd.name, PathText: cmd.name, Title: cmd.name}
 		byName[cmd.name] = cmd
 	}
-	matches := vaultsearch.RankQuickOpen(query, items)
+	matches := quickopen.Rank(query, items)
 	out := make([]paletteCommand, 0, len(matches))
 	for _, match := range matches {
 		if cmd, ok := byName[match.Path]; ok {
