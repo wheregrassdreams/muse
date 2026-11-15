@@ -5,6 +5,7 @@ package vaultindexsource
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -40,28 +41,22 @@ func (s *Source) Walk(visit func(vaultindex.Entry) error) error {
 	if visit == nil {
 		return errors.New("vaultindexsource: walk callback is required")
 	}
-	info, err := os.Stat(s.root)
+	root, err := os.OpenRoot(s.root)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("vaultindexsource: root is not a directory: %s", s.root)
-	}
-	return filepath.WalkDir(s.root, func(path string, entry fs.DirEntry, walkErr error) error {
+	defer root.Close()
+	return fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		rel, err := filepath.Rel(s.root, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
+		if path == "." {
 			return nil
 		}
-		projected := vaultindex.Entry{Path: filepath.ToSlash(rel), Kind: entryKind(entry.Type(), entry.IsDir())}
+		projected := vaultindex.Entry{Path: path, Kind: entryKind(entry.Type(), entry.IsDir())}
 		if err := visit(projected); err != nil {
 			if errors.Is(err, vaultindex.ErrSkipDir) && projected.Kind == vaultindex.EntryDirectory {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return err
 		}
@@ -70,76 +65,139 @@ func (s *Source) Walk(visit func(vaultindex.Entry) error) error {
 }
 
 func (s *Source) Stat(path string) (vaultindex.Entry, error) {
-	_, rel, err := s.resolve(path)
+	rel, err := s.resolve(path)
 	if err != nil {
 		return vaultindex.Entry{}, err
 	}
-	parts := strings.Split(rel, "/")
-	current := s.root
-	for n, part := range parts {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return vaultindex.Entry{}, err
-		}
-		kind := entryKind(info.Mode(), info.IsDir())
-		if kind == vaultindex.EntrySymlink {
-			return vaultindex.Entry{Path: rel, Kind: vaultindex.EntrySymlink}, nil
-		}
-		if n < len(parts)-1 && !info.IsDir() {
-			return vaultindex.Entry{}, fs.ErrNotExist
-		}
-		if n == len(parts)-1 {
-			return vaultindex.Entry{Path: rel, Kind: kind}, nil
-		}
+	root, err := os.OpenRoot(s.root)
+	if err != nil {
+		return vaultindex.Entry{}, err
 	}
-	return vaultindex.Entry{}, fs.ErrNotExist
+	defer root.Close()
+	parent, name, closeParent, err := openParentRoot(root, rel)
+	if err != nil {
+		return vaultindex.Entry{}, err
+	}
+	if closeParent {
+		defer parent.Close()
+	}
+	info, err := parent.Lstat(name)
+	if err != nil {
+		return vaultindex.Entry{}, err
+	}
+	return vaultindex.Entry{Path: rel, Kind: entryKind(info.Mode(), info.IsDir())}, nil
 }
 
 func (s *Source) Read(path string) ([]byte, error) {
-	abs, _, err := s.resolve(path)
+	rel, err := s.resolve(path)
 	if err != nil {
 		return nil, err
 	}
-	entry, err := s.Stat(path)
+	root, err := os.OpenRoot(s.root)
 	if err != nil {
 		return nil, err
 	}
-	if entry.Kind != vaultindex.EntryRegular {
+	defer root.Close()
+	parent, name, closeParent, err := openParentRoot(root, rel)
+	if err != nil {
+		return nil, err
+	}
+	if closeParent {
+		defer parent.Close()
+	}
+	info, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if entryKind(info.Mode(), info.IsDir()) != vaultindex.EntryRegular {
 		return nil, fs.ErrInvalid
 	}
-	return os.ReadFile(abs)
+	file, err := parent.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	currentInfo, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if currentInfo.Mode()&fs.ModeSymlink != 0 || !os.SameFile(openedInfo, currentInfo) {
+		return nil, fs.ErrInvalid
+	}
+	return io.ReadAll(file)
 }
 
-func (s *Source) resolve(path string) (absolute, relative string, err error) {
+func (s *Source) resolve(path string) (relative string, err error) {
 	if s == nil || s.root == "" {
-		return "", "", errors.New("vaultindexsource: root is required")
+		return "", errors.New("vaultindexsource: root is required")
 	}
 	if path == "" || filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
-		return "", "", fmt.Errorf("vaultindexsource: expected relative path, got %q", path)
+		return "", fmt.Errorf("vaultindexsource: expected relative path, got %q", path)
 	}
 	normalized := filepath.Clean(filepath.FromSlash(path))
 	if normalized == "." || normalized == ".." || strings.HasPrefix(normalized, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("vaultindexsource: path escapes root: %q", path)
+		return "", fmt.Errorf("vaultindexsource: path escapes root: %q", path)
 	}
-	absolute = filepath.Join(s.root, normalized)
 	relative = filepath.ToSlash(normalized)
-	current := s.root
+	return relative, nil
+}
+
+func openParentRoot(root *os.Root, relative string) (parent *os.Root, name string, closeParent bool, err error) {
 	parts := strings.Split(relative, "/")
+	current := root
+	owned := false
 	for _, part := range parts[:len(parts)-1] {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return "", "", err
+		info, statErr := current.Lstat(part)
+		if statErr != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, "", false, statErr
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
-			return "", "", fmt.Errorf("vaultindexsource: path traverses symlink: %q", path)
+			if owned {
+				_ = current.Close()
+			}
+			return nil, "", false, errors.New("vaultindexsource: path traverses symlink")
 		}
 		if !info.IsDir() {
-			return "", "", fs.ErrNotExist
+			if owned {
+				_ = current.Close()
+			}
+			return nil, "", false, fs.ErrNotExist
 		}
+		next, openErr := current.OpenRoot(part)
+		if openErr != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, "", false, openErr
+		}
+		openedInfo, infoErr := next.Stat(".")
+		currentInfo, currentErr := current.Lstat(part)
+		if infoErr != nil || currentErr != nil || currentInfo.Mode()&fs.ModeSymlink != 0 || !os.SameFile(openedInfo, currentInfo) {
+			_ = next.Close()
+			if owned {
+				_ = current.Close()
+			}
+			if infoErr != nil {
+				return nil, "", false, infoErr
+			}
+			if currentErr != nil {
+				return nil, "", false, currentErr
+			}
+			return nil, "", false, errors.New("vaultindexsource: path traverses symlink or changed during lookup")
+		}
+		if owned {
+			_ = current.Close()
+		}
+		current, owned = next, true
 	}
-	return absolute, relative, nil
+	return current, parts[len(parts)-1], owned, nil
 }
 
 func entryKind(mode fs.FileMode, isDir bool) vaultindex.EntryKind {

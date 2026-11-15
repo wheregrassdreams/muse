@@ -3,7 +3,9 @@ package vaultindexsource_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"muse/platform/filesystem/vaultindexsource"
@@ -165,4 +167,85 @@ func TestIndexRebuildAndIncrementalUpdateUseSource(t *testing.T) {
 	if len(idx.Query("second-token")) != 0 {
 		t.Fatal("missing-file update did not remove the note")
 	}
+}
+
+func TestReadCannotEscapeDuringConcurrentSymlinkReplacement(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeFile(t, root, "docs/note.md", "inside")
+	writeFile(t, outside, "note.md", "outside")
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	var swaps sync.WaitGroup
+	swaps.Add(1)
+	go func() {
+		defer swaps.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			dir := filepath.Join(root, "docs")
+			holding := filepath.Join(root, "docs-holding")
+			if err := os.Rename(dir, holding); err != nil {
+				runtime.Gosched()
+				continue
+			}
+			if err := os.Symlink(outside, dir); err == nil {
+				runtime.Gosched()
+				_ = os.Remove(dir)
+			}
+			_ = os.Rename(holding, dir)
+		}
+	}()
+	for range 1000 {
+		content, err := source.Read("docs/note.md")
+		if err == nil && string(content) != "inside" {
+			close(stop)
+			swaps.Wait()
+			t.Fatalf("read escaped vault root: %q", content)
+		}
+	}
+	close(stop)
+	swaps.Wait()
+
+	writeFile(t, root, "top.md", "inside-file")
+	writeFile(t, outside, "top.md", "outside-file")
+	stop = make(chan struct{})
+	swaps.Add(1)
+	go func() {
+		defer swaps.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			file := filepath.Join(root, "top.md")
+			holding := filepath.Join(root, "top-holding.md")
+			if err := os.Rename(file, holding); err != nil {
+				runtime.Gosched()
+				continue
+			}
+			if err := os.Symlink(filepath.Join(outside, "top.md"), file); err == nil {
+				runtime.Gosched()
+				_ = os.Remove(file)
+			}
+			_ = os.Rename(holding, file)
+		}
+	}()
+	for range 1000 {
+		content, err := source.Read("top.md")
+		if err == nil && string(content) != "inside-file" {
+			close(stop)
+			swaps.Wait()
+			t.Fatalf("read followed a swapped final symlink: %q", content)
+		}
+	}
+	close(stop)
+	swaps.Wait()
 }
