@@ -12,10 +12,7 @@ func TestSearchSnapshotIsNarrowStableProjection(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "b.md", "---\ntitle: legacy B\ntype: reference\naliases: [Bee]\ntags: [two]\ncreated_at: 2026-01-02T03:04:05Z\nupdated_at: 2026-02-03T04:05:06Z\n---\n# B\n\n[[a]]\n")
 	writeNote(t, root, "a.md", "# A\n\nbody\n")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	snapshot := idx.SearchSnapshot()
 	if len(snapshot) != 2 || snapshot[0].Path != "a.md" || snapshot[1].Path != "b.md" {
 		t.Fatalf("search snapshot order/paths = %+v", snapshot)
@@ -41,10 +38,7 @@ func TestSearchSnapshotIsNarrowStableProjection(t *testing.T) {
 func TestSearchDocumentsImplementsSearchOwnedCorpusPort(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "note.md", "---\ntags: [work]\n---\n# Corpus\n")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	docs := idx.SearchDocuments()
 	if len(docs) != 1 || docs[0].Path != "note.md" || docs[0].Title != "Corpus" || len(docs[0].Metadata.Tags) != 1 || docs[0].Metadata.Tags[0] != "work" || docs[0].ID == "" {
 		t.Fatalf("SearchDocuments() = %#v", docs)

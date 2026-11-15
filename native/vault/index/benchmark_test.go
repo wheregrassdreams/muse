@@ -16,10 +16,7 @@ func benchmarkVault(b *testing.B, count int) (string, *Index) {
 	b.Helper()
 	root := b.TempDir()
 	writeBenchmarkVault(b, root, count)
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		b.Fatal(err)
-	}
+	idx := testIndex(b, root)
 	return root, idx
 }
 
@@ -28,12 +25,16 @@ func BenchmarkRebuild(b *testing.B) {
 		b.Run(fmt.Sprintf("files=%d", count), func(b *testing.B) {
 			root := b.TempDir()
 			writeBenchmarkVault(b, root, count)
+			source, err := newTestSource(root)
+			if err != nil {
+				b.Fatal(err)
+			}
 			b.ReportAllocs()
 			b.SetBytes(int64(count * benchmarkFileBytes))
 			b.ResetTimer()
 			for n := 0; n < b.N; n++ {
-				idx := New()
-				if err := idx.Rebuild(root); err != nil {
+				idx := New(source)
+				if err := idx.Rebuild(); err != nil {
 					b.Fatal(err)
 				}
 			}

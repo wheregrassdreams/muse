@@ -1,28 +1,16 @@
 package index
 
 import (
-	"os"
 	"regexp"
 	"strings"
 	"unicode"
 
-	"muse/document"
 	"muse/document/frontmatter"
 	"muse/document/types"
 	"muse/vault/links"
 )
 
 var blockRE = regexp.MustCompile(`\^([A-Za-z0-9_-]+)\s*$`)
-
-func readDocument(abs, rel string) (*Document, error) {
-	b, e := os.ReadFile(abs)
-	if e != nil {
-		return nil, e
-	}
-	d := parseDocument(rel, string(b))
-	d.Revision = document.RevisionOf(d.Source)
-	return d, nil
-}
 
 func parseDocument(path, source string) *Document {
 	d := &Document{Path: cleanPath(path), Source: source, Type: string(types.DefaultNoteType)}

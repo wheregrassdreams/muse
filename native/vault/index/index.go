@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -50,10 +50,11 @@ type Match struct {
 	Snippet    string
 }
 
-// Index stores a workspace snapshot. Its zero value is usable after Rebuild.
+// Index stores a workspace snapshot backed by a source for its lifetime.
 type Index struct {
 	mu       sync.RWMutex
 	pathsMu  sync.Mutex
+	source   Source
 	root     string
 	docs     map[string]*Document
 	paths    []string
@@ -81,48 +82,37 @@ func (i *Index) pathsLocked() []string {
 	return i.paths
 }
 
-// New creates an empty index. Call Rebuild to attach a workspace root.
-func New() *Index { return &Index{docs: make(map[string]*Document)} }
+// New creates an index backed by a read-only file source.
+func New(source Source) *Index { return &Index{source: source, docs: make(map[string]*Document)} }
 
 // Rebuild inventories Markdown recursively, independently of any UI tree.
 // Hidden directories and symlinked directories are skipped.
-func (i *Index) Rebuild(root string) error {
-	abs, err := filepath.Abs(root)
-	if err != nil {
+func (i *Index) Rebuild() error {
+	if err := validateSource(i.source); err != nil {
 		return err
 	}
-	st, err := os.Stat(abs)
+	abs, err := filepath.Abs(i.source.Root())
 	if err != nil {
 		return err
-	}
-	if !st.IsDir() {
-		return fmt.Errorf("vault/index: root is not a directory: %s", abs)
 	}
 	next := make(map[string]*Document)
-	err = filepath.WalkDir(abs, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path != abs && entry.IsDir() && strings.HasPrefix(entry.Name(), ".") {
-			return filepath.SkipDir
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.IsDir() || !isMarkdown(path) {
-			return nil
-		}
-		rel, err := filepath.Rel(abs, path)
+	err = i.source.Walk(func(entry Entry) error {
+		rel, err := validateEntryPath(entry.Path)
 		if err != nil {
 			return err
 		}
-		d, err := readDocument(path, filepath.ToSlash(rel))
+		if entry.Kind == EntryDirectory && strings.HasPrefix(path.Base(rel), ".") {
+			return ErrSkipDir
+		}
+		if entry.Kind != EntryRegular || !isMarkdown(rel) {
+			return nil
+		}
+		source, err := i.source.Read(rel)
 		if err != nil {
 			return err
 		}
+		d := parseDocument(rel, string(source))
+		d.Revision = document.RevisionOf(d.Source)
 		next[d.Path] = d
 		return nil
 	})
@@ -130,7 +120,7 @@ func (i *Index) Rebuild(root string) error {
 		return err
 	}
 	i.mu.Lock()
-	i.root, i.docs = abs, next
+	i.root, i.docs = filepath.Clean(abs), next
 	i.invalidateDerivedLocked()
 	i.revision++
 	i.mu.Unlock()
@@ -140,23 +130,30 @@ func (i *Index) Rebuild(root string) error {
 // Update reads and indexes one file below the workspace root. A missing file
 // removes its former entry, which makes this suitable for watcher events.
 func (i *Index) Update(path string) error {
-	abs, rel, err := i.workspacePath(path)
+	if err := validateSource(i.source); err != nil {
+		return err
+	}
+	_, rel, err := i.workspacePath(path)
 	if err != nil {
 		return err
 	}
-	st, err := os.Stat(abs)
-	if errors.Is(err, os.ErrNotExist) {
+	if !isMarkdown(rel) {
+		i.Remove(rel)
+		return nil
+	}
+	entry, err := i.source.Stat(rel)
+	if errors.Is(err, fs.ErrNotExist) {
 		i.Remove(rel)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if !st.Mode().IsRegular() || !isMarkdown(abs) {
+	if entry.Kind != EntryRegular {
 		i.Remove(rel)
 		return nil
 	}
-	source, err := os.ReadFile(abs)
+	source, err := i.source.Read(rel)
 	if err != nil {
 		return err
 	}

@@ -33,10 +33,7 @@ Target paragraph ^target-block
 `)
 	writeNote(t, root, "daily/today.md", "See [[Handbook#Getting Started|the guide]] and [local](../notes/guide.md).\n`code-only-search-token [[fake]] [no](x)`\n\n    indented-only-search-token [[indented fake]]\n<!-- comment-only-search-token [[hidden]] [x](y) -->\ninline %% inline-comment-search-token [[inline-fake]] [x](y) %% end\n%%\nmulti-comment-search-token [[multi-fake]] [x](y)\n%%\n")
 	writeNote(t, root, ".hidden/secret.md", "secret searchable")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	d := idx.docs["notes/guide.md"]
 	if d.Title != "Getting Started" || strings.Join(d.Aliases, ",") != "Handbook,Quick Start" || strings.Join(d.Tags, ",") != "docs,onboarding" {
 		t.Fatalf("metadata: %#v", d)
@@ -63,10 +60,7 @@ Target paragraph ^target-block
 func TestOverlayRemoveAndRootBoundary(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "a.md", "disk value")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	if err := idx.UpdateText("a.md", "unsaved buffer ^live\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,11 +96,15 @@ func TestRevisionNotePathsAndNoteContent(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "z/note.md", "---\ntitle: Zed\naliases: [Alias]\n---\nbody\n")
 	writeNote(t, root, "a/note.markdown", "alpha")
-	idx := New()
+	source, err := newTestSource(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := New(source)
 	if got := idx.Revision(); got != 0 {
 		t.Fatalf("initial revision = %d", got)
 	}
-	if err := idx.Rebuild(root); err != nil {
+	if err := idx.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	firstRev := idx.Revision()
@@ -116,9 +114,9 @@ func TestRevisionNotePathsAndNoteContent(t *testing.T) {
 	if got := idx.NotePaths(); strings.Join(got, ",") != "a/note.markdown,z/note.md" {
 		t.Fatalf("note paths = %v", got)
 	}
-	title, source, ok := idx.NoteContent(filepath.Join(root, "z", "note.md"))
-	if !ok || title != "note" || !strings.Contains(source, "body") {
-		t.Fatalf("canonical NoteContent = %q, %q, %v", title, source, ok)
+	title, noteSource, ok := idx.NoteContent(filepath.Join(root, "z", "note.md"))
+	if !ok || title != "note" || !strings.Contains(noteSource, "body") {
+		t.Fatalf("canonical NoteContent = %q, %q, %v", title, noteSource, ok)
 	}
 	if _, _, ok := idx.NoteContent("../outside.md"); ok {
 		t.Fatal("NoteContent accepted a path outside the vault")
@@ -150,10 +148,7 @@ func TestQueryLimitStopsAtRequestedCount(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "b.md", "needle needle")
 	writeNote(t, root, "a.md", "needle needle")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	got := idx.QueryLimit("needle", 3)
 	if len(got) != 3 {
 		t.Fatalf("QueryLimit count = %d, want 3", len(got))
@@ -172,10 +167,7 @@ func TestQueryLimitStopsAtRequestedCount(t *testing.T) {
 func TestSnapshotCopiesAndApplySnapshot(t *testing.T) {
 	root := t.TempDir()
 	writeNote(t, root, "a.md", "disk source")
-	idx := New()
-	if err := idx.Rebuild(root); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, root)
 	d, err := idx.ParseSnapshot("a.md", "---\naliases: [Live]\n---\nnew source")
 	if err != nil {
 		t.Fatal(err)

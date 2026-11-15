@@ -3,10 +3,7 @@ package index
 import "testing"
 
 func TestLinkSnapshotIsDetachedStructureProjection(t *testing.T) {
-	idx := New()
-	if err := idx.Rebuild(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
+	idx := testIndex(t, t.TempDir())
 	if err := idx.UpdateText("notes/source.md", "---\naliases: [Alias]\n---\n# Heading\n[[Target]]\n"); err != nil {
 		t.Fatal(err)
 	}
