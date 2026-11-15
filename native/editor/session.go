@@ -11,11 +11,10 @@ import (
 	"muse/markdown/render"
 )
 
-// Selection is a source-byte selection value that can be shared across
-// backends without exposing editor implementation state.
+// Selection is a source-byte selection value shared across editor backends.
 type Selection = core.Selection
 
-// Transaction is an atomic source edit accepted by a Session.
+// Transaction is an atomic source edit expressed against one source snapshot.
 type Transaction = core.Transaction
 
 // TextEdit replaces a half-open UTF-8 byte range.
@@ -24,8 +23,8 @@ type TextEdit = core.TextEdit
 // TextRange is a half-open UTF-8 byte range in Markdown source.
 type TextRange = core.TextRange
 
-// InputKind is a backend-neutral editing intent. Backends translate physical
-// keys and text-input callbacks into these semantic events.
+// InputKind is a backend-neutral editing intent. A platform adapter translates
+// physical keys and text-input callbacks into these semantic events.
 type InputKind uint8
 
 const (
@@ -58,9 +57,9 @@ type DispatchResult struct {
 	Revision         uint64
 }
 
-// Frame is the immutable, backend-neutral read model for one session revision.
-// Its document and render projection are shared until the source changes and
-// must be treated as read-only by consumers.
+// Frame is an immutable backend-neutral read model. Markdown and render
+// projections are built only when requested and reused until the source
+// revision changes.
 type Frame struct {
 	Revision  uint64
 	Source    string
@@ -69,90 +68,149 @@ type Frame struct {
 	Rendered  *render.Document
 }
 
-type sessionHistory struct {
-	undo []core.Transaction
-	redo []core.Transaction
+func (f Frame) snapshot() Frame {
+	doc := markdown.Clone(f.Document)
+	var rendered *render.Document
+	if doc != nil {
+		rendered = doc.RenderDocument()
+	}
+	return Frame{Revision: f.Revision, Source: f.Source, Selection: f.Selection, Document: doc, Rendered: rendered}
 }
 
-// Session owns mutable source, text selection, transaction history, and the
-// cached Markdown presentation projection. It contains no widget or platform
-// types and is safe for concurrent frame reads and serialized input dispatch.
+// Session is the authoritative source, selection and undo state shared by the
+// editor core and its UI adapter. The embedded Editor presentation layer uses
+// these fields directly so there is only one source of truth. A standalone
+// Session serializes concurrent reads and writes. Once attached to Editor,
+// Session methods delegate into Editor and inherit its single UI-thread
+// ownership rule; callers must dispatch them on that same owner thread.
+//
+// `frame` is a lazy projection. It is not rebuilt by source edits; the live
+// editor's parserSource keeps its block-local incremental parser. Frame returns
+// detached document/render copies so consumer mutations cannot alter the cache.
 type Session struct {
-	mu        sync.RWMutex
-	source    string
-	selection core.Selection
-	revision  uint64
-	document  *markdown.Doc
-	frame     Frame
-	history   sessionHistory
+	mu                 sync.RWMutex
+	src                string
+	anchor, caret      int
+	selectionInclusive bool
+	selectionLinewise  bool
+	rev                uint64
+	hist               history
+	frame              Frame
+	dispatchInputFn    func(InputEvent) (DispatchResult, error)
+	applyTransactionFn func(core.Transaction) (DispatchResult, error)
+	setSelectionFn     func(Selection) error
+	replaceSourceFn    func(string)
+	sourceFn           func() string
+	revisionFn         func() uint64
+	selectionFn        func() Selection
+	frameFn            func() Frame
 }
 
 func NewSession(source string) *Session {
-	s := &Session{source: source}
-	s.rebuildFrameLocked()
-	return s
+	return &Session{src: strings.Clone(source)}
 }
 
 func (s *Session) Source() string {
+	if s.sourceFn != nil {
+		return s.sourceFn()
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.source
+	return s.src
+}
+
+func (s *Session) Revision() uint64 {
+	if s.revisionFn != nil {
+		return s.revisionFn()
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rev
+}
+
+func (s *Session) Selection() Selection {
+	if s.selectionFn != nil {
+		return s.selectionFn()
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.selectionLocked()
+}
+
+func (s *Session) selectionLocked() Selection {
+	return Selection{
+		Anchor: s.anchor, Head: s.caret,
+		Inclusive: s.selectionInclusive, Linewise: s.selectionLinewise,
+	}
 }
 
 func (s *Session) Frame() Frame {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.frame
+	if s.frameFn != nil {
+		return s.frameFn()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.frame.Document == nil || s.frame.Revision != s.rev || s.frame.Source != s.src {
+		doc := markdown.Parse(s.src)
+		s.frame = Frame{Revision: s.rev, Source: s.src, Document: doc, Rendered: doc.RenderDocument()}
+	}
+	s.frame.Selection = s.selectionLocked()
+	return s.frame.snapshot()
 }
 
 func (s *Session) SetSelection(selection Selection) error {
+	if s.setSelectionFn != nil {
+		return s.setSelectionFn(selection)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if selection.Anchor < 0 || selection.Anchor > len(s.source) || selection.Head < 0 || selection.Head > len(s.source) {
-		return fmt.Errorf("selection is outside source length %d", len(s.source))
+	if err := validateSelection(s.src, selection); err != nil {
+		return err
 	}
-	if !runeBoundary(s.source, selection.Anchor) || !runeBoundary(s.source, selection.Head) {
-		return fmt.Errorf("selection splits a UTF-8 rune")
-	}
-	s.selection = selection
-	s.frame.Selection = selection
+	s.setSelection(selection)
 	return nil
 }
 
-// Dispatch applies one semantic editing intent. Each source change is one
-// undoable transaction, independent of the input backend that produced it.
+func (s *Session) setSelection(selection Selection) {
+	s.anchor, s.caret = selection.Anchor, selection.Head
+	s.selectionInclusive, s.selectionLinewise = selection.Inclusive, selection.Linewise
+	s.frame.Selection = selection
+}
+
+// Dispatch applies one backend-neutral input intent and records a normal
+// editor undo step. The production Editor's keymap adapter routes richer
+// commands through the same Session-owned source/selection/history fields.
 func (s *Session) Dispatch(event InputEvent) (DispatchResult, error) {
+	if s.dispatchInputFn != nil {
+		return s.dispatchInputFn(event)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	before := s.selection
+	before := s.selectionLocked()
 	var tx core.Transaction
 	switch event.Kind {
 	case InputInsertText:
 		if event.Text == "" {
-			return DispatchResult{Revision: s.revision}, nil
+			return DispatchResult{Revision: s.rev}, nil
 		}
 		if !utf8.ValidString(event.Text) {
 			return DispatchResult{}, fmt.Errorf("inserted text is not valid UTF-8")
 		}
 		a, z := ordered(before.Anchor, before.Head)
-		tx = core.Transaction{
-			Edits:  []core.TextEdit{{Range: core.TextRange{Start: a, End: z}, Text: event.Text}},
-			Before: before,
-			After:  core.Selection{Anchor: a + len(event.Text), Head: a + len(event.Text)},
-		}
+		tx = core.Transaction{Before: before, After: Selection{Anchor: a + len(event.Text), Head: a + len(event.Text)}, Edits: []core.TextEdit{{Range: core.TextRange{Start: a, End: z}, Text: event.Text}}}
 	case InputDeleteBackward, InputDeleteForward:
 		a, z := ordered(before.Anchor, before.Head)
 		if a == z {
 			if event.Kind == InputDeleteBackward && a > 0 {
-				a = previousRuneStart(s.source, a)
-			} else if event.Kind == InputDeleteForward && z < len(s.source) {
-				z = nextRuneEnd(s.source, z)
+				a = previousRuneStart(s.src, a)
+			} else if event.Kind == InputDeleteForward && z < len(s.src) {
+				z = nextRuneEnd(s.src, z)
 			}
 		}
 		if a == z {
-			return DispatchResult{Revision: s.revision}, nil
+			return DispatchResult{Revision: s.rev}, nil
 		}
-		tx = core.Transaction{Edits: []core.TextEdit{{Range: core.TextRange{Start: a, End: z}}}, Before: before, After: core.Selection{Anchor: a, Head: a}}
+		tx = core.Transaction{Before: before, After: Selection{Anchor: a, Head: a}, Edits: []core.TextEdit{{Range: core.TextRange{Start: a, End: z}}}}
 	case InputMoveHorizontal:
 		if event.Direction != -1 && event.Direction != 1 {
 			return DispatchResult{}, fmt.Errorf("horizontal direction must be -1 or +1")
@@ -166,98 +224,143 @@ func (s *Session) Dispatch(event InputEvent) (DispatchResult, error) {
 				head = z
 			}
 		} else if event.Direction < 0 && head > 0 {
-			head = previousRuneStart(s.source, head)
-		} else if event.Direction > 0 && head < len(s.source) {
-			head = nextRuneEnd(s.source, head)
+			head = previousRuneStart(s.src, head)
+		} else if event.Direction > 0 && head < len(s.src) {
+			head = nextRuneEnd(s.src, head)
 		}
 		selection := before
 		selection.Head = head
 		if !event.Extend {
 			selection.Anchor = head
 		}
-		s.selection = selection
-		s.frame.Selection = selection
-		return DispatchResult{SelectionChanged: selection != before, Revision: s.revision}, nil
+		s.setSelection(selection)
+		return DispatchResult{SelectionChanged: selection != before, Revision: s.rev}, nil
 	case InputSetSelection:
-		selection := core.Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Inclusive, Linewise: event.Linewise}
-		if selection.Anchor < 0 || selection.Anchor > len(s.source) || selection.Head < 0 || selection.Head > len(s.source) {
-			return DispatchResult{}, fmt.Errorf("selection is outside source length %d", len(s.source))
+		selection := Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Inclusive, Linewise: event.Linewise}
+		if err := validateSelection(s.src, selection); err != nil {
+			return DispatchResult{}, err
 		}
-		if !runeBoundary(s.source, selection.Anchor) || !runeBoundary(s.source, selection.Head) {
-			return DispatchResult{}, fmt.Errorf("selection splits a UTF-8 rune")
-		}
-		s.selection = selection
-		s.frame.Selection = selection
-		return DispatchResult{SelectionChanged: selection != before, Revision: s.revision}, nil
+		s.setSelection(selection)
+		return DispatchResult{SelectionChanged: selection != before, Revision: s.rev}, nil
 	case InputUndo:
-		return s.applyHistoryLocked(false)
+		return s.applyHistory(false), nil
 	case InputRedo:
-		return s.applyHistoryLocked(true)
+		return s.applyHistory(true), nil
 	default:
 		return DispatchResult{}, fmt.Errorf("unsupported input kind %d", event.Kind)
 	}
-	if err := tx.Validate(len(s.source)); err != nil {
-		return DispatchResult{}, err
-	}
-	if err := s.applyLocked(tx, true); err != nil {
-		return DispatchResult{}, err
-	}
-	return DispatchResult{Changed: true, SelectionChanged: s.selection != before, Revision: s.revision}, nil
+	return s.applyTransaction(tx)
 }
 
-// ApplyTransaction applies one validated transaction against the current
-// source snapshot. Callers cannot mutate the session except through this path.
+// ApplyTransaction applies a validated group of edits expressed in original
+// source coordinates and records it as one undo step.
 func (s *Session) ApplyTransaction(tx core.Transaction) (DispatchResult, error) {
+	if s.applyTransactionFn != nil {
+		return s.applyTransactionFn(tx)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if tx.Before != s.selection {
+	if tx.Before != s.selectionLocked() {
 		return DispatchResult{}, fmt.Errorf("transaction selection is stale")
 	}
-	if err := tx.Validate(len(s.source)); err != nil {
+	return s.applyTransaction(tx)
+}
+
+func (s *Session) applyTransaction(tx core.Transaction) (DispatchResult, error) {
+	before := s.selectionLocked()
+	if tx.Before != before {
+		return DispatchResult{}, fmt.Errorf("transaction selection is stale")
+	}
+	if err := tx.Validate(len(s.src)); err != nil {
 		return DispatchResult{}, err
 	}
 	if len(tx.Edits) == 0 {
-		return DispatchResult{Revision: s.revision}, nil
+		return DispatchResult{Revision: s.rev}, nil
 	}
-	if err := s.applyLocked(tx, true); err != nil {
-		return DispatchResult{}, err
-	}
-	return DispatchResult{Changed: true, SelectionChanged: tx.Before != tx.After, Revision: s.revision}, nil
-}
-
-func (s *Session) applyLocked(tx core.Transaction, record bool) error {
-	if err := tx.Validate(len(s.source)); err != nil {
-		return err
-	}
-	if tx.Before != s.selection {
-		return fmt.Errorf("transaction selection is stale")
-	}
-	resultLen := len(s.source)
+	resultLen := len(s.src)
 	for _, edit := range tx.Edits {
-		if !runeBoundary(s.source, edit.Range.Start) || !runeBoundary(s.source, edit.Range.End) {
-			return fmt.Errorf("transaction range splits a UTF-8 rune")
+		if !runeBoundary(s.src, edit.Range.Start) || !runeBoundary(s.src, edit.Range.End) {
+			return DispatchResult{}, fmt.Errorf("transaction range splits a UTF-8 rune")
 		}
 		if !utf8.ValidString(edit.Text) {
-			return fmt.Errorf("transaction edit contains invalid UTF-8")
+			return DispatchResult{}, fmt.Errorf("transaction edit contains invalid UTF-8")
 		}
 		resultLen += len(edit.Text) - (edit.Range.End - edit.Range.Start)
 	}
-	if !runeBoundaryAfterEdits(s.source, tx.Edits, resultLen, tx.After.Anchor) || !runeBoundaryAfterEdits(s.source, tx.Edits, resultLen, tx.After.Head) {
-		return fmt.Errorf("transaction selection splits a UTF-8 rune")
+	if !runeBoundaryAfterEdits(s.src, tx.Edits, resultLen, tx.After.Anchor) || !runeBoundaryAfterEdits(s.src, tx.Edits, resultLen, tx.After.Head) {
+		return DispatchResult{}, fmt.Errorf("transaction selection splits a UTF-8 rune")
 	}
-	undo := inverseTransaction(s.source, tx)
+	changeSet := step{before: [2]int{before.Anchor, before.Head}, after: [2]int{tx.After.Anchor, tx.After.Head}, kind: stepEdit}
 	for i := len(tx.Edits) - 1; i >= 0; i-- {
 		edit := tx.Edits[i]
-		s.source = s.source[:edit.Range.Start] + edit.Text + s.source[edit.Range.End:]
+		changeSet.changes = append(changeSet.changes, change{at: edit.Range.Start, old: s.src[edit.Range.Start:edit.Range.End], new: edit.Text})
+		s.src = s.src[:edit.Range.Start] + edit.Text + s.src[edit.Range.End:]
 	}
-	s.selection = tx.After
-	s.revision++
-	if record {
-		s.history.undo = append(s.history.undo, undo)
-		s.history.redo = nil
+	s.hist.undo = append(s.hist.undo, changeSet)
+	s.hist.redo = nil
+	s.setSelection(tx.After)
+	s.rev++
+	return DispatchResult{Changed: true, SelectionChanged: s.selectionLocked() != before, Revision: s.rev}, nil
+}
+
+func (s *Session) applyHistory(redo bool) DispatchResult {
+	from, to := &s.hist.undo, &s.hist.redo
+	if redo {
+		from, to = &s.hist.redo, &s.hist.undo
 	}
-	s.rebuildFrameLocked()
+	if len(*from) == 0 {
+		return DispatchResult{Revision: s.rev}
+	}
+	last := (*from)[len(*from)-1]
+	*from = (*from)[:len(*from)-1]
+	if redo {
+		for _, c := range last.changes {
+			s.src = s.src[:c.at] + c.new + s.src[c.at+len(c.old):]
+		}
+		s.setSelection(Selection{Anchor: last.after[0], Head: last.after[1]})
+	} else {
+		for i := len(last.changes) - 1; i >= 0; i-- {
+			c := last.changes[i]
+			s.src = s.src[:c.at] + c.old + s.src[c.at+len(c.new):]
+		}
+		s.setSelection(Selection{Anchor: last.before[0], Head: last.before[1]})
+	}
+	*to = append(*to, last)
+	s.rev++
+	return DispatchResult{Changed: true, SelectionChanged: true, Revision: s.rev}
+}
+
+func validateSelection(source string, selection Selection) error {
+	if selection.Anchor < 0 || selection.Anchor > len(source) || selection.Head < 0 || selection.Head > len(source) {
+		return fmt.Errorf("selection is outside source length %d", len(source))
+	}
+	if !runeBoundary(source, selection.Anchor) || !runeBoundary(source, selection.Head) {
+		return fmt.Errorf("selection splits a UTF-8 rune")
+	}
 	return nil
+}
+
+// ReplaceSource resets the shared document state. The Editor additionally
+// clears parser, viewport and transient selection caches at this boundary.
+func (s *Session) ReplaceSource(source string) {
+	if s.replaceSourceFn != nil {
+		s.replaceSourceFn(source)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.src = strings.Clone(source)
+	s.anchor, s.caret = 0, 0
+	s.selectionInclusive, s.selectionLinewise = false, false
+	s.hist = history{}
+	s.rev++
+	s.frame = Frame{}
+}
+
+func (s *Session) InvalidateFrame() {
+	s.mu.Lock()
+	s.frame = Frame{}
+	s.mu.Unlock()
 }
 
 func runeBoundaryAfterEdits(source string, edits []core.TextEdit, resultLen, at int) bool {
@@ -279,49 +382,7 @@ func runeBoundaryAfterEdits(source string, edits []core.TextEdit, resultLen, at 
 		}
 		delta += len(edit.Text) - (edit.Range.End - edit.Range.Start)
 	}
-	sourceAt := at - delta
-	return runeBoundary(source, sourceAt)
-}
-
-func (s *Session) applyHistoryLocked(redo bool) (DispatchResult, error) {
-	from, to := &s.history.undo, &s.history.redo
-	if redo {
-		from, to = &s.history.redo, &s.history.undo
-	}
-	if len(*from) == 0 {
-		return DispatchResult{Revision: s.revision}, nil
-	}
-	tx := (*from)[len(*from)-1]
-	if tx.Before != s.selection {
-		return DispatchResult{}, fmt.Errorf("history selection is stale")
-	}
-	*from = (*from)[:len(*from)-1]
-	toTx := inverseTransaction(s.source, tx)
-	if err := s.applyLocked(tx, false); err != nil {
-		*from = append(*from, tx)
-		return DispatchResult{}, err
-	}
-	*to = append(*to, toTx)
-	return DispatchResult{Changed: true, SelectionChanged: tx.Before != tx.After, Revision: s.revision}, nil
-}
-
-func inverseTransaction(source string, tx core.Transaction) core.Transaction {
-	inverse := core.Transaction{Before: tx.After, After: tx.Before, Edits: make([]core.TextEdit, len(tx.Edits))}
-	delta := 0
-	for i, edit := range tx.Edits {
-		start := edit.Range.Start + delta
-		inverse.Edits[i] = core.TextEdit{
-			Range: core.TextRange{Start: start, End: start + len(edit.Text)},
-			Text:  source[edit.Range.Start:edit.Range.End],
-		}
-		delta += len(edit.Text) - (edit.Range.End - edit.Range.Start)
-	}
-	return inverse
-}
-
-func (s *Session) rebuildFrameLocked() {
-	s.document = markdown.Parse(s.source)
-	s.frame = Frame{Revision: s.revision, Source: s.source, Selection: s.selection, Document: s.document, Rendered: s.document.RenderDocument()}
+	return runeBoundary(source, at-delta)
 }
 
 func ordered(a, b int) (int, int) {
@@ -349,16 +410,4 @@ func nextRuneEnd(source string, at int) int {
 
 func runeBoundary(source string, at int) bool {
 	return at == len(source) || utf8.RuneStart(source[at])
-}
-
-// ReplaceSource resets history while keeping a valid selection. It is used
-// for external reloads, never for ordinary edits.
-func (s *Session) ReplaceSource(source string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.source = strings.Clone(source)
-	s.selection = core.Selection{}
-	s.history = sessionHistory{}
-	s.revision++
-	s.rebuildFrameLocked()
 }

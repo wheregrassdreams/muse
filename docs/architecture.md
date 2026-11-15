@@ -66,7 +66,7 @@ native/
 │   ├── window/                     # generic window, pane and overlay hosting/lifecycle
 │   ├── surfaces/                   # feature-owned window content implementations
 │   │   ├── imagepreview/
-│   │   └── imagedocument/
+│   │   ├── imagedocument/
 │   │   ├── mermaidpreview/
 │   │   └── quickopen/
 │   ├── panels/
@@ -88,6 +88,7 @@ native/
 │       ├── naviconstore/          # concrete per-vault icon preference persistence
 │       ├── recentstore/           # concrete recent-document persistence
 │       ├── vaultfiles/             # concrete vault file operations
+│       ├── vaultindexsource/      # concrete recursive source for vault indexing
 │       ├── vaultsearchstore/      # concrete persistent search-index storage
 │       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher

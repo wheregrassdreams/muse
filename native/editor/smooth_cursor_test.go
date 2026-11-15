@@ -9,14 +9,14 @@ import (
 
 func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 	for _, keymap := range []string{"vim", "helix", "default"} {
-		e := &Editor{opts: Options{SmoothCursor: true}, modal: modalState{keymap: keymap, mode: "Normal"}, caret: 4, anchor: 4, smoothCursorNavigation: true}
+		e := &Editor{Session: &Session{caret: 4, anchor: 4}, opts: Options{SmoothCursor: true}, modal: modalState{keymap: keymap, mode: "Normal"}, smoothCursorNavigation: true}
 		e.beginSmoothCursorMove(4, 8, false)
 		want := keymap == "vim" || keymap == "helix"
 		if e.smoothCursorActive != want {
 			t.Errorf("keymap %q active=%v, want %v", keymap, e.smoothCursorActive, want)
 		}
 	}
-	e := &Editor{opts: Options{SmoothCursor: true}, modal: modalState{keymap: "vim", mode: "Insert"}, caret: 4, anchor: 4}
+	e := &Editor{Session: &Session{caret: 4, anchor: 4}, opts: Options{SmoothCursor: true}, modal: modalState{keymap: "vim", mode: "Insert"}}
 	e.beginSmoothCursorMove(4, 8, false)
 	if e.smoothCursorActive {
 		t.Fatal("insert-mode movement should not animate")
@@ -109,9 +109,10 @@ func TestSmoothBlockCaretInterpolatesUntransformedGeometry(t *testing.T) {
 func TestSmoothCursorNavigationRebasesFromCurrentVisualPosition(t *testing.T) {
 	start := time.Unix(10, 0)
 	e := &Editor{
-		opts:   Options{SmoothCursor: true},
-		modal:  modalState{keymap: "vim", mode: "Normal"},
-		anchor: 5, smoothCursorActive: true, smoothCursorNavigation: true,
+		Session:            &Session{anchor: 5},
+		opts:               Options{SmoothCursor: true},
+		modal:              modalState{keymap: "vim", mode: "Normal"},
+		smoothCursorActive: true, smoothCursorNavigation: true,
 		smoothCursorStart:      start,
 		smoothCursorFromRect:   ui.Rect{X: 0, Y: 0, W: 2, H: 10},
 		smoothCursorToRect:     ui.Rect{X: 20, Y: 10, W: 4, H: 20},

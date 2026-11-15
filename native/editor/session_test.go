@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -22,6 +23,11 @@ func TestSessionDispatchUpdatesNeutralFrameAndHistory(t *testing.T) {
 	}
 	if frame := s.Frame(); frame.Source != s.Source() || frame.Revision != inserted.Revision || frame.Rendered == nil {
 		t.Fatalf("updated frame does not match source: %+v", frame)
+	}
+	frame := s.Frame()
+	frame.Document.Blocks[0].Text = "caller mutation"
+	if got := s.Frame().Document.Blocks[0].Text; got == "caller mutation" {
+		t.Fatal("caller mutation changed the cached session frame")
 	}
 
 	undone, err := s.Dispatch(InputEvent{Kind: InputUndo})
@@ -86,6 +92,36 @@ func TestSessionRejectsInvalidUTF8Input(t *testing.T) {
 	if got := s.Source(); got != "" {
 		t.Fatalf("invalid input changed source to %q", got)
 	}
+}
+
+func TestStandaloneSessionSerializesFramesAndInput(t *testing.T) {
+	s := NewSession("start")
+	var wg sync.WaitGroup
+	for reader := 0; reader < 3; reader++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 40; i++ {
+				_ = s.Source()
+				frame := s.Frame()
+				if frame.Document == nil || frame.Rendered == nil {
+					t.Error("reader got an incomplete frame")
+					return
+				}
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 40; i++ {
+			if _, err := s.Dispatch(InputEvent{Kind: InputInsertText, Text: "x"}); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }
 
 func TestSessionTransactionRejectsInvalidEditEncodingAndBoundaries(t *testing.T) {

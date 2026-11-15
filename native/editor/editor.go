@@ -15,8 +15,8 @@ import (
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/internal/textlayout"
 	layoutindex "muse/editor/layout"
-	"muse/markdown"
 	"muse/markdown/images"
+	markdownui "muse/nativeui/components/markdown"
 	"muse/ui/scrollbar"
 )
 
@@ -147,6 +147,9 @@ type Options struct {
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
 type Editor struct {
+	// Session is the single owner of source, revision, selection and undo state.
+	// Presentation caches below derive from its source revision.
+	*Session
 	// paintMu keeps a frame's leaves and parser snapshot together. MyGo calls
 	// Draw after the app's View callback returns, so an app edit can otherwise
 	// replace the parser while paint is still walking the previous leaves.
@@ -163,7 +166,6 @@ type Editor struct {
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
 
-	src    string
 	leaves []*leaf
 	// visibleLeaves is the layout-ordered subset of leaves that participate in
 	// document geometry. Hidden folded leaves stay in leaves for source access,
@@ -200,11 +202,9 @@ type Editor struct {
 	// has to be replayed from the whole source.
 	pending      *pendingEdit
 	pendingMulti bool
-	// rev counts changes of the source; parsed is the rev leaves reflect.
-	rev, parsed uint64
+	// parsed is the source revision the leaves reflect.
+	parsed uint64
 
-	// The selection: its anchor and its caret, byte offsets of the source.
-	anchor, caret          int
 	smoothCursorFrom       int
 	smoothCursorStart      time.Time
 	smoothCursorActive     bool
@@ -214,8 +214,6 @@ type Editor struct {
 	smoothCursorRectsValid bool
 	smoothCursorFromSet    bool
 	vimImageRow            *vimImageRowCaret
-	selectionInclusive     bool
-	selectionLinewise      bool
 	block                  *blockSelection
 	blockAnchorOffset      int
 	blockInput             *blockInput
@@ -251,11 +249,9 @@ type Editor struct {
 	composeSel ui.TextInputRange
 	composing  bool
 
-	hist history
-
 	lk              look
 	views           map[viewKey]*leafView
-	dataImageAssets map[dataImageAssetKey]*markdown.ImageAsset
+	dataImageAssets map[dataImageAssetKey]*markdownui.ImageAsset
 	dataAssetsRev   uint64
 	typographyCache textlayout.Cache
 	frame           uint64
@@ -453,9 +449,10 @@ type phantom struct {
 
 // New returns an editor of src.
 func New(src string, opts Options) *Editor {
-	e := &Editor{opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
+	e := &Editor{Session: NewSession(src), opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
 		railHover: -1, railActive: -1,
 		hoverBlock: -1, foldHover: -1}
+	e.bindSessionAdapters()
 	// The window's theme comes with the first frame; until then, the light
 	// one, so that a document opened before it lays out.
 	e.setLook(ui.LightTheme())

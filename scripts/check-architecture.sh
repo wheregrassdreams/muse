@@ -112,6 +112,7 @@ for package in \
   native/platform/filesystem/naviconstore \
   native/platform/filesystem/recentstore \
   native/platform/filesystem/vaultfiles \
+  native/platform/filesystem/vaultindexsource \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \
