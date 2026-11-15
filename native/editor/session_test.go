@@ -1,0 +1,89 @@
+package editor
+
+import (
+	"testing"
+)
+
+func TestSessionDispatchUpdatesNeutralFrameAndHistory(t *testing.T) {
+	s := NewSession("# note\n")
+	if got := s.Frame(); got.Rendered == nil || len(got.Rendered.Blocks) != 1 {
+		t.Fatalf("initial frame = %#v", got)
+	}
+
+	if err := s.SetSelection(Selection{Anchor: len(s.Source()), Head: len(s.Source())}); err != nil {
+		t.Fatal(err)
+	}
+	inserted, err := s.Dispatch(InputEvent{Kind: InputInsertText, Text: "body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inserted.Changed || inserted.Revision != 1 || s.Source() != "# note\nbody" {
+		t.Fatalf("insert result=%+v source=%q", inserted, s.Source())
+	}
+	if frame := s.Frame(); frame.Source != s.Source() || frame.Revision != inserted.Revision || frame.Rendered == nil {
+		t.Fatalf("updated frame does not match source: %+v", frame)
+	}
+
+	undone, err := s.Dispatch(InputEvent{Kind: InputUndo})
+	if err != nil || !undone.Changed || s.Source() != "# note\n" {
+		t.Fatalf("undo result=%+v source=%q err=%v", undone, s.Source(), err)
+	}
+	redone, err := s.Dispatch(InputEvent{Kind: InputRedo})
+	if err != nil || !redone.Changed || s.Source() != "# note\nbody" {
+		t.Fatalf("redo result=%+v source=%q err=%v", redone, s.Source(), err)
+	}
+}
+
+func TestSessionTransactionUsesOriginalCoordinates(t *testing.T) {
+	s := NewSession("abcdef")
+	tx := Transaction{
+		Before: Selection{},
+		After:  Selection{Anchor: 3, Head: 3},
+		Edits: []TextEdit{
+			{Range: TextRange{Start: 1, End: 2}, Text: "XYZ"},
+			{Range: TextRange{Start: 4, End: 5}, Text: "!"},
+		},
+	}
+	if _, err := s.ApplyTransaction(tx); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.Source(), "aXYZcd!f"; got != want {
+		t.Fatalf("source = %q, want %q", got, want)
+	}
+	if _, err := s.Dispatch(InputEvent{Kind: InputUndo}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.Source(), "abcdef"; got != want {
+		t.Fatalf("undo source = %q, want %q", got, want)
+	}
+}
+
+func TestSessionRejectsUTF8InteriorSelection(t *testing.T) {
+	s := NewSession("你a")
+	if err := s.SetSelection(Selection{Anchor: 1, Head: 1}); err == nil {
+		t.Fatal("expected selection inside a UTF-8 rune to be rejected")
+	}
+}
+
+func TestSessionAcceptsEmptyAndEOFSelections(t *testing.T) {
+	for _, source := range []string{"", "你"} {
+		s := NewSession(source)
+		atEOF := len(source)
+		if err := s.SetSelection(Selection{Anchor: atEOF, Head: atEOF}); err != nil {
+			t.Fatalf("SetSelection(%q, EOF): %v", source, err)
+		}
+		if got := s.Frame().Selection.Head; got != atEOF {
+			t.Fatalf("EOF head = %d, want %d", got, atEOF)
+		}
+	}
+}
+
+func TestSessionRejectsInvalidUTF8Input(t *testing.T) {
+	s := NewSession("")
+	if _, err := s.Dispatch(InputEvent{Kind: InputInsertText, Text: string([]byte{0xff})}); err == nil {
+		t.Fatal("expected invalid UTF-8 input to be rejected")
+	}
+	if got := s.Source(); got != "" {
+		t.Fatalf("invalid input changed source to %q", got)
+	}
+}
