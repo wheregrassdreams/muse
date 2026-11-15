@@ -125,3 +125,11 @@ func TestTypedDatesAcceptCommonUnambiguousFormats(t *testing.T) {
 		t.Fatal("ambiguous month/day value was accepted")
 	}
 }
+
+func TestMetadataProjectsCoreNoteFields(t *testing.T) {
+	doc := Parse("---\ntype: research\ncreated_at: 2026-11-01\nupdated_at: 2026-11-02\naliases: [Plan, Roadmap]\ntags:\n  - work\n  - project\n---\nbody")
+	metadata := doc.Metadata()
+	if metadata.Type != "research" || metadata.CreatedAt != "2026-11-01" || metadata.UpdatedAt != "2026-11-02" || len(metadata.Aliases) != 2 || metadata.Aliases[1] != "Roadmap" || len(metadata.Tags) != 2 || metadata.Tags[0] != "work" {
+		t.Fatalf("Metadata() = %#v", metadata)
+	}
+}

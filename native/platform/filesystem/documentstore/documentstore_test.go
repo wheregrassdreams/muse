@@ -1,4 +1,6 @@
-package notestore
+package documentstore
+
+import "muse/document"
 
 import (
 	"errors"
@@ -20,30 +22,30 @@ func TestSaveRevisionConflictAndExternalDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if createdRevision != Revision("你好，世界\n") {
+	if createdRevision != document.RevisionOf("你好，世界\n") {
 		t.Fatalf("revision = %q", createdRevision)
 	}
 	got, err := store.Read(path)
-	if err != nil || got.Text != "你好，世界\n" || got.Revision != createdRevision {
+	if err != nil || got.Source != "你好，世界\n" || got.Revision != createdRevision {
 		t.Fatalf("Read() = %#v, %v", got, err)
 	}
 
 	if err := os.WriteFile(path, []byte("外部修改"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Save(path, "不应覆盖", createdRevision); !errors.Is(err, ErrConflict) {
+	if _, err := store.Save(path, "不应覆盖", createdRevision); !errors.Is(err, document.ErrConflict) {
 		t.Fatalf("Save after external edit error = %v, want ErrConflict", err)
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Save(path, "不应复活", createdRevision); !errors.Is(err, ErrConflict) {
+	if _, err := store.Save(path, "不应复活", createdRevision); !errors.Is(err, document.ErrConflict) {
 		t.Fatalf("Save after external deletion error = %v, want ErrConflict", err)
 	}
 	if _, err := store.Save(path, "重新创建", ""); err != nil {
 		t.Fatalf("Save new path: %v", err)
 	}
-	if _, err := store.Save(path, "拒绝意外覆盖", ""); !errors.Is(err, ErrConflict) {
+	if _, err := store.Save(path, "拒绝意外覆盖", ""); !errors.Is(err, document.ErrConflict) {
 		t.Fatalf("Save existing path with empty expected revision error = %v", err)
 	}
 }
@@ -55,7 +57,7 @@ func TestSaveHistoryRestoreOnceAndPermissions(t *testing.T) {
 	if err := os.WriteFile(path, []byte("原始内容"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	first := Revision("原始内容")
+	first := document.RevisionOf("原始内容")
 	second, err := store.Save(path, "更新后的内容", first)
 	if err != nil {
 		t.Fatal(err)
@@ -80,13 +82,13 @@ func TestSaveHistoryRestoreOnceAndPermissions(t *testing.T) {
 		t.Fatalf("ListHistory() = %#v, %v", items, err)
 	}
 	restored, err := store.ReadHistory(path, items[0].ID)
-	if err != nil || restored.Text != "原始内容" || restored.Revision != first {
+	if err != nil || restored.Source != "原始内容" || restored.Revision != first {
 		t.Fatalf("ReadHistory() = %#v, %v", restored, err)
 	}
 
 	// Restore uses the same compare-and-save API as a regular edit; the
 	// version being replaced is captured before the restore takes effect.
-	restoreRevision, err := store.Save(path, restored.Text, second)
+	restoreRevision, err := store.Save(path, restored.Source, second)
 	if err != nil || restoreRevision != first {
 		t.Fatalf("restore Save() = %q, %v", restoreRevision, err)
 	}
@@ -100,7 +102,7 @@ func TestSaveHistoryRestoreOnceAndPermissions(t *testing.T) {
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
-		if doc.Text == "更新后的内容" {
+		if doc.Source == "更新后的内容" {
 			foundUpdated = true
 		}
 	}
@@ -119,7 +121,7 @@ func TestDraftLifecycleIncludesUntitledKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(filepath.Join(store.dir, "drafts"))
-	if err != nil || len(entries) != 1 || entries[0].Name() != Revision(key)+".json" {
+	if err != nil || len(entries) != 1 || entries[0].Name() != revisionOf(key)+".json" {
 		t.Fatalf("draft is not stored by hashed key: %#v, %v", entries, err)
 	}
 	got, err := store.ReadDraft(key)
@@ -148,7 +150,7 @@ func TestConflictDoesNotClearDraft(t *testing.T) {
 	if err := store.WriteDraft("note-1", path, "unsaved draft"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Save(path, "stale write", Revision("old disk")); !errors.Is(err, ErrConflict) {
+	if _, err := store.Save(path, "stale write", document.RevisionOf("old disk")); !errors.Is(err, document.ErrConflict) {
 		t.Fatalf("Save() error = %v, want conflict", err)
 	}
 	draft, err := store.ReadDraft("note-1")

@@ -7,8 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"muse/document/date"
+	"muse/document/types"
 	"muse/locales"
-	"muse/notedate"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,6 +25,49 @@ type Document struct {
 	root       *yaml.Node
 	body       string
 	offset     int
+}
+
+// Metadata projects the core semantic values retained by document.Note. Query
+// interpretation remains the responsibility of the search module.
+func (d Document) Metadata() types.Metadata {
+	metadata := types.Metadata{Type: types.DefaultNoteType}
+	if d.Err != nil || d.root == nil || d.root.Kind != yaml.MappingNode {
+		return metadata
+	}
+	for at := 0; at+1 < len(d.root.Content); at += 2 {
+		key, value := d.root.Content[at].Value, d.root.Content[at+1]
+		switch key {
+		case "type":
+			if value.Kind == yaml.ScalarNode && strings.TrimSpace(value.Value) != "" {
+				metadata.Type = types.NoteType(strings.TrimSpace(value.Value))
+			}
+		case "created_at":
+			metadata.CreatedAt = strings.TrimSpace(value.Value)
+		case "updated_at":
+			metadata.UpdatedAt = strings.TrimSpace(value.Value)
+		case "aliases":
+			metadata.Aliases = metadataList(value)
+		case "tags":
+			metadata.Tags = metadataList(value)
+		}
+	}
+	return metadata
+}
+
+func metadataList(node *yaml.Node) []string {
+	if node.Kind == yaml.SequenceNode {
+		values := make([]string, 0, len(node.Content))
+		for _, item := range node.Content {
+			if item.Kind == yaml.ScalarNode && strings.TrimSpace(item.Value) != "" {
+				values = append(values, strings.TrimSpace(item.Value))
+			}
+		}
+		return values
+	}
+	if node.Kind == yaml.ScalarNode && strings.TrimSpace(node.Value) != "" {
+		return []string{strings.TrimSpace(node.Value)}
+	}
+	return nil
 }
 
 func Parse(src string) Document {
