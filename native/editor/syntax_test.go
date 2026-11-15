@@ -20,7 +20,7 @@ import (
 // syntax shows.
 func shownEditor(t *testing.T, src string) *Editor {
 	t.Helper()
-	e := New(src, Options{FontSize: 16})
+	e := New(src, editorTestOptions(Options{FontSize: 16}))
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			e.View(c).Grow(1)

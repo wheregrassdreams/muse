@@ -67,18 +67,21 @@ func (e *Editor) imageObject(dest, alt string, width float32, alone bool) *objec
 		resolved = e.opts.ResolveImage(dest, e.opts.BaseDir, e.opts.AssetRoot)
 	} else {
 		resolved = images.ResolveSource(dest, images.SourceOptions{
-			BaseDir: e.opts.BaseDir,
-			Root:    e.opts.AssetRoot,
-			Lookup: func(name string) string {
-				return images.FindAttachment(e.opts.AssetRoot, name)
-			},
+			BaseDir:    e.opts.BaseDir,
+			Root:       e.opts.AssetRoot,
+			LocalFiles: e.opts.ImageLocalFiles,
 		})
+	}
+	sourceOptions := images.SourceOptions{
+		BaseDir:    e.opts.BaseDir,
+		Root:       e.opts.AssetRoot,
+		LocalFiles: e.opts.ImageLocalFiles,
 	}
 	var asset *images.Asset
 	if strings.HasPrefix(resolved, "data:") {
 		asset = e.dataImageAsset(resolved)
 	} else {
-		asset = images.Load(resolved, images.LoadOptions{Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
+		asset = images.Load(resolved, images.LoadOptions{Source: sourceOptions, Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
 	}
 	intrinsic, hasIntrinsic := asset.IntrinsicSize()
 	// ImageAsset owns the asynchronous read and decode. Do not decode a second
@@ -141,7 +144,7 @@ func (e *Editor) dataImageAsset(src string) *images.Asset {
 	if asset := e.dataImageAssets[key]; asset != nil {
 		return asset
 	}
-	asset := images.Load(src, images.LoadOptions{Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
+	asset := images.Load(src, images.LoadOptions{Source: images.SourceOptions{LocalFiles: e.opts.ImageLocalFiles}, Store: e.opts.ImageCacheStore}, e.assetLoaded, e.assetLoaded)
 	if e.dataImageAssets == nil {
 		e.dataImageAssets = make(map[dataImageAssetKey]*images.Asset)
 	}

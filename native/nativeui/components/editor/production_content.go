@@ -28,16 +28,18 @@ type ProductionContent struct {
 	closed   bool
 	diagrams []diagramPainterCacheEntry
 	clock    uint64
+	rail     headingRailState
 }
 
 // NewProductionContent hosts the existing production editor as pane content.
 // This bridge should be removed when the migrated Session-backed component
 // owns the production rendering and input path.
 func NewProductionContent(value *editor.Editor, onClose func()) *ProductionContent {
-	content := &ProductionContent{editor: value, onClose: onClose}
+	content := &ProductionContent{editor: value, onClose: onClose, rail: headingRailState{hover: -1}}
 	if value != nil {
 		value.SetDiagramRenderer(content.drawDiagram)
 		value.SetMathRenderer(drawMathRaster)
+		value.SetHeadingRailRenderer(content.drawHeadingRail)
 	}
 	return content
 }
@@ -102,8 +104,12 @@ func (c *ProductionContent) Close() {
 	if c.editor != nil {
 		c.editor.SetDiagramRenderer(nil)
 		c.editor.SetMathRenderer(nil)
+		c.editor.SetHeadingRailRenderer(nil)
 	}
 	c.diagrams = nil
+	c.rail.ys = nil
+	c.rail.scales = nil
+	c.rail.rect = ui.Rect{}
 	if c.onClose != nil {
 		c.onClose()
 	}

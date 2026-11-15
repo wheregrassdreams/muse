@@ -9,7 +9,7 @@ import (
 func TestVirtualLayoutForMediumImageNoteLoadsImagesOnDemand(t *testing.T) {
 	dir := t.TempDir()
 	src := stressImages(dir, 18)
-	e := New(src, Options{FontSize: 16, BaseDir: dir})
+	e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: dir}))
 	if len(e.leaves) >= virtualLayoutMin {
 		t.Fatalf("fixture has %d leaves, want a medium note below the general threshold", len(e.leaves))
 	}
@@ -58,7 +58,7 @@ func TestVirtualLayoutForMediumImageNoteLoadsImagesOnDemand(t *testing.T) {
 func TestVirtualLayoutDropsOffscreenImageViews(t *testing.T) {
 	dir := t.TempDir()
 	src := stressImages(dir, 80)
-	e := New(src, Options{FontSize: 16, BaseDir: dir})
+	e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: dir}))
 	tester := stressTester(e)
 	tester.Frame()
 	if len(e.leaves) < virtualLayoutMin {
@@ -85,7 +85,7 @@ func TestVirtualLayoutDropsOffscreenImageViews(t *testing.T) {
 func TestVirtualLayoutDoesNotRetainPrefetchedImageViews(t *testing.T) {
 	dir := t.TempDir()
 	src := stressImages(dir, 80)
-	e := New(src, Options{FontSize: 16, BaseDir: dir})
+	e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: dir}))
 	tester := stressTester(e)
 	tester.Frame()
 	if !e.virtualLayout() {

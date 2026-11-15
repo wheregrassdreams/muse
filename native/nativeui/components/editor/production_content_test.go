@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -96,5 +98,70 @@ func TestProductionContentRendersNeutralMathRaster(t *testing.T) {
 	tester.Frame()
 	if drawn == 0 {
 		t.Fatal("production editor did not send a neutral math raster to the component renderer")
+	}
+}
+
+func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
+	var source strings.Builder
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&source, "## Heading %d\n\n", i)
+		for j := 0; j < 12; j++ {
+			fmt.Fprintf(&source, "Paragraph %d.%d keeps the document tall enough to scroll.\n\n", i, j)
+		}
+	}
+	text := source.String()
+	value := tappeditor.New(text, tappeditor.Options{})
+	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: 0, Head: 0}); err != nil {
+		t.Fatal(err)
+	}
+	content := NewProductionContent(value, nil)
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { content.Render(c) })
+	}, 900, 420)
+	tester.Frame()
+	if content.rail.rect.W == 0 || content.rail.rect.H == 0 {
+		t.Fatal("heading rail was not rendered for a scrollable document")
+	}
+	if content.rail.active != 0 {
+		t.Fatalf("initial rail selection = %d, want first heading", content.rail.active)
+	}
+	var pitch float32
+	ys := headingRailPositions(nil, 8, content.rail.rect.H, &pitch)
+	point := 3
+	x := content.rail.rect.X + content.rail.rect.W/2
+	y := content.rail.rect.Y + ys[point]
+	caretBefore := value.Caret()
+	tester.Move(x, y)
+	tester.Frame()
+	if content.rail.hover != point {
+		t.Fatalf("hovered heading index = %d, want %d", content.rail.hover, point)
+	}
+	preview := value.HeadingRailPreview(point)
+	if preview.Title != "Heading 3" || !strings.Contains(preview.Excerpt, "Paragraph 3.0") {
+		t.Fatalf("rail preview = %+v, want hovered heading and section excerpt", preview)
+	}
+	if value.Caret() != caretBefore {
+		t.Fatal("hovering the rail changed the editor caret")
+	}
+	tester.ClickAt(x, y)
+	for i := 0; i < 3; i++ {
+		tester.Frame()
+	}
+	wantCaret := strings.Index(text, "## Heading 3") + len("## ")
+	if got := value.Caret(); got != wantCaret {
+		t.Fatalf("rail click caret = %d, want heading offset %d", got, wantCaret)
+	}
+	if content.rail.active != point {
+		t.Fatalf("rail active heading after jump = %d, want %d", content.rail.active, point)
+	}
+
+	narrow := tappeditor.New(text, tappeditor.Options{})
+	narrowContent := NewProductionContent(narrow, nil)
+	narrowTester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { narrowContent.Render(c) })
+	}, 48, 180)
+	narrowTester.Frame()
+	if narrowContent.rail.rect.W != 0 {
+		t.Fatalf("narrow window still shows heading rail: %+v", narrowContent.rail.rect)
 	}
 }

@@ -61,6 +61,7 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 			BaseDir:                baseDir,
 			AssetRoot:              e.opts.AssetRoot,
 			ImageCacheStore:        e.opts.ImageCacheStore,
+			ImageLocalFiles:        e.opts.ImageLocalFiles,
 			ResolveImage:           e.opts.ResolveImage,
 			Invalidate:             e.invalidateEmbeddedLayout,
 			ResolveWikiEmbed:       e.opts.ResolveWikiEmbed,
@@ -87,6 +88,7 @@ func (e *Editor) wikiNoteObject(target string, width float32) *object {
 	child.opts.BaseDir = baseDir
 	child.opts.AssetRoot = e.opts.AssetRoot
 	child.opts.ImageCacheStore = e.opts.ImageCacheStore
+	child.opts.ImageLocalFiles = e.opts.ImageLocalFiles
 	child.opts.ResolveImage = e.opts.ResolveImage
 	child.opts.LinkRevision = e.opts.LinkRevision
 	child.opts.LinkContext = path

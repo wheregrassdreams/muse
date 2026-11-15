@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"image/color"
 	"muse/locales"
 	"sort"
 	"strings"
@@ -51,6 +52,64 @@ func railScale(dist int) float32 {
 // railView draws the rail over the right edge of the scroll area b, and
 // takes the pointer over it.
 func (e *Editor) railView(c *ui.Context, b ui.Rect) {
+	if e.headingRailRenderer != nil {
+		frame := e.HeadingRailSnapshot(HeadingRailViewport{Width: b.W, Height: b.H})
+		e.headingRailRenderer(c, b, frame, e.HeadingRailPreview, func(offset int) { e.JumpToHeading(offset) })
+		return
+	}
+	e.legacyRailView(c, b)
+}
+
+// HeadingRailSnapshot returns the current detached heading list and active
+// section for a navigation rail. The item slice remains valid until the
+// document revision changes.
+func (e *Editor) HeadingRailSnapshot(viewport HeadingRailViewport) HeadingRailFrame {
+	frame := HeadingRailFrame{
+		Active: -1, Revision: e.rev,
+		MarkerColor: color.RGBA{R: e.lk.marker.R, G: e.lk.marker.G, B: e.lk.marker.B, A: e.lk.marker.A},
+		ActiveColor: color.RGBA{R: e.lk.text.R, G: e.lk.text.G, B: e.lk.text.B, A: e.lk.text.A},
+		HoverColor:  color.RGBA{R: e.lk.muted.R, G: e.lk.muted.G, B: e.lk.muted.B, A: e.lk.muted.A},
+	}
+	if !e.headingRailVisible(viewport.Width, viewport.Height) {
+		return frame
+	}
+	frame.Visible = true
+	frame.Active = e.railCurrent()
+	if e.railItems == nil || e.railItemsRev != e.rev {
+		e.railItems = e.railItems[:0]
+		for _, leaf := range e.railLeaves {
+			e.railItems = append(e.railItems, HeadingRailItem{Offset: leaf.start, Level: leaf.level})
+		}
+		e.railItemsRev = e.rev
+	}
+	frame.Items = e.railItems
+	return frame
+}
+
+// HeadingRailPreview returns the title and short excerpt for an item in the
+// current HeadingRailSnapshot. It is intended to run only for the hovered
+// heading, so a large document does not project all prose on every frame.
+func (e *Editor) HeadingRailPreview(index int) HeadingRailPreview {
+	if index < 0 || index >= len(e.railLeaves) {
+		return HeadingRailPreview{}
+	}
+	e.railPreviewText(index)
+	return HeadingRailPreview{Title: e.railText, Excerpt: e.railDesc, Level: e.railLeaves[index].level}
+}
+
+// JumpToHeading navigates to an exact heading source offset from a rail
+// snapshot. It returns false if the offset no longer identifies a heading.
+func (e *Editor) JumpToHeading(offset int) bool {
+	for i, leaf := range e.railLeaves {
+		if leaf.start == offset {
+			e.railJump(i)
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Editor) legacyRailView(c *ui.Context, b ui.Rect) {
 	e.railAnim = false
 	if !e.railVisible(b) {
 		e.railHover, e.railCardOn = -1, false
@@ -121,8 +180,12 @@ func (e *Editor) railView(c *ui.Context, b ui.Rect) {
 // railVisible reports whether the rail has something to show: more than
 // one heading, in a document that scrolls.
 func (e *Editor) railVisible(b ui.Rect) bool {
+	return e.headingRailVisible(b.W, b.H)
+}
+
+func (e *Editor) headingRailVisible(width, height float32) bool {
 	return len(e.railLeaves) > 1 && e.docH > e.viewH+1 &&
-		b.W > railWidth+2*railInset && b.H > 2*railInset+railItemHeight
+		width > railWidth+2*railInset && height > 2*railInset+railItemHeight
 }
 
 // railPositions returns the center of every tick along a rail of height h:

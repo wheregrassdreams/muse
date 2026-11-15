@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"muse/markdown/images"
 )
 
 func TestJPEGEmbedsResolveDocumentVaultAndBareAttachmentPaths(t *testing.T) {
@@ -34,6 +36,14 @@ func TestJPEGEmbedsResolveDocumentVaultAndBareAttachmentPaths(t *testing.T) {
 		opts := h.e.Options()
 		opts.BaseDir = notes
 		opts.AssetRoot = root
+		opts.ResolveImage = func(src, base, assetRoot string) string {
+			return images.ResolveSource(src, images.SourceOptions{
+				BaseDir: base, Root: assetRoot, LocalFiles: opts.ImageLocalFiles,
+				Lookup: func(name string) string {
+					return filepath.Join(assets, name)
+				},
+			})
+		}
 		h.e.SetOptions(opts)
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {

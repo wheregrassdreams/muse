@@ -2,6 +2,7 @@ package editor
 
 import (
 	"image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,21 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
+
+type editorTestLocalFiles struct{}
+
+func (editorTestLocalFiles) Stat(path string) (fs.FileInfo, error) { return os.Stat(path) }
+func (editorTestLocalFiles) ReadFile(path string) ([]byte, error)  { return os.ReadFile(path) }
+func (editorTestLocalFiles) EvalSymlinks(path string) (string, error) {
+	return filepath.EvalSymlinks(path)
+}
+
+func editorTestOptions(opts Options) Options {
+	if opts.ImageLocalFiles == nil {
+		opts.ImageLocalFiles = editorTestLocalFiles{}
+	}
+	return opts
+}
 
 // harness runs an editor in a headless window.
 type harness struct {
@@ -22,14 +38,14 @@ type harness struct {
 func newHarness(t *testing.T, src string) *harness {
 	t.Helper()
 	h := &harness{t: t}
-	h.e = New(src, Options{
+	h.e = New(src, editorTestOptions(Options{
 		FontSize:    16,
 		Placeholder: "开始写作…",
 		ReadClipboard: func() transfer.Data {
 			return h.clip
 		},
 		WriteClipboard: func(d transfer.Data) { h.clip = d },
-	})
+	}))
 	h.tt = ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
 			h.e.View(c).Grow(1)

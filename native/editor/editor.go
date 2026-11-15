@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"image/color"
 	"sort"
 	"strings"
 	"sync"
@@ -88,6 +89,8 @@ type Options struct {
 	AssetRoot string
 	// ImageCacheStore is an application supplied store for remote image bytes.
 	ImageCacheStore images.CacheStore
+	// ImageLocalFiles is the filesystem capability used by local image sources.
+	ImageLocalFiles images.LocalFiles
 	// ResolveImage uses the application's shared vault path catalog when set.
 	ResolveImage func(src, base, root string) string
 	// Placeholder shows in an empty document.
@@ -156,6 +159,42 @@ type DiagramRenderer func(p *ui.Painter, rect ui.Rect, theme *ui.Theme, model *d
 // raster in the virtualized editor and its inline preview.
 type MathRenderer func(p *ui.Painter, rect ui.Rect, raster *texmath.Raster, dark bool, font string)
 
+// HeadingRailItem is a detached heading entry for the navigation rail.
+type HeadingRailItem struct {
+	Offset int
+	Level  int
+}
+
+// HeadingRailViewport carries the available size without exposing toolkit
+// geometry to navigation consumers.
+type HeadingRailViewport struct {
+	Width, Height float32
+}
+
+// HeadingRailFrame is a read-only snapshot of headings and current section.
+// It contains no editor leaves or mutable parser state.
+type HeadingRailFrame struct {
+	Visible     bool
+	Revision    uint64
+	Active      int
+	Items       []HeadingRailItem
+	MarkerColor color.RGBA
+	ActiveColor color.RGBA
+	HoverColor  color.RGBA
+}
+
+// HeadingRailPreview is the selected heading and a short section excerpt.
+type HeadingRailPreview struct {
+	Title   string
+	Excerpt string
+	Level   int
+}
+
+// HeadingRailRenderer is a temporary presentation port. The component owns
+// hover state, animation and painting; callbacks expose only typed queries and
+// navigation by heading index.
+type HeadingRailRenderer func(c *ui.Context, bounds ui.Rect, frame HeadingRailFrame, preview func(index int) HeadingRailPreview, jump func(offset int))
+
 // Editor is the state of a Markdown editor, kept by the app across frames:
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
@@ -177,6 +216,7 @@ type Editor struct {
 	opts                   Options
 	diagramRenderer        DiagramRenderer
 	mathRenderer           MathRenderer
+	headingRailRenderer    HeadingRailRenderer
 	inlineMath             inlineblock.MathSession
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
@@ -391,9 +431,11 @@ type Editor struct {
 	// railScales are the ticks' widths, animated toward their distances
 	// from the highlighted tick, and railCardY the preview's center,
 	// animated the same way; railCardOn says whether it shows.
-	railLeaves []*leaf
-	railNext   []*leaf
-	railRev    uint64
+	railLeaves   []*leaf
+	railNext     []*leaf
+	railRev      uint64
+	railItems    []HeadingRailItem
+	railItemsRev uint64
 	// hoverBlock is the start of the block the pointer is on, or -1: a
 	// block shows its source control there (see sourceChip).
 	hoverBlock int
@@ -444,6 +486,17 @@ func (e *Editor) SetMathRenderer(renderer MathRenderer) {
 	}
 	e.paintMu.Lock()
 	e.mathRenderer = renderer
+	e.paintMu.Unlock()
+}
+
+// SetHeadingRailRenderer installs the presentation adapter for the heading
+// navigation rail. Pass nil while the legacy direct-View path is in use.
+func (e *Editor) SetHeadingRailRenderer(renderer HeadingRailRenderer) {
+	if e == nil {
+		return
+	}
+	e.paintMu.Lock()
+	e.headingRailRenderer = renderer
 	e.paintMu.Unlock()
 }
 

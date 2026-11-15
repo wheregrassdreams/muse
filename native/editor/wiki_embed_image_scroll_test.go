@@ -17,15 +17,16 @@ func TestWikiEmbedImageLoadReflowsHostAndRendersAfterScroll(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		host.WriteString("Host paragraph after the image embed keeps the document virtualized.\n\n")
 	}
-	opts := Options{
-		FontSize:    16,
-		BaseDir:     dir,
-		AssetRoot:   dir,
-		CurrentPath: filepath.Join(dir, "Host.md"),
+	opts := editorTestOptions(Options{
+		FontSize:        16,
+		BaseDir:         dir,
+		AssetRoot:       dir,
+		ImageLocalFiles: editorTestLocalFiles{},
+		CurrentPath:     filepath.Join(dir, "Host.md"),
 		ResolveWikiEmbed: func(_, _ string) (string, string, bool) {
 			return filepath.Join(dir, "Target.md"), childSource, true
 		},
-	}
+	})
 	e := New(host.String(), opts)
 	tt := stressTester(e)
 	tt.Frame()

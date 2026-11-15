@@ -404,7 +404,7 @@ func BenchmarkStressBase64FirstFrame(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		newStart := time.Now()
-		e := New(src, Options{FontSize: 16, BaseDir: filepath.Dir(path)})
+		e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: filepath.Dir(path)}))
 		newTime += time.Since(newStart)
 		testerStart := time.Now()
 		t := stressTester(e)
@@ -619,7 +619,7 @@ func BenchmarkStressIncrementalScrollFrames(b *testing.B) {
 func BenchmarkStressImageHeavyScroll(b *testing.B) {
 	dir := b.TempDir()
 	src := stressImages(dir, 1200)
-	e := New(src, Options{FontSize: 16, BaseDir: dir})
+	e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: dir}))
 	t := stressTester(e)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -659,7 +659,7 @@ func BenchmarkStressImageHeavyScroll(b *testing.B) {
 func BenchmarkStressHighResolutionImageScroll(b *testing.B) {
 	dir := b.TempDir()
 	src := stressImagesSized(dir, 64, 2048, 1536)
-	e := New(src, Options{FontSize: 16, BaseDir: dir})
+	e := New(src, editorTestOptions(Options{FontSize: 16, BaseDir: dir}))
 	t := stressTester(e)
 	b.ReportAllocs()
 	b.ResetTimer()
