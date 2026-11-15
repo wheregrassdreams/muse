@@ -2,6 +2,59 @@ package paragraph
 
 import "testing"
 
+func TestShouldTrackBlankInput(t *testing.T) {
+	base := BlankInput{Enabled: true, CollapseSoftBreaks: true, CollapsedSelection: true, BlankSourceLine: true, Text: "hello"}
+	if !ShouldProcessInput(base) {
+		t.Fatal("eligible input was not processed")
+	}
+	if !ShouldTrackBlankInput(base) {
+		t.Fatal("eligible paragraph input was not tracked")
+	}
+	phantom := base
+	phantom.BlankSourceLine = false
+	phantom.PhantomParagraph = true
+	if !ShouldTrackBlankInput(phantom) {
+		t.Fatal("eligible phantom paragraph input was not tracked")
+	}
+	for name, change := range map[string]func(*BlankInput){
+		"disabled":         func(in *BlankInput) { in.Enabled = false },
+		"source newlines":  func(in *BlankInput) { in.CollapseSoftBreaks = false },
+		"range selection":  func(in *BlankInput) { in.CollapsedSelection = false },
+		"nonblank line":    func(in *BlankInput) { in.BlankSourceLine = false },
+		"no paragraph":     func(in *BlankInput) { in.BlankSourceLine = false; in.PhantomParagraph = false },
+		"whitespace input": func(in *BlankInput) { in.Text = " \t\n" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := base
+			change(&in)
+			if ShouldTrackBlankInput(in) {
+				t.Fatal("ineligible paragraph input was tracked")
+			}
+		})
+	}
+}
+
+func TestBreakProjection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   BreakProjection
+		want bool
+	}{
+		{"collapsed soft break", BreakProjection{SoftBreak: true, CollapseSoftBreaks: true}, false},
+		{"ordinary hard break", BreakProjection{CollapseSoftBreaks: true}, true},
+		{"preserved soft break", BreakProjection{SoftBreak: true, CollapseSoftBreaks: true, PreserveLine: true}, true},
+		{"editing soft break", BreakProjection{SoftBreak: true, CollapseSoftBreaks: true, EditingLine: true}, true},
+		{"structural soft break", BreakProjection{SoftBreak: true, CollapseSoftBreaks: true, StructuralBreak: true}, true},
+		{"revealed source soft break", BreakProjection{SoftBreak: true, CollapseSoftBreaks: true, RevealSource: true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.in.Newline(); got != tc.want {
+				t.Fatalf("Newline()=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBreaksRememberAndDeduplicateSourceAnchors(t *testing.T) {
 	source := "one\ntwo\n"
 	var breaks Breaks

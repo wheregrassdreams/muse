@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	inlineblock "muse/editor/blocks/inline"
+	"muse/editor/blocks/paragraph"
 	"muse/editor/internal/parser"
 
 	"muse/markdown"
@@ -416,10 +417,17 @@ func (b *builder) walk(ins []parser.Inline, i, end int, st istyle) {
 			for end < len(b.src) && (b.src[end] == ' ' || b.src[end] == '\t') {
 				end++
 			}
-			text := "\n"
 			structural := b.hardBreakAt >= in.Start && b.hardBreakAt < in.End
 			editing := b.e.typedBreakIn(in.Start, in.End)
-			if in.Kind == parser.SoftBreak && b.e.opts.SoftBreaksAsSpaces && !b.preserveSoftBreaks && !editing && !structural && !(b.e.sourceOK && b.e.sourceAt == b.base) {
+			text := "\n"
+			if !(paragraph.BreakProjection{
+				SoftBreak:          in.Kind == parser.SoftBreak,
+				CollapseSoftBreaks: b.e.opts.SoftBreaksAsSpaces,
+				PreserveLine:       b.preserveSoftBreaks,
+				EditingLine:        editing,
+				StructuralBreak:    structural,
+				RevealSource:       b.e.sourceOK && b.e.sourceAt == b.base,
+			}).Newline() {
 				text = " "
 			}
 			if b.quotePrefixMode && text == "\n" {

@@ -5,7 +5,48 @@ package paragraph
 import (
 	"encoding/binary"
 	"sort"
+	"strings"
 )
+
+// BlankInput describes the editor state relevant to preserving paragraph
+// boundaries while text is entered into an empty source line.
+type BlankInput struct {
+	Enabled            bool
+	CollapseSoftBreaks bool
+	CollapsedSelection bool
+	PhantomParagraph   bool
+	BlankSourceLine    bool
+	Text               string
+}
+
+// ShouldTrackBlankInput reports whether typing should pin the surrounding
+// source newlines as visible paragraph boundaries for this editing session.
+func ShouldTrackBlankInput(in BlankInput) bool {
+	return ShouldProcessInput(in) &&
+		(in.PhantomParagraph || in.BlankSourceLine) && strings.TrimSpace(in.Text) != ""
+}
+
+// ShouldProcessInput reports whether an edit is eligible for paragraph
+// boundary preservation before the editor resolves the source line kind.
+func ShouldProcessInput(in BlankInput) bool {
+	return in.Enabled && in.CollapseSoftBreaks && in.CollapsedSelection && strings.TrimSpace(in.Text) != ""
+}
+
+// BreakProjection contains the view policy for a parsed Markdown break.
+type BreakProjection struct {
+	SoftBreak          bool
+	CollapseSoftBreaks bool
+	PreserveLine       bool
+	EditingLine        bool
+	StructuralBreak    bool
+	RevealSource       bool
+}
+
+// Newline reports whether a parsed source break must remain a visual newline.
+func (p BreakProjection) Newline() bool {
+	return !(p.SoftBreak && p.CollapseSoftBreaks && !p.PreserveLine &&
+		!p.EditingLine && !p.StructuralBreak && !p.RevealSource)
+}
 
 // Breaks tracks explicit source newlines created or preserved during the
 // current editing session. The backing source remains unchanged.

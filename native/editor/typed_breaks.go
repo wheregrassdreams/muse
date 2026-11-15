@@ -1,6 +1,6 @@
 package editor
 
-import "strings"
+import "muse/editor/blocks/paragraph"
 
 // Typed breaks are view-local source anchors, not extra source characters.
 // They preserve a line the user explicitly filled/created while keeping
@@ -10,7 +10,12 @@ func (e *Editor) rememberTypedBreak(at int) {
 }
 
 func (e *Editor) trackBlankLineInput(text string, kind stepKind) {
-	if !e.opts.PreserveTypedLineBreaks || !e.opts.SoftBreaksAsSpaces || e.anchor != e.caret || strings.TrimSpace(text) == "" {
+	if !paragraph.ShouldProcessInput(paragraph.BlankInput{
+		Enabled:            e.opts.PreserveTypedLineBreaks,
+		CollapseSoftBreaks: e.opts.SoftBreaksAsSpaces,
+		CollapsedSelection: e.anchor == e.caret,
+		Text:               text,
+	}) {
 		return
 	}
 	if e.phantom != nil {
@@ -19,7 +24,13 @@ func (e *Editor) trackBlankLineInput(text string, kind stepKind) {
 	}
 	start, end := lineStartAt(e.src, e.caret), lineEndAt(e.src, e.caret)
 	l := e.unitAt(start)
-	if l == nil || l.kind != kBlank {
+	if !paragraph.ShouldTrackBlankInput(paragraph.BlankInput{
+		Enabled:            e.opts.PreserveTypedLineBreaks,
+		CollapseSoftBreaks: e.opts.SoftBreaksAsSpaces,
+		CollapsedSelection: e.anchor == e.caret,
+		BlankSourceLine:    l != nil && l.kind == kBlank,
+		Text:               text,
+	}) {
 		return
 	}
 	e.begin(kind)
