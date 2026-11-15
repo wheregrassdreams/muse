@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	vaultfilessource "muse/platform/filesystem/vaultfilessource"
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
 )
@@ -18,12 +20,20 @@ func TestQuickOpenBuildsPathTitleAndAliasCandidates(t *testing.T) {
 	if err := os.WriteFile(path, []byte("---\naliases: [Launch plan]\n---\n# Project Overview\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	files := vaultfiles.New(root)
+	filesSource, err := vaultfilessource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := vaultfiles.New(filesSource)
 	if err := files.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	index := vaultindex.New()
-	if err := index.Rebuild(root); err != nil {
+	indexSource, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := vaultindex.New(indexSource)
+	if err := index.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	quickOpen := NewQuickOpen(root, files, index)
@@ -52,12 +62,20 @@ func TestQuickOpenRefreshesCandidateSnapshotForFileAndIndexRevisions(t *testing.
 	if err := os.WriteFile(firstPath, []byte("# First"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	files := vaultfiles.New(root)
+	filesSource, err := vaultfilessource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := vaultfiles.New(filesSource)
 	if err := files.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	index := vaultindex.New()
-	if err := index.Rebuild(root); err != nil {
+	indexSource, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := vaultindex.New(indexSource)
+	if err := index.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	quickOpen := NewQuickOpen(root, files, index)
@@ -73,7 +91,7 @@ func TestQuickOpenRefreshesCandidateSnapshotForFileAndIndexRevisions(t *testing.
 	if err := files.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	if err := index.Rebuild(root); err != nil {
+	if err := index.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	byAlias := quickOpen.Search("new alias")
@@ -88,7 +106,7 @@ func TestQuickOpenRefreshesCandidateSnapshotForFileAndIndexRevisions(t *testing.
 	if err := os.WriteFile(secondPath, []byte("---\naliases: [changed alias]\n---\n# Changed title\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := index.Rebuild(root); err != nil {
+	if err := index.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	byChangedAlias := quickOpen.Search("changed alias")

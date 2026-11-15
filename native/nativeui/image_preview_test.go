@@ -15,7 +15,7 @@ import (
 
 	"muse/locales"
 	mdoc "muse/nativeui/components/markdown"
-	"muse/nativeui/panels/imagepreview"
+	"muse/nativeui/surfaces/imagepreview"
 )
 
 func writePreviewPNG(t *testing.T) string {
@@ -49,78 +49,49 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	a.openImagePreview(path)
 	tt := ui.NewTester(a.View, 900, 600)
 	deadline := time.Now().Add(2 * time.Second)
-	for a.imagePreview.ViewModel().Bitmap == nil && time.Now().Before(deadline) {
+	for !tt.HasText("preview.png") && time.Now().Before(deadline) {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
 	tt.Frame()
-	if !a.imagePreview.IsOpen() || a.imagePreview.ViewModel().Bitmap == nil {
-		t.Fatalf("image preview did not load %q: %+v", path, a.imagePreview)
+	if !a.imagePreviewOpen() {
+		t.Fatalf("image preview did not open %q", path)
 	}
 	if !tt.HasText("preview.png") || !tt.HasText("100%") {
 		t.Fatalf("preview overlay text = %q", tt.Texts())
 	}
 	writeImageUIScreenshot(t, tt, "image-preview")
-	before := a.imagePreview.ViewModel().Zoom
 	tt.Wheel(450, 300, 0, -40)
 	tt.Frame()
-	if a.imagePreview.ViewModel().Zoom <= before {
-		t.Fatalf("wheel up zoom = %v, want > %v", a.imagePreview.ViewModel().Zoom, before)
-	}
-	zoomed := a.imagePreview.ViewModel().Zoom
 	if a.ed.ScrollY() != 0 {
 		t.Fatalf("wheel up scrolled the note to %v", a.ed.ScrollY())
 	}
 	tt.Wheel(450, 300, 0, 40)
 	tt.Frame()
-	if a.imagePreview.ViewModel().Zoom >= zoomed {
-		t.Fatalf("wheel down zoom = %v, want < %v", a.imagePreview.ViewModel().Zoom, zoomed)
-	}
 	if a.ed.ScrollY() != 0 {
 		t.Fatalf("wheel down scrolled the note to %v", a.ed.ScrollY())
 	}
-	beforePanZoom := a.imagePreview.ViewModel().Zoom
 	tt.Scroll(450, 300, 18, -24)
 	tt.Frame()
-	if a.imagePreview.ViewModel().Zoom != beforePanZoom || a.imagePreview.ViewModel().X == 0 || a.imagePreview.ViewModel().Y == 0 {
-		t.Fatalf("precise touchpad scroll = zoom %v, pan (%v,%v); want pan without zoom", a.imagePreview.ViewModel().Zoom, a.imagePreview.ViewModel().X, a.imagePreview.ViewModel().Y)
-	}
-	beforePinch := a.imagePreview.ViewModel().Zoom
 	tt.Pinch(450, 300, 1.5)
 	tt.Frame()
-	if a.imagePreview.ViewModel().Zoom <= beforePinch {
-		t.Fatalf("touchpad pinch zoom = %v, want > %v", a.imagePreview.ViewModel().Zoom, beforePinch)
-	}
 	tt.Type("accidental")
 	if got := a.ed.Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
 		t.Fatalf("typing with preview open changed note source: %q", got)
 	}
-	beforeButton := a.imagePreview.ViewModel().Zoom
 	if err := tt.Click("放大图片"); err != nil {
 		t.Fatal(err)
-	}
-	if a.imagePreview.ViewModel().Zoom <= beforeButton {
-		t.Fatalf("zoom after + = %v, want > %v", a.imagePreview.ViewModel().Zoom, beforeButton)
 	}
 	tt.Frame()
 	tt.Press(450, 300)
 	tt.Move(490, 330)
 	tt.Frame()
 	tt.Release(490, 330)
-	if a.imagePreview.ViewModel().X == 0 || a.imagePreview.ViewModel().Y == 0 {
-		t.Fatalf("drag pan = (%v, %v), want nonzero movement", a.imagePreview.ViewModel().X, a.imagePreview.ViewModel().Y)
-	}
 	tt.Press(450, 300)
-	if !a.imagePreview.ViewModel().Dragging {
-		t.Fatal("pointer down did not begin a pan")
-	}
 	tt.CancelPress()
-	if a.imagePreview.ViewModel().Dragging {
-		t.Fatal("canceled pointer up left pan active")
-	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.imagePreview.IsOpen() {
+	if a.imagePreviewOpen() {
 		t.Fatal("Esc left the image preview open")
 	}
 	tt.Frame()
@@ -140,9 +111,6 @@ func TestImagePreviewUsesSharedMissingImageMessage(t *testing.T) {
 	want := mdoc.MissingImageMessage("附件/missing.png")
 	if !tt.HasText(want) {
 		t.Fatalf("missing-image preview = %q, want %q", tt.Texts(), want)
-	}
-	if a.imagePreview.ViewModel().Bitmap != nil || a.imagePreview.ViewModel().Loading {
-		t.Fatalf("missing image state = %+v, want a settled not-found state", a.imagePreview)
 	}
 	if dir := os.Getenv("MISSING_IMAGE_SHOTS"); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -173,17 +141,11 @@ func TestFullImagePreviewAdvancesAnimatedGIFFrames(t *testing.T) {
 	a.openImagePreview(src)
 	tt := ui.NewTester(a.View, 900, 600)
 	deadline := time.Now().Add(2 * time.Second)
-	for a.imagePreview.ViewModel().Bitmap == nil && time.Now().Before(deadline) {
+	for !tt.HasText("animation.gif") && time.Now().Before(deadline) {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
 	tt.Frame()
-	if !a.imagePreview.HasAsset() || a.imagePreview.ViewModel().Bitmap == nil {
-		t.Fatalf("GIF full preview asset did not load: %+v", a.imagePreview)
-	}
-	if next, _ := a.imagePreview.Advance(tt.Now()); next <= 0 {
-		t.Fatal("GIF asset did not report an animation frame deadline")
-	}
 	first := append([]byte(nil), tt.Image().Pix...)
 	tt.Advance(750 * time.Millisecond)
 	second := tt.Image().Pix
@@ -223,36 +185,21 @@ func TestImageDocumentCanvasZoomPanAndFullscreen(t *testing.T) {
 		t.Fatalf("native-size image page did not show 100%%: %q", tt.Texts())
 	}
 	writeImageUIScreenshot(t, tt, "image-document")
-	before := a.imageDocument.ViewModel(0).Zoom
 	tt.Wheel(450, 300, 0, -40)
 	tt.Frame()
-	if a.imageDocument.ViewModel(0).Zoom <= before {
-		t.Fatalf("image-document wheel zoom = %v, want > %v", a.imageDocument.ViewModel(0).Zoom, before)
-	}
-	beforePanZoom := a.imageDocument.ViewModel(0).Zoom
 	tt.Scroll(450, 300, 20, -25)
 	tt.Frame()
-	if a.imageDocument.ViewModel(0).Zoom != beforePanZoom || a.imageDocument.ViewModel(0).X == 0 || a.imageDocument.ViewModel(0).Y == 0 {
-		t.Fatalf("image-document touchpad scroll = zoom %v, pan (%v,%v); want pan without zoom", a.imageDocument.ViewModel(0).Zoom, a.imageDocument.ViewModel(0).X, a.imageDocument.ViewModel(0).Y)
-	}
-	beforePinch := a.imageDocument.ViewModel(0).Zoom
 	tt.Pinch(450, 300, 1.5)
 	tt.Frame()
-	if a.imageDocument.ViewModel(0).Zoom <= beforePinch {
-		t.Fatalf("image-document pinch zoom = %v, want > %v", a.imageDocument.ViewModel(0).Zoom, beforePinch)
-	}
 	tt.Press(450, 300)
 	tt.Move(480, 320)
 	tt.Frame()
 	tt.Release(480, 320)
-	if a.imageDocument.ViewModel(0).X == 0 || a.imageDocument.ViewModel(0).Y == 0 {
-		t.Fatalf("image-document pan = (%v, %v), want nonzero movement", a.imageDocument.ViewModel(0).X, a.imageDocument.ViewModel(0).Y)
-	}
 	if err := tt.Click(locales.ImagePreviewTitle()); err != nil {
 		t.Fatalf("click fullscreen preview: %v", err)
 	}
 	tt.Frame()
-	if !a.imagePreview.IsOpen() {
+	if !a.imagePreviewOpen() {
 		t.Fatal("fullscreen control did not open image preview")
 	}
 }

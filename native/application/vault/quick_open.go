@@ -6,8 +6,6 @@ import (
 	"sync"
 
 	"muse/search"
-	vaultfiles "muse/vault/files"
-	vaultindex "muse/vault/index"
 )
 
 // QuickOpen builds the source-agnostic candidate projection from the vault's
@@ -16,8 +14,8 @@ import (
 type QuickOpen struct {
 	mu          sync.Mutex
 	root        string
-	files       *vaultfiles.Catalog
-	index       *vaultindex.Index
+	files       CatalogPort
+	index       IndexPort
 	service     *search.QuickOpenService
 	filesRev    uint64
 	indexRev    uint64
@@ -32,7 +30,7 @@ type QuickOpenMatch struct {
 	PathMatches           []int
 }
 
-func NewQuickOpen(root string, files *vaultfiles.Catalog, index *vaultindex.Index) *QuickOpen {
+func NewQuickOpen(root string, files CatalogPort, index IndexPort) *QuickOpen {
 	return &QuickOpen{
 		root:    filepath.Clean(root),
 		files:   files,
@@ -83,13 +81,13 @@ func (q *QuickOpen) candidates() []search.QuickOpenItem {
 	if q.files != nil {
 		paths = q.files.Paths()
 	} else if q.index != nil {
-		for _, doc := range q.index.SearchSnapshot() {
+		for _, doc := range q.index.SearchDocuments() {
 			paths = append(paths, doc.Path)
 		}
 	}
-	metadata := make(map[string]vaultindex.SearchSnapshot)
+	metadata := make(map[string]search.Document)
 	if q.index != nil {
-		for _, doc := range q.index.SearchSnapshot() {
+		for _, doc := range q.index.SearchDocuments() {
 			metadata[filepath.ToSlash(filepath.Clean(doc.Path))] = doc
 		}
 	}

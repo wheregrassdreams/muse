@@ -12,8 +12,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/i18n"
+	mdedit "muse/editor"
 	"muse/locales"
-	"muse/mdedit"
 )
 
 type noteExportFormat uint8
@@ -47,7 +47,7 @@ func (f noteExportFormat) label() string {
 }
 
 func (a *App) exportDocument(format noteExportFormat) {
-	if a.busy || a.imageDocument.IsOpen() {
+	if a.busy || a.imageDocumentOpen() {
 		return
 	}
 	_, name, sourcePath, source, _ := a.snapshotDoc()

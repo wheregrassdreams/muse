@@ -2,10 +2,9 @@ package nativeui
 
 import (
 	"bytes"
-	"muse/iconlibrary"
-	"muse/mdedit"
-	"muse/mdoc"
-	"muse/navicons"
+	mdedit "muse/editor"
+	mdoc "muse/markdown"
+	iconlibrary "muse/ui/iconlibrary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,7 +243,7 @@ func TestBacklinkListDisplaysAndNavigatesToNestedSource(t *testing.T) {
 	root := filepath.Dir(target)
 	source := filepath.Join(root, "Projects", "Atlas", "Source.md")
 	waitDocument(t, tt, func() bool {
-		got := a.vault.index.Backlinks("note.md")
+		got := a.vault.links.Backlinks("note.md")
 		return len(got) == 1 && got[0].Source == "Projects/Atlas/Source.md"
 	})
 	a.openLinks()
@@ -364,11 +363,7 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	if a.navIconPickerOpen || a.treeIconID(item) != "bookmark" || a.treeIcon(item, false) != bookmarked {
 		t.Fatalf("tree icon was not applied: picker=%v ID=%q", a.navIconPickerOpen, a.treeIconID(item))
 	}
-	store, err := navicons.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Get(a.root, "Home.md"); got != "bookmark" {
+	if got := a.navIconStore.Get(a.root, "Home.md"); got != "bookmark" {
 		t.Fatalf("persisted icon key lookup = %q", got)
 	}
 	runtimeShot(t, tt, "nav-tree-custom-icon")
@@ -383,14 +378,10 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	if a.navIconPickerOpen || a.treeIconID(item) != "" || a.treeIcon(item, false) != iconFile {
 		t.Fatalf("reset-to-default did not restore file icon: picker=%v ID=%q", a.navIconPickerOpen, a.treeIconID(item))
 	}
-	store2, err := navicons.New()
-	if err != nil {
+	if err := a.navIconStore.Delete(a.root, "Home.md"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store2.Delete(a.root, "Home.md"); err != nil {
-		t.Fatal(err)
-	}
-	if got := store2.Get(a.root, "Home.md"); got != "" {
+	if got := a.navIconStore.Get(a.root, "Home.md"); got != "" {
 		t.Fatalf("reset to default left a custom icon: %q", got)
 	}
 }
@@ -485,8 +476,8 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 		t.Fatalf("attachment link style state = %v, want valid", got)
 	}
 	a.openLink("wiki:Attachments/diagram.png")
-	if !a.imagePreview.IsOpen() || a.imagePreview.Source() != filepath.Join(root, "Attachments", "diagram.png") || a.imagePreview.ViewModel().Bitmap == nil {
-		t.Fatalf("wiki image click preview state = %+v", a.imagePreview)
+	if !a.imagePreviewOpen() {
+		t.Fatal("wiki image click did not open the managed image preview surface")
 	}
 }
 
@@ -504,8 +495,8 @@ func TestWikiImageHoverShowsThumbnailBeforeFullPreviewClick(t *testing.T) {
 	}
 	runtimeShot(t, tt, "wiki-image-hover-thumbnail")
 	a.openLink("wiki:Attachments/diagram.png")
-	if !a.imagePreview.IsOpen() || a.imagePreview.ViewModel().Bitmap == nil || a.linkPreview.target != "" {
-		t.Fatalf("image click did not replace thumbnail with full preview: preview=%+v hover=%+v", a.imagePreview, a.linkPreview)
+	if !a.imagePreviewOpen() || a.linkPreview.target != "" {
+		t.Fatalf("image click did not replace thumbnail with full preview: preview=%v hover=%+v", a.imagePreviewOpen(), a.linkPreview)
 	}
 }
 

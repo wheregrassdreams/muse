@@ -5,7 +5,6 @@ import (
 	"muse/locales"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -16,10 +15,10 @@ import (
 type treeClipboardItem struct{ path string }
 
 func (a *App) anyModalOwnsKeyboard() bool {
-	return a.settingsOpen || a.renameOpen || a.quickOpen || a.cmdPalette || a.workspaceSearch ||
-		a.imagePreview.IsOpen() || a.navIconPickerOpen || a.propertyEditKey != "" || a.propertySourceMode ||
+	return a.settingsOpen || a.renameOpen || a.quickOpenOpen() || a.cmdPalette || a.workspaceSearch ||
+		a.imagePreviewOpen() || a.navIconPickerOpen || a.propertyEditKey != "" || a.propertySourceMode ||
 		a.propertyHiddenOpen || a.propertyAddOpen || a.busy || a.treeHelpOpen ||
-		(a.documents != nil && (a.documents.conflictOpen || a.documents.recoveryOpen || a.documents.historyOpen))
+		(a.documents != nil && a.documents.AnyOpen()) || (a.windows != nil && a.windows.HasModal())
 }
 
 func (a *App) ensurePanelActions() {
@@ -795,48 +794,48 @@ func (a *App) pasteTreeClipboard() error {
 	if destination == "" {
 		return nil
 	}
+	if a.fileOperations == nil {
+		return errors.New("vault file operations are not configured")
+	}
 	if !a.treeIsDir(destination) {
 		if info, err := os.Stat(destination); err != nil || !info.IsDir() {
 			destination = filepath.Dir(destination)
 		}
 	}
-	allMoved := a.treeClipboardCut
-	remaining := make([]treeClipboardItem, 0, len(a.treeClipboard))
+	paths := make([]string, 0, len(a.treeClipboard))
 	for _, entry := range a.treeClipboard {
-		info, err := os.Stat(entry.path)
-		if err != nil {
-			continue
+		paths = append(paths, entry.path)
+	}
+	if a.treeClipboardCut {
+		moves, err := a.fileOperations.Move(a.root, paths, destination)
+		if len(moves) > 0 {
+			a.remapTreePaths(moves)
 		}
-		if a.treeClipboardCut {
-			a.moveTreeItem(entry.path, destination)
-			if _, err := os.Lstat(entry.path); err == nil {
-				remaining = append(remaining, entry)
-				allMoved = false
+		moved := make(map[string]bool, len(moves))
+		for _, move := range moves {
+			moved[move.Source] = true
+		}
+		remaining := make([]treeClipboardItem, 0, len(paths)-len(moves))
+		for _, path := range paths {
+			if !moved[path] {
+				remaining = append(remaining, treeClipboardItem{path: path})
 			}
-			continue
 		}
-		name := filepath.Base(entry.path)
-		ext := filepath.Ext(name)
-		base := strings.TrimSuffix(name, ext)
-		target := filepath.Join(destination, name)
-		if _, err := os.Lstat(target); err == nil {
-			target = uniquePath(destination, base, ext)
-		}
-		if info.IsDir() {
-			err = copyTree(entry.path, target)
-		} else {
-			err = copyFile(entry.path, target)
+		a.treeClipboard = remaining
+		if len(remaining) == 0 {
+			a.treeClipboard = nil
+			a.treeClipboardCut = false
 		}
 		if err != nil {
 			a.notice(locales.CommonPasteFailedStatus(err.Error()))
 			return err
 		}
-	}
-	if a.treeClipboardCut && allMoved {
-		a.treeClipboard = nil
-		a.treeClipboardCut = false
-	} else if a.treeClipboardCut {
-		a.treeClipboard = remaining
+	} else {
+		_, err := a.fileOperations.Copy(a.root, paths, destination)
+		if err != nil {
+			a.notice(locales.CommonPasteFailedStatus(err.Error()))
+			return err
+		}
 	}
 	a.clearTreeCache()
 	a.invalidate()

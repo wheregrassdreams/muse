@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"muse/mdedit"
-	"muse/vaultindex"
+	applicationvault "muse/application/vault"
+	mdedit "muse/editor"
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
+	vaultindex "muse/vault/index"
 )
 
 func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
@@ -24,15 +26,23 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	idx := vaultindex.New()
-	if err := idx.Rebuild(root); err != nil {
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := vaultindex.New(source)
+	if err := idx.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	links, err := applicationvault.NewLinkGraph(root, idx)
+	if err != nil {
 		t.Fatal(err)
 	}
 	a := New()
 	a.root = root
 	a.path = filepath.Join(root, "one/current.md")
 	a.source = "[[target]]"
-	a.vault = &vaultRuntime{root: root, index: idx}
+	a.vault = &vaultRuntime{root: root, index: idx, links: links}
 	opts := a.editorOptions()
 	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != mdedit.LinkTargetValid {
 		t.Fatalf("existing indexed target state=%v, want valid", got)
@@ -67,6 +77,9 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := idx.Update(filepath.Join(root, "one/target.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := links.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	opts = a.editorOptions()

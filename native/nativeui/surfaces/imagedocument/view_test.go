@@ -29,3 +29,13 @@ func TestCloseClearsImageDocument(t *testing.T) {
 		t.Fatalf("close left image document state: %+v", state)
 	}
 }
+
+func TestContentCloseIsIdempotent(t *testing.T) {
+	closed := 0
+	content := &Content{state: state{path: "image.png", open: true}, options: SurfaceOptions{OnClose: func() { closed++ }}}
+	content.Close()
+	content.Close()
+	if closed != 1 || !content.closed || content.state.IsOpen() || content.state.Path() != "" {
+		t.Fatalf("content close count=%d closed=%v state=%+v", closed, content.closed, content.state)
+	}
+}

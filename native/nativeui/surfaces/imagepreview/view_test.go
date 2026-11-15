@@ -30,3 +30,14 @@ func TestCloseClearsImageReferences(t *testing.T) {
 		t.Fatalf("closed preview state = %+v", vm)
 	}
 }
+
+func TestContentCloseIsIdempotent(t *testing.T) {
+	closed := 0
+	content := NewContent("image.png", "image.png", nil, nil, nil, nil, func() { closed++ })
+	content.state = state{source: "image.png", open: true, zoom: 1}
+	content.Close()
+	content.Close()
+	if closed != 1 || !content.closed || content.state.open || content.state.bmp != nil {
+		t.Fatalf("content close count=%d closed=%v state=%+v", closed, content.closed, content.state.ViewModel())
+	}
+}

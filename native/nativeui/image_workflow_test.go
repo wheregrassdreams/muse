@@ -47,10 +47,10 @@ func TestOpenImagePathShowsJPEGInEditorAndPreservesDirtyDraft(t *testing.T) {
 	tt := ui.NewTester(a.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
-	if !a.imageDocument.IsOpen() || a.imageDocument.Path() != path || !a.imageDocument.HasImage() {
-		t.Fatalf("JPEG image document did not load: %+v", a.imageDocument)
+	if !a.imageDocumentOpen() || a.imageDocumentPath() != path {
+		t.Fatalf("JPEG image document did not load: open=%v path=%q", a.imageDocumentOpen(), a.imageDocumentPath())
 	}
-	if a.imagePreview.IsOpen() {
+	if a.imagePreviewOpen() {
 		t.Fatal("opening an image path opened global preview")
 	}
 	if a.propertiesOpen {
@@ -72,13 +72,13 @@ func TestOpenImagePathShowsJPEGInEditorAndPreservesDirtyDraft(t *testing.T) {
 		t.Fatalf("explicit preview action: %v", err)
 	}
 	tt.Frame()
-	if !a.imagePreview.IsOpen() {
+	if !a.imagePreviewOpen() {
 		t.Fatal("explicit image preview action did not open global preview")
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if !a.imageDocument.IsOpen() || a.ed.Source() != source || !a.dirty {
-		t.Fatalf("closing global preview state: imageOpen=%v source=%q dirty=%v", a.imageDocument.IsOpen(), a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.ed.Source() != source || !a.dirty {
+		t.Fatalf("closing global preview state: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
 	}
 }
 
@@ -93,15 +93,15 @@ func TestImageNavigationPreservesDirtyNoteAndRestoresImage(t *testing.T) {
 	a.ed.SetSource("unsaved draft")
 	a.dirty = true
 	a.requestOpen(path)
-	if !a.imageDocument.IsOpen() || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("image open lost draft: image=%+v source=%q dirty=%v", a.imageDocument, a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.ed.Source() != "unsaved draft" || !a.dirty {
+		t.Fatalf("image open lost draft: open=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
 	}
 	a.nav(-1)
-	if a.imageDocument.IsOpen() || a.path != note || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("back navigation did not restore dirty note: image=%+v path=%q source=%q dirty=%v", a.imageDocument, a.path, a.ed.Source(), a.dirty)
+	if a.imageDocumentOpen() || a.path != note || a.ed.Source() != "unsaved draft" || !a.dirty {
+		t.Fatalf("back navigation did not restore dirty note: imageOpen=%v path=%q source=%q dirty=%v", a.imageDocumentOpen(), a.path, a.ed.Source(), a.dirty)
 	}
 	a.nav(1)
-	if !a.imageDocument.IsOpen() || a.imageDocument.Path() != path || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("forward navigation did not restore image and draft: image=%+v source=%q dirty=%v", a.imageDocument, a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.imageDocumentPath() != path || a.ed.Source() != "unsaved draft" || !a.dirty {
+		t.Fatalf("forward navigation did not restore image and draft: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
 	}
 }

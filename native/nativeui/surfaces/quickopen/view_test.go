@@ -48,6 +48,33 @@ func TestControlNDispatchesSelectionAction(t *testing.T) {
 	}
 }
 
+func TestContentCloseAndOpenActionAreTyped(t *testing.T) {
+	opened := ""
+	closed := 0
+	content := NewContent(SurfaceOptions{
+		Rows:    func(string) Rows { return testRows{{Path: "/notes/a.md", Title: "A"}} },
+		OnOpen:  func(path string) { opened = path },
+		OnClose: func() { closed++ },
+	})
+	content.Bind(testControls{close: func() { content.Close() }})
+	tester := ui.NewTester(func(c *ui.Context) { content.Render(c) }, 800, 600)
+	tester.Frame()
+	tester.Key(0, ui.KeyEnter)
+	tester.Frame()
+	if opened != "/notes/a.md" {
+		t.Fatalf("OpenSelection path = %q", opened)
+	}
+	content.Close()
+	if closed != 1 || !content.closed {
+		t.Fatalf("close count=%d closed=%v", closed, content.closed)
+	}
+}
+
+type testControls struct{ close func() }
+
+func (c testControls) CloseSelf() { c.close() }
+func (testControls) FocusSelf()   {}
+
 func lastAction(t *testing.T, actions []Action) Action {
 	t.Helper()
 	if len(actions) == 0 {

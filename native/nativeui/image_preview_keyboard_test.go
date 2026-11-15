@@ -19,7 +19,7 @@ func TestImagePreviewOwnsEscapeBeforeFileTreeActions(t *testing.T) {
 
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.imagePreview.IsOpen() {
+	if a.imagePreviewOpen() {
 		t.Fatal("Escape did not close the image preview")
 	}
 	if a.lastPanelAction != "" {

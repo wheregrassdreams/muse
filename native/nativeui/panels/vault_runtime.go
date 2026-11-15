@@ -5,41 +5,45 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/egoist/mygo/ui"
-	"muse/cachepath"
-	"muse/locales"
-	"muse/notestore"
-	"muse/scrollui"
-	"muse/vaultfiles"
-	"muse/vaultindex"
-	"muse/vaultsearch"
-	"muse/vaultwatch"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/egoist/mygo/ui"
+	documentsave "muse/application/document"
+	applicationvault "muse/application/vault"
+	"muse/document"
+	"muse/locales"
+	"muse/nativeui/components"
+	vaultsearch "muse/search"
+	scrollui "muse/ui/scrollbar"
+	vaultindex "muse/vault/index"
+	vaultlinks "muse/vault/links"
+	vaultwatch "muse/vault/watch"
 )
 
 type vaultReady struct {
 	root   string
-	index  *vaultindex.Index
-	files  *vaultfiles.Catalog
+	index  applicationvault.IndexPort
+	files  applicationvault.CatalogPort
 	search *vaultsearch.Index
+	links  *applicationvault.LinkGraph
 	watch  *vaultwatch.Watcher
 	err    error
 }
 type vaultRefresh struct {
 	path         string
-	doc          notestore.Document
+	doc          document.Note
 	err          error
 	hasDoc       bool
 	linksChanged bool
 }
 type linkResult struct {
 	path               string
-	incoming, outgoing []vaultindex.Link
+	incoming, outgoing []vaultlinks.Link
 }
 type vaultQuery struct {
 	token   uint64
@@ -55,7 +59,7 @@ type vaultNavigation struct {
 }
 type vaultRuntime struct {
 	linkResults        chan linkResult
-	incoming, outgoing []vaultindex.Link
+	incoming, outgoing []vaultlinks.Link
 	linksBusy          bool
 	linkScroll         ui.ScrollState
 	linkIndicator      scrollui.Indicator
@@ -65,9 +69,11 @@ type vaultRuntime struct {
 	lifeCancel         context.CancelFunc
 	stopped            bool
 	root               string
-	index              *vaultindex.Index
-	files              *vaultfiles.Catalog
+	index              applicationvault.IndexPort
+	links              *applicationvault.LinkGraph
+	files              applicationvault.CatalogPort
 	search             *vaultsearch.Index
+	quickOpen          *applicationvault.QuickOpen
 	searchMu           sync.Mutex
 	searchAvailable    atomic.Bool
 	watch              *vaultwatch.Watcher
@@ -91,10 +97,11 @@ type vaultRuntime struct {
 }
 
 func (a *App) vaultTick(c *ui.Context) {
-	if a.documents == nil {
+	if a.documentSession == nil {
 		if a.vault != nil {
-			stopVault(a.vault)
+			a.vault.Close()
 			a.vault = nil
+			a.closeVaultRuntime = nil
 		}
 		return
 	}
@@ -104,30 +111,64 @@ func (a *App) vaultTick(c *ui.Context) {
 	}
 	if root == "" {
 		if a.vault != nil {
-			stopVault(a.vault)
+			a.vault.Close()
 			a.vault = nil
+			a.closeVaultRuntime = nil
 		}
 		return
 	}
 	if a.vault == nil || a.vault.root != root {
 		if a.vault != nil {
-			stopVault(a.vault)
+			a.vault.Close()
 		}
 		lifeCtx, lifeCancel := context.WithCancel(context.Background())
 		v := &vaultRuntime{linkResults: make(chan linkResult, 1), root: root, closed: make(chan struct{}), closeDone: make(chan struct{}), lifeCtx: lifeCtx, lifeCancel: lifeCancel, ready: make(chan vaultReady), refresh: make(chan vaultRefresh, 1), queries: make(chan vaultQuery, 4), navigation: make(chan vaultNavigation, 1)}
 		a.vault = v
+		a.closeVaultRuntime = v.Close
 		go func() {
-			idx := vaultindex.New()
-			files := vaultfiles.New(root)
-			w, watchErr := vaultwatch.New(root)
-			indexErr := idx.Rebuild(root)
-			filesErr := files.Rebuild()
+			var idx applicationvault.IndexPort
+			indexSourceErr := errors.New("vault index factory is not configured")
+			if a.newVaultIndex != nil {
+				idx, indexSourceErr = a.newVaultIndex(root)
+			}
+			var files applicationvault.CatalogPort
+			filesSourceErr := errors.New("vault catalog factory is not configured")
+			if a.newVaultCatalog != nil {
+				files, filesSourceErr = a.newVaultCatalog(root)
+			}
+			searchStore := a.vaultSearchStore
+			var w *vaultwatch.Watcher
+			var watchErr error
+			if a.watcherBackendFactory == nil {
+				watchErr = errors.New("filesystem watcher adapter is not configured")
+			} else if backend, backendErr := a.watcherBackendFactory(); backendErr != nil {
+				watchErr = backendErr
+			} else {
+				w, watchErr = vaultwatch.New(root, backend)
+			}
+			indexErr := indexSourceErr
+			if idx != nil {
+				indexErr = idx.Rebuild()
+			}
+			filesErr := filesSourceErr
+			if files != nil {
+				filesErr = files.Rebuild()
+			}
+			var links *applicationvault.LinkGraph
+			var linksErr error
+			if indexErr == nil {
+				links, linksErr = applicationvault.NewLinkGraph(root, idx)
+			}
 			var search *vaultsearch.Index
 			var searchErr error
 			if indexErr == nil {
-				search, searchErr = openVaultSearch(root)
+				if searchStore == nil {
+					searchErr = errors.New("vault search index store is not configured")
+				} else {
+					search, searchErr = searchStore.Open(root)
+				}
 				if searchErr == nil {
-					search, searchErr = reconcileVaultSearchInWorker(v.lifeCtx, root, search, searchSnapshotDocuments(idx.SearchSnapshot()))
+					search, searchErr = reconcileVaultSearchInWorker(v.lifeCtx, root, search, idx.SearchDocuments(), searchStore)
 					if searchErr != nil {
 						if search != nil {
 							_ = search.Close()
@@ -136,9 +177,9 @@ func (a *App) vaultTick(c *ui.Context) {
 					}
 				}
 			}
-			err := errors.Join(watchErr, indexErr, filesErr, searchErr)
+			err := errors.Join(watchErr, indexErr, filesErr, linksErr, searchErr)
 			select {
-			case v.ready <- vaultReady{root: root, index: idx, files: files, search: search, watch: w, err: err}:
+			case v.ready <- vaultReady{root: root, index: idx, files: files, search: search, links: links, watch: w, err: err}:
 				a.invalidate()
 			case <-v.closed:
 				if w != nil {
@@ -156,7 +197,8 @@ func (a *App) vaultTick(c *ui.Context) {
 		if ready.err != nil {
 			a.notice(locales.VaultIndexWatchError(ready.err.Error()))
 		}
-		v.index, v.files, v.search, v.watch = ready.index, ready.files, ready.search, ready.watch
+		v.index, v.files, v.search, v.links, v.watch = ready.index, ready.files, ready.search, ready.links, ready.watch
+		v.quickOpen = applicationvault.NewQuickOpen(v.root, v.files, v.index)
 		v.searchAvailable.Store(ready.search != nil)
 		if a.dirty && a.path != "" && codeLanguage(a.path) == "" {
 			a.queueLinkIndexSnapshot()
@@ -196,48 +238,47 @@ func (a *App) vaultTick(c *ui.Context) {
 			a.notice(locales.WorkspaceIndexRefreshFailed(fresh.err.Error()))
 		}
 		if fresh.path == a.path {
-			r := a.documents
+			state := a.documentSession.Snapshot()
 			if fresh.err != nil {
 				if errors.Is(fresh.err, os.ErrNotExist) {
-					r.conflict = a.path
-					r.conflictOpen = true
+					a.documentSession.SetConflict(a.path)
+					a.documents.ConflictOpen = true
 					a.notice(locales.VaultCurrentFileDeleted())
 				}
-			} else if fresh.hasDoc && fresh.doc.Revision != r.revision {
-				if a.dirty || r.saving {
-					if fresh.doc.Text != a.diskSource() {
+			} else if fresh.hasDoc && fresh.doc.Revision != state.Revision {
+				if a.dirty || state.Saving {
+					if fresh.doc.Source != a.diskSource() {
 						merged, ok := "", false
-						if !r.saving {
-							merged, ok = mergeDisjointDocumentEdits(r.baseSource, a.diskSource(), fresh.doc.Text)
+						if !state.Saving {
+							merged, ok = documentsave.MergeDisjointEdits(state.BaseSource, a.diskSource(), fresh.doc.Source)
 						}
 						if ok {
-							r.revision = fresh.doc.Revision
-							r.baseSource = fresh.doc.Text
-							a.crlf = strings.Contains(fresh.doc.Text, "\r\n")
-							mergedEditor := strings.ReplaceAll(fresh.doc.Text, "\r\n", "\n")
-							if merged != fresh.doc.Text {
+							a.documentSession.Rebase(a.path, fresh.doc.Revision, fresh.doc.Source)
+							a.crlf = strings.Contains(fresh.doc.Source, "\r\n")
+							mergedEditor := strings.ReplaceAll(fresh.doc.Source, "\r\n", "\n")
+							if merged != fresh.doc.Source {
 								mergedEditor = strings.ReplaceAll(merged, "\r\n", "\n")
 							}
 							a.ed.ReplaceAll(mergedEditor)
-							a.dirty = merged != fresh.doc.Text
+							a.dirty = merged != fresh.doc.Source
 							if a.dirty {
 								a.documentChanged()
 								a.notice(locales.VaultExternalMergedSaving())
 							} else {
-								r.due = time.Time{}
+								a.documentSession.ClearAutosave()
 								a.notice(locales.DocumentExternalLoaded())
 							}
 						} else {
-							r.conflict = a.path
-							r.conflictOpen = true
-							if err := r.store.WriteDraft(a.path, a.path, a.diskSource()); err != nil {
+							a.documentSession.SetConflict(a.path)
+							a.documents.ConflictOpen = true
+							if _, err := a.documentSession.PreserveDraft(a.path, a.diskSource()); err != nil {
 								a.notice(locales.WorkspaceRecoverySaveFailed(err.Error()))
 							}
 						}
 					}
 				} else {
 					at := a.ed.Caret()
-					a.loadDoc(fresh.doc.Text)
+					a.loadDoc(fresh.doc.Source)
 					a.ed.Select(min(at, len(a.source)), min(at, len(a.source)))
 					a.dirty = false
 					a.updateManagedTimestamp()
@@ -271,8 +312,10 @@ func (a *App) vaultTick(c *ui.Context) {
 			v.refreshing = true
 			current := filepath.Clean(a.path)
 			idx := v.index
+			links := v.links
 			files := v.files
-			store := a.documents.store
+			session := a.documentSession
+			searchStore := a.vaultSearchStore
 			go func() {
 				var fresh vaultRefresh
 				upserts := make([]vaultsearch.Document, 0, len(paths))
@@ -282,15 +325,18 @@ func (a *App) vaultTick(c *ui.Context) {
 				}
 				if idx != nil {
 					if rescan {
-						if err := idx.Rebuild(root); err != nil {
+						if err := idx.Rebuild(); err != nil {
 							fresh.err = err
 						} else {
+							if links != nil {
+								fresh.err = errors.Join(fresh.err, links.Rebuild())
+							}
 							if v.searchAvailable.Load() {
-								upserts = searchSnapshotDocuments(idx.SearchSnapshot())
+								upserts = idx.SearchDocuments()
 							}
 							if current != "." && current != "" {
 								if doc, ok := idx.Document(current); ok && filepath.Ext(current) == ".md" {
-									fresh = vaultRefresh{path: current, doc: notestore.Document{Path: current, Text: doc.Source, Revision: notestore.Revision(doc.Source)}, hasDoc: true}
+									fresh = vaultRefresh{path: current, doc: document.NewNote(current, doc.Source, doc.Revision), hasDoc: true}
 								} else if _, err := os.Stat(current); os.IsNotExist(err) {
 									fresh = vaultRefresh{path: current, err: err}
 								}
@@ -307,27 +353,40 @@ func (a *App) vaultTick(c *ui.Context) {
 								}
 							}
 							if path == current {
-								doc, err := store.Read(path)
+								doc, err := session.Load(path)
 								fresh = vaultRefresh{path: path, doc: doc, err: err, hasDoc: err == nil}
 								if err == nil && filepath.Ext(path) == ".md" {
-									parsed, parseErr := idx.ParseSnapshot(path, doc.Text)
+									parsed, parseErr := idx.ParseSnapshot(path, doc.Source)
 									if parseErr == nil {
+										parsed.Revision = doc.Revision
 										idx.ApplySnapshot(parsed)
+										if links != nil {
+											fresh.err = errors.Join(fresh.err, links.Apply(path))
+										}
 										upserts = append(upserts, searchDocument(parsed))
 									} else {
 										fresh.err = parseErr
 									}
 								} else if err == nil {
 									idx.Remove(path)
+									if links != nil {
+										links.Remove(path)
+									}
 									deletes = append(deletes, searchDocumentID(relativeVaultPath(root, path)))
 								} else if errors.Is(err, os.ErrNotExist) {
 									idx.Remove(path)
+									if links != nil {
+										links.Remove(path)
+									}
 									deletes = append(deletes, searchDocumentID(relativeVaultPath(root, path)))
 								}
 								continue
 							}
 							if _, err := os.Stat(path); os.IsNotExist(err) {
 								idx.Remove(path)
+								if links != nil {
+									links.Remove(path)
+								}
 								deletes = append(deletes, searchDocumentID(relativeVaultPath(root, path)))
 							} else {
 								if err := idx.Update(path); err != nil {
@@ -336,7 +395,13 @@ func (a *App) vaultTick(c *ui.Context) {
 								}
 								if doc, ok := idx.Document(path); ok {
 									upserts = append(upserts, searchDocument(doc))
+									if links != nil {
+										fresh.err = errors.Join(fresh.err, links.Apply(path))
+									}
 								} else {
+									if links != nil {
+										links.Remove(path)
+									}
 									deletes = append(deletes, searchDocumentID(relativeVaultPath(root, path)))
 								}
 							}
@@ -348,7 +413,7 @@ func (a *App) vaultTick(c *ui.Context) {
 					v.searchMu.Lock()
 					if rescan {
 						v.searchAvailable.Store(false)
-						next, rebuildErr := reconcileVaultSearchInWorker(searchCtx, root, v.search, upserts)
+						next, rebuildErr := reconcileVaultSearchInWorker(searchCtx, root, v.search, upserts, searchStore)
 						v.search = next
 						v.searchAvailable.Store(next != nil)
 						fresh.err = errors.Join(fresh.err, rebuildErr)
@@ -390,7 +455,7 @@ func (a *App) vaultTick(c *ui.Context) {
 			a.notice(locales.WorkspaceSearchResultUpdated(result.err.Error()))
 		} else {
 			full := filepath.Join(v.root, filepath.FromSlash(result.hit.Path))
-			if filepath.Clean(full) == filepath.Clean(a.path) && notestore.Revision(a.diskSource()) == result.hit.Revision {
+			if filepath.Clean(full) == filepath.Clean(a.path) && document.RevisionOf(a.diskSource()) == result.hit.Revision {
 				a.ed.NavigateToRange(editorOffset(a.diskSource(), result.hit.Start), editorOffset(a.diskSource(), result.hit.End))
 				break
 			}
@@ -415,7 +480,7 @@ func (a *App) vaultTick(c *ui.Context) {
 // source snapshot. vaultindex then replaces this document's links incrementally;
 // consumers share the same graph rather than parsing links during rendering.
 func (a *App) queueLinkIndexSnapshot() {
-	if a.vault == nil || a.vault.index == nil || a.path == "" || codeLanguage(a.path) != "" {
+	if a.vault == nil || a.vault.index == nil || a.vault.links == nil || a.path == "" || codeLanguage(a.path) != "" {
 		return
 	}
 	rel, err := filepath.Rel(a.vault.root, a.path)
@@ -428,7 +493,7 @@ func (a *App) queueLinkIndexSnapshot() {
 
 func (a *App) linkIndexTick(c *ui.Context) {
 	v, due := a.vault, a.linkIndexDue
-	if v == nil || v.index == nil || due.IsZero() {
+	if v == nil || v.index == nil || v.links == nil || due.IsZero() {
 		return
 	}
 	if remaining := time.Until(due); remaining > 0 {
@@ -447,6 +512,7 @@ func (a *App) linkIndexTick(c *ui.Context) {
 				return
 			}
 			index.ApplySnapshot(parsed)
+			_ = v.links.Apply(path)
 			if a.ed != nil {
 				a.ed.SetOptions(a.editorOptions())
 			}
@@ -632,22 +698,22 @@ func (a *App) navigateIndexed(path string, offset int) {
 // A changed snapshot is indexed and queried again before navigation proceeds.
 func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 	v := a.vault
-	if v == nil || a.documents == nil || !v.searchAvailable.Load() {
+	if v == nil || a.documentSession == nil || !v.searchAvailable.Load() {
 		return
 	}
 	full := filepath.Join(v.root, filepath.FromSlash(hit.Path))
 	query, literal := a.workspaceQuery, v.searchLiteral
 	currentPath, currentSource := a.path, a.diskSource()
-	idx, store := v.index, a.documents.store
+	idx, session := v.index, a.documentSession
 	go func() {
 		ctx, cancel := context.WithTimeout(v.lifeCtx, 30*time.Second)
 		defer cancel()
-		var snapshot notestore.Document
+		var snapshot document.Note
 		if filepath.Clean(full) == filepath.Clean(currentPath) {
-			snapshot = notestore.Document{Path: currentPath, Text: currentSource, Revision: notestore.Revision(currentSource)}
+			snapshot = document.NewNote(currentPath, currentSource, document.RevisionOf(currentSource))
 		} else {
 			var err error
-			snapshot, err = store.Read(full)
+			snapshot, err = session.Load(full)
 			if err != nil {
 				select {
 				case v.navigation <- vaultNavigation{err: err}:
@@ -656,14 +722,14 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 				return
 			}
 		}
-		if snapshot.Revision == hit.Revision {
+		if string(snapshot.Revision) == hit.Revision {
 			select {
 			case v.navigation <- vaultNavigation{hit: hit}:
 			case <-v.closed:
 			}
 			return
 		}
-		parsed, err := idx.ParseSnapshot(full, snapshot.Text)
+		parsed, err := idx.ParseSnapshot(full, snapshot.Source)
 		if err != nil {
 			select {
 			case v.navigation <- vaultNavigation{err: err}:
@@ -671,6 +737,7 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 			}
 			return
 		}
+		parsed.Revision = snapshot.Revision
 		fresh := searchDocument(parsed)
 		v.searchMu.Lock()
 		idx.ApplySnapshot(parsed)
@@ -718,11 +785,11 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 	}()
 }
 func (a *App) indexedLink(target string) bool {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || a.vault.links == nil {
 		return false
 	}
 	current, _ := filepath.Rel(a.vault.root, a.path)
-	if loc, ok := a.vault.index.Resolve(filepath.ToSlash(current), target); ok {
+	if loc, ok := a.vault.links.Resolve(filepath.ToSlash(current), target); ok {
 		a.navigateIndexed(loc.Path, loc.Offset)
 		return true
 	}
@@ -736,13 +803,13 @@ func (a *App) linksDialog(c *ui.Context) {
 	ui.Modal(c, &v.linksOpen, func() {
 		ui.Column(c).Width(540).MaxHeight(600).Padding(20).Gap(10).Background(c.Theme().Background).Radius(12).Children(func() {
 			ui.Text(c, locales.VaultBacklinksTitle()).FontWeight(700)
-			if v.index == nil {
+			if v.links == nil {
 				ui.Text(c, locales.VaultIndexBuildingShort())
 				return
 			}
 			rel, _ := filepath.Rel(v.root, a.path)
 			rel = filepath.ToSlash(rel)
-			quietScroll(c, &v.linkScroll, &v.linkIndicator).Height(360).FillWidth().Children(func() {
+			components.QuietScroll(c, &v.linkScroll, &v.linkIndicator).Height(360).FillWidth().Children(func() {
 				ui.Column(c).FillWidth().Gap(6).Children(func() {
 					ui.Text(c, locales.VaultLinksToHere())
 					if v.linksBusy {
@@ -786,7 +853,7 @@ type backlinkSource struct {
 	Count  int
 }
 
-func groupedBacklinks(links []vaultindex.Link) []backlinkSource {
+func groupedBacklinks(links []vaultlinks.Link) []backlinkSource {
 	groups := make([]backlinkSource, 0, len(links))
 	positions := make(map[string]int, len(links))
 	for _, link := range links {
@@ -800,9 +867,12 @@ func groupedBacklinks(links []vaultindex.Link) []backlinkSource {
 	return groups
 }
 
-func stopVault(v *vaultRuntime) {
+func (v *vaultRuntime) Close() {
 	if v == nil || v.stopped {
 		return
+	}
+	if v.links != nil {
+		v.links.Close()
 	}
 	if v.closeDone == nil {
 		v.closeDone = make(chan struct{})
@@ -831,44 +901,10 @@ func stopVault(v *vaultRuntime) {
 	}()
 }
 
-func openVaultSearch(root string) (*vaultsearch.Index, error) {
-	canonical, err := filepath.Abs(root)
-	if err != nil {
-		return nil, err
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(canonical); resolveErr == nil {
-		canonical = resolved
-	}
-	canonical = filepath.Clean(canonical)
-	base, err := cachepath.Root()
-	if err != nil {
-		return nil, err
-	}
-	key := sha256.Sum256([]byte(canonical))
-	dir := filepath.Join(base, "vaultsearch", hex.EncodeToString(key[:]))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	return vaultsearch.Open(dir)
-}
-
-func searchSnapshotDocuments(docs []vaultindex.SearchSnapshot) []vaultsearch.Document {
-	out := make([]vaultsearch.Document, 0, len(docs))
-	for _, doc := range docs {
-		out = append(out, vaultsearch.Document{
-			ID: searchDocumentID(doc.Path), Path: doc.Path, Title: doc.Title, Source: doc.Source,
-			Type: doc.Type, CreatedAt: doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
-			Revision: notestore.Revision(doc.Source), Aliases: doc.Aliases, Tags: doc.Tags,
-		})
-	}
-	return out
-}
-
 func searchDocument(doc vaultindex.Document) vaultsearch.Document {
 	return vaultsearch.Document{
 		ID: searchDocumentID(doc.Path), Path: doc.Path, Title: doc.Title, Source: doc.Source,
-		Type: doc.Type, CreatedAt: doc.CreatedAt, UpdatedAt: doc.UpdatedAt,
-		Revision: notestore.Revision(doc.Source), Aliases: append([]string(nil), doc.Aliases...), Tags: append([]string(nil), doc.Tags...),
+		Revision: string(doc.Revision), Metadata: doc.Metadata(),
 	}
 }
 
@@ -888,7 +924,7 @@ func relativeVaultPath(root, path string) string {
 func (a *App) openLinks() {
 	a.enableDocumentServices()
 	v := a.vault
-	if v == nil || v.index == nil {
+	if v == nil || v.links == nil {
 		a.pendingLinks = true
 		return
 	}
@@ -897,12 +933,12 @@ func (a *App) openLinks() {
 	v.incoming = nil
 	v.outgoing = nil
 	path := a.path
-	if a.imageDocument.IsOpen() && a.imageDocument.Path() != "" {
-		path = a.imageDocument.Path()
+	if a.imageDocumentOpen() && a.imageDocumentPath() != "" {
+		path = a.imageDocumentPath()
 	}
 	rel, _ := filepath.Rel(v.root, path)
 	rel = filepath.ToSlash(rel)
-	idx := v.index
+	idx := v.links
 	go func() {
 		r := linkResult{rel, idx.Backlinks(rel), idx.Outgoing(rel)}
 		select {

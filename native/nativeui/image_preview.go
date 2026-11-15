@@ -4,16 +4,26 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/egoist/mygo/ui"
-
-	"muse/nativeui/panels/imagepreview"
+	"muse/nativeui/surfaces/imagepreview"
+	"muse/nativeui/window"
 )
 
 func (a *App) openImagePreview(src string) {
 	if src == "" {
 		return
 	}
-	a.imagePreview.Open(src, a.imagePreviewLabel(src), a.imageCacheStore, a.onMain, a.invalidate)
+	a.closeImagePreview()
+	content := imagepreview.NewContent(src, a.imagePreviewLabel(src), a.imageCacheStore, a.onMain, a.invalidate, func(source string) {
+		if a.ed != nil {
+			a.ed.CopyImageObject(source)
+		}
+	}, func() { a.imagePreviewHandle = window.Handle{} })
+	handle, err := a.windows.Open(content, window.Placement{Host: "main", Layer: window.ModalOverlay})
+	if err != nil {
+		a.notice(err.Error())
+		return
+	}
+	a.imagePreviewHandle = handle
 	a.invalidate()
 }
 
@@ -35,26 +45,13 @@ func (a *App) imagePreviewLabel(src string) string {
 }
 
 func (a *App) closeImagePreview() {
-	a.imagePreview.Close()
-	a.restoreEditorFocus = true
+	if a.windows != nil && !a.imagePreviewHandle.IsZero() {
+		_ = a.windows.Close(a.imagePreviewHandle)
+	}
+	a.imagePreviewHandle = window.Handle{}
 	a.invalidate()
 }
 
-func (a *App) imagePreviewDialog(c *ui.Context) {
-	if next := a.imagePreview.Advance(c.Now()); next > 0 {
-		c.After(next)
-	}
-	imagepreview.Render(c, a.imagePreview.ViewModel(), func(action imagepreview.Action) {
-		switch action.Kind {
-		case imagepreview.Close:
-			a.closeImagePreview()
-		case imagepreview.Copy:
-			if a.ed != nil {
-				a.ed.CopyImageObject(action.Source)
-			}
-		default:
-			a.imagePreview.Apply(action)
-			a.invalidate()
-		}
-	})
+func (a *App) imagePreviewOpen() bool {
+	return a.windows != nil && a.windows.Contains(a.imagePreviewHandle)
 }

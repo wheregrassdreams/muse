@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"muse/notestore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,19 +27,30 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/shader"
 
-	"muse/appearance"
-	"muse/frontmatter"
-	"muse/iconlibrary"
+	"muse/agent"
+	documentsave "muse/application/document"
+	applicationvault "muse/application/vault"
+	workspaceapp "muse/application/workspace"
+	"muse/document"
+	"muse/document/frontmatter"
+	mdedit "muse/editor"
+	"muse/events"
 	"muse/locales"
-	"muse/mdedit"
-	"muse/mdoc"
+	mdoc "muse/markdown"
+	"muse/markdown/diagrams"
+	"muse/markdown/images"
+	"muse/nativeui/components"
+	doctypes "muse/nativeui/components/doctypes"
+	"muse/nativeui/components/documentdialogs"
 	"muse/nativeui/interactions"
-	"muse/nativeui/panels/imagedocument"
-	"muse/nativeui/panels/imagepreview"
-	"muse/navicons"
-	"muse/scrollui"
-	"muse/services"
-	"muse/vaultsearch"
+	"muse/nativeui/surfaces/mermaidpreview"
+	"muse/nativeui/window"
+	vaultsearch "muse/search"
+	appearance "muse/theme"
+	iconlibrary "muse/ui/iconlibrary"
+	scrollui "muse/ui/scrollbar"
+	vaultwatch "muse/vault/watch"
+	"muse/workspace"
 )
 
 const (
@@ -125,13 +135,25 @@ var (
 	saveDialog    = mygo.Dialog.Save
 	messageDialog = mygo.Dialog.Message
 	errorDialog   = mygo.Dialog.Error
-	trashItem     = mygo.Shell.TrashItem
 	shellOpenPath = mygo.Shell.OpenPath
 )
 
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
-	documents                   *documentRuntime
+	watcherBackendFactory       func() (vaultwatch.Backend, error)
+	documentSession             *documentsave.Session
+	documentEvents              *events.Dispatcher[document.DocumentSaved]
+	documentSubscription        *events.Subscription
+	vaultSearchStore            applicationvault.SearchIndexStore
+	newVaultIndex               applicationvault.IndexFactory
+	newVaultCatalog             applicationvault.CatalogFactory
+	fileOperations              *applicationvault.FileOperations
+	imageCacheStore             images.CacheStore
+	workspaceEvents             *events.Dispatcher[workspace.WorkspaceRestored]
+	workspaceRestorer           *workspaceapp.Restorer
+	workspaceSubscription       *events.Subscription
+	documents                   *documentdialogs.State
+	closeVaultRuntime           func()
 	vault                       *vaultRuntime
 	pendingLinks                bool
 	pendingWiki                 string
@@ -148,7 +170,11 @@ type App struct {
 	indexedOffset               int
 	indexedRevision             string
 	win                         *mygo.Window
-	imagePreview                imagepreview.State
+	windows                     *window.Manager
+	imagePreviewHandle          window.Handle
+	imageDocumentHandle         window.Handle
+	quickOpenHandle             window.Handle
+	mermaidPreviewHandle        window.Handle
 	treePreviewPath             string
 	treePreviewRect             ui.Rect
 	treePreviewLeave            time.Time
@@ -162,7 +188,7 @@ type App struct {
 	wikiSuggestionReady         bool
 	wikiSuggestionDetailsCache  []mdedit.WikiSuggestion
 	wikiSuggestionDetailsReady  bool
-	navIconStore                *navicons.Store
+	navIconStore                *applicationvault.IconPreferences
 	navIconPickerOpen           bool
 	navIconPickerPath           string
 	navIconPickerQuery          string
@@ -172,33 +198,14 @@ type App struct {
 	navIconPickerResults        []iconlibrary.Icon
 	navIconPickerLoading        bool
 	navIconPickerRequest        uint64
-	imageDocument               imagedocument.State
-	restoreEditorFocus          bool
 
 	folderToggled map[string]time.Time
 
 	// quick open (⌘O): fuzzy file jump inside the workspace
-	quickOpen                                      bool
-	quickOpenValue                                 string
-	quickOpenSel                                   int
-	quickOpenCatalogRoot                           string
-	quickOpenIndexRevision, quickOpenFilesRevision uint64
-	quickOpenCatalogReady                          bool
-	quickOpenCatalogVault                          *vaultRuntime
-	quickOpenRows                                  []fileRow
-	quickOpenTitles                                map[string]string
-	quickOpenAliases                               map[string][]string
-	quickOpenCandidateQuery                        string
-	quickOpenCandidateVault                        *vaultRuntime
-	quickOpenCandidateRoot                         string
-	quickOpenCandidateIndexRevision                uint64
-	quickOpenCandidateFilesRevision                uint64
-	quickOpenCandidatesReady                       bool
-	quickOpenCandidateRows                         []quickOpenCandidate
-	coreMigration                                  *coreMigrationPreview
-	coreMigrationOpen                              bool
-	coreMigrationLoading                           bool
-	coreMigrationRunning                           bool
+	coreMigration        *coreMigrationPreview
+	coreMigrationOpen    bool
+	coreMigrationLoading bool
+	coreMigrationRunning bool
 
 	// command palette (⌘P): searchable menu actions
 	cmdPalette bool
@@ -250,7 +257,8 @@ type App struct {
 	panelNarrow      bool
 
 	// workspace
-	recents []recentEntry
+	recents     []recentEntry
+	recentItems *workspaceapp.RecentItems
 	// dirMu 守住 dirs/isDir 两个树缓存：children 在渲染帧里跑，而
 	// 打开文件夹的 goroutine 也写它们，headless 下这两者真的并发。
 	dirMu sync.Mutex
@@ -368,7 +376,7 @@ type App struct {
 
 	// AI
 	ai          aiSettings
-	aiClient    *services.AI
+	aiClient    *agent.AI
 	aiMessages  []chatMessage
 	aiInput     string
 	aiBusy      bool
@@ -386,7 +394,7 @@ type App struct {
 	// aiPerm 是修改类工具的权限预设（每次询问/完全访问/只读），
 	// 会话内有效；审批卡上的「总是允许」会把它切到完全访问。
 	aiPerm       aiPerm
-	aiModels     []services.ProviderModel
+	aiModels     []agent.ProviderModel
 	aiModelsBusy bool
 	aiModelsErr  string
 	// aiMdCache keeps the text of the last few Markdown parts parsed: a
@@ -424,6 +432,25 @@ type App struct {
 	renameValue string
 }
 
+// Dependencies are concrete persistence ports selected by the composition
+// root. The presentation shell does not construct filesystem adapters.
+type Dependencies struct {
+	Workspace         workspace.Repository
+	WorkspaceEvents   *events.Dispatcher[workspace.WorkspaceRestored]
+	Documents         document.Repository
+	Recovery          document.RecoveryRepository
+	History           document.HistoryRepository
+	DocumentEvents    *events.Dispatcher[document.DocumentSaved]
+	VaultSearch       applicationvault.SearchIndexStore
+	NewVaultIndex     applicationvault.IndexFactory
+	NewVaultCatalog   applicationvault.CatalogFactory
+	FileOperations    *applicationvault.FileOperations
+	RecentItems       *workspaceapp.RecentItems
+	NavIcons          applicationvault.NavigationIconRepository
+	ImageCacheStore   images.CacheStore
+	NewWatcherBackend func() (vaultwatch.Backend, error)
+}
+
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
 	a := &App{
@@ -445,10 +472,10 @@ func New() *App {
 		fontSize:        16,
 		lineHeight:      1.7,
 		smartTypography: true,
-		recents:         loadRecents(),
 		ai:              loadAISettings(),
-		aiClient:        services.NewAI(),
+		aiClient:        agent.NewAI(),
 		aiMessages:      loadAIChat(),
+		documents:       documentdialogs.New(),
 	}
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
 	s := loadEditorSettings()
@@ -479,6 +506,11 @@ func New() *App {
 	a.ed = mdedit.New("", a.editorOptions())
 	a.ed.SetKeymap(s.Keymap)
 	a.loadDoc("")
+	a.windows = window.NewManager(func() {
+		if a.ed != nil {
+			a.ed.Focus()
+		}
+	})
 	return a
 }
 
@@ -489,7 +521,11 @@ func (a *App) View(c *ui.Context) {
 	logMemoryDiagnostics(a)
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
-	closedImagePreview := false
+	closedManagedSurface := false
+	if c.Shortcut(0, ui.KeyEscape) && a.windows != nil && a.windows.HandleEscape() {
+		closedManagedSurface = true
+		a.invalidate()
+	}
 	if a.navIconPickerOpen && c.Shortcut(0, ui.KeyEscape) {
 		a.cancelNavIconSearch()
 		a.navIconPickerOpen = false
@@ -504,11 +540,6 @@ func (a *App) View(c *ui.Context) {
 		}
 		a.invalidate()
 	}
-	if a.imagePreview.IsOpen() && c.Shortcut(0, ui.KeyEscape) {
-		a.closeImagePreview()
-		closedImagePreview = true
-		a.invalidate()
-	}
 	if !a.anyModalOwnsKeyboard() {
 		a.handlePanelShortcuts(c)
 	} else {
@@ -518,12 +549,7 @@ func (a *App) View(c *ui.Context) {
 	if !a.anyModalOwnsKeyboard() && c.Shortcut(ui.Cmd, ui.KeyO) {
 		a.openWorkspaceSearch()
 	}
-	if !a.imagePreview.IsOpen() && a.restoreEditorFocus && !closedImagePreview {
-		a.ed.Focus()
-		a.restoreEditorFocus = false
-	}
 	a.vaultTick(c)
-	a.clearQuickOpenCatalogIfVaultChanged()
 	a.documentTick(c)
 	a.linkIndexTick(c)
 	a.applyTheme(c)
@@ -595,24 +621,23 @@ func (a *App) View(c *ui.Context) {
 
 	a.sidebarToggle(c)
 	a.windowControls(c)
-	if !a.imagePreview.IsOpen() && !closedImagePreview {
+	if !a.anyModalOwnsKeyboard() && !closedManagedSurface {
 		a.settingsDialog(c)
 		a.renameDialog(c)
 		a.documentDialogs(c)
 		a.coreMetadataMigrationDialog(c)
 		a.historyDialog(c)
 		a.linksDialog(c)
-		a.quickOpenDialog(c)
 		a.commandPaletteDialog(c)
 		a.workspaceSearchDialog(c)
 	}
-	a.imagePreviewDialog(c)
+	if a.windows != nil {
+		a.windows.Render(c, "main", window.Overlay)
+		a.windows.Render(c, "main", window.ModalOverlay)
+	}
 	a.wikiLinkPreviewDialog(c)
 	if a.treePreviewPath != "" {
 		a.treeImagePreview(c, a.treePreviewPath, a.treePreviewRect)
-	}
-	if a.treeAutoExpandDropPath != "" && !a.treePointerReleased {
-		a.treeDragSessionProjection(c)
 	}
 }
 
@@ -1128,420 +1153,7 @@ func (a *App) smallIconTint(c *ui.Context, icon *ui.SVG, label string, fn func()
 // filesView draws the workspace tree. Directories open lazily; the list builds
 // only the rows in view, so a large repository is still quick.
 func (a *App) filesView(c *ui.Context) {
-	t := c.Theme()
-	wasDragging := a.treeDragging
-	a.treeDragging = false
-	treeDropCommitted := false
-	a.treeTrashTargetActive = false
-	a.nativeDropHandled = false
-	a.treeNativeDropSuggested = transfer.None
-	if !wasDragging {
-		a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(a.root))
-	}
-	if a.root == "" {
-		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
-			ui.Icon(c, iconFolderOpen).Size(30, 30).TextColor(iconTint(t))
-			// 一个入口、一个按钮：文件与文件夹都会结束空态；下拉里还有
-			// 最近打开过的记录，点一下直接回到那里。
-			open := ui.Button(c, locales.CommonOpenFileOrFolder())
-			open.Menu(func(m *ui.Menu) {
-				if m.Item(locales.FilesOpenFileMenu()).Chosen() {
-					a.openFileDialog()
-				}
-				if m.Item(locales.FilesOpenFolderMenu()).Chosen() {
-					a.openFolderDialog()
-				}
-				live, labels := a.liveRecents()
-				if len(live) > 0 {
-					m.Separator()
-					for i, r := range live {
-						entry := r
-						if m.Item(labels[i]).Chosen() {
-							a.openRecent(entry)
-						}
-					}
-				}
-			})
-		})
-		return
-	}
-
-	rows := a.fileRows()
-	if !a.treeDragStarted.IsZero() && !a.treePointerReleased {
-		root := c.Root()
-		if x, y, over := root.PointerPosition(); over {
-			a.treeDragPointer = ui.Point{X: x, Y: y}
-			a.treeDragPointerValid = true
-		}
-	}
-	if len(rows) == 0 {
-		ui.Column(c).Fill().Center().Gap(6).Padding(20).Children(func() {
-			ui.Text(c, locales.FilesNoEditableText()).FontSize(12).TextColor(t.TextMuted)
-			ui.Text(c, locales.FilesEditableTypes()).FontSize(10.5).TextColor(t.TextMuted)
-		})
-		return
-	}
-	showScrollbar := a.fileIndicator.Visible(c.Now(), a.fileScroll.X, a.fileScroll.Y)
-	if showScrollbar {
-		c.After(a.fileIndicator.Remaining(c.Now()))
-	}
-	a.treePreviewPopupHovered = false
-	imageRowHovered := false
-	treePointerPressed := false
-	treeRowDropHovered := false
-	treeRootDropHovered := false
-	dropRowBounds := make(map[int]ui.Rect)
-	list := ui.List(c, &a.fileList, len(rows), func(i int) {
-		r := rows[i]
-		row := ui.Row(c).Key("file-tree-row-"+r.path).FillWidth().Height(28).Radius(6).Gap(5).
-			Padding(0, 8, 0, 4+float32(r.depth*14)).Cursor(ui.CursorPointer).Label(filepath.Base(r.path))
-		dragItem := mdedit.VaultItemDrag{Path: r.path, Name: filepath.Base(r.path), Directory: r.dir}
-		// Drop targets live on the unchanged visible row. The transparent
-		// handle below supplies the styled clone MyGo paints at the pointer.
-		switch {
-		case r.path == a.selectedPath || a.treeSelection[r.path]:
-			if t.Dark {
-				row.Background(ui.RGBA(255, 255, 255, 0.08))
-			} else {
-				row.Background(t.Background)
-				row.Shadow(0, 0.5, 2, 0, ui.RGBA(0, 0, 0, 0.06))
-			}
-		case !r.dir && r.path == a.path:
-			// 当前打开的文件在树里保持高亮（Obsidian 式）。
-			row.Background(t.SurfaceHover)
-		case row.Hovered():
-			row.Background(t.SurfaceHover)
-		}
-		if a.treeDropTarget.path != "" && i >= a.treeDropTarget.start && i < a.treeDropTarget.end && !a.treeSelection[r.path] {
-			row.Background(t.Focus.Alpha(0.08))
-		}
-		var handle ui.Element
-		row.Children(func() {
-			if r.dir {
-				if a.expanded[r.path] {
-					ui.Icon(c, iconChevronDown).Size(12, 12).TextColor(iconTint(t))
-				} else {
-					ui.Icon(c, iconChevron).Size(12, 12).TextColor(iconTint(t))
-				}
-				ui.Icon(c, a.treeIcon(r.path, true)).Size(14, 14).TextColor(iconTint(t))
-			} else {
-				ui.Box(c).Width(12)
-				icon := a.treeIcon(r.path, false)
-				if isImageFile(r.path) && a.treeIconID(r.path) == "" {
-					icon = iconImage
-				}
-				ui.Icon(c, icon).Size(14, 14).TextColor(iconTint(t))
-			}
-			ui.Text(c, filepath.Base(r.path)).IgnoreInput(true).FontSize(12.5).TextColor(t.Text).
-				SingleLine().Ellipsis("…")
-			if a.treeClipboardCut && a.treeClipboardContains(r.path) {
-				ui.Text(c, locales.FilesCut()).Label(locales.FilesCutHint()).FontSize(9).TextColor(t.TextMuted.Alpha(0.58)).
-					Padding(1, 4).Radius(4).Background(t.Surface)
-			}
-			handle = a.treeDragHandle(c, dragItem)
-		})
-		handle.HandleInput(func(ev ui.InputEvent) bool {
-			if ev.Kind == ui.InputPointerDown {
-				a.recordTreePointerDown(r.path, ev.Mods, ev.X, ev.Y)
-			} else if ev.Kind == ui.InputPointerMove && ev.Button == 0 && a.treeDragStarted.IsZero() && a.treePressPath == r.path && !a.treePressApplied && treePointerMovePassedThreshold(a.treePressX, a.treePressY, ev.X, ev.Y) {
-				a.prepareTreeDragPress(r.path, a.treePressMods, rows)
-				a.treeDragSelection = a.selectedTreePaths(r.path)
-				a.treePressApplied = true
-			}
-			return false
-		})
-		if handle.Pressed() {
-			treePointerPressed = true
-		}
-		if handle.Hovered() {
-			row.Background(t.SurfaceHover)
-		}
-		if r.path == a.treeFocusPath || r.path == a.treeDropTarget.path {
-			row.Border(1, t.Focus.Alpha(0.48))
-		}
-		rowBounds := row.Bounds()
-		dropRowBounds[i] = rowBounds
-		dataTarget := transfer.DropOptions{Formats: []transfer.Format{transfer.Format("application/x-muse-vault-item+json")}, Operations: transfer.Copy | transfer.Move}
-		_, internalOver := ui.DragOver[mdedit.VaultItemDrag](handle)
-		offer, nativeOver := ui.DataDragOver(handle, dataTarget)
-		fileOver := handle.FileDragOver()
-		if internalOver || nativeOver || fileOver {
-			treeRowDropHovered = true
-			x, _, _ := handle.PointerPosition()
-			if target, ok := resolveTreeDropTarget(rows, i, x, a.root); ok {
-				if a.treeAutoExpandDropPath != "" && target.path != a.treeAutoExpandDropPath {
-					a.treeAutoExpandDropPath = ""
-				}
-				a.treeDropTarget = target
-				a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
-				if nativeOver {
-					a.treeNativeDropSuggested = offer.Suggested
-				}
-				row.Tooltip(a.treeDragOperationLabel())
-				if r.path == target.path {
-					row.Background(t.SurfaceHover)
-				}
-				if r.dir && target.path == r.path && !a.expanded[r.path] {
-					if a.treeDropHoverPath != r.path {
-						a.treeDropHoverPath, a.treeDropHoverSince = r.path, c.Now()
-					}
-					remaining := 600*time.Millisecond - c.Now().Sub(a.treeDropHoverSince)
-					if remaining <= 0 {
-						a.expanded[r.path] = true
-						a.fileRowsDirty = true
-						a.treeDropHoverPath = ""
-						a.treeAutoExpandDropPath = r.path
-						c.After(time.Millisecond)
-					} else {
-						c.After(remaining)
-					}
-				} else {
-					a.treeDropHoverPath, a.treeDropHoverSince = "", time.Time{}
-				}
-			}
-			if fileOver {
-				if target, ok := defaultTreeDropTarget(rows, i, a.root); ok {
-					if a.treeAutoExpandDropPath != "" && target.path != a.treeAutoExpandDropPath {
-						a.treeAutoExpandDropPath = ""
-					}
-					a.treeDropTarget = target
-					a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
-				}
-			}
-		}
-		if dropped, ok := ui.Drop[mdedit.VaultItemDrag](handle); ok {
-			treeDropCommitted = true
-			treeRowDropHovered = true
-			if pointerWithinElement(c, handle) && treePointerWithinRect(a.treeDragPointer, a.treeDragPointerValid, dropRowBounds[i]) {
-				target := a.treeDropTarget
-				if target.path == "" {
-					target, _ = defaultTreeDropTarget(rows, i, a.root)
-				}
-				if target.path != "" {
-					a.moveTreeItems(a.treeDraggedPaths(dropped.Path), target.path)
-				}
-			}
-		}
-		if dropped, ok := ui.DropData(handle, dataTarget); ok {
-			treeRowDropHovered = true
-			a.nativeDropHandled = true
-			if a.treeDropTarget.path != "" {
-				a.applyTreeNativeDrop(dropped, a.treeDropTarget.path)
-			}
-		}
-		if paths := handle.DroppedFiles(); len(paths) > 0 {
-			treeRowDropHovered = true
-			a.nativeDropHandled = true
-			target := a.treeDropTarget
-			if target.path == "" {
-				target, _ = defaultTreeDropTarget(rows, i, a.root)
-			}
-			if target.path != "" {
-				a.importDroppedInto(paths, target.path)
-			}
-		}
-		if handle.Dragging() {
-			a.treeDragging = true
-			a.treeDragFrames++
-			a.treeDragItem = dragItem
-			if a.treeDragStarted.IsZero() {
-				if a.treePressPath == r.path && !a.treePressApplied {
-					a.prepareTreeDragPress(r.path, a.treePressMods, rows)
-				}
-				a.treeDragSelection = a.selectedTreePaths(r.path)
-			}
-			if a.treeDragStarted.IsZero() {
-				a.treeDragStarted = c.Now()
-			}
-			root := c.Root()
-			if x, y, over := root.PointerPosition(); over {
-				a.treeDragPointer = ui.Point{X: x, Y: y}
-			} else if !a.treeNativeHandoff {
-				var items []mdedit.VaultItemDrag
-				for _, path := range a.treeDraggedPaths(r.path) {
-					info, err := os.Stat(path)
-					if err == nil {
-						items = append(items, mdedit.VaultItemDrag{Path: path, Name: filepath.Base(path), Directory: info.IsDir()})
-					}
-				}
-				a.beginTreeNativeHandoffItems(c, items)
-			}
-		}
-		openRow := func() {
-			a.setFocusedPanel(PanelIDFiles)
-			a.treeFocusPath = r.path
-			a.treeFocusRequested = true
-			mods := handle.ClickModifiers()
-			if mods == 0 {
-				mods = row.ClickModifiers()
-			}
-			a.selectTreeRow(r.path, mods, rows)
-			if mods&(ui.Cmd|ui.Shift) != 0 {
-				return
-			}
-			if r.dir {
-				// 双击的第二下不算：连点不再表现为"展开又立刻折叠"。
-				if last, ok := a.folderToggled[r.path]; ok && time.Since(last) < 300*time.Millisecond {
-					return
-				}
-				a.folderToggled[r.path] = time.Now()
-				a.expanded[r.path] = !a.expanded[r.path]
-				a.fileRowsDirty = true
-			} else if isImageFile(r.path) {
-				a.requestOpen(r.path)
-			} else {
-				a.selectedPath = r.path
-				a.requestOpen(r.path)
-			}
-		}
-		row.OnClick(openRow)
-		handle.OnClick(openRow)
-		a.fileMenu(c, row, r.path)
-		treeDragSuppressesPreview := a.treeDragging || wasDragging || a.treeNativeHandoff || !a.treeDragStarted.IsZero()
-		if treeDragSuppressesPreview {
-			a.treePreviewPath = ""
-			a.treePreviewLeave = time.Time{}
-		} else if !r.dir && isImageFile(r.path) && (row.Hovered() || handle.Hovered()) {
-			imageRowHovered = true
-			a.treePreviewPath, a.treePreviewRect = r.path, row.Bounds()
-			a.treePreviewLeave = time.Time{}
-		}
-		if a.navIconPickerOpen && a.navIconPickerPath == r.path {
-			a.navIconPickerPopover(c, row)
-		}
-	}).Focusable().Bind(&a.treeFocusHandle).Label(locales.FilesTreeLabel()).HandleInput(func(ev ui.InputEvent) bool {
-		if ev.Kind != ui.InputKeyDown || a.anyModalOwnsKeyboard() {
-			return false
-		}
-		return a.handleTreeKey(ev.Mods, ev.Key)
-	}).Grow(1).Padding(0, 8).Gap(1).TrackScroll(&a.fileScroll).Scrollbars(showScrollbar)
-	a.fileRootMenu(list)
-	if a.treeFocusRequested {
-		a.treeFocusHandle.Focus(c)
-		if a.treeFocusHandle.Focused(c) {
-			a.treeFocusRequested = false
-		}
-	}
-	if a.treeFocusHandle.Focused(c) {
-		a.setFocusedPanel(PanelIDFiles)
-	}
-	if _, over := ui.DragOver[mdedit.VaultItemDrag](list); over && !treeRowDropHovered {
-		if target, rowIndex, ok := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root); ok {
-			treeRowDropHovered = true
-			a.treeDropTarget = target
-			a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(target.path))
-			_ = rowIndex
-		} else {
-			treeRootDropHovered = true
-			a.setTreeRootDropTarget(rows)
-		}
-		list.Tooltip(a.treeDragOperationLabel())
-	}
-	if dropped, ok := ui.Drop[mdedit.VaultItemDrag](list); ok && !treeRowDropHovered {
-		treeDropCommitted = true
-		if pointerWithinElement(c, list) && treePointerWithinRect(a.treeDragPointer, a.treeDragPointerValid, list.Bounds()) {
-			destination := a.root
-			if target, _, inRow := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root); inRow {
-				treeRowDropHovered = true
-				destination = target.path
-			} else {
-				treeRootDropHovered = true
-			}
-			a.moveTreeItems(a.treeDraggedPaths(dropped.Path), destination)
-		}
-	}
-	rootDataTarget := transfer.DropOptions{Formats: []transfer.Format{transfer.Format("application/x-muse-vault-item+json")}, Operations: transfer.Copy | transfer.Move}
-	rootFileOver := list.FileDragOver()
-	if rootFileOver && !treeRowDropHovered {
-		// Visible row handles consume row-level file hover. The list-level
-		// native target is only the blank-area fallback, and native file drag
-		// events do not provide a fresh PointerPosition to resolve here.
-		treeRootDropHovered = true
-		a.setTreeRootDropTarget(rows)
-		list.Tooltip(a.treeDragOperationLabel())
-	}
-	if offer, over := ui.DataDragOver(list, rootDataTarget); over && !treeRowDropHovered {
-		treeRootDropHovered = true
-		a.setTreeRootDropTarget(rows)
-		a.treeNativeDropSuggested = offer.Suggested
-	}
-	if dropped, ok := ui.DropData(list, rootDataTarget); ok && !treeRowDropHovered {
-		// Per-row targets consume drops on visible rows. Reaching the list
-		// handler therefore means the pointer is on its blank area; do not reuse
-		// a directory left over from an earlier hover.
-		destination := a.root
-		treeRootDropHovered = true
-		a.setTreeRootDropTarget(rows)
-		a.nativeDropHandled = true
-		a.applyTreeNativeDrop(dropped, destination)
-	}
-	if a.treePreviewPath != "" && !imageRowHovered && !a.treePreviewPopupHovered {
-		if a.treePreviewLeave.IsZero() {
-			a.treePreviewLeave = c.Now().Add(220 * time.Millisecond)
-		}
-		if remaining := a.treePreviewLeave.Sub(c.Now()); remaining <= 0 {
-			a.treePreviewPath = ""
-		} else {
-			c.After(remaining)
-		}
-	}
-	if !a.treeDragStarted.IsZero() && a.treeAutoExpandDropPath != "" && !a.treePointerReleased && !a.treeDragging {
-		// The source row's MyGo drag state is tied to its virtual-list node.
-		// Keep the app-owned session alive when expanding the tree rebuilds that
-		// node, and render its projection independently of the row handle.
-		a.treeDragging = true
-	}
-	if paths := list.DroppedFiles(); len(paths) > 0 && !a.nativeDropHandled && !treeRowDropHovered {
-		// Row handles own file drops inside rows. A list-level drop is on blank
-		// space, where the vault root is the stable fallback destination.
-		destination := a.root
-		treeRootDropHovered = true
-		a.setTreeRootDropTarget(rows)
-		a.nativeDropHandled = true
-		a.importDroppedInto(paths, destination)
-	}
-	if (a.treeDragging || wasDragging) && !treeRowDropHovered && !treeRootDropHovered && a.treeAutoExpandDropPath == "" {
-		a.treeDropTarget = treeDropTarget{}
-	}
-	// MyGo rebuilds virtual-list row nodes when a hovered folder auto-expands.
-	// In that transition the release can be delivered to the original drag
-	// source without a Drop value reaching the newly built target row. Preserve
-	// the last resolved path and commit once on the source drag's release frame.
-	releaseTarget, _, releaseOverRow := treeDropTargetAtPointer(c, rows, dropRowBounds, a.root)
-	if a.treeDragPointerValid {
-		releaseTarget, _, releaseOverRow = treeDropTargetAtWindowPoint(rows, dropRowBounds, a.root, a.treeDragPointer.X, a.treeDragPointer.Y)
-	}
-	if !a.treeDragging && !treeDropCommitted && !a.treeNativeHandoff && a.treePointerReleased && a.treeDragPointerValid &&
-		a.treeAutoExpandDropPath != "" && a.treeDropTarget.path == a.treeAutoExpandDropPath &&
-		a.treeDragOperation == treeDragMoveToFolder && a.treeDragTarget == filepath.Base(a.treeDropTarget.path) &&
-		releaseOverRow && releaseTarget.path == a.treeAutoExpandDropPath {
-		a.moveTreeItems(a.treeDraggedPaths(a.treeDragItem.Path), a.treeDropTarget.path)
-		a.treeAutoExpandDropPath = ""
-	}
-	if a.treePointerReleased && a.treeAutoExpandDropPath != "" {
-		a.treeAutoExpandDropPath = ""
-		a.treeDropTarget = treeDropTarget{}
-	}
-	if !a.treeDragging && !a.treeNativeHandoff && (a.treePointerReleased || (!wasDragging && !treeRowDropHovered && !treeRootDropHovered && a.treeAutoExpandDropPath == "")) {
-		a.treeDropTarget = treeDropTarget{}
-		a.treeDropHoverPath, a.treeDropHoverSince = "", time.Time{}
-		a.treeAutoExpandDropPath = ""
-		if !a.treeNativeHandoff {
-			a.treeDragSelection = nil
-		}
-		a.treeDragStarted = time.Time{}
-		a.treeDragFrames = 0
-		a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(a.root))
-		a.treeDragItem = mdedit.VaultItemDrag{}
-		a.treeDragPointerValid = false
-		a.treePointerReleased = false
-		if !treePointerPressed {
-			a.treePressPath = ""
-			a.treePressMods = 0
-			a.treePressApplied = false
-		}
-	}
-	a.treeTrashTargetActive = (a.treeDragging || wasDragging) && !a.treeNativeHandoff
+	a.fileTreePanelView(c)
 }
 
 // treeTrashDropTarget covers the sidebar's bottom content while an in-window
@@ -1591,39 +1203,18 @@ func (a *App) setTreeRootDropTarget(rows []fileRow) {
 }
 
 func (a *App) importDroppedInto(paths []string, destination string) {
-	for _, source := range paths {
-		if source == "" || source == destination {
-			continue
-		}
-		info, err := os.Lstat(source)
-		if err != nil {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			continue
-		}
-		if info.IsDir() {
-			if rel, err := filepath.Rel(source, destination); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				continue // Never recursively copy a directory into itself.
-			}
-		}
-		name := filepath.Base(source)
-		target := filepath.Join(destination, name)
-		if _, err := os.Stat(target); err == nil {
-			target = uniquePath(destination, strings.TrimSuffix(name, filepath.Ext(name)), filepath.Ext(name))
-		}
-		if info.IsDir() {
-			err = copyTree(source, target)
-		} else {
-			err = copyFile(source, target)
-		}
-		if err != nil {
-			a.notice(locales.CommonImportFailed(err.Error()))
-			return
-		}
+	if a.fileOperations == nil {
+		a.notice(locales.CommonImportFailed("vault file operations are not configured"))
+		return
 	}
-	a.clearTreeCache()
-	a.invalidate()
+	_, err := a.fileOperations.Import(a.root, paths, destination)
+	if err != nil {
+		a.notice(locales.CommonImportFailed(err.Error()))
+	}
+	if len(paths) > 0 {
+		a.clearTreeCache()
+		a.invalidate()
+	}
 }
 
 func (a *App) beginTreeNativeHandoffItems(c *ui.Context, items []mdedit.VaultItemDrag) {
@@ -1783,65 +1374,35 @@ func isWithinRoot(root, path string) bool {
 	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func copyFile(source, destination string) error {
-	b, err := os.ReadFile(source)
-	if err != nil {
-		return err
-	}
-	info, err := os.Stat(source)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(destination, b, info.Mode().Perm())
-}
-
-func copyTree(source, destination string) error {
-	return filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(destination, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		return copyFile(path, target)
-	})
-}
-
 // moveTreeItem moves a dragged item into a directory in the workspace.
 // Existing names are preserved; collisions get a numbered suffix.
 func (a *App) moveTreeItem(source, destination string) {
-	if source == "" || destination == "" || source == destination || destination == filepath.Dir(source) {
+	a.moveTreeItems([]string{source}, destination)
+}
+
+func (a *App) moveTreeItems(paths []string, destination string) {
+	if a.fileOperations == nil {
+		a.notice(locales.CommonMoveFailed("vault file operations are not configured"))
 		return
 	}
-	if rel, err := filepath.Rel(a.root, source); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return
+	moves, err := a.fileOperations.Move(a.root, paths, destination)
+	if len(moves) > 0 {
+		a.remapTreePaths(moves)
+		a.clearTreeCache()
+		a.notice(locales.FilesMovedToFolder(filepath.Base(destination)))
+		a.invalidate()
 	}
-	info, err := os.Stat(destination)
-	if err != nil || !info.IsDir() || strings.HasPrefix(destination, source+string(filepath.Separator)) {
-		return
-	}
-	name := filepath.Base(source)
-	target := filepath.Join(destination, name)
-	if _, err := os.Stat(target); err == nil {
-		ext := filepath.Ext(name)
-		base := strings.TrimSuffix(name, ext)
-		target = uniquePath(destination, base, ext)
-	}
-	if err := os.Rename(source, target); err != nil {
+	if err != nil {
 		a.notice(locales.CommonMoveFailed(err.Error()))
-		return
 	}
+}
+
+func (a *App) remapTreePaths(moves []applicationvault.FileMove) {
 	remap := func(path string) string {
-		if rel, err := filepath.Rel(source, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.Join(target, rel)
+		for _, move := range moves {
+			if rel, err := filepath.Rel(move.Source, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				path = filepath.Join(move.Target, rel)
+			}
 		}
 		return path
 	}
@@ -1867,9 +1428,6 @@ func (a *App) moveTreeItem(source, destination string) {
 			a.expanded[next] = expanded
 		}
 	}
-	a.clearTreeCache()
-	a.notice(locales.FilesMovedToFolder(filepath.Base(destination)))
-	a.invalidate()
 }
 
 type fileRow struct {
@@ -2038,12 +1596,6 @@ func (a *App) treeDraggedPaths(primary string) []string {
 	return filtered
 }
 
-func (a *App) moveTreeItems(paths []string, destination string) {
-	for _, path := range paths {
-		a.moveTreeItem(path, destination)
-	}
-}
-
 func (a *App) outlineView(c *ui.Context) {
 	t := c.Theme()
 	if len(a.headings) == 0 {
@@ -2183,8 +1735,7 @@ func (a *App) searchView(c *ui.Context) {
 }
 
 func (a *App) openWorkspaceSearch() {
-	a.quickOpen = false
-	a.clearQuickOpenCatalog()
+	a.closeQuickOpen()
 	a.cmdPalette = false
 	if a.root == "" && a.path != "" {
 		a.root = filepath.Dir(a.path)
@@ -2213,8 +1764,11 @@ func (a *App) closeWorkspaceSearch() {
 
 func (a *App) workspaceRecentNotes() []recentEntry {
 	var out []recentEntry
+	if a.recentItems == nil {
+		return out
+	}
 	root := a.root
-	for _, entry := range a.recents {
+	for _, entry := range a.recentItems.Live(workspaceapp.MaxRecentEntries) {
 		if entry.IsDir || filepath.Ext(entry.Path) != ".md" {
 			continue
 		}
@@ -2224,11 +1778,9 @@ func (a *App) workspaceRecentNotes() []recentEntry {
 				continue
 			}
 		}
-		if _, err := os.Stat(entry.Path); err == nil {
-			out = append(out, entry)
-			if len(out) == recentShow {
-				break
-			}
+		out = append(out, entry)
+		if len(out) == workspaceapp.MaxVisibleRecent {
+			break
 		}
 	}
 	return out
@@ -2351,7 +1903,7 @@ func (a *App) workspaceSearchDialog(c *ui.Context) {
 				if showSearchScroll {
 					c.After(a.workspaceIndicator.Remaining(c.Now()))
 				}
-				quietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
+				components.QuietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
 					recent := a.workspaceRecentNotes()
 					if len(recent) == 0 {
 						ui.Text(c, locales.WorkspaceRecentEmpty()).FontSize(12).TextColor(t.TextMuted)
@@ -2590,8 +2142,8 @@ func hitSnippet(src string, s, e int) string {
 // Editor
 
 func (a *App) editorContent(c *ui.Context) {
-	if a.imageDocument.IsOpen() {
-		a.imageDocumentView(c)
+	if a.imageDocumentOpen() {
+		a.windows.RenderPane(c, "main", "editor")
 		return
 	}
 	if a.root != "" && a.path == "" && a.source == "" {
@@ -2661,8 +2213,8 @@ func (a *App) editorHeader(c *ui.Context) {
 			ui.Text(c, a.tailPath(c, a.docPath(), 12.5, avail)).
 				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
 		})
-		if a.imageDocument.IsOpen() {
-			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocument.Path()) })
+		if a.imageDocumentOpen() {
+			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocumentPath()) })
 		}
 		if label := a.ed.ModeLabel(); label != "" {
 			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label(locales.DocumentMode())
@@ -2670,7 +2222,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
-		if a.dirty && !a.imageDocument.IsOpen() {
+		if a.dirty && !a.imageDocumentOpen() {
 			a.smallIcon(c, iconSave, locales.MenuSave(), func() { a.save() })
 		}
 		if a.propertiesEnabled() {
@@ -2692,7 +2244,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		}
 		more := a.smallIconTint(c, iconMore, locales.DocumentMore(), nil, tint)
 		more.Menu(func(m *ui.Menu) {
-			if !a.imageDocument.IsOpen() && codeLanguage(a.path) == "" {
+			if !a.imageDocumentOpen() && codeLanguage(a.path) == "" {
 				m.Submenu(locales.DocumentExport(), func(export *ui.Menu) {
 					if export.Item(locales.DocumentExportMarkdown()).Chosen() {
 						a.exportDocument(noteExportMarkdown)
@@ -2736,7 +2288,6 @@ func (a *App) setWorkspace(root string) {
 	// A workspace is the start of a new editing context. Do not leave the
 	// previous vault's document visible after switching folders.
 	if filepath.Clean(root) != filepath.Clean(a.root) {
-		a.clearQuickOpenCatalog()
 		a.resetDoc()
 	}
 	a.root = root
@@ -2833,8 +2384,8 @@ func (a *App) finish(fn func()) {
 func (a *App) snapshotDoc() (dirty bool, name, path, source, revision string) {
 	a.onMain(func() {
 		dirty, name, path, source = a.dirty, a.displayName(), a.path, a.diskSource()
-		if a.documents != nil {
-			revision = a.documents.revision
+		if a.documentSession != nil {
+			revision = string(a.documentSession.Snapshot().Revision)
 		}
 	})
 	return
@@ -2876,7 +2427,7 @@ func (a *App) openFileDialog() {
 			a.finish(nil)
 			return
 		}
-		if isImageFile(paths[0]) {
+		if doctypes.IsImagePath(paths[0]) {
 			a.finish(func() { a.openImageDocument(paths[0], true) })
 			return
 		}
@@ -2900,7 +2451,7 @@ func (a *App) openFileDialog() {
 }
 
 func (a *App) openPathNow(path string) {
-	if isImageFile(path) {
+	if doctypes.IsImagePath(path) {
 		a.openImageDocument(path, true)
 		return
 	}
@@ -2927,7 +2478,7 @@ func (a *App) openPathNow(path string) {
 // requestOpen opens a path from the UI. A clean document opens at once; an
 // edited one asks first, with the dialog off the UI thread.
 func (a *App) requestOpen(path string) {
-	if isImageFile(path) {
+	if doctypes.IsImagePath(path) {
 		a.openImageDocument(path, true)
 		return
 	}
@@ -2960,7 +2511,7 @@ func (a *App) requestOpen(path string) {
 }
 
 func (a *App) applyOpen(path, data string) {
-	if a.indexedPath == path && a.indexedRevision != "" && notestore.Revision(data) != a.indexedRevision && a.vault != nil {
+	if a.indexedPath == path && a.indexedRevision != "" && document.RevisionOf(data) != a.indexedRevision && a.vault != nil {
 		rel, _ := filepath.Rel(a.vault.root, path)
 		hit := vaultsearch.Hit{Path: filepath.ToSlash(rel), Revision: a.indexedRevision}
 		a.indexedPath, a.indexedRevision = "", ""
@@ -2969,7 +2520,7 @@ func (a *App) applyOpen(path, data string) {
 		return
 	}
 	a.pushNav(path)
-	a.imageDocument = imagedocument.State{}
+	a.closeImageDocument()
 	a.path = path
 	a.selectedPath = path
 	if a.vault != nil && a.vault.watch != nil {
@@ -3006,7 +2557,7 @@ func (a *App) newDoc() {
 }
 
 func (a *App) resetDoc() {
-	a.imageDocument = imagedocument.State{}
+	a.closeImageDocument()
 	a.path = ""
 	a.selectedPath = ""
 	a.loadDoc("")
@@ -3026,24 +2577,22 @@ func (a *App) save() {
 		a.invalidate()
 		return
 	}
-	revision := ""
-	if a.documents != nil {
-		revision = a.documents.revision
+	var revision document.Revision
+	if a.documentSession != nil {
+		revision = a.documentSession.Snapshot().Revision
 	}
 	if err := a.writeDocument(a.path, a.diskSource(), revision); err != nil {
-		if a.documents != nil && errors.Is(err, notestore.ErrConflict) {
-			a.documents.conflict = a.path
-			a.documents.conflictOpen = true
+		if a.documentSession != nil && errors.Is(err, document.ErrConflict) {
+			a.documentSession.SetConflict(a.path)
+			if a.documents != nil {
+				a.documents.ConflictOpen = true
+			}
 		}
 		a.notice(locales.CommonSaveError(err.Error()))
 	} else {
 		a.dirty = false
-		if a.documents != nil {
-			a.documents.revision = notestore.Revision(a.diskSource())
-			a.documents.baseSource = a.diskSource()
-			a.documents.due = time.Time{}
-			a.documents.updatedAtDue = time.Time{}
-			_ = a.documents.store.DeleteDraft(a.path)
+		if a.documentSession != nil {
+			_ = a.documentSession.DeleteDraft(a.path)
 		}
 		a.notice(locales.DocumentSaved())
 	}
@@ -3097,7 +2646,13 @@ func (a *App) confirmDiscardOffUI() bool {
 		errorDialog(locales.DialogCannotSave(), locales.DialogChooseTextExtension())
 		return false
 	}
-	expected, err := a.destinationRevision(savePath, path, revision)
+	var expected document.Revision
+	var err error
+	if a.documentSession == nil {
+		err = errors.New("document repository is not configured")
+	} else {
+		expected, err = a.documentSession.DestinationRevision(savePath, path, document.Revision(revision))
+	}
 	if err == nil {
 		err = a.writeDocument(savePath, source, expected)
 	}
@@ -3108,9 +2663,8 @@ func (a *App) confirmDiscardOffUI() bool {
 	a.onMain(func() {
 		a.path = savePath
 		a.selectedPath = savePath
-		if a.documents != nil {
-			a.documents.revision = notestore.Revision(source)
-			a.documents.baseSource = source
+		if a.documentSession != nil {
+			a.documentSession.Open(savePath, source)
 		}
 		a.dirty = a.diskSource() != source
 		a.updateTitle()
@@ -3131,8 +2685,8 @@ func (a *App) saveAs() {
 		}
 		source = a.diskSource()
 		originalPath = a.path
-		if a.documents != nil {
-			revision = a.documents.revision
+		if a.documentSession != nil {
+			revision = string(a.documentSession.Snapshot().Revision)
 		}
 	})
 	a.startBusy()
@@ -3154,14 +2708,19 @@ func (a *App) saveAs() {
 		}
 		createdAt := ""
 		if originalPath == "" && codeLanguage(path) == "" {
-			source, createdAt, err = ensureCreatedAt(source, time.Now())
+			source, createdAt, err = documentsave.EnsureCreatedAt(source, time.Now())
 			if err != nil {
 				errorDialog(locales.DialogSaveFailed(), err.Error())
 				a.finish(nil)
 				return
 			}
 		}
-		expected, err := a.destinationRevision(path, originalPath, revision)
+		var expected document.Revision
+		if a.documentSession == nil {
+			err = errors.New("document repository is not configured")
+		} else {
+			expected, err = a.documentSession.DestinationRevision(path, originalPath, document.Revision(revision))
+		}
 		if err == nil {
 			err = a.writeDocument(path, source, expected)
 		}
@@ -3173,24 +2732,21 @@ func (a *App) saveAs() {
 		a.finish(func() {
 			a.path = path
 			a.selectedPath = path
-			if a.documents != nil {
-				a.documents.revision = notestore.Revision(source)
-				a.documents.baseSource = source
-				a.documents.due = time.Time{}
-				a.documents.updatedAtDue = time.Time{}
+			if a.documentSession != nil {
+				a.documentSession.Open(path, source)
 			}
 			if createdAt != "" && codeLanguage(path) == "" {
 				createdTime, _ := time.Parse(time.RFC3339Nano, createdAt)
-				current, _, metadataErr := ensureCreatedAt(a.ed.Source(), createdTime)
+				current, _, metadataErr := documentsave.EnsureCreatedAt(a.ed.Source(), createdTime)
 				if metadataErr != nil {
 					a.notice(locales.CommonExternalUpdateTimestampFailed(metadataErr.Error()))
 				} else {
-					if a.documents != nil {
-						a.documents.applyingMetadata = true
+					if a.documentSession != nil {
+						a.documentSession.SetApplyingMetadata(true)
 					}
 					a.ed.ReplaceSystemAll(current)
-					if a.documents != nil {
-						a.documents.applyingMetadata = false
+					if a.documentSession != nil {
+						a.documentSession.SetApplyingMetadata(false)
 					}
 				}
 			}
@@ -3383,13 +2939,18 @@ func (a *App) trash(path string) {
 			a.finish(nil)
 			return
 		}
-		if err := trashItem(path); err != nil {
+		if a.fileOperations == nil {
+			errorDialog(locales.DialogDeleteFailed(), "vault file operations are not configured")
+			a.finish(nil)
+			return
+		}
+		if _, err := a.fileOperations.Trash(a.root, []string{path}); err != nil {
 			errorDialog(locales.DialogDeleteFailed(), err.Error())
 			a.finish(nil)
 			return
 		}
 		a.finish(func() {
-			if a.path == path {
+			if a.path == path || strings.HasPrefix(a.path, path+string(filepath.Separator)) {
 				a.path = ""
 				a.selectedPath = ""
 				a.loadDoc("")
@@ -3428,15 +2989,14 @@ func (a *App) trashTreeItems(paths []string) {
 			a.finish(nil)
 			return
 		}
-		for _, path := range paths {
-			if err := trashItem(path); err != nil {
-				errorDialog(locales.DialogDeleteFailed(), err.Error())
-				a.finish(nil)
-				return
-			}
+		if a.fileOperations == nil {
+			errorDialog(locales.DialogDeleteFailed(), "vault file operations are not configured")
+			a.finish(nil)
+			return
 		}
+		trashed, trashErr := a.fileOperations.Trash(a.root, paths)
 		a.finish(func() {
-			for _, path := range paths {
+			for _, path := range trashed {
 				delete(a.treeSelection, path)
 				if a.path == path || strings.HasPrefix(a.path, path+string(filepath.Separator)) {
 					a.path = ""
@@ -3447,7 +3007,12 @@ func (a *App) trashTreeItems(paths []string) {
 				}
 			}
 			a.clearTreeCache()
-			a.notice(locales.FilesMovedToTrash())
+			if len(trashed) > 0 {
+				a.notice(locales.FilesMovedToTrash())
+			}
+			if trashErr != nil {
+				errorDialog(locales.DialogDeleteFailed(), trashErr.Error())
+			}
 		})
 	}()
 }
@@ -3479,16 +3044,20 @@ func (a *App) applyRename() {
 		return
 	}
 	old := a.renamePath
-	newPath := filepath.Join(filepath.Dir(old), name)
-	if err := os.Rename(old, newPath); err != nil {
+	if a.fileOperations == nil {
+		a.notice(locales.CommonRenameFailed("vault file operations are not configured"))
+		a.renameOpen = false
+		a.invalidate()
+		return
+	}
+	move, err := a.fileOperations.Rename(a.root, old, name)
+	if err != nil {
 		a.notice(locales.CommonRenameFailed(err.Error()))
 		a.renameOpen = false
 		a.invalidate()
 		return
 	}
-	if a.path == old {
-		a.path = newPath
-	}
+	a.remapTreePaths([]applicationvault.FileMove{move})
 	a.renameOpen = false
 	a.renamePath = ""
 	a.clearTreeCache()
@@ -3832,16 +3401,27 @@ func (a *App) editorOptions() mdedit.Options {
 		LinkRevision:              a.editorLinkRevision(),
 		LinkContext:               a.editorLinkContext(),
 		AssetRoot:                 a.root,
+		ImageCacheStore:           a.imageCacheStore,
 		ResolveImage:              a.resolveVaultImage,
 		OnImagePreview:            a.openImagePreview,
-		SaveImage:                 a.saveImage,
-		OnDropFiles:               a.openDropped,
-		OnVaultItemDragOver:       func() { a.setTreeDragMoveOperation(treeDragInsertIntoEditor, "") },
+		OnDiagramPreview: func(source string, model diagrams.Result) {
+			content := mermaidpreview.NewContent(source, model, func() { a.mermaidPreviewHandle = window.Handle{} })
+			handle, err := a.windows.Open(content, window.Placement{Host: "main", Layer: window.ModalOverlay})
+			if err != nil {
+				a.notice(err.Error())
+				return
+			}
+			a.mermaidPreviewHandle = handle
+			a.invalidate()
+		},
+		SaveImage:           a.saveImage,
+		OnDropFiles:         a.openDropped,
+		OnVaultItemDragOver: func() { a.setTreeDragMoveOperation(treeDragInsertIntoEditor, "") },
 	}
 }
 
 func (a *App) editorLinkRevision() uint64 {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || a.vault.links == nil {
 		return 0
 	}
 	return a.vault.index.Revision()
@@ -3868,7 +3448,7 @@ func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTarget
 			current = filepath.ToSlash(rel)
 		}
 	}
-	if _, ok := a.vault.index.Resolve(current, target); ok {
+	if _, ok := a.vault.links.Resolve(current, target); ok {
 		return mdedit.LinkTargetValid
 	}
 	if a.resolveWikiImageTargetFrom(currentPath, target) != "" {
@@ -4163,7 +3743,7 @@ func (a *App) nav(delta int) {
 	}
 	target := a.navAt + delta
 	path := a.navHist[target]
-	if isImageFile(path) {
+	if doctypes.IsImagePath(path) {
 		a.navAt = target
 		a.openImageDocument(path, false)
 		return
@@ -4172,7 +3752,7 @@ func (a *App) nav(delta int) {
 	// state, including unsaved edits, rather than reload the on-disk version.
 	if path == a.path {
 		a.navAt = target
-		a.imageDocument = imagedocument.State{}
+		a.closeImageDocument()
 		a.ed.Focus()
 		a.updateTitle()
 		a.invalidate()
@@ -4202,8 +3782,8 @@ func (a *App) nav(delta int) {
 // docPath is the document's path within its workspace. The workspace folder
 // itself is the vault root and is not repeated in a vault-relative path.
 func (a *App) docPath() string {
-	if a.imageDocument.IsOpen() {
-		path := a.imageDocument.Path()
+	if a.imageDocumentOpen() {
+		path := a.imageDocumentPath()
 		if a.root != "" {
 			if rel, err := filepath.Rel(a.root, path); err == nil && !strings.HasPrefix(rel, "..") {
 				return filepath.ToSlash(rel)
@@ -4251,8 +3831,8 @@ func (a *App) tailPath(c *ui.Context, path string, size, width float32) string {
 }
 
 func (a *App) displayName() string {
-	if a.imageDocument.IsOpen() {
-		return filepath.Base(a.imageDocument.Path())
+	if a.imageDocumentOpen() {
+		return filepath.Base(a.imageDocumentPath())
 	}
 	if a.path == "" {
 		return locales.DocumentUntitled()

@@ -11,9 +11,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdedit"
-	"muse/mdoc"
-	"muse/vaultindex"
+	mdedit "muse/editor"
+	mdoc "muse/markdown"
+	vaultindex "muse/vault/index"
 )
 
 const (
@@ -127,7 +127,7 @@ func (a *App) wikiLinkSuggestionDetails(query string) []mdedit.WikiSuggestion {
 		if !ok {
 			continue
 		}
-		details = append(details, mdedit.WikiSuggestion{Target: target, Title: doc.Title, Aliases: append([]string(nil), doc.Aliases...)})
+		details = append(details, mdedit.WikiSuggestion{Target: target, Title: doc.Title, Aliases: append([]string(nil), doc.Metadata().Aliases...)})
 	}
 	a.wikiSuggestionDetailsCache = details
 	a.wikiSuggestionDetailsReady = true
@@ -169,14 +169,14 @@ func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
 // The path and source both come from the same vault index used by link style,
 // navigation, previews, and backlinks.
 func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string, ok bool) {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || a.vault.index == nil || a.vault.links == nil {
 		return "", "", false
 	}
 	current := ""
 	if rel, err := filepath.Rel(a.vault.root, currentPath); err == nil {
 		current = filepath.ToSlash(rel)
 	}
-	loc, ok := a.vault.index.Resolve(current, target)
+	loc, ok := a.vault.links.Resolve(current, target)
 	if !ok {
 		return "", "", false
 	}
@@ -189,7 +189,7 @@ func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string,
 
 func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 	p := &a.linkPreview
-	if p.target == "" || a.imagePreview.IsOpen() || a.workspaceSearch {
+	if p.target == "" || a.imagePreviewOpen() || a.workspaceSearch {
 		return
 	}
 	if !p.leaveAt.IsZero() && !p.overlayHovered {
@@ -204,7 +204,7 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		c.After(remaining)
 		return
 	}
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || a.vault.index == nil || a.vault.links == nil {
 		return
 	}
 	current := ""
@@ -218,7 +218,7 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		if p.imagePath != imagePath {
 			p.imagePath = imagePath
 			p.image = nil
-			p.imageAsset = mdoc.LoadImageAsset(imagePath, "", a.invalidate)
+			p.imageAsset = mdoc.LoadImageAssetWithCacheStore(imagePath, "", a.imageCacheStore, a.invalidate)
 		}
 		if p.imageAsset != nil {
 			if next, _ := p.imageAsset.Advance(c.Now()); next > 0 {
@@ -258,7 +258,7 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		})
 		return
 	}
-	loc, ok := a.vault.index.Resolve(current, p.target)
+	loc, ok := a.vault.links.Resolve(current, p.target)
 	if !ok {
 		return
 	}
@@ -285,13 +285,14 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 			ui.Text(c, loc.Path).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 			ui.Box(c).FillWidth().Height(1).Background(t.Border)
 			mdoc.View(c, previewDoc, mdoc.Options{
-				BodyFontSize: 12,
-				Padding:      0,
-				ContentWidth: 346,
-				BaseDir:      filepath.Join(a.vault.root, filepath.Dir(loc.Path)),
-				AssetRoot:    a.vault.root,
-				ResolveImage: a.resolveVaultImage,
-				OnAsync:      a.invalidate,
+				BodyFontSize:    12,
+				Padding:         0,
+				ContentWidth:    346,
+				BaseDir:         filepath.Join(a.vault.root, filepath.Dir(loc.Path)),
+				AssetRoot:       a.vault.root,
+				ImageCacheStore: a.imageCacheStore,
+				ResolveImage:    a.resolveVaultImage,
+				OnAsync:         a.invalidate,
 				OnImagePreview: func(src string) {
 					resolved := a.resolveVaultImage(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
 					if resolved != "" {

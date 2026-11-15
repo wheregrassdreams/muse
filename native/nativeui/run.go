@@ -11,19 +11,20 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	mdedit "muse/editor"
 	"muse/locales"
-	"muse/mdedit"
 )
 
 // Run opens the native Muse window and runs the app loop. It is called by the
 // native entry point; nothing in this package needs a webview or a frontend
 // build.
-func Run() {
-	if runVaultSearchIndexerMode() {
+func Run(dependencies Dependencies) {
+	if runVaultSearchIndexerMode(dependencies.VaultSearch, dependencies.NewVaultIndex) {
 		return
 	}
 	configureDefaultGCPolicy()
 	app := New()
+	app.SetDependencies(dependencies)
 	startMemoryDiagnostics(app)
 	mygo.App.SetName("Muse")
 	mygo.App.OnLocaleChanged(func(string) {
@@ -95,7 +96,10 @@ func Run() {
 			mygo.App.Quit()
 		}
 	})
-	if err := mygo.App.Run(); err != nil {
+	mygo.App.OnWillQuit(func(*mygo.QuitEvent) { app.closeLifecycle() })
+	err := mygo.App.Run()
+	app.closeLifecycle()
+	if err != nil {
 		log.Fatal(err)
 	}
 }
@@ -149,7 +153,7 @@ func (a *App) openWindow() {
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if !a.dirty {
 			a.persistWorkspaceState()
-			stopVault(a.vault)
+			a.closeVaultRuntimeNow()
 			return
 		}
 		e.PreventDefault()

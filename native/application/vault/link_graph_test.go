@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	"muse/vault/index"
 )
 
@@ -23,8 +24,12 @@ func TestLinkGraphTracksVaultIndexLifecycle(t *testing.T) {
 	write("source.md", "[[target]]")
 	write("target.md", "# Target")
 
-	idx := index.New()
-	if err := idx.Rebuild(root); err != nil {
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New(source)
+	if err := idx.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	graph, err := NewLinkGraph(root, idx)
@@ -71,8 +76,12 @@ func TestLinkGraphRebuildReplacesPreviousVault(t *testing.T) {
 		}
 	}
 	write(rootA, "source.md", "[[only-a]]")
-	idx := index.New()
-	if err := idx.Rebuild(rootA); err != nil {
+	sourceA, err := vaultindexsource.New(rootA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := index.New(sourceA)
+	if err := idx.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	graph, err := NewLinkGraph(rootA, idx)
@@ -80,12 +89,13 @@ func TestLinkGraphRebuildReplacesPreviousVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(rootB, "source.md", "[[only-b]]")
-	if err := idx.Rebuild(rootB); err != nil {
+	graph.Close()
+	sourceB, err := vaultindexsource.New(rootB)
+	if err != nil {
 		t.Fatal(err)
 	}
-	graph.Close()
-	indexB := index.New()
-	if err := indexB.Rebuild(rootB); err != nil {
+	indexB := index.New(sourceB)
+	if err := indexB.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	graphB, err := NewLinkGraph(rootB, indexB)
