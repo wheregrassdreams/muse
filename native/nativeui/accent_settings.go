@@ -2,8 +2,8 @@ package nativeui
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/appearance"
 	"muse/locales"
+	appearance "muse/theme"
 )
 
 func (a *App) setAccent(id string) {

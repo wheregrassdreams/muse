@@ -51,7 +51,7 @@
 - 块视口负责独立横移，源码、光标 byte offsets 与整页纵向滚动不作为横移状态。代码保留逻辑行，长公式保留可读大小；表格允许合理最小列宽形成溢出。普通段落保持现有换行。
 - `table.x` 是稳定的 viewport origin，`geom.colX` 是内容坐标，`tableContentX = table.x - horizontal.x`。网格、文字、结构范围、菜单和拖动插入预览使用同一变换，再裁剪到 `blockViewport`；不能固定网格而单独移动文字。
 - Table cell.x 已包含其表格横移，不能再次减去 parent offset。代码/公式等文本使用 `unitTextX` 统一绘制、caret、hit、矩形选区的坐标。键盘编辑可将活动 caret 横向滚入视口。
-- 每个溢出块独立维护 offset 和 scrollui.Indicator。仅实际 offset 变化短暂显示滚动条；hover、初始绘制、到边缘的无效滚动不显示，停止滚动后自动隐藏。图表保留现有独立滚动实现及同一显示策略。
+- 每个溢出块独立维护 offset 和 `ui/scrollbar.Indicator`。仅实际 offset 变化短暂显示滚动条；hover、初始绘制、到边缘的无效滚动不显示，停止滚动后自动隐藏。图表保留现有独立滚动实现及同一显示策略。
 - 根 overlay 的表格按钮须向所属块/Editor 转交滚动。DX/Shift+DY 横移当前块，普通 DY 纵向滚正文；触控板同时给出 DX/DY 时不能吞掉纵向分量。滑块拖动不改源码、不破坏已有选区，不进入文本拖选或行列重排状态。
 
 并行所有权：block_scroll_core 负责块状态、范围、共享几何与布局；table_scroll_view 负责绘制/裁剪和表格控件坐标；scroll_input_route 负责输入路由和滚动条指针手势。主 agent 负责接口契约、已有回归适配、独立验收与最终集成。此追加部分的最终检查另行记录，不能引用上轮检查冒充本轮已完成。

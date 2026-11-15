@@ -23,7 +23,7 @@ live preview 只是**显示**，不改变编辑语义）。
 
 ### 当前进度（2026-11-09）
 
-2026-11-11：正文采用较轻的 Bear 风格；设置新增重点色调色盘，默认红色并持久化。共享颜色派生和范围见 [appearance.md](appearance.md)。
+2026-11-11：正文采用较轻的 Bear 风格；设置新增重点色调色盘，默认红色并持久化。共享颜色派生和范围见 [appearance.md](appearance.md)（实现位于 `native/theme`）。
 
 2026-11-11：正文智能排版默认开启，可在编辑器设置中关闭。使用有界 Knuth–Plass 断行、原生行塑形与统一编辑几何；支持范围和原生回退见 [smart-typography.md](smart-typography.md)。
 
@@ -184,7 +184,7 @@ MUSE_PERF=1 sh scripts/go.sh -C native test ./editor -run TestTypingFrameBudget 
 - **侧栏底色**：主题背景色的 94% 不透明覆盖在系统材料上，减少桌面干扰。
 - **AI 与主题**：AI 默认隐藏，可在设置 → 外观 → 功能中开启；浅色 / 深色 / 跟随系统统一在设置中调节，保存到配置目录的 settings.json。
 - **文件树图片**：图片与文本都可见；图片交给系统默认应用打开，不作为 Markdown 文本加载。
-- **滚动条**：编辑区、侧栏列表、设置、AI 对话和图表横向条共用 scrollui 策略，实际偏移变化后显示约 700ms；单纯悬浮不显示、不续期。
+- **滚动条**：编辑区、侧栏列表、设置、AI 对话和图表横向条共用 `ui/scrollbar` 策略，实际偏移变化后显示约 700ms；单纯悬浮不显示、不续期。
 - **侧栏开关只有一个**，固定在窗口左上（`x = 6`，有交通灯时从 `TitleBar` 之后算）。
   面板打开时压在侧栏头部左上；面板收起时它**不动**，编辑卡片向左扩，编辑器头部固定
   留 30px 给它——`TestTheSidebarToggleKeepsItsSeat` 守着"只有一个、x 不变"。

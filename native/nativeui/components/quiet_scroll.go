@@ -1,11 +1,11 @@
-package nativeui
+package components
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/scrollui"
+	scrollbar "muse/ui/scrollbar"
 )
 
-func quietScroll(c *ui.Context, state *ui.ScrollState, indicator *scrollui.Indicator) ui.Element {
+func QuietScroll(c *ui.Context, state *ui.ScrollState, indicator *scrollbar.Indicator) ui.Element {
 	show := indicator.Visible(c.Now(), state.X, state.Y)
 	if show {
 		c.After(indicator.Remaining(c.Now()))

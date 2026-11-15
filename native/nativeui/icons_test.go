@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/iconlibrary"
+	iconlibrary "muse/ui/iconlibrary"
 )
 
 func TestEveryBundledIconParsesForNativeUI(t *testing.T) {

@@ -2,7 +2,7 @@ package nativeui
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/appearance"
+	appearance "muse/theme"
 	"testing"
 )
 

@@ -28,7 +28,7 @@ Leaving a table with linewise `V` continues a mixed document selection; reversin
 
 Vim key sequences are a consumer of the editor's keymap-neutral `EditorOperation` interface. Search, character find/repeat, replace, viewport placement and folding are exposed as operations; a keymap translates its sequence to an operation, while the editor owns document geometry and state. Search match pulse and Vim yank flash are optional in Settings and default off.
 
-Chinese lowercase `w/b/e`, operators and native word selection use the shared `textnav` token index with an embedded simplified-Chinese dictionary. Uppercase `W/B/E` follow whitespace-delimited WORDs. UTF-8 source offsets and UTF-16 display offsets are converted by the editor adapter. The provider and target-query API are described in [text-navigation-architecture.md](text-navigation-architecture.md).
+Chinese lowercase `w/b/e`, operators and native word selection use the shared `editor/navigation` token index with an embedded simplified-Chinese dictionary. Uppercase `W/B/E` follow whitespace-delimited WORDs. UTF-8 source offsets and UTF-16 display offsets are converted by the editor adapter. The provider and target-query API are described in [text-navigation-architecture.md](text-navigation-architecture.md).
 
 ## Helix support
 

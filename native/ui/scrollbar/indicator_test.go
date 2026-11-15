@@ -1,4 +1,4 @@
-package scrollui
+package scrollbar
 
 import (
 	"testing"

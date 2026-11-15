@@ -22,7 +22,7 @@
 
 ## 3. 通用文本分词与目标查询
 
-- 新建不依赖 UI/Editor/Vim 的 `native/textnav` 包。输入纯 UTF-8 文本，输出有序、不重叠、源字符串字节坐标的 tokens/boundaries；区分空白、标点、词/数字，尊重组合字符与 ZWJ grapheme。
+- 新建不依赖 UI/Editor/Vim 的 `native/editor/navigation` 子系统。输入纯 UTF-8 文本，输出有序、不重叠、源字符串字节坐标的 tokens/boundaries；区分空白、标点、词/数字，尊重组合字符与 ZWJ grapheme。
 - 中文采用真实词典/统计分词，不能把每个汉字当词，也不能仅维护若干测试词的硬编码词表。默认离线工作，词典打包可恢复；可替换 segmenter provider，为未来用户词典/其他语言保留清晰入口。优先评估纯 Go、内嵌词典的 gse，固定版本并记录运行代价与许可来源。
 - 提供不含按键语义的词首/词尾/前后边界查询。Editor adapter 统一处理 UTF-8 byte 与显示层 UTF-16 的映射，不把两种 offset 混用。
 - `w/b/e` 和 operator 组合/计数消费该 API；至少第二个真实消费者（默认 Option/Ctrl word movement/delete 或鼠标双击选词）也复用。源文本与选区不能因分词被重写。
@@ -47,4 +47,4 @@
 - `sh scripts/go.sh test -C native -race ./textnav -count=2 -shuffle=on`：PASS，3.241s。原生渲染专项 `TestNavigationAcceptance`、Fold hover 和矩形截图回归：PASS。
 - `sh scripts/build.sh`：PASS；`out/Muse` 为 91,433,746 bytes，较本轮构建前 58,218,594 bytes 增加约 33.2 MB。缺少 Apple Development 身份，产物 unsigned。
 - `git diff --check`：PASS。独立渲染图在 `/tmp/muse-navigation-review/`；主 agent 已检查 Fold hover 显隐、inline code 矩形和空短行矩形。证据来自原生 headless UI harness，未将其表述为运行中桌面实例的手动验收。
-- 核心文件：`native/textnav/`、`native/mdedit/{native_commands,rectangle,multirange,table_visual_modes,folding,nav,modal,paint}.go`；主验收测试为 `navigation_acceptance_test.go`。分词机制和代价见 [text-navigation-architecture.md](text-navigation-architecture.md)，按键支持及缺口见 [vim-support.md](vim-support.md)。
+- 核心文件：`native/editor/navigation/`、`native/editor/{native_commands,rectangle,table_visual_modes,folding,nav,modal,paint}.go`；主验收测试为 `native/editor/navigation_acceptance_test.go`。分词机制和代价见 [text-navigation-architecture.md](text-navigation-architecture.md)，按键支持及缺口见 [vim-support.md](vim-support.md)。

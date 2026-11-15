@@ -1,5 +1,5 @@
-// Package scrollui provides the application's scroll-only indicator policy.
-package scrollui
+// Package scrollbar provides the application's scroll-only indicator policy.
+package scrollbar
 
 import "time"
 

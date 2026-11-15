@@ -1,11 +1,9 @@
 package nativeui
 
 import (
-	"encoding/json"
-	"muse/appearance"
+	"muse/config"
 	"muse/locales"
-	"os"
-	"path/filepath"
+	"muse/theme"
 
 	"github.com/egoist/mygo"
 )
@@ -16,36 +14,14 @@ const (
 	themeSystem
 )
 
-type nativePreferences struct {
-	Theme            string `json:"theme,omitempty"`
-	Accent           string `json:"accent,omitempty"`
-	AIEnabled        bool   `json:"aiEnabled,omitempty"`
-	SmoothPageJumps  bool   `json:"smoothPageJumps,omitempty"`
-	Locale           string `json:"locale,omitempty"`
-	LocaleConfigured bool   `json:"localeConfigured,omitempty"`
-}
-
-func nativePreferencesPath() string {
-	if dir := os.Getenv("MUSE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "settings.json")
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = os.TempDir()
-	}
-	return filepath.Join(dir, "Muse", "settings.json")
-}
+type nativePreferences = config.Preferences
 
 func loadNativePreferences() nativePreferences {
-	var p nativePreferences
-	b, err := os.ReadFile(nativePreferencesPath())
-	if err == nil {
-		_ = json.Unmarshal(b, &p)
-	}
+	p, _ := config.LoadPreferences()
 	return p
 }
 
-func (a *App) applyNativePreferences(p nativePreferences) {
+func (a *App) applyNativePreferences(p config.Preferences) {
 	a.aiEnabled = p.AIEnabled
 	a.smoothPageJumps = p.SmoothPageJumps
 	a.localeConfigured = p.LocaleConfigured
@@ -56,50 +32,32 @@ func (a *App) applyNativePreferences(p nativePreferences) {
 	if a.ed != nil {
 		a.ed.SetOptions(a.editorOptions())
 	}
-	a.accentID = appearance.Normalize(p.Accent)
-	if mode, ok := themeModeFromPreference(p.Theme); ok {
-		a.themeMode = mode
-	} else {
+	a.accentID = theme.Normalize(p.Accent)
+	switch p.Theme {
+	case config.ThemeLight:
+		a.themeMode = themeLight
+	case config.ThemeDark:
+		a.themeMode = themeDark
+	default:
 		a.themeMode = themeSystem
 	}
 }
 
-func themeModeFromPreference(value string) (int, bool) {
-	switch value {
-	case "light":
-		return themeLight, true
-	case "dark":
-		return themeDark, true
-	case "system":
-		return themeSystem, true
-	default:
-		return 0, false
-	}
-}
-
 func (a *App) saveNativePreferences() error {
-	p := nativePreferences{
+	p := config.Preferences{
 		AIEnabled: a.aiEnabled, SmoothPageJumps: a.smoothPageJumps,
-		Accent: appearance.Normalize(a.accentID), Locale: a.localeSetting,
+		Accent: theme.Normalize(a.accentID), Locale: a.localeSetting,
 		LocaleConfigured: a.localeConfigured,
 	}
 	switch a.themeMode {
 	case themeDark:
-		p.Theme = "dark"
+		p.Theme = config.ThemeDark
 	case themeSystem:
-		p.Theme = "system"
+		p.Theme = config.ThemeSystem
 	default:
-		p.Theme = "light"
+		p.Theme = config.ThemeLight
 	}
-	path := nativePreferencesPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o600)
+	return config.SavePreferences(p)
 }
 
 func (a *App) setLocale(tag string) {

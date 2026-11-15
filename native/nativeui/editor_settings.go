@@ -1,35 +1,17 @@
 package nativeui
 
 import (
-	"encoding/json"
-	"github.com/egoist/mygo/ui"
+	"muse/config"
 	"muse/locales"
-	"os"
-	"path/filepath"
+
+	"github.com/egoist/mygo/ui"
 )
 
-type editorSettings struct {
-	Keymap              string `json:"keymap"`
-	SmartTypography     *bool  `json:"smartTypography,omitempty"`
-	HeadingMarkerReveal *bool  `json:"headingMarkerReveal,omitempty"`
-	VimVirtualImageRows *bool  `json:"vimVirtualImageRows,omitempty"`
-	CursorFade          *bool  `json:"cursorFade,omitempty"`
-	SmoothCursor        *bool  `json:"smoothCursor,omitempty"`
-	HideMouseCursor     *bool  `json:"hideMouseCursor,omitempty"`
-	SearchMatchPulse    *bool  `json:"searchMatchPulse,omitempty"`
-	VimYankFlash        *bool  `json:"vimYankFlash,omitempty"`
-}
+type editorSettings = config.EditorSettings
 
-func editorConfigPath() string { return filepath.Join(filepath.Dir(aiConfigPath()), "editor.json") }
+func editorConfigPath() string { return config.EditorSettingsPath() }
 func loadEditorSettings() editorSettings {
-	var s editorSettings
-	b, err := os.ReadFile(editorConfigPath())
-	if err == nil {
-		_ = json.Unmarshal(b, &s)
-	}
-	if s.Keymap != "vim" && s.Keymap != "helix" {
-		s.Keymap = "default"
-	}
+	s, _ := config.LoadEditorSettings()
 	return s
 }
 func (a *App) setEditorKeymap(mode string) {
@@ -126,14 +108,7 @@ func (a *App) saveEditorSettings() error {
 		SearchMatchPulse:    &a.searchMatchPulse,
 		VimYankFlash:        &a.vimYankFlash,
 	}
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err == nil {
-		err = os.MkdirAll(filepath.Dir(editorConfigPath()), 0700)
-	}
-	if err == nil {
-		err = os.WriteFile(editorConfigPath(), b, 0600)
-	}
-	return err
+	return config.SaveEditorSettings(s)
 }
 func (a *App) keymapSettings(c *ui.Context) {
 	settingsRow(c, locales.SettingsKeymap(), locales.SettingsKeymapDetail(), func() {
