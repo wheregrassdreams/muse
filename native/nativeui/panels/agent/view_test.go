@@ -55,3 +55,35 @@ func TestExpandedPartDispatchesItsLocation(t *testing.T) {
 		t.Fatalf("actions = %+v, want toggle for message 0 part 1", actions)
 	}
 }
+
+func TestSetupPromptDispatchesOpenSettings(t *testing.T) {
+	var actions []Action
+	tester := ui.NewTester(func(c *ui.Context) {
+		Render(c, ViewModel{SetupTitle: "Configure assistant", SetupButton: "Open settings"}, func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 420, 500)
+	tester.Frame()
+	if err := tester.Click("Open settings"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != OpenSettings {
+		t.Fatalf("actions = %+v, want open-settings", actions)
+	}
+}
+
+func TestEmptyConversationSuggestionDispatchesText(t *testing.T) {
+	var actions []Action
+	tester := ui.NewTester(func(c *ui.Context) {
+		Render(c, ViewModel{Suggestions: []string{"Summarize this note"}}, func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 420, 500)
+	tester.Frame()
+	if err := tester.Click("Summarize this note"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != UseSuggestion || actions[0].Text != "Summarize this note" {
+		t.Fatalf("actions = %+v, want supplied suggestion", actions)
+	}
+}

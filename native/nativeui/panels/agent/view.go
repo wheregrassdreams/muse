@@ -65,6 +65,11 @@ type ViewModel struct {
 	Busy           bool
 	Phase          string
 	Error          string
+	SetupTitle     string
+	SetupDetail    string
+	SetupButton    string
+	Suggestions    []string
+	ShowScrollbar  bool
 	Scroll         *ui.ScrollState
 	Icon           *ui.SVG
 	ContentWidth   float32
@@ -77,6 +82,8 @@ const (
 	DraftChanged ActionKind = iota + 1
 	Send
 	Stop
+	OpenSettings
+	UseSuggestion
 	ClearConversation
 	TogglePart
 	ApproveTool
@@ -96,9 +103,24 @@ type Action struct {
 
 func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	t := c.Theme()
+	if model.SetupTitle != "" {
+		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
+			if model.Icon != nil {
+				ui.Icon(c, model.Icon).Size(28, 28).TextColor(t.TextMuted)
+			}
+			ui.Text(c, model.SetupTitle).FontSize(13).FontWeight(600)
+			if model.SetupDetail != "" {
+				ui.Text(c, model.SetupDetail).FontSize(11.5).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
+			}
+			if model.SetupButton != "" {
+				button(c, model.SetupButton, func() { emit(dispatch, Action{Kind: OpenSettings}) })
+			}
+		})
+		return
+	}
 	ui.Column(c).Fill().Children(func() {
 		if model.Scroll != nil {
-			ui.Scroll(c).Grow(1).TrackScroll(model.Scroll).Children(func() {
+			ui.Scroll(c).Grow(1).TrackScroll(model.Scroll).Scrollbars(model.ShowScrollbar).Children(func() {
 				conversation(c, model, dispatch)
 			})
 		} else {
@@ -131,6 +153,14 @@ func conversation(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			}
 			ui.Text(c, locales.AiChatWelcomeTitle()).FontSize(13).FontWeight(600)
 			ui.Text(c, locales.AiChatWelcomeDetail()).FontSize(11.5).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
+			if len(model.Suggestions) > 0 {
+				ui.Row(c).Gap(6).Wrap().Justify(ui.Center).Children(func() {
+					for _, suggestion := range model.Suggestions {
+						suggestion := suggestion
+						button(c, suggestion, func() { emit(dispatch, Action{Kind: UseSuggestion, Text: suggestion}) })
+					}
+				})
+			}
 		})
 		return
 	}
