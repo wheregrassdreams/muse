@@ -35,6 +35,14 @@ if rg -n '"muse/platform/' native/nativeui --glob '*.go' --glob '!**/*_test.go';
   fail "nativeui imports platform adapters directly instead of receiving capabilities"
 fi
 
+if rg -n '"(muse/nativeui|github\.com/egoist/mygo)' native/app --glob '*.go' --glob '!**/*_test.go'; then
+  fail "app module assembly imports the desktop presentation runtime"
+fi
+
+if rg -n '"github\.com/egoist/mygo' native/application --glob '*.go' --glob '!**/*_test.go'; then
+  fail "application use cases depend on MyGo instead of backend-neutral ports"
+fi
+
 if rg -n '"muse/editor/' native/markdown --glob '*.go' --glob '!**/*_test.go'; then
   fail "markdown imports the editor module"
 fi
