@@ -28,6 +28,10 @@ func adaptClass(source string) (*classGraph, bool) {
 	if !ok {
 		return nil, false
 	}
+	return adaptClassModel(model), true
+}
+
+func adaptClassModel(model *diagrams.ClassDiagram) *classGraph {
 	graph := &classGraph{model: model, classes: make([]*classNode, len(model.Classes))}
 	for i, class := range model.Classes {
 		graph.classes[i] = &classNode{name: class.Name, members: append([]string(nil), class.Members...)}
@@ -38,7 +42,7 @@ func adaptClass(source string) (*classGraph, bool) {
 		}
 		graph.relations = append(graph.relations, classRel{from: graph.classes[relation.From], to: graph.classes[relation.To], kind: relation.Kind, label: relation.Label})
 	}
-	return graph, true
+	return graph
 }
 
 func (g *classGraph) width() float32  { return g.model.Width() }

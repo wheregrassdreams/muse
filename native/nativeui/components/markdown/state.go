@@ -12,5 +12,9 @@ func adaptStateDiagram(source string) (*mermaidGraph, bool) {
 	if !ok {
 		return nil, false
 	}
-	return adaptFlowchart(model.Flowchart()), true
+	return adaptStateModel(model), true
+}
+
+func adaptStateModel(model *diagrams.StateDiagram) *mermaidGraph {
+	return adaptFlowchart(model.Flowchart())
 }
