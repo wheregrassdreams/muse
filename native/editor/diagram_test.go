@@ -32,8 +32,8 @@ func diagramHarness(t *testing.T) (*harness, *leaf) {
 	h.caretAt(caret)
 	h.frame()
 	l := h.e.leaves[0]
-	if l.view == nil || l.view.diagram == nil {
-		t.Fatal("the mermaid block did not draw as a diagram")
+	if l.view == nil || l.view.diagramModel == nil {
+		t.Fatal("the mermaid block did not produce a neutral diagram model")
 	}
 	return h, l
 }
@@ -139,8 +139,8 @@ func TestDiagramBarShowsOnlyOnOverflow(t *testing.T) {
 	h.caretAt(len(h.e.Source()))
 	h.frame()
 	l := h.e.leaves[0]
-	if l.view == nil || l.view.diagram == nil {
-		t.Fatal("the mermaid block did not draw as a diagram")
+	if l.view == nil || l.view.diagramModel == nil {
+		t.Fatal("the mermaid block did not produce a neutral diagram model")
 	}
 	box, contentW := h.e.diagramBox(l, l.view, 0, 0)
 	if contentW > box.W {
@@ -226,7 +226,7 @@ func TestDiagramToggleSource(t *testing.T) {
 	}
 	// The leaves are built again when the block changes what it shows.
 	l = blockOfKind(h, kCode)
-	if l == nil || l.view == nil || l.view.diagram != nil {
+	if l == nil || l.view == nil || l.view.diagramModel != nil {
 		t.Fatal("the block still draws its diagram after showing the source")
 	}
 	if !strings.Contains(l.view.disp.text, "```") {
@@ -248,7 +248,7 @@ func TestDiagramToggleSource(t *testing.T) {
 		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.caret)
 	}
 	l = blockOfKind(h, kCode)
-	if l == nil || l.view == nil || l.view.diagram == nil {
+	if l == nil || l.view == nil || l.view.diagramModel == nil {
 		t.Fatal("the diagram did not come back")
 	}
 }
@@ -278,7 +278,7 @@ func TestDiagramKeepsItsScroll(t *testing.T) {
 	h.caretAt(len(h.e.Source()))
 	h.typ("tail")
 	h.frame()
-	if l.view == nil || l.view.diagram == nil {
+	if l.view == nil || l.view.diagramModel == nil {
 		t.Fatal("the diagram is gone")
 	}
 	if got := l.view.diagX; got != at {

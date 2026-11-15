@@ -146,6 +146,11 @@ type Options struct {
 	WriteClipboard func(transfer.Data)
 }
 
+// DiagramRenderer is a temporary UI adapter port for rendering the neutral
+// diagram model retained in an editor leaf. The nativeui editor component
+// supplies it; Markdown parsing and editor geometry never depend on a painter.
+type DiagramRenderer func(p *ui.Painter, rect ui.Rect, theme *ui.Theme, model *diagrams.Model)
+
 // Editor is the state of a Markdown editor, kept by the app across frames:
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
@@ -165,6 +170,7 @@ type Editor struct {
 	foldCacheRevision      uint64
 	foldSectionsCache      []foldSection
 	opts                   Options
+	diagramRenderer        DiagramRenderer
 	inlineMath             inlineblock.MathSession
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
@@ -411,6 +417,17 @@ type Editor struct {
 	railDesc    string
 	railTextRev uint64
 	railTextIdx int
+}
+
+// SetDiagramRenderer installs the presentation adapter used to paint diagrams
+// in the virtualized editor. Pass nil when the host releases the editor.
+func (e *Editor) SetDiagramRenderer(renderer DiagramRenderer) {
+	if e == nil {
+		return
+	}
+	e.paintMu.Lock()
+	e.diagramRenderer = renderer
+	e.paintMu.Unlock()
 }
 
 // Range is a range of the source, in bytes.

@@ -239,7 +239,7 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 			}
 			e.fillRange(p, u, v, a, z, lx, ly, sel)
 		}
-		if v.diagram == nil {
+		if v.diagramModel == nil {
 			v.layout.Draw(p, lx, ly, e.lk.text)
 		}
 		e.paintObjects(p, u, v, lx, ly)
@@ -253,7 +253,7 @@ func (e *Editor) paintUnit(p *ui.Painter, u *leaf, ox, oy float32) {
 			e.imageHits = append(e.imageHits, imageHit{obj: v.block, box: ui.Rect{X: r.X - e.elemRect.X, Y: r.Y - e.elemRect.Y, W: r.W, H: r.H}, leaf: u})
 		}
 	}
-	if v.diagram != nil {
+	if v.diagramModel != nil {
 		e.paintDiagram(p, u, v, ox, oy)
 	}
 	if yankActive {
@@ -425,7 +425,7 @@ func (e *Editor) paintInlineCodeBoxes(p *ui.Painter, u *leaf, v *leafView, x, y 
 // while the pointer is there.
 func (e *Editor) paintDiagramToggle(p *ui.Painter, l *leaf, labelX, top float32) {
 	action := locales.EditorSourceAction()
-	if l.view != nil && l.view.diagram == nil {
+	if l.view != nil && l.view.diagramModel == nil {
 		action = locales.EditorChartAction()
 	}
 	size := e.lk.size * 0.7
@@ -462,9 +462,11 @@ func (e *Editor) paintDiagram(p *ui.Painter, u *leaf, v *leafView, ox, oy float3
 	if contentW > box.W {
 		off = min(max(v.diagX, 0), contentW-box.W)
 	}
-	p.Clip(box, 6, func() {
-		v.diagram.Draw(p, ui.Rect{X: box.X - off, Y: box.Y, W: max(contentW, box.W), H: box.H}, p.Theme())
-	})
+	if e.diagramRenderer != nil {
+		p.Clip(box, 6, func() {
+			e.diagramRenderer(p, ui.Rect{X: box.X - off, Y: box.Y, W: max(contentW, box.W), H: box.H}, p.Theme(), v.diagramModel)
+		})
+	}
 	v.diagBarShown = v.diagIndicator.Visible(p.Now(), off, 0)
 	if v.diagBarShown {
 		p.After(v.diagIndicator.Remaining(p.Now()))

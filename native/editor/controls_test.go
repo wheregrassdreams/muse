@@ -173,12 +173,12 @@ func hasUnchecked(h *harness) bool { return strings.Contains(h.e.Source(), "[ ] 
 
 func diagramShowsSource(h *harness) bool {
 	l := blockOfKind(h, kCode)
-	return l != nil && l.view != nil && l.view.diagram == nil && strings.Contains(l.view.disp.text, "```")
+	return l != nil && l.view != nil && l.view.diagramModel == nil && strings.Contains(l.view.disp.text, "```")
 }
 
 func diagramDrawn(h *harness) bool {
 	l := blockOfKind(h, kCode)
-	return l != nil && l.view != nil && l.view.diagram != nil
+	return l != nil && l.view != nil && l.view.diagramModel != nil
 }
 
 func tableShowsSource(h *harness) bool {

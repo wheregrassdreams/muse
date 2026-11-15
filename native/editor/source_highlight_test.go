@@ -50,7 +50,7 @@ func TestMermaidSourceRevealColorsWithoutRenderingDiagram(t *testing.T) {
 	h.e.toggleSource(l)
 	h.frame()
 	l = h.e.leaves[0]
-	if l.view == nil || l.view.diagram != nil {
+	if l.view == nil || l.view.diagramModel != nil {
 		t.Fatal("source reveal still rendered a diagram")
 	}
 	if !strings.Contains(l.view.disp.text, "graph LR\nA[开始] --> B[解析]") {

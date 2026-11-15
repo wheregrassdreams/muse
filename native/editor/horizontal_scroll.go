@@ -51,7 +51,7 @@ func blockContentWidth(l *leaf) float32 {
 		return l.geom.w
 	}
 	v := l.view
-	if v == nil || v.diagram != nil || l.kind != kCode && l.kind != kMath && l.kind != kHTML {
+	if v == nil || v.diagramModel != nil || l.kind != kCode && l.kind != kMath && l.kind != kHTML {
 		return l.w
 	}
 	w := l.w

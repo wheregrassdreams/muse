@@ -1009,7 +1009,7 @@ func (e *Editor) hover(x, y float32) {
 func (e *Editor) diagramBarAt(x, y float32) (*leaf, *leafView, ui.Rect, float32, bool) {
 	for _, l := range e.leaves {
 		v := l.view
-		if v == nil || v.diagram == nil || !v.diagBarShown {
+		if v == nil || v.diagramModel == nil || !v.diagBarShown {
 			continue
 		}
 		box, contentW := e.diagramBox(l, v, 0, 0)
@@ -1028,7 +1028,7 @@ func (e *Editor) diagramBarAt(x, y float32) (*leaf, *leafView, ui.Rect, float32,
 func (e *Editor) diagramAt(x, y float32) (*leaf, *leafView, ui.Rect, float32, bool) {
 	for _, l := range e.leaves {
 		v := l.view
-		if v == nil || v.diagram == nil {
+		if v == nil || v.diagramModel == nil {
 			continue
 		}
 		box, contentW := e.diagramBox(l, v, 0, 0)
@@ -1044,7 +1044,7 @@ func (e *Editor) diagramAt(x, y float32) (*leaf, *leafView, ui.Rect, float32, bo
 func (e *Editor) diagramBodyAt(x, y float32) (*leaf, *leafView, bool) {
 	for _, l := range e.leaves {
 		v := l.view
-		if v == nil || v.diagram == nil {
+		if v == nil || v.diagramModel == nil {
 			continue
 		}
 		if box, _ := e.diagramBox(l, v, 0, 0); box.Contains(x, y) {
@@ -1078,7 +1078,7 @@ func (e *Editor) toggleDiagramSource(l *leaf) {
 // dragDiagramPan pans the diagram whose body is being dragged to x.
 func (e *Editor) dragDiagramPan(x float32) {
 	d := e.diagPan
-	if d == nil || d.leaf.view == nil || d.leaf.view.diagram == nil {
+	if d == nil || d.leaf.view == nil || d.leaf.view.diagramModel == nil {
 		return
 	}
 	v := d.leaf.view
@@ -1105,7 +1105,7 @@ func (e *Editor) pressDiagramBar(l *leaf, v *leafView, box ui.Rect, contentW flo
 // dragDiagramBar scrolls the diagram whose bar is being dragged to x.
 func (e *Editor) dragDiagramBar(x float32) {
 	d := e.diagDrag
-	if d == nil || d.leaf.view == nil || d.leaf.view.diagram == nil {
+	if d == nil || d.leaf.view == nil || d.leaf.view.diagramModel == nil {
 		return
 	}
 	v := d.leaf.view

@@ -55,3 +55,20 @@ func TestProductionContentTranslatesVimInputThroughSession(t *testing.T) {
 		t.Fatalf("source after Vim input = %q, want %q", got, want)
 	}
 }
+
+func TestProductionContentPaintsNeutralDiagramModel(t *testing.T) {
+	source := "```mermaid\ngraph LR\nA[one] --> B[two]\n```\n\nend"
+	value := tappeditor.New(source, tappeditor.Options{})
+	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len(source), Head: len(source)}); err != nil {
+		t.Fatal(err)
+	}
+	content := NewProductionContent(value, nil)
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { content.Render(c) })
+	}, 1000, 700)
+	tester.Frame()
+	tester.Frame()
+	if len(content.diagrams) == 0 {
+		t.Fatal("production editor did not send its neutral diagram model to the component painter")
+	}
+}

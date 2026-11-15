@@ -3,7 +3,8 @@ package editor
 // TestFullSyntaxFixture opens the all-syntax document the way a reader
 // does and checks that each construct reaches the display: styled runs
 // keep their style, block syntax is hidden away from the caret, and the
-// blocks that draw objects (math, Mermaid, HTML, tables) produce them.
+// blocks with native painters (math, Mermaid, HTML, tables) produce neutral
+// render models for their component adapters.
 
 import (
 	"os"
@@ -105,15 +106,15 @@ func TestFullSyntaxFixture(t *testing.T) {
 		v := l.view
 		if v == nil && isMermaid(l) {
 			// Long documents virtualize offscreen blocks. Build this block's
-			// display view directly so the fixture still checks diagram rendering.
+			// display view directly so the fixture still checks diagram projection.
 			v = e.viewWith(l, e.opts.MaxWidth, false, syntax.IncrementalAlignNone, -1)
 		}
-		if v != nil && v.diagram != nil {
+		if v != nil && v.diagramModel != nil {
 			diagram = true
 		}
 	}
 	if !diagram {
-		t.Error("the Mermaid block did not draw as a diagram")
+		t.Error("the Mermaid block did not produce a neutral diagram model")
 	}
 
 	// The footnote is a container, not body text.

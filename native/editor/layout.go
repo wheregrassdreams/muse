@@ -14,7 +14,6 @@ import (
 	"muse/editor/internal/textlayout"
 	"muse/markdown"
 	"muse/markdown/diagrams"
-	markdownui "muse/nativeui/components/markdown"
 	"muse/theme"
 	"muse/ui/scrollbar"
 )
@@ -241,9 +240,8 @@ type leafView struct {
 	natural float32
 	// font is the text's, which the caret is as tall as.
 	font ui.Font
-	// diagram is a Mermaid diagram drawn instead of its code; diagX is how
-	// far it is scrolled sideways when it is wider than the column.
-	diagram       *markdownui.Diagram
+	// diagramModel is the neutral Mermaid layout drawn instead of its code;
+	// diagX is how far it is scrolled sideways when wider than the column.
 	diagramModel  *diagrams.Model
 	diagX         float32
 	diagIndicator scrollbar.Indicator
@@ -755,13 +753,10 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	open := e.codeFenceSourceShown(l)
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStartOffset() && b.reveal <= l.infoEndOffset()
 	fenceShown := open || infoLine
-	var mermaidDiagram *markdownui.Diagram
 	var mermaidModel *diagrams.Model
 	if !open && !caretIn && isMermaid(l) && !compactCode {
 		if model, ok := diagrams.ParseModel(e.codeText(l), e.sketchOptions()); ok {
 			mermaidModel = &model
-			d := markdownui.DiagramFromModel(model)
-			mermaidDiagram = &d
 		}
 	}
 	if fenceShown {
@@ -801,7 +796,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 			appendCodeLineWindow(b, ln, at, plain, ui.Span{Color: e.lk.muted})
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(l.language()), "mermaid") && (open || caretIn || mermaidDiagram == nil) {
+		if strings.EqualFold(strings.TrimSpace(l.language()), "mermaid") && (open || caretIn || mermaidModel == nil) {
 			renderSourceTokens(b, ln.off, ln.text, mermaidSourceTokens(ln.text), plain)
 			continue
 		}
@@ -858,8 +853,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	v.font = f
 	_, th := v.layout.Size()
 	v.h = th + 2*padY
-	if mermaidDiagram != nil {
-		v.diagram = mermaidDiagram
+	if mermaidModel != nil {
 		v.diagramModel = mermaidModel
 		v.h = mermaidModel.Height(width) + 2*padY
 	}
