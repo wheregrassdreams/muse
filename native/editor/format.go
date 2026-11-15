@@ -302,27 +302,38 @@ func (e *Editor) ToggleList(marker string) {
 	if l.opensItem() {
 		it, _ := l.innerItem()
 		task := it.task != syntax.IncrementalNoTask
-		same := it.ordered == strings.HasSuffix(marker, ".") && task == strings.Contains(marker, "[")
-		if same {
+		plan, ok := paragraph.PlanListToggle(paragraph.ListInput{
+			Source: e.src, Caret: e.caret, Marker: marker, Item: true,
+			Ordered: it.ordered, Task: task, MarkerStart: it.start, ContentStart: l.start,
+		})
+		if !ok {
+			return
+		}
+		if plan.Action == paragraph.ListLeave {
 			e.leaveItem(l)
 			return
 		}
-		// Change the kind of list: the item's marker becomes marker.
-		caret := e.caret
+		if plan.Action != paragraph.ListEdit {
+			return
+		}
 		e.begin(stepEdit)
-		e.replace(it.start, l.start, marker+" ")
-		caret += len(marker) + 1 - (l.start - it.start)
-		e.commit(caret, caret)
+		e.replace(plan.Edit.Start, plan.Edit.End, plan.Edit.Text)
+		e.commit(plan.Caret, plan.Caret)
 		return
 	}
 	if l.kind != kPara && l.kind != kHeading {
 		return
 	}
-	at := l.syntaxStart
-	caret := e.caret
+	plan, ok := paragraph.PlanListToggle(paragraph.ListInput{
+		Source: e.src, Caret: e.caret, Marker: marker,
+		EligibleText: true, InsertAt: l.syntaxStart,
+	})
+	if !ok || plan.Action != paragraph.ListEdit {
+		return
+	}
 	e.begin(stepEdit)
-	e.replace(at, at, marker+" ")
-	e.commit(caret+len(marker)+1, caret+len(marker)+1)
+	e.replace(plan.Edit.Start, plan.Edit.End, plan.Edit.Text)
+	e.commit(plan.Caret, plan.Caret)
 }
 
 // InsertCodeBlock puts the selected lines in a fenced block of code, or
