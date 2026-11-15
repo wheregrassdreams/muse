@@ -94,7 +94,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 
 `nativeui` owns the application window and composes panels. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `components` owns reusable UI pieces such as document-type presentations and shared primitives; icon assets and lookup live in `ui/iconlibrary`. `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
 
-`textnav` may remain a small top-level pure algorithm package only while it is consumed by more than one editor capability; if it is editor-only after the refactor, move it under `editor/navigation`. `cachepath` belongs under `platform` only if it provides OS/runtime path policy; otherwise place it beside the feature that owns the cache. These are explicit audit decisions, not permission to retain old names indefinitely.
+Source-position text navigation belongs to `editor/navigation`; MyGo event translation and viewport geometry stay at the editor/presentation edge. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
 ## Ownership and model boundaries
 
