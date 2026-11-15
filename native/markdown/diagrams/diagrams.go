@@ -113,16 +113,31 @@ func (m Model) Width() float32 {
 	case ModelSketch:
 		return m.Sketch.Width
 	case ModelGantt:
+		if m.Gantt == nil {
+			return 0
+		}
 		return m.Gantt.Width()
 	case ModelClass:
+		if m.Class == nil {
+			return 0
+		}
 		return m.Class.Width()
 	case ModelPie:
 		return PieWidth
 	case ModelState:
+		if m.State == nil {
+			return 0
+		}
 		return m.State.Flowchart().Width()
 	case ModelSequence:
+		if m.Sequence == nil {
+			return 0
+		}
 		return m.Sequence.Width()
 	case ModelFlowchart:
+		if m.Flowchart == nil {
+			return 0
+		}
 		return m.Flowchart.Width()
 	default:
 		return 0
@@ -135,16 +150,31 @@ func (m Model) Height(width float32) float32 {
 	case ModelSketch:
 		return m.Sketch.Height
 	case ModelGantt:
+		if m.Gantt == nil {
+			return 0
+		}
 		return m.Gantt.Height()
 	case ModelClass:
+		if m.Class == nil {
+			return 0
+		}
 		return m.Class.Height()
 	case ModelPie:
 		return 286
 	case ModelState:
+		if m.State == nil {
+			return 0
+		}
 		return m.State.Flowchart().Height()
 	case ModelSequence:
+		if m.Sequence == nil {
+			return 0
+		}
 		return m.Sequence.Height()
 	case ModelFlowchart:
+		if m.Flowchart == nil {
+			return 0
+		}
 		return m.Flowchart.Height()
 	default:
 		return 0

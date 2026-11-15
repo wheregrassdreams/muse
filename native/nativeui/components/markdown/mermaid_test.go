@@ -2,6 +2,9 @@ package markdown
 
 import (
 	"testing"
+	"time"
+
+	"muse/markdown/diagrams"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -12,6 +15,33 @@ func TestViewRendersMermaid(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("One") && !tt.HasText("Two") {
 		t.Logf("texts = %v", tt.Texts())
+	}
+}
+
+func TestParseDiagramThemedKeepsNeutralFallbackModelsRenderable(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"gantt", "gantt\ntitle Plan\nsection Work\nTask :a1, 2024-01-01, 3d\n"},
+		{"class", "classDiagram\nclass A\nclass B\nA --> B\n"},
+		{"pie", "pie title Pets\n\"Dogs\": 3\n"},
+		{"state", "stateDiagram\n[*] --> A\nA --> B\n"},
+		{"sequence", "sequenceDiagram\nAlice->>Bob: Hi\n"},
+		{"flowchart", "graph LR\nA[一] --> B[二]\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			diagram, ok := ParseDiagramThemed(test.src, diagrams.Options{
+				Today: time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC),
+			})
+			if !ok {
+				t.Fatal("supported fallback model did not produce a painter adapter")
+			}
+			if diagram.Width() <= 0 || diagram.Height(diagram.Width()) <= 0 {
+				t.Fatalf("diagram dimensions = %gx%g", diagram.Width(), diagram.Height(diagram.Width()))
+			}
+		})
 	}
 }
 
