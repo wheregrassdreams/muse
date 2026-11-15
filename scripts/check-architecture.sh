@@ -96,7 +96,13 @@ for package in \
   native/ui/iconlibrary \
   native/nativeui \
   native/nativeui/components \
+  native/nativeui/components/editor \
+  native/nativeui/components/markdown \
   native/nativeui/window \
+  native/nativeui/surfaces/imagepreview \
+  native/nativeui/surfaces/imagedocument \
+  native/nativeui/surfaces/mermaidpreview \
+  native/nativeui/surfaces/quickopen \
   native/nativeui/components/doctypes \
   native/nativeui/interactions \
   native/nativeui/panels/filetree \
