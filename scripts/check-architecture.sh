@@ -99,6 +99,8 @@ for package in \
   native/nativeui/components/editor \
   native/nativeui/components/markdown \
   native/nativeui/window \
+  native/nativeui/workspacepresenter \
+  native/nativeui/surfaces/noteeditor \
   native/nativeui/surfaces/imagepreview \
   native/nativeui/surfaces/imagedocument \
   native/nativeui/surfaces/mermaidpreview \
