@@ -5,15 +5,13 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"muse/document/types"
 )
 
 // Candidate is the immutable catalogue projection needed for fuzzy file
 // selection. PathText is presentation-ready, usually relative to the vault.
 type Candidate struct {
 	Path, PathText, Title string
-	Metadata              types.Metadata
+	Aliases               []string
 }
 
 // Match is a ranked result. Highlight positions are rune offsets into
@@ -54,7 +52,7 @@ func Rank(query string, items []Candidate) []Match {
 		if titleFound && (!found || titleScore < best) {
 			best, found = titleScore, true
 		}
-		for _, alias := range item.Metadata.Aliases {
+		for _, alias := range item.Aliases {
 			if aliasScore, _, ok := quickOpenFuzzyMatch(alias, needle, false); ok && (!found || aliasScore < best) {
 				best, found = aliasScore, true
 			}
