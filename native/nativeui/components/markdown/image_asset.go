@@ -98,6 +98,9 @@ func (a *ImageAsset) Bitmap() *ui.Bitmap {
 // Loaded reports whether loading and decode completed.
 func (a *ImageAsset) Loaded() bool { return a != nil && a.core != nil && a.core.Loaded() }
 
+// Failed reports whether source loading or decoding completed with an error.
+func (a *ImageAsset) Failed() bool { return a == nil || a.core == nil || a.core.Failed() }
+
 // IntrinsicSize reports source dimensions once header inspection completes.
 func (a *ImageAsset) IntrinsicSize() (image.Point, bool) {
 	if a == nil || a.core == nil {

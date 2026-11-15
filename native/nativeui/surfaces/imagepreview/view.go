@@ -4,8 +4,6 @@ package imagepreview
 import (
 	"fmt"
 	"math"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -95,12 +93,7 @@ func (s *state) Open(source, label string, cache images.CacheStore, onMain func(
 	s.Advance(time.Now())
 	if s.bmp != nil {
 		s.loading = false
-	} else if !isRemoteSource(source) && !strings.HasPrefix(source, "data:") {
-		if _, err := os.Stat(source); err != nil {
-			s.loading = false
-		}
-	}
-	if s.asset == nil {
+	} else if s.asset == nil || s.asset.Failed() {
 		s.loading = false
 	}
 }
@@ -290,7 +283,3 @@ func clampZoom(zoom float32) float32 { return min(maxZoom, max(minZoom, zoom)) }
 func ClampZoom(zoom float32) float32 { return clampZoom(zoom) }
 
 func InitialScale(bw, bh, vw, vh float32) float32 { return imageInitialScale(bw, bh, vw, vh) }
-
-func isRemoteSource(src string) bool {
-	return strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://")
-}

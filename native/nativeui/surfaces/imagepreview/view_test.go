@@ -1,6 +1,11 @@
 package imagepreview
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestTypedActionsUpdatePreviewState(t *testing.T) {
 	state := state{open: true, zoom: 1, baseZoom: 0.5}
@@ -39,5 +44,41 @@ func TestContentCloseIsIdempotent(t *testing.T) {
 	content.Close()
 	if closed != 1 || !content.closed || content.state.open || content.state.bmp != nil {
 		t.Fatalf("content close count=%d closed=%v state=%+v", closed, content.closed, content.state.ViewModel())
+	}
+}
+
+func TestOpenMissingLocalImageStopsLoading(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.png")
+	var state state
+	state.Open(path, "missing.png", nil, nil, nil)
+	if state.asset == nil || !state.asset.Failed() {
+		t.Fatal("missing local image was not reported as failed by the asset")
+	}
+	if state.ViewModel().Loading {
+		t.Fatal("missing local image remained in loading state")
+	}
+}
+
+func TestOpenDecodeFailureStopsLoading(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "invalid.png")
+	if err := os.WriteFile(path, []byte("not an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mainQueue := make(chan func(), 1)
+	var state state
+	state.Open(path, "invalid.png", nil, func(complete func()) { mainQueue <- complete }, nil)
+
+	select {
+	case complete := <-mainQueue:
+		complete()
+	case <-time.After(5 * time.Second):
+		t.Fatal("decode failure did not complete image loading")
+	}
+	if !state.asset.Loaded() || !state.asset.Failed() {
+		t.Fatalf("invalid image asset loaded=%v failed=%v, want completed failure", state.asset.Loaded(), state.asset.Failed())
+	}
+	if state.ViewModel().Loading {
+		t.Fatal("decode failure left preview in loading state")
 	}
 }
