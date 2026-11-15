@@ -12,10 +12,10 @@ func TestWorkspaceRestoredSubscriptionsAreScopedAndCloseable(t *testing.T) {
 	var first, second int
 	subscription := dispatcher.Subscribe(func(workspace.WorkspaceRestored) { first++ })
 	dispatcher.Subscribe(func(workspace.WorkspaceRestored) { second++ })
-	dispatcher.Publish(workspace.WorkspaceRestored{State: workspace.State{Root: "/vault"}})
+	dispatcher.Publish(workspace.WorkspaceRestored{State: workspace.State{Version: 1, VaultPath: "/vault"}})
 	subscription.Close()
 	subscription.Close()
-	dispatcher.Publish(workspace.WorkspaceRestored{State: workspace.State{Root: "/vault"}})
+	dispatcher.Publish(workspace.WorkspaceRestored{State: workspace.State{Version: 1, VaultPath: "/vault"}})
 	if first != 1 || second != 2 {
 		t.Fatalf("handler calls = (%d, %d), want (1, 2)", first, second)
 	}
