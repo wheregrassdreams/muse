@@ -21,10 +21,10 @@ if rg -n '^package nativeui$' native/nativeui/panels --glob '*.go'; then
   fail "nativeui/panels contains child packages that masquerade as the parent package"
 fi
 
-if rg -n '"muse/(nativeui|platform|cmd)/' \
+if rg -n '"(muse/(nativeui|platform|cmd)/|github\.com/egoist/mygo)' \
   native/document native/editor native/markdown native/search native/vault \
   --glob '*.go' --glob '!**/*_test.go'; then
-  fail "domain modules import presentation, platform adapters, or executables"
+  fail "domain modules import presentation, MyGo, platform adapters, or executables"
 fi
 
 if rg -n '"muse/(nativeui|platform|cmd)/' native/application --glob '*.go' --glob '!**/*_test.go'; then
