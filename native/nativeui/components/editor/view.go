@@ -5,6 +5,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/editor"
+	editorinput "muse/editor/input"
 	markdownui "muse/nativeui/components/markdown"
 )
 
@@ -29,28 +30,28 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 	}
 	return ui.Box(c).Fill().Focusable().AutoFocus().Role(ui.RoleTextField).Label(label).
 		HandleInput(func(ev ui.InputEvent) bool {
-			var event editor.InputEvent
+			var event editorinput.Event
 			var operation editor.EditorOperation
 			switch ev.Kind {
 			case ui.InputText:
-				event = editor.InputEvent{Kind: editor.InputInsertText, Text: ev.Text}
+				event = editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text}
 			case ui.InputKeyDown:
 				switch ev.Key {
 				case ui.KeyBackspace:
-					event.Kind = editor.InputDeleteBackward
+					event.Kind = editorinput.DeleteBackward
 				case ui.KeyDelete:
-					event.Kind = editor.InputDeleteForward
+					event.Kind = editorinput.DeleteForward
 				case ui.KeyLeft:
 					operation = editor.EditorOperation{Kind: editor.OperationMoveHorizontal, Direction: -1, Extend: ev.Mods&ui.Shift != 0}
 				case ui.KeyRight:
 					operation = editor.EditorOperation{Kind: editor.OperationMoveHorizontal, Direction: 1, Extend: ev.Mods&ui.Shift != 0}
 				case ui.KeyEnter:
-					event = editor.InputEvent{Kind: editor.InputInsertText, Text: "\n"}
+					event = editorinput.Event{Kind: editorinput.InsertText, Text: "\n"}
 				case ui.KeyZ:
 					if ev.Mods&ui.Super != 0 || ev.Mods&ui.Ctrl != 0 {
-						event.Kind = editor.InputUndo
+						event.Kind = editorinput.Undo
 						if ev.Mods&ui.Shift != 0 {
-							event.Kind = editor.InputRedo
+							event.Kind = editorinput.Redo
 						}
 					} else {
 						return false
@@ -65,7 +66,7 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 				before := session.Selection()
 				handled := session.ApplyOperation(operation)
 				if !handled {
-					event = editor.InputEvent{Kind: editor.InputMoveHorizontal, Direction: operation.Direction, Extend: operation.Extend}
+					event = editorinput.Event{Kind: editorinput.MoveHorizontal, Direction: operation.Direction, Extend: operation.Extend}
 				} else {
 					changed := session.Selection() != before
 					if changed && opts.OnChange != nil {
@@ -83,7 +84,7 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 					opts.OnChange()
 				}
 			}
-			return result.Changed || result.SelectionChanged || event.Kind == editor.InputInsertText
+			return result.Changed || result.SelectionChanged || event.Kind == editorinput.InsertText
 		}).Children(func() {
 		markdownui.View(c, frame.Document, opts.Markdown)
 	})

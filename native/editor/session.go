@@ -6,6 +6,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	editorinput "muse/editor/input"
 	"muse/editor/internal/core"
 	"muse/markdown"
 	"muse/markdown/render"
@@ -23,32 +24,20 @@ type TextEdit = core.TextEdit
 // TextRange is a half-open UTF-8 byte range in Markdown source.
 type TextRange = core.TextRange
 
-// InputKind is a backend-neutral editing intent. A platform adapter translates
-// physical keys and text-input callbacks into these semantic events.
-type InputKind uint8
+// InputKind and InputEvent are stable facade aliases for toolkit-neutral
+// intents owned by editor/input.
+type InputKind = editorinput.EventKind
+type InputEvent = editorinput.Event
 
 const (
-	InputInsertText InputKind = iota + 1
-	InputDeleteBackward
-	InputDeleteForward
-	InputMoveHorizontal
-	InputSetSelection
-	InputUndo
-	InputRedo
+	InputInsertText     = editorinput.InsertText
+	InputDeleteBackward = editorinput.DeleteBackward
+	InputDeleteForward  = editorinput.DeleteForward
+	InputMoveHorizontal = editorinput.MoveHorizontal
+	InputSetSelection   = editorinput.SetSelection
+	InputUndo           = editorinput.Undo
+	InputRedo           = editorinput.Redo
 )
-
-// InputEvent carries source-byte coordinates. Direction is -1 or +1 for a
-// horizontal move; Anchor and Head are used by InputSetSelection.
-type InputEvent struct {
-	Kind      InputKind
-	Text      string
-	Direction int
-	Extend    bool
-	Anchor    int
-	Head      int
-	Inclusive bool
-	Linewise  bool
-}
 
 // DispatchResult describes state changes caused by one semantic input.
 type DispatchResult struct {
