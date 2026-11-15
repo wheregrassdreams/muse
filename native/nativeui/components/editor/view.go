@@ -30,6 +30,7 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 	return ui.Box(c).Fill().Focusable().AutoFocus().Role(ui.RoleTextField).Label(label).
 		HandleInput(func(ev ui.InputEvent) bool {
 			var event editor.InputEvent
+			var operation editor.EditorOperation
 			switch ev.Kind {
 			case ui.InputText:
 				event = editor.InputEvent{Kind: editor.InputInsertText, Text: ev.Text}
@@ -40,9 +41,9 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 				case ui.KeyDelete:
 					event.Kind = editor.InputDeleteForward
 				case ui.KeyLeft:
-					event = editor.InputEvent{Kind: editor.InputMoveHorizontal, Direction: -1, Extend: ev.Mods&ui.Shift != 0}
+					operation = editor.EditorOperation{Kind: editor.OperationMoveHorizontal, Direction: -1, Extend: ev.Mods&ui.Shift != 0}
 				case ui.KeyRight:
-					event = editor.InputEvent{Kind: editor.InputMoveHorizontal, Direction: 1, Extend: ev.Mods&ui.Shift != 0}
+					operation = editor.EditorOperation{Kind: editor.OperationMoveHorizontal, Direction: 1, Extend: ev.Mods&ui.Shift != 0}
 				case ui.KeyEnter:
 					event = editor.InputEvent{Kind: editor.InputInsertText, Text: "\n"}
 				case ui.KeyZ:
@@ -59,6 +60,19 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 				}
 			default:
 				return false
+			}
+			if operation.Kind != "" {
+				before := session.Selection()
+				handled := session.ApplyOperation(operation)
+				if !handled {
+					event = editor.InputEvent{Kind: editor.InputMoveHorizontal, Direction: operation.Direction, Extend: operation.Extend}
+				} else {
+					changed := session.Selection() != before
+					if changed && opts.OnChange != nil {
+						opts.OnChange()
+					}
+					return changed
+				}
 			}
 			result, err := session.Dispatch(event)
 			if err != nil {

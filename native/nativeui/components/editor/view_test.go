@@ -31,3 +31,19 @@ func TestViewInputEditsSessionAndRendersUpdatedMarkdown(t *testing.T) {
 		t.Fatalf("render frame is stale: %+v", frame)
 	}
 }
+
+func TestViewDispatchesHorizontalMovementThroughProductionSessionOperation(t *testing.T) {
+	production := editor.New("abc", editor.Options{})
+	if err := production.Session.SetSelection(editor.Selection{Anchor: 1, Head: 1}); err != nil {
+		t.Fatal(err)
+	}
+	tester := ui.NewTester(func(c *ui.Context) {
+		View(c, production.Session, Options{})
+	}, 640, 480)
+	tester.Frame()
+	tester.KeyDown(ui.KeyRight)
+	tester.Frame()
+	if got := production.Session.Selection().Head; got != 2 {
+		t.Fatalf("selection after component key dispatch = %d, want 2", got)
+	}
+}
