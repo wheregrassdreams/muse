@@ -106,15 +106,16 @@ func View(c *ui.Context, d *Doc, opts Options) ui.Element {
 	}
 	s := rstyle{o: opts.withDefaults()}
 	document := d.RenderDocument()
-	return ui.Scroll(c).Fill().Children(func() {
-		col := ui.Column(c).FillWidth().Gap(s.o.BodyFontSize * 0.6).Padding(s.o.Padding)
-		if s.o.ContentWidth > 0 {
-			col.MaxWidth(s.o.ContentWidth).Margin(0, ui.Auto)
-		}
-		col.Children(func() {
-			renderBlocks(c, document.Blocks, 0, s)
-		})
-	})
+	list := ui.List(c, nil, len(document.Blocks), func(i int) {
+		bs := s
+		bs.first = i == 0
+		bs.afterHeading = i > 0 && document.Blocks[i-1].Kind == Heading && document.Blocks[i-1].Level != 1
+		renderBlock(c, document.Blocks[i], 0, bs)
+	}).Fill().Gap(s.o.BodyFontSize * 0.6).Padding(s.o.Padding)
+	if s.o.ContentWidth > 0 {
+		list.MaxWidth(s.o.ContentWidth).Margin(0, ui.Auto)
+	}
+	return list
 }
 
 // BlocksView draws blocks natively as a column, without the scroll view and
