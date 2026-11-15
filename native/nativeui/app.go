@@ -619,7 +619,7 @@ func (a *App) View(c *ui.Context) {
 		}
 	})
 	if a.ed != nil && a.ed.Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
-		a.setFocusedPanel(PanelIDEditor)
+		a.setFocusedPanel(interactions.PanelIDEditor)
 	}
 
 	a.sidebarToggle(c)
@@ -629,7 +629,6 @@ func (a *App) View(c *ui.Context) {
 		a.renameDialog(c)
 		a.documentDialogs(c)
 		a.coreMetadataMigrationDialog(c)
-		a.historyDialog(c)
 		a.linksDialog(c)
 		a.commandPaletteDialog(c)
 		a.workspaceSearchDialog(c)
