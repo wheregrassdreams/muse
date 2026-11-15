@@ -33,7 +33,7 @@ type SourceIdentity struct {
 // Value is intentionally renderer-neutral to avoid a dependency on MyGo.
 type AssetCacheEntry struct {
 	Key       AssetKey
-	Value     any
+	Asset     *Asset
 	ModTime   int64
 	Size      int64
 	Weight    int64
@@ -113,7 +113,7 @@ func (c *AssetCache) Replace(entry *AssetCacheEntry) {
 	c.weight += entry.Weight
 	c.evictLocked()
 }
-func (c *AssetCache) Finish(key AssetKey, value any, weight int64) bool {
+func (c *AssetCache) Finish(key AssetKey, asset *Asset, weight int64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.entries[key]
@@ -121,7 +121,7 @@ func (c *AssetCache) Finish(key AssetKey, value any, weight int64) bool {
 		return false
 	}
 	entry := e.Value.(*AssetCacheEntry)
-	if entry.Value != value {
+	if entry.Asset != asset {
 		return false
 	}
 	if entry.Source.Data != nil {
@@ -136,7 +136,7 @@ func (c *AssetCache) Finish(key AssetKey, value any, weight int64) bool {
 	entry.Weight, entry.Pinned = weight, false
 	c.evictLocked()
 	e, ok = c.entries[key]
-	return ok && e.Value.(*AssetCacheEntry).Value == value
+	return ok && e.Value.(*AssetCacheEntry).Asset == asset
 }
 func (c *AssetCache) Delete(key AssetKey) {
 	c.mu.Lock()

@@ -86,6 +86,20 @@ func LoadSourceBytes(src string, options SourceOptions, store CacheStore, comple
 	SubmitDecode(func() { data, err := os.ReadFile(path); complete(data, err) })
 }
 
+// ReadLocalSource synchronously resolves and reads a local source for APIs
+// that require an immediate bitmap result. It rejects remote and data URLs;
+// asynchronous document loading should use Loader.Load instead.
+func ReadLocalSource(src string, options SourceOptions) ([]byte, error) {
+	if strings.TrimSpace(src) == "" || isRemote(src) || strings.HasPrefix(src, "data:") {
+		return nil, os.ErrInvalid
+	}
+	path := ResolveSource(src, options)
+	if path == "" {
+		return nil, os.ErrNotExist
+	}
+	return os.ReadFile(path)
+}
+
 func resolvePath(src, base string) string {
 	src = strings.TrimSpace(src)
 	src = strings.TrimPrefix(src, "file://")

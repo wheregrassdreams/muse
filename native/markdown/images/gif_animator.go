@@ -15,21 +15,22 @@ type GIFAnimator struct {
 	mu                        sync.Mutex
 	g                         *gif.GIF
 	delays                    []time.Duration
-	current                   *image.NRGBA
-	canvas, restore           *image.NRGBA
+	current                   *image.RGBA
+	canvas, restore           *image.RGBA
 	disposal                  byte
 	index                     int
 	next                      time.Time
-	ready                     *image.NRGBA
-	readyCanvas, readyRestore *image.NRGBA
+	ready                     *image.RGBA
+	readyCanvas, readyRestore *image.RGBA
 	readyDisposal             byte
 	readyIndex                int
 	busy                      bool
 }
 
 // NewGIFAnimator takes ownership of the decoded animation and initial frame.
-func NewGIFAnimator(g *gif.GIF, initial *image.NRGBA, delays []time.Duration) *GIFAnimator {
-	a := &GIFAnimator{g: g, current: initial, canvas: cloneNRGBA(initial), delays: append([]time.Duration(nil), delays...), readyIndex: -1}
+func NewGIFAnimator(g *gif.GIF, initial image.Image, delays []time.Duration) *GIFAnimator {
+	frame := canonicalRGBA(initial)
+	a := &GIFAnimator{g: g, current: frame, canvas: cloneRGBA(frame), delays: append([]time.Duration(nil), delays...), readyIndex: -1}
 	if g != nil && len(g.Disposal) > 0 {
 		a.disposal = g.Disposal[0]
 	}
@@ -84,6 +85,16 @@ func (a *GIFAnimator) FrameCount() int {
 	return len(a.g.Image)
 }
 
+// FrameDelay returns a normalized duration for an animation frame.
+func (a *GIFAnimator) FrameDelay(index int) time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if index < 0 || index >= len(a.delays) {
+		return 0
+	}
+	return a.delays[index]
+}
+
 // Current returns the current composited frame.
 func (a *GIFAnimator) Current() image.Image { a.mu.Lock(); defer a.mu.Unlock(); return a.current }
 
@@ -107,7 +118,7 @@ func (a *GIFAnimator) ApproxPixelBytes() int64 {
 			}
 		}
 	}
-	for _, img := range []*image.NRGBA{a.current, a.canvas, a.restore, a.ready, a.readyCanvas, a.readyRestore} {
+	for _, img := range []*image.RGBA{a.current, a.canvas, a.restore, a.ready, a.readyCanvas, a.readyRestore} {
 		if img != nil {
 			b := img.Bounds()
 			n += int64(b.Dx()) * int64(b.Dy()) * 4
@@ -124,17 +135,17 @@ func (a *GIFAnimator) prepareNext() {
 	a.busy = true
 	g := a.g
 	idx := (a.index + 1) % len(g.Image)
-	canvas := cloneNRGBA(a.canvas)
-	var restore *image.NRGBA
+	canvas := cloneRGBA(a.canvas)
+	var restore *image.RGBA
 	if a.restore != nil {
-		restore = cloneNRGBA(a.restore)
+		restore = cloneRGBA(a.restore)
 	}
 	previousDisposal := a.disposal
 	currentIndex := a.index
 	a.mu.Unlock()
 	if previousDisposal == gif.DisposalBackground {
 		rect := g.Image[currentIndex].Bounds()
-		draw.Draw(canvas, rect, image.NewUniform(color.Transparent), image.Point{}, draw.Src)
+		draw.Draw(canvas, rect, image.NewUniform(color.RGBA{}), image.Point{}, draw.Src)
 	} else if previousDisposal == gif.DisposalPrevious && restore != nil {
 		canvas = restore
 	}
@@ -142,13 +153,13 @@ func (a *GIFAnimator) prepareNext() {
 	if idx < len(g.Disposal) {
 		disposal = g.Disposal[idx]
 	}
-	var nextRestore *image.NRGBA
+	var nextRestore *image.RGBA
 	if disposal == gif.DisposalPrevious {
-		nextRestore = cloneNRGBA(canvas)
+		nextRestore = cloneRGBA(canvas)
 	}
 	frame := g.Image[idx]
 	draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
-	composed := cloneNRGBA(canvas)
+	composed := cloneRGBA(canvas)
 	a.mu.Lock()
 	a.busy = false
 	if a.g == g && (a.index+1 == idx || a.index == len(g.Image)-1 && idx == 0) {
@@ -156,4 +167,10 @@ func (a *GIFAnimator) prepareNext() {
 		a.readyCanvas, a.readyRestore, a.readyDisposal = canvas, nextRestore, disposal
 	}
 	a.mu.Unlock()
+}
+
+func cloneRGBA(src *image.RGBA) *image.RGBA {
+	dst := image.NewRGBA(src.Bounds())
+	draw.Draw(dst, dst.Bounds(), src, src.Bounds().Min, draw.Src)
+	return dst
 }

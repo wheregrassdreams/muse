@@ -3,6 +3,7 @@ package images
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/draw"
@@ -11,6 +12,11 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/webp"
+	_ "image/jpeg"
+	_ "image/png"
 
 	"github.com/tdewolff/canvas"
 	"github.com/tdewolff/canvas/renderers/rasterizer"
@@ -48,7 +54,7 @@ func Decode(data []byte, onSize func(image.Point)) (Decoded, error) {
 				return Decoded{}, fmt.Errorf("decode first GIF frame: %w", err)
 			}
 			canvas := image.Rect(0, 0, budget.config.Width, budget.config.Height)
-			return Decoded{Frames: []image.Image{limitInlineImagePixels(gifCanvasView(frame, canvas))}}, nil
+			return Decoded{Frames: []image.Image{canonicalRGBA(limitInlineImagePixels(gifCanvasView(frame, canvas)))}}, nil
 		}
 		decoded, err := gif.DecodeAll(bytes.NewReader(data))
 		if err != nil {
@@ -84,14 +90,59 @@ func Decode(data []byte, onSize func(image.Point)) (Decoded, error) {
 	if img, ok := decodeLargePNGAtDisplaySize(data); ok {
 		return Decoded{Frames: []image.Image{img}}, nil
 	}
-	img, _, err := image.Decode(bytes.NewReader(data))
+	img, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		if svg, svgErr := DecodeSVG(data); svgErr == nil {
 			return Decoded{Frames: []image.Image{svg}}, nil
 		}
 		return Decoded{}, fmt.Errorf("decode image: %w", err)
 	}
-	return Decoded{Frames: []image.Image{limitInlineImagePixels(img)}}, nil
+	if format == "jpeg" {
+		img = orientJPEG(img, jpegOrientation(data))
+	}
+	return Decoded{Frames: []image.Image{canonicalRGBA(limitInlineImagePixels(img))}}, nil
+}
+
+// DecodeDocument decodes an image for the document/image-preview surface.
+// Unlike inline Markdown assets it keeps the original raster dimensions, but
+// still rejects sources above the single-image 16MP budget before decode.
+func DecodeDocument(data []byte, onSize func(image.Point)) (Decoded, error) {
+	if len(data) >= 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a") {
+		budget, err := inspectGIFFrameBudget(data)
+		if err != nil {
+			return Decoded{}, fmt.Errorf("inspect GIF: %w", err)
+		}
+		if budget.firstPixels > maxSingleImageDecodePixels {
+			return Decoded{}, fmt.Errorf("GIF first frame exceeds the %d-pixel decode limit", maxSingleImageDecodePixels)
+		}
+		if onSize != nil {
+			onSize(image.Pt(budget.config.Width, budget.config.Height))
+		}
+		frame, err := gif.Decode(bytes.NewReader(data))
+		if err != nil {
+			return Decoded{}, err
+		}
+		return Decoded{Frames: []image.Image{canonicalRGBA(gifCanvasView(frame, image.Rect(0, 0, budget.config.Width, budget.config.Height)))}}, nil
+	}
+	if onSize != nil {
+		if p, ok := IntrinsicSize(data); ok {
+			onSize(p)
+		}
+	}
+	if err := checkRasterDecodePixelBudget(data); err != nil {
+		return Decoded{}, err
+	}
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		img, err = DecodeSVG(data)
+		if err != nil {
+			return Decoded{}, fmt.Errorf("decode image: %w", err)
+		}
+	}
+	if format == "jpeg" {
+		img = orientJPEG(img, jpegOrientation(data))
+	}
+	return Decoded{Frames: []image.Image{canonicalRGBA(img)}}, nil
 }
 
 // IntrinsicSize reads dimensions without allocating decoded pixels. SVG sizes
@@ -102,7 +153,11 @@ func IntrinsicSize(data []byte) (image.Point, bool) {
 		if config.Width <= 0 || config.Height <= 0 || int64(config.Width) > maxSingleImageDecodePixels/int64(config.Height) {
 			return image.Point{}, false
 		}
-		return image.Pt(config.Width, config.Height), true
+		w, h := config.Width, config.Height
+		if w, h = orientedSize(w, h, jpegOrientation(data)); w <= 0 || h <= 0 {
+			return image.Point{}, false
+		}
+		return image.Pt(w, h), true
 	}
 	if !svgPrefix(data) {
 		return image.Point{}, false
@@ -138,6 +193,97 @@ func DecodeSVG(data []byte) (image.Image, error) {
 		return nil, fmt.Errorf("cannot render SVG")
 	}
 	return img, nil
+}
+
+func jpegOrientation(data []byte) int {
+	if len(data) < 4 || data[0] != 0xff || data[1] != 0xd8 {
+		return 0
+	}
+	for i := 2; i+4 <= len(data); {
+		if data[i] != 0xff {
+			return 0
+		}
+		marker, size := data[i+1], int(binary.BigEndian.Uint16(data[i+2:]))
+		if marker == 0xda || size < 2 || i+2+size > len(data) {
+			return 0
+		}
+		seg := data[i+4 : i+2+size]
+		if marker == 0xe1 && len(seg) > 14 && string(seg[:6]) == "Exif\x00\x00" {
+			return tiffOrientation(seg[6:])
+		}
+		i += 2 + size
+	}
+	return 0
+}
+
+func tiffOrientation(data []byte) int {
+	if len(data) < 8 {
+		return 0
+	}
+	var order binary.ByteOrder
+	switch string(data[:2]) {
+	case "II":
+		order = binary.LittleEndian
+	case "MM":
+		order = binary.BigEndian
+	default:
+		return 0
+	}
+	ifd := int(order.Uint32(data[4:]))
+	if ifd < 8 || ifd+2 > len(data) {
+		return 0
+	}
+	n := int(order.Uint16(data[ifd:]))
+	for e := ifd + 2; e+12 <= len(data) && n > 0; e, n = e+12, n-1 {
+		if order.Uint16(data[e:]) == 0x0112 && order.Uint16(data[e+2:]) == 3 {
+			o := int(order.Uint16(data[e+8:]))
+			if o >= 1 && o <= 8 {
+				return o
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+func orientedSize(w, h, orientation int) (int, int) {
+	if orientation >= 5 && orientation <= 8 {
+		return h, w
+	}
+	return w, h
+}
+
+func orientJPEG(src image.Image, orientation int) image.Image {
+	if orientation < 2 || orientation > 8 {
+		return src
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	dw, dh := orientedSize(w, h, orientation)
+	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
+	for y := 0; y < dh; y++ {
+		for x := 0; x < dw; x++ {
+			var sx, sy int
+			switch orientation {
+			case 2:
+				sx, sy = w-1-x, y
+			case 3:
+				sx, sy = w-1-x, h-1-y
+			case 4:
+				sx, sy = x, h-1-y
+			case 5:
+				sx, sy = y, x
+			case 6:
+				sx, sy = y, h-1-x
+			case 7:
+				sx, sy = w-1-y, h-1-x
+			case 8:
+				sx, sy = w-1-y, x
+			}
+			dst.Set(x, y, src.At(b.Min.X+sx, b.Min.Y+sy))
+		}
+	}
+	return dst
 }
 
 // Validate checks an encoded image without allocating decoded pixel buffers.
