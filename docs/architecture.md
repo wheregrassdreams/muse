@@ -71,8 +71,10 @@ native/
 │   ├── components/
 │   └── interactions/
 ├── platform/                      # OS/runtime adapters
+│   ├── cachepath/                  # OS/XDG cache-root policy
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
+│       ├── vaultsearchstore/      # concrete persistent search-index storage
 │       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher
 └── locales/                       # localization data and generated catalog

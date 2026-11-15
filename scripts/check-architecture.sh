@@ -99,8 +99,10 @@ for package in \
   native/nativeui/panels/agent \
   native/nativeui/panels/settings \
   native/platform/filesystem/documentstore \
+  native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \
+  native/platform/cachepath \
   native/locales; do
   if [ ! -d "$package" ] || ! find "$package" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print -quit | grep -q .; then
     fail "target package is missing an implementation: $package"
