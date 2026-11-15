@@ -60,6 +60,7 @@ native/
 ├── platform/                      # OS/runtime adapters
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
+│       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher
 └── locales/                       # localization data and generated catalog
 ```
@@ -75,7 +76,7 @@ native/
 | `markdown` | Markdown syntax/AST and derived rendering structures for inline, paragraph, table, image, math and diagrams | Durable note aggregate, editor selection/commands, application panel state |
 | `vault` | Vault identity, file catalog, index lifecycle, link resolution/backlinks and watcher-to-vault policy | Search query language/ranking, native UI, document editing buffer |
 | `search` | Query language/AST, field/operator meaning, execution plan, ranking and result contract | Filesystem traversal, concrete vault index layout, panel state |
-| `workspace` | Open documents, active view, tabs/panes/layout and persisted restoration snapshot | Note source of truth or editor implementation internals |
+| `workspace` | Open documents, active view, tabs/panes/layout, restoration snapshot and repository contract | Note source of truth, editor implementation internals, filesystem persistence |
 | `application` | User workflows spanning modules, ordering, cancellation and transaction boundaries | Domain invariants that belong to a feature module |
 | `nativeui` | Rendering, input translation, focus/panel state and calling use cases | Business rules, storage/index implementation, query execution |
 | `config` / `theme` | Persisted settings schema vs derived runtime style values | Editor/document policy or interaction state machines |
@@ -114,7 +115,7 @@ flowchart TD
 - Domain packages do not import `nativeui`, MyGo widget packages, `platform`, or executable packages.
 - `markdown` never imports `editor`; editor consumes parsed structures and owns edits.
 - `search` owns the corpus/query contracts; `vault/index` implements the corpus contract without exposing its storage layout.
-- Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
+- Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. `workspace` owns its snapshot repository contract; `platform/filesystem/workspacestore` implements it. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
 - `app` is the only composition root that selects concrete implementations and registers extension contributions.
 - No cycles, package-level mutable service locator, or broad `common`, `model`, `strategy`, or `utils` packages.
 
