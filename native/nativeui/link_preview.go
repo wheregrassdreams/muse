@@ -1,7 +1,6 @@
 package nativeui
 
 import (
-	"muse/locales"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,7 +11,9 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	mdedit "muse/editor"
-	mdoc "muse/markdown"
+	"muse/markdown"
+	linkpreview "muse/nativeui/components/linkpreview"
+	markdownui "muse/nativeui/components/markdown"
 	vaultindex "muse/vault/index"
 )
 
@@ -31,7 +32,7 @@ type wikiLinkPreviewState struct {
 	leaveAt        time.Time
 	overlayHovered bool
 	imagePath      string
-	imageAsset     *mdoc.ImageAsset
+	imageAsset     *markdownui.ImageAsset
 	image          *ui.Bitmap
 }
 
@@ -61,11 +62,11 @@ func (a *App) hoverWikiLinkAt(target string, x, y float32, linkBounds ui.Rect) {
 
 func (a *App) resolveVaultImage(src, base, root string) string {
 	if a.vault != nil && a.vault.files != nil {
-		return mdoc.ResolveImageSourceWithLookup(src, base, root, a.vault.files.FindImage)
+		return markdownui.ResolveImageSourceWithLookup(src, base, root, a.vault.files.FindImage)
 	}
 	// The catalog is built asynchronously when a vault opens. Keep the first
 	// frame free of a fallback WalkDir; local/root-relative images still resolve.
-	return mdoc.ResolveImageSourceWithLookup(src, base, root, nil)
+	return markdownui.ResolveImageSourceWithLookup(src, base, root, nil)
 }
 
 // wikiLinkSuggestions returns vault-relative Markdown paths without their
@@ -213,12 +214,11 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 	}
 	anchor := a.wikiPreviewAnchor(c, p)
 	vw, vh := c.Size()
-	t := c.Theme()
 	if imagePath := a.resolveWikiImageTarget(p.target); imagePath != "" {
 		if p.imagePath != imagePath {
 			p.imagePath = imagePath
 			p.image = nil
-			p.imageAsset = mdoc.LoadImageAssetWithCacheStore(imagePath, "", a.imageCacheStore, a.invalidate)
+			p.imageAsset = markdownui.LoadImageAssetWithCacheStore(imagePath, "", a.imageCacheStore, a.invalidate)
 		}
 		if p.imageAsset != nil {
 			if next, _ := p.imageAsset.Advance(c.Now()); next > 0 {
@@ -226,36 +226,19 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 			}
 			p.image = p.imageAsset.Bitmap()
 		}
-		boxRect := placeWikiPreview(ui.Rect{W: vw, H: vh}, anchor, 280, 220)
-		box := ui.Box(c).Key("wiki-link-preview").Label(locales.ImageLinkPreviewTitle()).Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
-			Radius(10).Background(t.Background).Border(1, t.Border).
-			Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Clip()
-		if !a.updateWikiPreviewHover(c, p, box.Hovered()) {
+		keepOpen := true
+		linkpreview.Render(c, linkpreview.ViewModel{
+			Kind: linkpreview.Image, Title: filepath.Base(imagePath), Path: imagePath,
+			Anchor: anchor, Viewport: ui.Rect{W: vw, H: vh}, Width: 280, Height: 220,
+			OverlayHovered: p.overlayHovered, Bitmap: p.image,
+		}, func(action linkpreview.Action) {
+			if action.Kind == linkpreview.HoverChanged {
+				keepOpen = a.updateWikiPreviewHover(c, p, action.Hovered)
+			}
+		})
+		if !keepOpen {
 			return
 		}
-		box.Children(func() {
-			ui.Column(c).Fill().Padding(10).Gap(7).Children(func() {
-				ui.Text(c, filepath.Base(imagePath)).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-				ui.Box(c).FillWidth().Height(1).Background(t.Border)
-				if p.image == nil {
-					ui.Text(c, locales.ImagePreviewUnavailable()).Fill().Center().TextColor(t.TextMuted)
-					return
-				}
-				bw, bh := ui.ImageSize(p.image)
-				if bw <= 0 || bh <= 0 {
-					ui.Text(c, locales.ImagePreviewUnavailable()).Fill().Center().TextColor(t.TextMuted)
-					return
-				}
-				fit := min(254/bw, 178/bh)
-				if fit <= 0 {
-					fit = 1
-				}
-				w, h := bw*fit, bh*fit
-				ui.Box(c).Fill().Center().Children(func() {
-					ui.Image(c, p.image).Key("wiki-image-hover-thumbnail").Size(w, h)
-				})
-			})
-		})
 		return
 	}
 	loc, ok := a.vault.links.Resolve(current, p.target)
@@ -271,37 +254,31 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		title = titleText
 	}
 	preview := wikiPreviewMarkdown(source, loc.Offset)
-	previewDoc := mdoc.Parse(preview)
-	boxRect := placeWikiPreview(ui.Rect{W: vw, H: vh}, anchor, 380, 300)
-	box := ui.Box(c).Key("wiki-link-preview").Label(locales.LinkPreviewTitle()).Absolute().Left(boxRect.X).Top(boxRect.Y).Width(boxRect.W).Height(boxRect.H).
-		Radius(10).Background(t.Background).Border(1, t.Border).
-		Shadow(0, 10, 28, -5, ui.RGBA(0, 0, 0, 0.24)).Clip()
-	if !a.updateWikiPreviewHover(c, p, box.Hovered()) {
+	previewDoc := markdown.Parse(preview)
+	keepOpen := true
+	linkpreview.Render(c, linkpreview.ViewModel{
+		Kind: linkpreview.Markdown, Title: title, Path: loc.Path,
+		Anchor: anchor, Viewport: ui.Rect{W: vw, H: vh}, Width: 380, Height: 300,
+		OverlayHovered: p.overlayHovered, Document: previewDoc,
+		MarkdownOptions: markdownui.Options{
+			BodyFontSize: 12, Padding: 0, ContentWidth: 346,
+			BaseDir: filepath.Join(a.vault.root, filepath.Dir(loc.Path)), AssetRoot: a.vault.root,
+			ImageCacheStore: a.imageCacheStore, ResolveImage: a.resolveVaultImage, OnAsync: a.invalidate,
+			OnImagePreview: func(src string) {
+				resolved := a.resolveVaultImage(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
+				if resolved != "" {
+					a.openImagePreview(resolved)
+				}
+			},
+		},
+	}, func(action linkpreview.Action) {
+		if action.Kind == linkpreview.HoverChanged {
+			keepOpen = a.updateWikiPreviewHover(c, p, action.Hovered)
+		}
+	})
+	if !keepOpen {
 		return
 	}
-	box.Children(func() {
-		ui.Column(c).Fill().Padding(14, 16).Gap(7).Children(func() {
-			ui.Text(c, title).FontSize(15).FontWeight(650).SingleLine().Ellipsis("…")
-			ui.Text(c, loc.Path).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			ui.Box(c).FillWidth().Height(1).Background(t.Border)
-			mdoc.View(c, previewDoc, mdoc.Options{
-				BodyFontSize:    12,
-				Padding:         0,
-				ContentWidth:    346,
-				BaseDir:         filepath.Join(a.vault.root, filepath.Dir(loc.Path)),
-				AssetRoot:       a.vault.root,
-				ImageCacheStore: a.imageCacheStore,
-				ResolveImage:    a.resolveVaultImage,
-				OnAsync:         a.invalidate,
-				OnImagePreview: func(src string) {
-					resolved := a.resolveVaultImage(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
-					if resolved != "" {
-						a.openImagePreview(resolved)
-					}
-				},
-			}).Fill()
-		})
-	})
 }
 
 func (a *App) wikiPreviewAnchor(c *ui.Context, p *wikiLinkPreviewState) ui.Rect {
@@ -317,35 +294,6 @@ func (a *App) wikiPreviewAnchor(c *ui.Context, p *wikiLinkPreviewState) ui.Rect 
 		}
 	}
 	return ui.Rect{X: ox + p.x, Y: oy + p.y, W: 1, H: 1}
-}
-
-// placeWikiPreview positions the card on a vertical side of the hovered link.
-// Keeping the link's y-range outside the card means the trigger remains visible
-// and the pointer can move into the card without losing the hover target.
-func placeWikiPreview(viewport, anchor ui.Rect, width, height float32) ui.Rect {
-	const (
-		edge = float32(8)
-		gap  = float32(12)
-	)
-	width = min(width, max(viewport.W-2*edge, 1))
-	height = min(height, max(viewport.H-2*edge, 1))
-	x := max(viewport.X+edge, min(anchor.X, viewport.X+viewport.W-width-edge))
-	below := anchor.Y + anchor.H + gap
-	above := anchor.Y - height - gap
-	bottom := viewport.Y + viewport.H - edge
-	topEdge := viewport.Y + edge
-	var y float32
-	switch {
-	case below+height <= bottom:
-		y = below
-	case above >= topEdge:
-		y = above
-	case bottom-below >= anchor.Y-topEdge:
-		y = max(topEdge, min(below, bottom-height))
-	default:
-		y = max(topEdge, min(above, bottom-height))
-	}
-	return ui.Rect{X: x, Y: y, W: width, H: height}
 }
 
 func (a *App) updateWikiPreviewHover(c *ui.Context, p *wikiLinkPreviewState, hovered bool) bool {
@@ -432,33 +380,4 @@ func wikiPreviewMarkdown(source string, offset int) string {
 		return "**" + label + "**"
 	})
 	return strings.TrimSpace(source)
-}
-
-func wikiPreviewExcerpt(source string, offset int) string {
-	if source == "" {
-		return locales.LinkPreviewEmptyNote()
-	}
-	offset = max(0, min(offset, len(source)))
-	start := strings.LastIndex(source[:offset], "\n") + 1
-	end := min(len(source), start+1200)
-	lines := strings.Split(source[start:end], "\n")
-	var excerpt []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "#") {
-			continue
-		}
-		excerpt = append(excerpt, line)
-		if len(excerpt) == 5 {
-			break
-		}
-	}
-	if len(excerpt) == 0 {
-		return locales.LinkPreviewNoBody()
-	}
-	text := strings.Join(excerpt, "\n")
-	if len([]rune(text)) > 230 {
-		text = string([]rune(text)[:230]) + "…"
-	}
-	return text
 }

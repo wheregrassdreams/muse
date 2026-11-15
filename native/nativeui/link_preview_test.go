@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	linkpreview "muse/nativeui/components/linkpreview"
 )
 
 func TestWikiLinkHoverPreviewDelayAndDismissal(t *testing.T) {
@@ -147,7 +148,7 @@ func TestWikiHoverPreviewRendersMarkdownAndRelativeImage(t *testing.T) {
 func TestWikiPreviewPlacementKeepsTriggerVisible(t *testing.T) {
 	viewport := ui.Rect{W: 800, H: 600}
 	link := ui.Rect{X: 650, Y: 130, W: 92, H: 24}
-	card := placeWikiPreview(viewport, link, 380, 300)
+	card := linkpreview.Place(viewport, link, 380, 300)
 	if card.X < 0 || card.Y < 0 || card.X+card.W > viewport.W || card.Y+card.H > viewport.H {
 		t.Fatalf("preview card escaped viewport: card=%+v viewport=%+v", card, viewport)
 	}
