@@ -363,6 +363,7 @@ func (m *Manager) repairPane(host HostID, pane PaneID) {
 			}
 		}
 	}
+	m.prunePaneHistory(host)
 	if m.focusedPanes[host] != pane {
 		return
 	}
@@ -403,6 +404,7 @@ func (m *Manager) rememberPaneFocus(host HostID, pane PaneID) {
 	if host == "" || pane == "" {
 		return
 	}
+	m.prunePaneHistory(host)
 	recent := m.recentPanes[host]
 	for i, existing := range recent {
 		if existing == pane {
@@ -413,6 +415,21 @@ func (m *Manager) rememberPaneFocus(host HostID, pane PaneID) {
 	}
 	m.recentPanes[host] = append(recent, pane)
 	m.focusedPanes[host] = pane
+}
+
+func (m *Manager) prunePaneHistory(host HostID) {
+	recent := m.recentPanes[host]
+	kept := recent[:0]
+	for _, pane := range recent {
+		if m.hasPaneContent(host, pane) {
+			kept = append(kept, pane)
+		}
+	}
+	if len(kept) == 0 {
+		delete(m.recentPanes, host)
+		return
+	}
+	m.recentPanes[host] = kept
 }
 
 // mutate defers lifecycle callbacks until the outermost Render has finished.
