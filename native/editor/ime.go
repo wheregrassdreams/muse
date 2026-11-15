@@ -228,16 +228,16 @@ func (e *Editor) MarkedRange() (ui.TextInputRange, bool) {
 
 func (e *Editor) ReplaceText(r *ui.TextInputRange, s string) {
 	if !e.ModalAcceptsText() {
-		e.modalText(s)
+		_, _ = e.Session.Dispatch(InputEvent{Kind: InputInsertText, Text: s})
 		return
 	}
 	defer e.invalidate()
 	switch {
 	case r == nil && e.compose != "":
 		e.compose, e.composing = "", false
-		e.typeText(s)
 	case r == nil:
-		e.typeText(s)
+		// The committed text enters through Session so the native and
+		// component input adapters share the same history/parser path.
 	default:
 		a, _ := e.virtualByte(min(r.Start, r.End))
 		z, _ := e.virtualByte(max(r.Start, r.End))
@@ -247,10 +247,15 @@ func (e *Editor) ReplaceText(r *ui.TextInputRange, s string) {
 			e.layoutIfNeeded()
 			e.trackBlankLineInput(s, stepEdit)
 		}
-		e.begin(stepEdit)
-		e.replace(a, z, s)
-		e.commit(a+len(s), a+len(s))
+		selection := e.Session.Selection()
+		_, _ = e.Session.ApplyTransaction(Transaction{
+			Before: selection,
+			After:  Selection{Anchor: a + len(s), Head: a + len(s)},
+			Edits:  []TextEdit{{Range: TextRange{Start: a, End: z}, Text: s}},
+		})
+		return
 	}
+	_, _ = e.Session.Dispatch(InputEvent{Kind: InputInsertText, Text: s})
 }
 
 // dropPhantomIfAway takes the phantom away when an edit is not in it.
@@ -301,7 +306,7 @@ func (e *Editor) UnmarkText() {
 	}
 	s := e.compose
 	e.compose, e.composing = "", false
-	e.typeText(s)
+	_, _ = e.Session.Dispatch(InputEvent{Kind: InputInsertText, Text: s})
 	e.invalidate()
 }
 

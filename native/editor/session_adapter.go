@@ -17,8 +17,6 @@ import (
 func (e *Editor) bindSessionAdapters() {
 	e.Session.dispatchInputFn = e.dispatchSessionInput
 	e.Session.dispatchKeyFn = func(event KeyEvent) bool {
-		e.paintMu.Lock()
-		defer e.paintMu.Unlock()
 		if e.wikiSuggestionKey(event) {
 			return true
 		}
@@ -49,6 +47,7 @@ func (e *Editor) bindSessionAdapters() {
 			return DispatchResult{}, err
 		}
 		return DispatchResult{
+			Handled:  true,
 			Changed:  e.rev != before,
 			Revision: e.rev,
 		}, nil
@@ -67,22 +66,20 @@ func (e *Editor) bindSessionAdapters() {
 	e.Session.frameFn = e.sessionFrame
 }
 func (e *Editor) dispatchSessionInput(event InputEvent) (DispatchResult, error) {
-	attachedLock := event.Kind != InputSetSelection
-	if attachedLock {
-		e.paintMu.Lock()
-		defer e.paintMu.Unlock()
-	}
 	beforeSource, beforeSelection := e.src, e.Session.selectionLocked()
-	if !attachedLock {
-		beforeSource, beforeSelection = e.sessionSource(), e.sessionSelection()
-	}
 	switch event.Kind {
 	case InputInsertText:
+		if event.Text == "" {
+			return DispatchResult{Revision: e.rev}, nil
+		}
 		if !utf8.ValidString(event.Text) {
 			return DispatchResult{}, fmt.Errorf("inserted text is not valid UTF-8")
 		}
 		if !e.modalText(event.Text) {
+			e.compose = ""
 			e.typeText(event.Text)
+			e.updateWikiSuggestions()
+			e.blinkStart = time.Now()
 		}
 	case InputDeleteBackward:
 		e.key(KeyEvent{Key: editorinput.KeyBackspace})
@@ -108,10 +105,8 @@ func (e *Editor) dispatchSessionInput(event InputEvent) (DispatchResult, error) 
 		return DispatchResult{}, fmt.Errorf("unsupported input kind %d", event.Kind)
 	}
 	afterSelection := e.Session.selectionLocked()
-	if !attachedLock {
-		afterSelection = e.sessionSelection()
-	}
 	return DispatchResult{
+		Handled:          true,
 		Changed:          e.src != beforeSource,
 		SelectionChanged: afterSelection != beforeSelection,
 		Revision:         e.rev,

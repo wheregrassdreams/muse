@@ -128,7 +128,7 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 					opts.OnChange()
 				}
 			}
-			return result.Changed || result.SelectionChanged || event.Kind == editorinput.InsertText
+			return result.Handled
 		}).Children(func() {
 		markdownui.View(c, frame.Document, opts.Markdown)
 	})

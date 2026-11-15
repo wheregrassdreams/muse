@@ -25,40 +25,10 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	defer e.invalidate()
 	switch ev.Kind {
 	case ui.InputKeyDown:
-		keyEvent := keyEventFromUI(ev.Key, ev.Mods)
-		if e.wikiSuggestionKey(keyEvent) {
-			return true
-		}
-		if e.tableHandleDrag != nil {
-			if keyEvent.Key == editorinput.KeyEscape {
-				e.finishTableHandleDrag(true)
-			}
-			return true
-		}
-		if e.modalKeyEvent(keyEvent) {
-			if keyEvent.Key == editorinput.KeyEscape {
-				e.inlineMath.SetPreviewHidden(true)
-			}
-			return true
-		}
-		if e.key(keyEvent) {
-			e.updateWikiSuggestions()
-			e.blinkStart = time.Now()
-			return true
-		}
-		return false
+		return e.Session.DispatchKey(keyEventFromUI(ev.Key, ev.Mods))
 	case ui.InputText:
-		if e.modalText(ev.Text) {
-			return true
-		}
-		if ev.Text == "" {
-			return false
-		}
-		e.compose = ""
-		e.typeText(ev.Text)
-		e.updateWikiSuggestions()
-		e.blinkStart = time.Now()
-		return true
+		result, err := e.Session.Dispatch(InputEvent{Kind: InputInsertText, Text: ev.Text})
+		return err == nil && result.Handled
 	case ui.InputCompose:
 		if !e.ModalAcceptsText() {
 			return true

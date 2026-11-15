@@ -12,6 +12,28 @@ func (e *Editor) modalKey(key ui.Key, modifiers ui.Modifiers) bool {
 	return e.modalKeyEvent(keyEventFromUI(key, modifiers))
 }
 
+func TestProductionViewRoutesVimInputThroughSession(t *testing.T) {
+	e := New("abc", Options{})
+	e.SetKeymap("vim")
+	tester := ui.NewTester(func(c *ui.Context) { e.View(c).Fill() }, 640, 480)
+	tester.Frame()
+	tester.Frame()
+	e.Focus()
+	tester.Frame()
+	tester.Frame()
+	tester.Type("l")
+	tester.Type("i")
+	tester.Type("X")
+	tester.KeyDown(ui.KeyEscape)
+	tester.Frame()
+	if got, want := e.Session.Source(), "aXbc"; got != want {
+		t.Fatalf("Session source = %q, want %q", got, want)
+	}
+	if got := e.Session.Selection().Head; got != 2 {
+		t.Fatalf("Session selection head = %d, want 2", got)
+	}
+}
+
 func TestModalEditingSequence(t *testing.T) {
 	e := New("alpha beta\n中文", Options{})
 	e.SetKeymap("vim")

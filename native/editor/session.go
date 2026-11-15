@@ -42,6 +42,7 @@ const (
 
 // DispatchResult describes state changes caused by one semantic input.
 type DispatchResult struct {
+	Handled          bool
 	Changed          bool
 	SelectionChanged bool
 	Revision         uint64
@@ -220,7 +221,7 @@ func (s *Session) Dispatch(event InputEvent) (DispatchResult, error) {
 			}
 		}
 		if a == z {
-			return DispatchResult{Revision: s.rev}, nil
+			return DispatchResult{Handled: true, Revision: s.rev}, nil
 		}
 		tx = core.Transaction{Before: before, After: Selection{Anchor: a, Head: a}, Edits: []core.TextEdit{{Range: core.TextRange{Start: a, End: z}}}}
 	case InputMoveHorizontal:
@@ -246,14 +247,14 @@ func (s *Session) Dispatch(event InputEvent) (DispatchResult, error) {
 			selection.Anchor = head
 		}
 		s.setSelection(selection)
-		return DispatchResult{SelectionChanged: selection != before, Revision: s.rev}, nil
+		return DispatchResult{Handled: true, SelectionChanged: selection != before, Revision: s.rev}, nil
 	case InputSetSelection:
 		selection := Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Inclusive, Linewise: event.Linewise}
 		if err := validateSelection(s.src, selection); err != nil {
 			return DispatchResult{}, err
 		}
 		s.setSelection(selection)
-		return DispatchResult{SelectionChanged: selection != before, Revision: s.rev}, nil
+		return DispatchResult{Handled: true, SelectionChanged: selection != before, Revision: s.rev}, nil
 	case InputUndo:
 		return s.applyHistory(false), nil
 	case InputRedo:
@@ -287,7 +288,7 @@ func (s *Session) applyTransaction(tx core.Transaction) (DispatchResult, error) 
 		return DispatchResult{}, err
 	}
 	if len(tx.Edits) == 0 {
-		return DispatchResult{Revision: s.rev}, nil
+		return DispatchResult{Handled: true, Revision: s.rev}, nil
 	}
 	changeSet := step{before: [2]int{before.Anchor, before.Head}, after: [2]int{tx.After.Anchor, tx.After.Head}, kind: stepEdit}
 	for i := len(tx.Edits) - 1; i >= 0; i-- {
@@ -299,7 +300,7 @@ func (s *Session) applyTransaction(tx core.Transaction) (DispatchResult, error) 
 	s.hist.redo = nil
 	s.setSelection(tx.After)
 	s.rev++
-	return DispatchResult{Changed: true, SelectionChanged: s.selectionLocked() != before, Revision: s.rev}, nil
+	return DispatchResult{Handled: true, Changed: true, SelectionChanged: s.selectionLocked() != before, Revision: s.rev}, nil
 }
 
 // validateTransactionSource enforces the text-specific part of the shared
@@ -332,7 +333,7 @@ func (s *Session) applyHistory(redo bool) DispatchResult {
 		from, to = &s.hist.redo, &s.hist.undo
 	}
 	if len(*from) == 0 {
-		return DispatchResult{Revision: s.rev}
+		return DispatchResult{Handled: true, Revision: s.rev}
 	}
 	last := (*from)[len(*from)-1]
 	*from = (*from)[:len(*from)-1]
@@ -350,7 +351,7 @@ func (s *Session) applyHistory(redo bool) DispatchResult {
 	}
 	*to = append(*to, last)
 	s.rev++
-	return DispatchResult{Changed: true, SelectionChanged: true, Revision: s.rev}
+	return DispatchResult{Handled: true, Changed: true, SelectionChanged: true, Revision: s.rev}
 }
 
 func validateSelection(source string, selection Selection) error {
