@@ -61,6 +61,7 @@ type ScrollPort struct {
 // out and reports user intent.
 type ViewModel struct {
 	Title, Error, EmptyMessage string
+	DocumentType               string
 	Fields, HiddenFields       []Field
 	SystemFields               []Field
 	Summary                    []Field
@@ -71,6 +72,8 @@ type ViewModel struct {
 	HiddenOpen                 bool
 	SourceMode                 bool
 	SourceDraft                string
+	BacklinkCount              int
+	MoreCount                  int
 	Scroll                     ScrollPort
 }
 
@@ -92,6 +95,9 @@ const (
 	MoveFieldDown
 	ToggleHiddenSection
 	OpenBacklink
+	OpenBacklinks
+	OpenPanel
+	OpenMigrationPreview
 	OpenSource
 	ReturnToProperties
 	SourceDraftChanged
@@ -126,6 +132,47 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	})
 }
 
+// RenderSummary draws the compact document metadata row above the editor.
+// It emits navigation and editing intent without looking up document state.
+func RenderSummary(c *ui.Context, model ViewModel, dispatch func(Action)) {
+	t := c.Theme()
+	quiet := t.TextMuted
+	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+		if model.DocumentType != "" {
+			ui.Text(c, model.DocumentType).FontSize(13).TextColor(quiet)
+		}
+		separator := func() { ui.Text(c, "·").FontSize(13).TextColor(quiet) }
+		if model.BacklinkCount > 0 {
+			if model.DocumentType != "" {
+				separator()
+			}
+			b := ui.ButtonBase(c).Height(32).Padding(0).Label(locales.PropertyViewBacklinks())
+			b.OnClick(func() { dispatchAction(dispatch, Action{Kind: OpenBacklinks}) })
+			b.Children(func() { ui.Text(c, locales.PropertyBacklinkCount(model.BacklinkCount)).FontSize(13).TextColor(quiet) })
+		}
+		for i, field := range model.Summary {
+			separator()
+			if i >= 4 {
+				b := ui.ButtonBase(c).Height(32).Padding(0, 5).Label(locales.PropertyMoreCount(model.MoreCount))
+				b.OnClick(func() { dispatchAction(dispatch, Action{Kind: OpenPanel}) })
+				b.Children(func() { ui.Text(c, locales.PropertyMoreCount(model.MoreCount)).FontSize(13).TextColor(quiet) })
+				break
+			}
+			field := field
+			if field.Editable {
+				b := ui.ButtonBase(c).Height(32).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label(field.Label)
+				if b.Hovered() {
+					b.Background(t.SurfaceHover)
+				}
+				b.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: field.Key}) })
+				b.Children(func() { renderFieldValue(c, field, true) })
+			} else {
+				renderFieldValue(c, field, true)
+			}
+		}
+	})
+}
+
 func renderHeader(c *ui.Context, model ViewModel, title string, dispatch func(Action)) {
 	t := c.Theme()
 	ui.Row(c).Height(58).Shrink(0).Padding(0, 18).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -136,12 +183,24 @@ func renderHeader(c *ui.Context, model ViewModel, title string, dispatch func(Ac
 				dispatchAction(dispatch, Action{Kind: ReturnToProperties})
 			})
 		} else {
+			if model.DocumentType != "" {
+				propertyButton(c, locales.PropertyEditType(), func() {
+					dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: "type"})
+				})
+			}
 			propertyButton(c, locales.PropertyAdd(), func() {
 				dispatchAction(dispatch, Action{Kind: OpenAddForm})
 			})
 			propertyButton(c, locales.PropertyYAMLSource(), func() {
 				dispatchAction(dispatch, Action{Kind: OpenSource})
 			})
+			menu := ui.ButtonBase(c).Height(25).Padding(0, 7).Radius(5).Label(locales.PropertyMenu())
+			menu.Menu(func(m *ui.Menu) {
+				if m.Item(locales.PropertyMigrationPreviewMenu()).Chosen() {
+					dispatchAction(dispatch, Action{Kind: OpenMigrationPreview})
+				}
+			})
+			menu.Children(func() { ui.Text(c, "⋯").FontSize(14).TextColor(c.Theme().TextMuted) })
 		}
 		propertyButton(c, "×", func() { dispatchAction(dispatch, Action{Kind: ClosePanel}) })
 	})
@@ -164,7 +223,7 @@ func renderContent(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			if len(model.Summary) > 0 {
 				renderSummary(c, model.Summary, model, dispatch)
 			}
-			if len(model.Fields) == 0 && len(model.SystemFields) == 0 && len(model.Backlinks) == 0 && !model.AddOpen {
+			if len(model.Fields) == 0 && len(model.HiddenFields) == 0 && len(model.SystemFields) == 0 && len(model.Backlinks) == 0 && !model.AddOpen {
 				message := model.EmptyMessage
 				if message == "" {
 					message = locales.PropertyNoValue()
@@ -179,12 +238,7 @@ func renderContent(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			if len(model.Backlinks) > 0 {
 				renderBacklinks(c, model.Backlinks, dispatch)
 			}
-			if len(model.SystemFields) > 0 {
-				for _, field := range model.SystemFields {
-					renderField(c, field, model, dispatch)
-				}
-			}
-			if len(model.HiddenFields) > 0 {
+			if len(model.HiddenFields) > 0 || len(model.SystemFields) > 0 {
 				renderHiddenFields(c, model, dispatch)
 			}
 			if model.AddOpen {
@@ -200,7 +254,7 @@ func renderSummary(c *ui.Context, fields []Field, model ViewModel, dispatch func
 		for _, field := range fields {
 			field := field
 			if field.Editable {
-				b := ui.ButtonBase(c).Label(field.Label).Height(30).Padding(0, 6).Radius(5)
+				b := ui.ButtonBase(c).Label(locales.PropertyEditLabel(field.Key)).Height(30).Padding(0, 6).Radius(5)
 				if b.Hovered() {
 					b.Background(t.SurfaceHover)
 				}
@@ -268,6 +322,9 @@ func renderEditor(c *ui.Context, field Field, value string, dispatch func(Action
 }
 
 func renderFieldActions(c *ui.Context, field Field, dispatch func(Action)) {
+	if !field.CanPin && !field.CanHide && !(field.CanReorder && (field.CanMoveUp || field.CanMoveDown)) && !field.Removable {
+		return
+	}
 	ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
 		if field.CanPin {
 			label := locales.PropertyPin()
@@ -345,6 +402,9 @@ func renderHiddenFields(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	propertyButton(c, label, func() { dispatchAction(dispatch, Action{Kind: ToggleHiddenSection}) })
 	if model.HiddenOpen {
 		for _, field := range model.HiddenFields {
+			renderField(c, field, model, dispatch)
+		}
+		for _, field := range model.SystemFields {
 			renderField(c, field, model, dispatch)
 		}
 	}

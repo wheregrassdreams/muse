@@ -15,6 +15,7 @@ func TestRenderShowsFieldsTagsAndReadOnlySystemValues(t *testing.T) {
 		},
 		SystemFields: []Field{{Key: "path", Label: "Path", Value: "/vault/Plan.md", System: true}},
 		Backlinks:    []Backlink{{Path: "Index.md", Label: "Index", Count: 2}},
+		HiddenOpen:   true,
 	}
 	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, nil) }, 360, 460)
 	tester.Frame()
@@ -110,5 +111,54 @@ func TestReadOnlySystemFieldDoesNotOfferDeleteAction(t *testing.T) {
 	}
 	if len(actions) != 0 {
 		t.Fatalf("unexpected actions: %+v", actions)
+	}
+}
+
+func TestSummaryBacklinkAndMoreButtonsDispatchNavigationActions(t *testing.T) {
+	var actions []Action
+	model := ViewModel{
+		DocumentType:  "Project",
+		BacklinkCount: 2,
+		MoreCount:     3,
+		Summary: []Field{
+			{Key: "status", Label: "Status", DisplayValue: "Active", Editable: true},
+			{Key: "date", Label: "Date", DisplayValue: "Today", Editable: true},
+			{Key: "tags", Label: "Tags", DisplayValue: "alpha", Editable: true},
+			{Key: "aliases", Label: "Aliases", DisplayValue: "Main", Editable: true},
+			{Key: "owner", Label: "Owner", DisplayValue: "Ari", Editable: true},
+		},
+	}
+	tester := ui.NewTester(func(c *ui.Context) {
+		RenderSummary(c, model, func(action Action) { actions = append(actions, action) })
+	}, 760, 80)
+	tester.Frame()
+	if err := tester.Click(locales.PropertyViewBacklinks()); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != OpenBacklinks {
+		t.Fatalf("backlink action = %+v", actions)
+	}
+	actions = nil
+	if err := tester.Click(locales.PropertyMoreCount(3)); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != OpenPanel {
+		t.Fatalf("more action = %+v", actions)
+	}
+}
+
+func TestSummaryPropertyDispatchesEditAction(t *testing.T) {
+	var actions []Action
+	tester := ui.NewTester(func(c *ui.Context) {
+		RenderSummary(c, ViewModel{Summary: []Field{{Key: "status", DisplayValue: "Draft", Editable: true}}}, func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 420, 80)
+	tester.Frame()
+	if err := tester.Click("Draft"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != BeginEdit || actions[0].FieldKey != "status" {
+		t.Fatalf("summary action = %+v", actions)
 	}
 }
