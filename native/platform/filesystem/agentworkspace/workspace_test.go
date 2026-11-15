@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"muse/application/agent"
 )
 
 func TestResolveWithinRootSupportsMissingTargets(t *testing.T) {
@@ -52,5 +54,37 @@ func TestCurrentDocumentProviderIsInjected(t *testing.T) {
 	path, source := w.CurrentDocument()
 	if path != filepath.Join(root, "draft.md") || source != "unsaved" {
 		t.Fatalf("current=(%q,%q)", path, source)
+	}
+}
+
+func TestReadDirReturnsAgentOwnedEntries(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "notes"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Home.md"), []byte("home"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := New(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := w.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("ReadDir returned %d entries, want 2", len(entries))
+	}
+	got := map[string]agent.Entry{}
+	for _, entry := range entries {
+		got[entry.Name] = entry
+	}
+	canonicalRoot := w.Root()
+	if entry := got["notes"]; entry.Path != filepath.Join(canonicalRoot, "notes") || !entry.IsDir {
+		t.Fatalf("directory entry = %#v", entry)
+	}
+	if entry := got["Home.md"]; entry.Path != filepath.Join(canonicalRoot, "Home.md") || entry.IsDir {
+		t.Fatalf("file entry = %#v", entry)
 	}
 }

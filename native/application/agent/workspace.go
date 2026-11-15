@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,6 +19,14 @@ import (
 // Presentation code owns the callback; platform adapters only invoke it.
 type CurrentDocument func() (path, source string)
 
+// Entry is a backend-neutral description of one child in the agent workspace.
+// Path is the resolved path of the child under the workspace root.
+type Entry struct {
+	Path  string
+	Name  string
+	IsDir bool
+}
+
 // WorkspacePort is a narrow capability for assistant workspace tools. The
 // application service owns path policy and result limits; platform code owns
 // filesystem access and UI code supplies the active document snapshot.
@@ -27,7 +34,7 @@ type WorkspacePort interface {
 	Root() string
 	CurrentDocument() (path, source string)
 	ReadFile(path string) ([]byte, error)
-	ReadDir(path string) ([]os.DirEntry, error)
+	ReadDir(path string) ([]Entry, error)
 	ResolveWithinRoot(path string) (string, error)
 }
 
@@ -54,7 +61,7 @@ func (s WorkspaceReadTools) ListDocuments(ctx context.Context, in ToolInput) (an
 	out := make([]ToolFileEntry, 0, min(200, len(entries)))
 	truncated := false
 	for _, entry := range entries {
-		if hidden(entry.Name()) {
+		if hidden(entry.Name) {
 			continue
 		}
 		if len(out) == 200 {
@@ -62,10 +69,10 @@ func (s WorkspaceReadTools) ListDocuments(ctx context.Context, in ToolInput) (an
 			break
 		}
 		kind := "file"
-		if entry.IsDir() {
+		if entry.IsDir {
 			kind = "dir"
 		}
-		out = append(out, ToolFileEntry{Name: entry.Name(), Type: kind})
+		out = append(out, ToolFileEntry{Name: entry.Name, Type: kind})
 	}
 	return map[string]any{"path": dir, "entries": out, "truncated": truncated}, nil
 }
@@ -208,14 +215,14 @@ func (s WorkspaceReadTools) WorkspaceTree(ctx context.Context, in ToolInput) (an
 			return nil
 		}
 		sort.SliceStable(entries, func(i, j int) bool {
-			di, dj := entries[i].IsDir(), entries[j].IsDir()
+			di, dj := entries[i].IsDir, entries[j].IsDir
 			if di != dj {
 				return di
 			}
-			return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name())
+			return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 		})
 		for _, entry := range entries {
-			name := entry.Name()
+			name := entry.Name
 			if hidden(name) {
 				continue
 			}
@@ -224,10 +231,10 @@ func (s WorkspaceReadTools) WorkspaceTree(ctx context.Context, in ToolInput) (an
 				return nil
 			}
 			count++
-			if entry.IsDir() {
+			if entry.IsDir {
 				fmt.Fprintf(&b, "%s%s/\n", prefix, name)
 				if level < depth {
-					if err := walk(filepath.Join(dir, name), prefix+"  ", level+1); err != nil {
+					if err := walk(entry.Path, prefix+"  ", level+1); err != nil {
 						return err
 					}
 				}

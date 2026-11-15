@@ -11,10 +11,20 @@ import (
 
 type testWorkspace struct{ root, current, source string }
 
-func (w testWorkspace) Root() string                               { return w.root }
-func (w testWorkspace) CurrentDocument() (string, string)          { return w.current, w.source }
-func (w testWorkspace) ReadFile(path string) ([]byte, error)       { return os.ReadFile(path) }
-func (w testWorkspace) ReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
+func (w testWorkspace) Root() string                         { return w.root }
+func (w testWorkspace) CurrentDocument() (string, string)    { return w.current, w.source }
+func (w testWorkspace) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+func (w testWorkspace) ReadDir(path string) ([]Entry, error) {
+	dirEntries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(dirEntries))
+	for _, entry := range dirEntries {
+		entries = append(entries, Entry{Path: filepath.Join(path, entry.Name()), Name: entry.Name(), IsDir: entry.IsDir()})
+	}
+	return entries, nil
+}
 func (w testWorkspace) ResolveWithinRoot(path string) (string, error) {
 	root, err := filepath.EvalSymlinks(w.root)
 	if err != nil {

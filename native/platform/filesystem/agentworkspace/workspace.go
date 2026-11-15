@@ -100,12 +100,24 @@ func (w *Workspace) ReadFile(path string) ([]byte, error) {
 	}
 	return os.ReadFile(resolved)
 }
-func (w *Workspace) ReadDir(path string) ([]os.DirEntry, error) {
+func (w *Workspace) ReadDir(path string) ([]agent.Entry, error) {
 	resolved, err := w.ResolveWithinRoot(path)
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadDir(resolved)
+	dirEntries, err := os.ReadDir(resolved)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]agent.Entry, 0, len(dirEntries))
+	for _, entry := range dirEntries {
+		entries = append(entries, agent.Entry{
+			Path:  filepath.Join(resolved, entry.Name()),
+			Name:  entry.Name(),
+			IsDir: entry.IsDir(),
+		})
+	}
+	return entries, nil
 }
 
 // Exists reports whether a workspace path exists without following a final
