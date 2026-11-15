@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +15,37 @@ func (w testWorkspace) Root() string                               { return w.ro
 func (w testWorkspace) CurrentDocument() (string, string)          { return w.current, w.source }
 func (w testWorkspace) ReadFile(path string) ([]byte, error)       { return os.ReadFile(path) }
 func (w testWorkspace) ReadDir(path string) ([]os.DirEntry, error) { return os.ReadDir(path) }
+func (w testWorkspace) ResolveWithinRoot(path string) (string, error) {
+	root, err := filepath.EvalSymlinks(w.root)
+	if err != nil {
+		return "", err
+	}
+	missing := []string{}
+	ancestor := path
+	for {
+		if _, statErr := os.Lstat(ancestor); statErr == nil {
+			break
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return "", errors.New("no existing ancestor")
+		}
+		missing = append([]string{filepath.Base(ancestor)}, missing...)
+		ancestor = parent
+	}
+	real, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return "", err
+	}
+	for _, part := range missing {
+		real = filepath.Join(real, part)
+	}
+	rel, err := filepath.Rel(root, real)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("outside workspace")
+	}
+	return real, nil
+}
 
 func TestWorkspaceToolsBoundPathsAndReadCurrentBuffer(t *testing.T) {
 	root := t.TempDir()
@@ -61,5 +94,20 @@ func TestWorkspaceToolsOutlineAndTreeBounds(t *testing.T) {
 	}
 	if tree.(map[string]any)["entries"] != 2 {
 		t.Fatalf("tree: %#v", tree)
+	}
+}
+
+func TestWorkspaceToolsRejectSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	s := WorkspaceReadTools{Workspace: testWorkspace{root: root}}
+	if _, err := s.ReadDocument(context.Background(), ToolInput{Path: "escape/secret.md"}); err == nil {
+		t.Fatal("read through symlink outside workspace succeeded")
 	}
 }

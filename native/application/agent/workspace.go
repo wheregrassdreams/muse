@@ -24,6 +24,7 @@ type WorkspacePort interface {
 	CurrentDocument() (path, source string)
 	ReadFile(path string) ([]byte, error)
 	ReadDir(path string) ([]os.DirEntry, error)
+	ResolveWithinRoot(path string) (string, error)
 }
 
 // WorkspaceReadTools implements bounded, read-only assistant workspace actions.
@@ -266,6 +267,7 @@ type WorkspaceMutationPort interface {
 	MoveDocument(root, source, target string) (string, error)
 	TrashDocuments(root string, paths []string) error
 	CreateFolder(path string) error
+	Exists(path string) (bool, error)
 }
 
 type ToolEffectKind string
@@ -285,6 +287,55 @@ type ToolEffect struct {
 // WorkspaceWriteTools applies assistant document and file mutations using
 // injected capabilities; it never reaches into editor or widget state.
 type WorkspaceWriteTools struct{ Workspace WorkspaceMutationPort }
+
+// WorkspaceOperations composes read and write capabilities into the Executor
+// port without coupling either tool family to presentation state.
+type WorkspaceOperations struct {
+	Read  WorkspaceReadTools
+	Write WorkspaceWriteTools
+}
+
+func (o WorkspaceOperations) ListDocuments(c context.Context, i ToolInput) (any, error) {
+	return o.Read.ListDocuments(c, i)
+}
+func (o WorkspaceOperations) ReadDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Read.ReadDocument(c, i)
+}
+func (o WorkspaceOperations) SearchDocuments(c context.Context, i ToolInput) (any, error) {
+	return o.Read.SearchDocuments(c, i)
+}
+func (o WorkspaceOperations) ReadOutline(c context.Context, i ToolInput) (any, error) {
+	return o.Read.ReadOutline(c, i)
+}
+func (o WorkspaceOperations) WorkspaceTree(c context.Context, i ToolInput) (any, error) {
+	return o.Read.WorkspaceTree(c, i)
+}
+func (o WorkspaceOperations) DocumentStats(c context.Context, i ToolInput) (any, error) {
+	return o.Read.DocumentStats(c, i)
+}
+func (o WorkspaceOperations) OpenDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.OpenDocument(c, i)
+}
+func (o WorkspaceOperations) EditDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.EditDocument(c, i)
+}
+func (o WorkspaceOperations) InsertIntoDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.InsertIntoDocument(c, i)
+}
+func (o WorkspaceOperations) WriteDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.WriteDocument(c, i)
+}
+func (o WorkspaceOperations) RenameDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.RenameDocument(c, i)
+}
+func (o WorkspaceOperations) DeleteDocument(c context.Context, i ToolInput) (any, error) {
+	return o.Write.DeleteDocument(c, i)
+}
+func (o WorkspaceOperations) CreateFolder(c context.Context, i ToolInput) (any, error) {
+	return o.Write.CreateFolder(c, i)
+}
+
+var _ Operations = WorkspaceOperations{}
 
 func (s WorkspaceWriteTools) OpenDocument(ctx context.Context, in ToolInput) (any, error) {
 	if err := ctx.Err(); err != nil {
@@ -317,6 +368,20 @@ func (s WorkspaceWriteTools) EditDocument(ctx context.Context, in ToolInput) (an
 	}
 	if in.OldText == "" {
 		return nil, errors.New("old text is empty")
+	}
+	if strings.TrimSpace(in.Path) == "" || strings.TrimSpace(in.Path) == "current" {
+		if s.Workspace == nil {
+			return nil, errors.New("workspace capability is unavailable")
+		}
+		_, source := s.Workspace.CurrentDocument()
+		updated, err := replaceUnique(source, in.OldText, in.NewText)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.Workspace.ApplyCurrentDocument(updated); err != nil {
+			return nil, err
+		}
+		return map[string]any{"path": "current", "replaced": true, "new_chars": len(updated)}, nil
 	}
 	path, source, err := s.target(in.Path)
 	if err != nil {
@@ -351,6 +416,10 @@ func (s WorkspaceWriteTools) WriteDocument(ctx context.Context, in ToolInput) (a
 	if !supportedWritePath(path) {
 		return nil, errors.New("only Markdown and text files are supported")
 	}
+	created, err := s.Workspace.Exists(path)
+	if err != nil {
+		return nil, err
+	}
 	if filepath.Clean(path) == filepath.Clean(s.currentPath()) {
 		if err := s.Workspace.ApplyCurrentDocument(in.Content); err != nil {
 			return nil, err
@@ -364,7 +433,7 @@ func (s WorkspaceWriteTools) WriteDocument(ctx context.Context, in ToolInput) (a
 			return nil, err
 		}
 	}
-	return map[string]any{"path": path, "new_chars": len(in.Content)}, nil
+	return map[string]any{"path": path, "created": !created, "new_chars": len(in.Content)}, nil
 }
 func (s WorkspaceWriteTools) RenameDocument(ctx context.Context, in ToolInput) (any, error) {
 	if err := ctx.Err(); err != nil {
@@ -445,7 +514,7 @@ func revisionOf(source string) string {
 	sum := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(sum[:])
 }
-func editablePath(path string) bool { return supportedWritePath(path) || filepath.Ext(path) != "" }
+func editablePath(path string) bool { return supportedWritePath(path) }
 func supportedWritePath(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".md" || ext == ".markdown" || ext == ".txt"
@@ -476,7 +545,7 @@ func (s WorkspaceReadTools) resolve(value string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("path escapes workspace")
 	}
-	return full, nil
+	return s.Workspace.ResolveWithinRoot(full)
 }
 func (s WorkspaceReadTools) target(value string) (string, string, error) {
 	p := strings.TrimSpace(value)
