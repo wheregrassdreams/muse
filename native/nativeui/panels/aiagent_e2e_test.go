@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/config"
 )
 
 // sseChunk 包装一个 delta JSON 为 SSE 事件。
@@ -82,7 +83,7 @@ func TestAgentLoopEndToEnd(t *testing.T) {
 	}
 	a.path = docPath
 	a.loadDoc(doc)
-	a.ai = aiSettings{BaseURL: srv.URL, APIKey: "k", Model: "m", Tools: defaultAITools()}
+	a.ai = config.AssistantSettings{BaseURL: srv.URL, APIKey: "k", Model: "m", Tools: config.DefaultAssistantTools()}
 	a.aiInput = "总结一下这篇文档"
 	a.sendAI()
 
@@ -183,7 +184,7 @@ func TestAgentLoopDegradesWithoutTools(t *testing.T) {
 	defer srv.Close()
 
 	a := New()
-	a.ai = aiSettings{BaseURL: srv.URL, Model: "m", Tools: defaultAITools()}
+	a.ai = config.AssistantSettings{BaseURL: srv.URL, Model: "m", Tools: config.DefaultAssistantTools()}
 	a.aiInput = "在吗"
 	a.sendAI()
 
@@ -256,7 +257,7 @@ func approvalApp(t *testing.T, srv *httptest.Server, perm aiPerm, setup ...func(
 	a.panel = panelAI
 	a.panelWidth = a.panelTargetWidth()
 	a.aiPerm = perm // 必须在 sendAI 前设好，循环会立刻读到
-	a.ai = aiSettings{BaseURL: srv.URL, Model: "m", Tools: defaultAITools()}
+	a.ai = config.AssistantSettings{BaseURL: srv.URL, Model: "m", Tools: config.DefaultAssistantTools()}
 	a.aiInput = "把标题改掉"
 	for _, fn := range setup {
 		fn(a) // 设置要在 sendAI 前定好：循环一开始就读它们
@@ -459,7 +460,7 @@ func TestAgentManageDisabled(t *testing.T) {
 	defer srv.Close()
 
 	a, _ := approvalApp(t, srv, permAsk, func(a *App) {
-		a.ai.Tools = aiTools{Browse: true, Edit: true, Manage: false}
+		a.ai.Tools = config.AssistantTools{Browse: true, Edit: true, Manage: false}
 	})
 	waitIdle(t, a)
 

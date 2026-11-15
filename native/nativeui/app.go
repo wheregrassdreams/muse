@@ -31,6 +31,7 @@ import (
 	documentsave "muse/application/document"
 	applicationvault "muse/application/vault"
 	workspaceapp "muse/application/workspace"
+	"muse/config"
 	"muse/document"
 	"muse/document/frontmatter"
 	mdedit "muse/editor"
@@ -376,7 +377,7 @@ type App struct {
 	vimYankFlash           bool
 
 	// AI
-	ai          aiSettings
+	ai          config.AssistantSettings
 	aiClient    *agent.AI
 	aiMessages  []chatMessage
 	aiInput     string
@@ -454,6 +455,7 @@ type Dependencies struct {
 
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
+	assistantSettings, _ := config.LoadAssistantSettings()
 	a := &App{
 		themeMode:       themeSystem,
 		accentID:        "red",
@@ -473,7 +475,7 @@ func New() *App {
 		fontSize:        16,
 		lineHeight:      1.7,
 		smartTypography: true,
-		ai:              loadAISettings(),
+		ai:              assistantSettings,
 		aiClient:        agent.NewAI(),
 		aiMessages:      loadAIChat(),
 		documents:       documentdialogs.New(),

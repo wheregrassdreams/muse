@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"muse/config"
 )
 
 // sse 把一段 JSON 包装成一个 OpenAI 风格的 SSE 事件。
@@ -147,7 +148,7 @@ func jsonQuote(s string) string {
 
 func TestWireMessagesCarriesToolRound(t *testing.T) {
 	a := New()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	a.aiMessages = []chatMessage{
 		{Role: "user", Content: "帮我改标题"},
 		{Role: "assistant", Parts: []chatPart{
@@ -341,8 +342,8 @@ func TestAISettingsRoundTrip(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", dir)
 	defer os.Setenv("MUSE_CONFIG_DIR", old)
 
-	want := aiSettings{BaseURL: "https://example.test/v1", APIKey: "sk-test", Model: "m", System: "sys"}
-	if err := saveAISettings(want); err != nil {
+	want := config.AssistantSettings{BaseURL: "https://example.test/v1", APIKey: "sk-test", Model: "m", System: "sys"}
+	if err := config.SaveAssistantSettings(want); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(dir, "ai.json"))
@@ -354,7 +355,10 @@ func TestAISettingsRoundTrip(t *testing.T) {
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode = %v, want 0600", fi.Mode().Perm())
 	}
-	got := loadAISettings()
+	got, err := config.LoadAssistantSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != want {
 		t.Fatalf("loaded = %+v, want %+v", got, want)
 	}
@@ -375,17 +379,20 @@ func TestAIServiceMagpiePreset(t *testing.T) {
 		t.Fatalf("choose magpie: %v", err)
 	}
 	tt.Frame()
-	if !a.ai.usesMagpie() || a.ai.BaseURL != magpieGatewayBaseURL {
+	if !a.ai.UsesMagpie() || a.ai.BaseURL != config.AssistantMagpieBaseURL {
 		t.Fatalf("magpie preset = %+v", a.ai)
 	}
-	if !tt.HasText(magpieGatewayBaseURL) {
+	if !tt.HasText(config.AssistantMagpieBaseURL) {
 		t.Fatalf("gateway address not shown; texts=%q", tt.Texts())
 	}
 	if err := tt.Click("保存模型设置"); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	got := loadAISettings()
-	if got.Provider != aiProviderMagpie || got.BaseURL != magpieGatewayBaseURL {
+	got, err := config.LoadAssistantSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != config.AssistantProviderMagpie || got.BaseURL != config.AssistantMagpieBaseURL {
 		t.Fatalf("saved = %+v", got)
 	}
 
@@ -393,7 +400,7 @@ func TestAIServiceMagpiePreset(t *testing.T) {
 		t.Fatalf("choose custom: %v", err)
 	}
 	tt.Frame()
-	if a.ai.usesMagpie() || a.ai.BaseURL != "" {
+	if a.ai.UsesMagpie() || a.ai.BaseURL != "" {
 		t.Fatalf("custom switch left %+v", a.ai)
 	}
 }
@@ -403,7 +410,7 @@ func TestAIViewShowsSetupWhenUnconfigured(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{}
+	a.ai = config.AssistantSettings{}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !tt.HasText("设置模型") {
@@ -416,7 +423,7 @@ func TestAIViewShowsUserMessage(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	a.aiMessages = []chatMessage{{Role: "user", Content: "hello"}}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -431,7 +438,7 @@ func TestAIViewRendersAgentParts(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	a.aiMessages = []chatMessage{
 		{Role: "user", Content: "帮我看看"},
 		{Role: "assistant", Parts: []chatPart{
@@ -463,7 +470,7 @@ func TestAIViewEmptyShowsSuggestions(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !tt.HasText("总结这篇文档") {
@@ -484,7 +491,7 @@ func TestAIComposerStaysPinned(t *testing.T) {
 		a.panel = panelAI
 		a.panelOpen = true
 		a.panelWidth = a.panelTargetWidth()
-		a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "very-long-model-name"}
+		a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "very-long-model-name"}
 		if contentLen > 0 {
 			long := strings.Repeat("这是一段很长的内容，用来把对话撑出面板可视区。\n\n", 120)
 			a.aiMessages = []chatMessage{
@@ -517,7 +524,7 @@ func TestAIViewShowsApprovalCard(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	a.aiMessages = []chatMessage{
 		{Role: "user", Content: "帮我改一下"},
 		{Role: "assistant", Parts: []chatPart{
@@ -556,7 +563,7 @@ func TestAIComposerPermMenu(t *testing.T) {
 	a.panel = panelAI
 	a.panelOpen = true
 	a.panelWidth = a.panelTargetWidth()
-	a.ai = aiSettings{BaseURL: "https://example.test/v1", Model: "m"}
+	a.ai = config.AssistantSettings{BaseURL: "https://example.test/v1", Model: "m"}
 	tt := ui.NewTester(a.View, 348, 800)
 	tt.Frame()
 	if !tt.HasText("每次询问") {
@@ -585,7 +592,7 @@ func TestAgentToolsMoreOnWorkspace(t *testing.T) {
 	if err := os.WriteFile(doc, []byte("# 笔记\n\n正文内容\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp()
 	a.root = dir
 	a.path = doc
 	a.loadDoc("# 笔记\n\n正文内容\n")
@@ -702,14 +709,21 @@ func TestAgentToolsSettingsToggles(t *testing.T) {
 	if a.ai.Tools.Manage {
 		t.Fatal("开关应翻为关闭")
 	}
-	got := loadAISettings()
+	got, err := config.LoadAssistantSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.Tools.Manage {
 		t.Fatal("翻转应立即落盘")
 	}
 	if err := tt.Click("允许管理文件"); err != nil {
 		t.Fatalf("click switch again: %v", err)
 	}
-	if !loadAISettings().Tools.Manage {
+	got, err := config.LoadAssistantSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Tools.Manage {
 		t.Fatal("再次翻转应恢复开启")
 	}
 }

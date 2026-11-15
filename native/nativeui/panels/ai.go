@@ -4,98 +4,19 @@ package nativeui
 // 对话的渲染在 aichat.go，Agent 循环与工具在 aiagent.go。
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"muse/agent"
+	"muse/config"
 	"muse/locales"
-	"muse/services"
 )
-
-// aiTools 是 Agent 的能力开关：一组工具的可用性，按组开关。
-type aiTools struct {
-	Browse bool `json:"browse"` // 浏览与搜索文档
-	Edit   bool `json:"edit"`   // 编辑文档内容
-	Manage bool `json:"manage"` // 管理文件（新建/写入/重命名/删除/文件夹）
-}
-
-// defaultAITools 是没有配置时的缺省能力：全开。
-func defaultAITools() aiTools {
-	return aiTools{Browse: true, Edit: true, Manage: true}
-}
-
-type aiSettings struct {
-	// Provider is "" (any OpenAI-compatible endpoint) or "magpie" (the local
-	// gateway the magpie menu-bar app serves).
-	Provider string  `json:"provider,omitempty"`
-	BaseURL  string  `json:"baseUrl"`
-	APIKey   string  `json:"apiKey"`
-	Model    string  `json:"model"`
-	System   string  `json:"system,omitempty"`
-	Tools    aiTools `json:"tools"`
-}
-
-const (
-	aiProviderCustom = ""
-	aiProviderMagpie = "magpie"
-	// magpieGatewayBaseURL is magpie's default gateway address: the desktop
-	// app serves an OpenAI-compatible API on 127.0.0.1:3425.
-	magpieGatewayBaseURL = "http://127.0.0.1:3425/v1"
-)
-
-func (s aiSettings) usesMagpie() bool { return s.Provider == aiProviderMagpie }
-
-func aiConfigPath() string {
-	if dir := os.Getenv("MUSE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "ai.json")
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = os.TempDir()
-	}
-	return filepath.Join(dir, "Muse", "ai.json")
-}
-
-func loadAISettings() aiSettings {
-	var s aiSettings
-	data, err := os.ReadFile(aiConfigPath())
-	if err != nil {
-		// 还没有配置文件：能力全开。
-		s.Tools = defaultAITools()
-		return s
-	}
-	_ = json.Unmarshal(data, &s)
-	// 旧配置文件没有 tools 字段：视为全开，别把老用户的能力关掉。
-	var raw map[string]json.RawMessage
-	if json.Unmarshal(data, &raw) != nil {
-		s.Tools = defaultAITools()
-		return s
-	}
-	if _, ok := raw["tools"]; !ok {
-		s.Tools = defaultAITools()
-	}
-	return s
-}
-
-func saveAISettings(s aiSettings) error {
-	path := aiConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
-}
 
 // saveAITools 把能力开关立即落盘（开关切换即生效）。
 func (a *App) saveAITools() {
-	if err := saveAISettings(a.ai); err != nil {
+	if err := config.SaveAssistantSettings(a.ai); err != nil {
 		a.notice(locales.CommonSaveFailed(err.Error()))
 	}
 	a.invalidate()
@@ -116,7 +37,7 @@ func (a *App) aiSettings(c *ui.Context) {
 
 func (a *App) modelSettings(c *ui.Context) {
 	t := c.Theme()
-	magpie := a.ai.usesMagpie()
+	magpie := a.ai.UsesMagpie()
 	settingsGroup(c, "", func() {
 		serviceDetail := locales.AiServiceAnyDetail()
 		if magpie {
@@ -131,7 +52,7 @@ func (a *App) modelSettings(c *ui.Context) {
 		urlPlaceholder := "https://api.openai.com/v1"
 		if magpie {
 			urlDetail = locales.AiURLMagpieDetail()
-			urlPlaceholder = magpieGatewayBaseURL
+			urlPlaceholder = config.AssistantMagpieBaseURL
 		}
 		settingsRow(c, locales.AiEndpoint(), urlDetail, func() {
 			ui.TextInput(c, &a.ai.BaseURL).Width(250).Placeholder(urlPlaceholder)
@@ -190,9 +111,9 @@ func (a *App) modelSettings(c *ui.Context) {
 	})
 	// 保存行保持在原位；Agent 能力组放页面末尾，切换即存，不用点保存。
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, locales.AiConfigLocation(aiConfigPath())).FontSize(10.5).TextColor(t.TextMuted).Grow(1).SingleLine().Ellipsis("…")
+		ui.Text(c, locales.AiConfigLocation(config.AssistantSettingsPath())).FontSize(10.5).TextColor(t.TextMuted).Grow(1).SingleLine().Ellipsis("…")
 		if modelSaveButton(c, locales.AiSaveModelSettings()).Clicked() {
-			if err := saveAISettings(a.ai); err != nil {
+			if err := config.SaveAssistantSettings(a.ai); err != nil {
 				a.notice(locales.CommonSaveFailed(err.Error()))
 			} else {
 				a.notice(locales.AiModelSettingsSaved())
@@ -228,7 +149,7 @@ func (a *App) modelSettings(c *ui.Context) {
 // the rail are; the accent stays for links and focus only.
 func (a *App) aiServiceButton(c *ui.Context, label string, magpie bool) {
 	t := c.Theme()
-	selected := a.ai.usesMagpie() == magpie
+	selected := a.ai.UsesMagpie() == magpie
 	b := ui.ButtonBase(c).Height(28).Padding(0, 11).Radius(7).Label(label)
 	switch {
 	case selected && t.Dark:
@@ -270,15 +191,15 @@ func modelSaveButton(c *ui.Context, label string) ui.Element {
 // endpoint. The model name belongs to the endpoint it came from, so it is
 // dropped and re-fetched rather than sent to the other one.
 func (a *App) setAIService(magpie bool) {
-	if a.ai.usesMagpie() == magpie {
+	if a.ai.UsesMagpie() == magpie {
 		return
 	}
 	if magpie {
-		a.ai.Provider = aiProviderMagpie
-		a.ai.BaseURL = magpieGatewayBaseURL
+		a.ai.Provider = config.AssistantProviderMagpie
+		a.ai.BaseURL = config.AssistantMagpieBaseURL
 	} else {
-		a.ai.Provider = aiProviderCustom
-		if a.ai.BaseURL == magpieGatewayBaseURL {
+		a.ai.Provider = config.AssistantProviderCustom
+		if a.ai.BaseURL == config.AssistantMagpieBaseURL {
 			a.ai.BaseURL = ""
 		}
 	}
@@ -367,7 +288,7 @@ func (a *App) fetchAIModels() {
 	a.aiModelsBusy = true
 	a.aiModelsErr = ""
 	a.invalidate()
-	req := services.TestConnRequest{BaseURL: a.ai.BaseURL, APIKey: a.ai.APIKey}
+	req := agent.TestConnRequest{BaseURL: a.ai.BaseURL, APIKey: a.ai.APIKey}
 	go func() {
 		res := a.aiClient.ListModels(req)
 		mygo.RunOnMain(func() {
