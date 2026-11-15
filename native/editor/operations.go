@@ -1,78 +1,68 @@
 package editor
 
+import "muse/editor/input"
+
 // EditorOperationKind names editor semantics independently of any keymap.
 // Keymaps and UI controls translate input into these operations; source,
 // selection, folding, and viewport behavior remain owned by Editor.
-type EditorOperationKind string
+type EditorOperationKind = input.OperationKind
 
 const (
-	OperationBeginCharacterFind  EditorOperationKind = "begin-character-find"
-	OperationFindCharacter       EditorOperationKind = "find-character"
-	OperationRepeatCharacterFind EditorOperationKind = "repeat-character-find"
-	OperationBeginReplace        EditorOperationKind = "begin-replace"
-	OperationMoveHorizontal      EditorOperationKind = "move-horizontal"
-	OperationPutRegister         EditorOperationKind = "put-register"
-	OperationReplaceCharacter    EditorOperationKind = "replace-character"
-	OperationBeginSearch         EditorOperationKind = "begin-search"
-	OperationSubmitSearch        EditorOperationKind = "submit-search"
-	OperationCancelSearch        EditorOperationKind = "cancel-search"
-	OperationRepeatSearch        EditorOperationKind = "repeat-search"
-	OperationScrollCaretLine     EditorOperationKind = "scroll-caret-line"
-	OperationFoldAtCaret         EditorOperationKind = "fold-at-caret"
-	OperationFoldAll             EditorOperationKind = "fold-all"
-	OperationRevealCaret         EditorOperationKind = "reveal-caret"
+	OperationBeginCharacterFind  = input.OperationBeginCharacterFind
+	OperationFindCharacter       = input.OperationFindCharacter
+	OperationRepeatCharacterFind = input.OperationRepeatCharacterFind
+	OperationBeginReplace        = input.OperationBeginReplace
+	OperationMoveHorizontal      = input.OperationMoveHorizontal
+	OperationPutRegister         = input.OperationPutRegister
+	OperationReplaceCharacter    = input.OperationReplaceCharacter
+	OperationBeginSearch         = input.OperationBeginSearch
+	OperationSubmitSearch        = input.OperationSubmitSearch
+	OperationCancelSearch        = input.OperationCancelSearch
+	OperationRepeatSearch        = input.OperationRepeatSearch
+	OperationScrollCaretLine     = input.OperationScrollCaretLine
+	OperationFoldAtCaret         = input.OperationFoldAtCaret
+	OperationFoldAll             = input.OperationFoldAll
+	OperationRevealCaret         = input.OperationRevealCaret
 )
 
-type CaretLinePlacement uint8
+type CaretLinePlacement = input.CaretLinePlacement
 
 const (
-	CaretLineTop CaretLinePlacement = iota + 1
-	CaretLineCenter
-	CaretLineBottom
+	CaretLineTop    = input.CaretLineTop
+	CaretLineCenter = input.CaretLineCenter
+	CaretLineBottom = input.CaretLineBottom
 )
 
 // PageJumpAlignment describes how a semantic in-document navigation target
 // should land in the viewport. It is shared by outline, footnote, anchor and
 // search navigation, independently of the input keymap that initiated it.
-type PageJumpAlignment uint8
+type PageJumpAlignment = input.PageJumpAlignment
 
 const (
-	PageJumpNearest PageJumpAlignment = iota
-	PageJumpTopMargin
-	PageJumpCenter
-	PageJumpTop
-	PageJumpBottom
+	PageJumpNearest   = input.PageJumpNearest
+	PageJumpTopMargin = input.PageJumpTopMargin
+	PageJumpCenter    = input.PageJumpCenter
+	PageJumpTop       = input.PageJumpTop
+	PageJumpBottom    = input.PageJumpBottom
 )
 
-type FoldOperation uint8
+type FoldOperation = input.FoldOperation
 
 const (
-	FoldToggle FoldOperation = iota + 1
-	FoldClose
-	FoldOpen
-	FoldToggleRecursive
-	FoldCloseRecursive
-	FoldOpenRecursive
-	FoldReveal
-	FoldCloseAll
-	FoldOpenAll
+	FoldToggle          = input.FoldToggle
+	FoldClose           = input.FoldClose
+	FoldOpen            = input.FoldOpen
+	FoldToggleRecursive = input.FoldToggleRecursive
+	FoldCloseRecursive  = input.FoldCloseRecursive
+	FoldOpenRecursive   = input.FoldOpenRecursive
+	FoldReveal          = input.FoldReveal
+	FoldCloseAll        = input.FoldCloseAll
+	FoldOpenAll         = input.FoldOpenAll
 )
 
 // EditorOperation is a keymap-neutral editor intent. Unused fields are
 // ignored by the selected Kind.
-type EditorOperation struct {
-	Kind       EditorOperationKind
-	Count      int
-	Direction  int
-	Character  string
-	Till       bool
-	Reverse    bool
-	WithinLine bool
-	Extend     bool
-	Before     bool
-	Placement  CaretLinePlacement
-	Fold       FoldOperation
-}
+type EditorOperation = input.Operation
 
 // ApplyOperation executes a keymap-neutral editor intent through the shared
 // session contract used by both keymaps and native UI adapters.
