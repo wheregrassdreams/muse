@@ -97,16 +97,25 @@ const (
 
 // Action contains presentation intent only. In particular, DropEntries does
 // not imply move/copy/reorder; the caller decides what the target means.
-type Action struct {
+type Action[T any] struct {
 	Kind      ActionKind
 	ID        string
 	CommandID string
 	ItemIDs   []string
+	Payload   T
 	Modifiers ui.Modifiers
 	Offer     transfer.Offer
 	Drop      transfer.Drop
 	Paths     []string
 	Bounds    ui.Rect
+}
+
+// DragPort adapts the panel's stable row IDs to a caller-owned MyGo drag
+// payload. This lets another panel consume the same concrete payload type
+// without filetree importing that feature's package.
+type DragPort[T any] struct {
+	Make func(entryID string, selectedIDs []string) T
+	IDs  func(T) []string
 }
 
 type RenderResult struct {
@@ -115,9 +124,7 @@ type RenderResult struct {
 	NativeOffer *transfer.Offer
 }
 
-type dragPayload struct{ IDs []string }
-
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult {
+func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch func(Action[T])) RenderResult {
 	t := c.Theme()
 	if len(model.Commands) > 0 {
 		ui.Row(c).FillWidth().Height(34).Padding(0, 6).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -133,7 +140,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 					})
 				}
 				if button.Clicked() && command.Enabled {
-					dispatchAction(dispatch, Action{Kind: InvokeCommand, CommandID: command.ID})
+					dispatchAction(dispatch, Action[T]{Kind: InvokeCommand, CommandID: command.ID})
 				}
 			}
 		})
@@ -149,21 +156,21 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 		})
 		attachContextMenu(area, "", model.RootContextActions, dispatch)
 		if model.RootCanDrop {
-			if payload, ok := ui.Drop[dragPayload](area); ok {
-				dispatchAction(dispatch, Action{Kind: DropEntries, ItemIDs: cloneIDs(payload.IDs)})
+			if payload, ok := ui.Drop[T](area); ok {
+				dispatchAction(dispatch, Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
 			}
 			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
 				if drop, ok := ui.DropData(area, opts); ok {
-					dispatchAction(dispatch, Action{Kind: DropNative, Drop: drop})
+					dispatchAction(dispatch, Action[T]{Kind: DropNative, Drop: drop})
 				}
 			}
 			if paths := area.DroppedFiles(); len(paths) > 0 {
-				dispatchAction(dispatch, Action{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+				dispatchAction(dispatch, Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
 			}
 		}
 		if model.PreviewID != "" {
-			dispatchAction(dispatch, Action{Kind: LeaveEntry, ID: model.PreviewID})
+			dispatchAction(dispatch, Action[T]{Kind: LeaveEntry, ID: model.PreviewID})
 		}
 		return RenderResult{List: area}
 	}
@@ -212,7 +219,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 				toggle := ui.ButtonBase(c).Label(label).Size(16, 20).Disabled(!entry.CanExpand).Padding(0).TextColor(t.TextMuted)
 				if toggle.Clicked() && entry.CanExpand {
 					pointerActivated = true
-					dispatchAction(dispatch, Action{Kind: ToggleEntry, ID: entry.ID, Modifiers: toggle.ClickModifiers()})
+					dispatchAction(dispatch, Action[T]{Kind: ToggleEntry, ID: entry.ID, Modifiers: toggle.ClickModifiers()})
 				}
 			} else {
 				ui.Box(c).Size(16, 20)
@@ -237,23 +244,24 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 			})
 		})
 		if entry.CanDrag {
-			row.Drag(dragPayload{IDs: cloneIDs(entry.DragIDs)})
+			payload := drag.Make(entry.ID, cloneIDs(entry.DragIDs))
+			row.Drag(payload)
 			if row.Dragging() && !entry.DragActive {
 				ids := cloneIDs(entry.DragIDs)
 				if len(ids) == 0 {
 					ids = []string{entry.ID}
 				}
-				dispatchAction(dispatch, Action{Kind: StartDrag, ID: entry.ID, ItemIDs: ids})
+				dispatchAction(dispatch, Action[T]{Kind: StartDrag, ID: entry.ID, ItemIDs: ids, Payload: payload})
 			}
 		}
 		if entry.Previewable && row.Hovered() {
 			hoveredID, hoveredBounds = entry.ID, row.Bounds()
 		}
 		if entry.CanDrop {
-			if payload, ok := ui.Drop[dragPayload](row); ok {
-				dispatchAction(dispatch, Action{Kind: DropEntries, ID: entry.ID, ItemIDs: cloneIDs(payload.IDs)})
+			if payload, ok := ui.Drop[T](row); ok {
+				dispatchAction(dispatch, Action[T]{Kind: DropEntries, ID: entry.ID, ItemIDs: dragIDs(drag, payload), Payload: payload})
 			}
-			if _, over := ui.DragOver[dragPayload](row); over {
+			if _, over := ui.DragOver[T](row); over {
 				row.Background(t.SurfaceHover)
 			}
 			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
@@ -263,14 +271,14 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 					row.Background(t.SurfaceHover)
 				}
 				if drop, ok := ui.DropData(row, opts); ok {
-					dispatchAction(dispatch, Action{Kind: DropNative, ID: entry.ID, Drop: drop})
+					dispatchAction(dispatch, Action[T]{Kind: DropNative, ID: entry.ID, Drop: drop})
 				}
 			}
 			if row.FileDragOver() {
 				row.Background(t.SurfaceHover)
 			}
 			if paths := row.DroppedFiles(); len(paths) > 0 {
-				dispatchAction(dispatch, Action{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
+				dispatchAction(dispatch, Action[T]{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
 			}
 		}
 		attachContextMenu(row, entry.ID, entry.ContextActions, dispatch)
@@ -282,7 +290,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 					*listState.Selected = i
 				}
 				if entry.CanSelect {
-					dispatchAction(dispatch, Action{Kind: SelectEntry, ID: entry.ID, Modifiers: mods})
+					dispatchAction(dispatch, Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: mods})
 				}
 				if mods&(ui.Cmd|ui.Shift) != 0 {
 					return
@@ -294,8 +302,8 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(scroll).Scrollbars(showScrollbar).Focusable()
 	attachContextMenu(list, "", model.RootContextActions, dispatch)
 	if model.RootCanDrop {
-		if payload, ok := ui.Drop[dragPayload](list); ok {
-			dispatchAction(dispatch, Action{Kind: DropEntries, ItemIDs: cloneIDs(payload.IDs)})
+		if payload, ok := ui.Drop[T](list); ok {
+			dispatchAction(dispatch, Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
 		}
 		if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 			opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
@@ -303,26 +311,26 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 				nativeOffer = &offer
 			}
 			if drop, ok := ui.DropData(list, opts); ok {
-				dispatchAction(dispatch, Action{Kind: DropNative, Drop: drop})
+				dispatchAction(dispatch, Action[T]{Kind: DropNative, Drop: drop})
 			}
 		}
 		if paths := list.DroppedFiles(); len(paths) > 0 {
-			dispatchAction(dispatch, Action{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+			dispatchAction(dispatch, Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
 		}
 	}
 	if hoveredID != model.PreviewID {
 		if model.PreviewID != "" {
-			dispatchAction(dispatch, Action{Kind: LeaveEntry, ID: model.PreviewID})
+			dispatchAction(dispatch, Action[T]{Kind: LeaveEntry, ID: model.PreviewID})
 		}
 		if hoveredID != "" {
-			dispatchAction(dispatch, Action{Kind: HoverEntry, ID: hoveredID, Bounds: hoveredBounds})
+			dispatchAction(dispatch, Action[T]{Kind: HoverEntry, ID: hoveredID, Bounds: hoveredBounds})
 		}
 	}
 	if list.Changed() && !pointerActivated && model.Focused && listState.Selected != nil {
 		if i := *listState.Selected; i >= 0 && i < len(model.Entries) {
 			entry := model.Entries[i]
 			if entry.CanSelect {
-				dispatchAction(dispatch, Action{Kind: SelectEntry, ID: entry.ID, Modifiers: c.Modifiers()})
+				dispatchAction(dispatch, Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: c.Modifiers()})
 			}
 		}
 	}
@@ -334,7 +342,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) RenderResult 
 	return RenderResult{List: list, HoveredID: hoveredID, NativeOffer: nativeOffer}
 }
 
-func attachContextMenu(element ui.Element, targetID string, actions []Command, dispatch func(Action)) {
+func attachContextMenu[T any](element ui.Element, targetID string, actions []Command, dispatch func(Action[T])) {
 	if len(actions) == 0 {
 		return
 	}
@@ -342,7 +350,7 @@ func attachContextMenu(element ui.Element, targetID string, actions []Command, d
 		for _, command := range actions {
 			command := command
 			if m.Item(command.Label).Disabled(!command.Enabled).Chosen() && command.Enabled {
-				dispatchAction(dispatch, Action{Kind: InvokeContextCommand, ID: targetID, CommandID: command.ID})
+				dispatchAction(dispatch, Action[T]{Kind: InvokeContextCommand, ID: targetID, CommandID: command.ID})
 			}
 		}
 	})
@@ -357,18 +365,25 @@ func selectedEntry(entries []Entry) int {
 	return -1
 }
 
-func emitDefaultAction(entry Entry, dispatch func(Action)) {
+func emitDefaultAction[T any](entry Entry, dispatch func(Action[T])) {
 	if entry.Kind == Directory && entry.CanExpand {
-		dispatchAction(dispatch, Action{Kind: ToggleEntry, ID: entry.ID})
+		dispatchAction(dispatch, Action[T]{Kind: ToggleEntry, ID: entry.ID})
 	} else if entry.CanOpen {
-		dispatchAction(dispatch, Action{Kind: OpenEntry, ID: entry.ID})
+		dispatchAction(dispatch, Action[T]{Kind: OpenEntry, ID: entry.ID})
 	}
 }
 
-func dispatchAction(dispatch func(Action), action Action) {
+func dispatchAction[T any](dispatch func(Action[T]), action Action[T]) {
 	if dispatch != nil {
 		dispatch(action)
 	}
+}
+
+func dragIDs[T any](drag DragPort[T], payload T) []string {
+	if drag.IDs == nil {
+		return nil
+	}
+	return cloneIDs(drag.IDs(payload))
 }
 
 func cloneIDs(ids []string) []string {
