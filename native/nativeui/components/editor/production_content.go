@@ -37,6 +37,7 @@ func NewProductionContent(value *editor.Editor, onClose func()) *ProductionConte
 	content := &ProductionContent{editor: value, onClose: onClose}
 	if value != nil {
 		value.SetDiagramRenderer(content.drawDiagram)
+		value.SetMathRenderer(drawMathRaster)
 	}
 	return content
 }
@@ -100,6 +101,7 @@ func (c *ProductionContent) Close() {
 	c.closed = true
 	if c.editor != nil {
 		c.editor.SetDiagramRenderer(nil)
+		c.editor.SetMathRenderer(nil)
 	}
 	c.diagrams = nil
 	if c.onClose != nil {

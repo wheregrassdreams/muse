@@ -8,11 +8,11 @@ import (
 	texmath "muse/markdown/math"
 )
 
-// mathVisual is the editor's current toolkit adapter for the renderer-neutral
-// typeset result. The feature package owns TeX parsing/layout/rasterization.
+// mathVisual is a temporary compatibility renderer for hosts that still call
+// Editor.View directly. New production hosts should install MathRenderer from
+// nativeui/components/editor and this adapter can then be removed.
 type mathVisual struct {
 	bmp      *ui.Bitmap
-	baseline float32
 	fallback []mathFallbackGlyph
 }
 
@@ -23,74 +23,54 @@ type mathFallbackGlyph struct {
 }
 
 var (
-	mathCache = texmath.NewCache[*mathVisual](8<<20, func(_ string, render *mathVisual) int64 {
-		if render == nil {
+	legacyMathVisualCache = texmath.NewCache[*mathVisual](8<<20, func(_ string, visual *mathVisual) int64 {
+		if visual == nil || visual.bmp == nil {
 			return 0
 		}
-		var weight int64
-		if render.bmp != nil {
-			w, h := render.bmp.Size()
-			weight += int64(w) * int64(h) * 4
-		}
-		weight += int64(len(render.fallback)) * 64
-		return weight
+		w, h := visual.bmp.Size()
+		return int64(w)*int64(h)*4 + int64(len(visual.fallback))*64
 	})
-	mathMu sync.Mutex
+	legacyMathVisualMu sync.Mutex
 )
 
-func renderMathVisual(expr string, size float64, dark, display bool, fontFamily string) *mathVisual {
-	key := fmt.Sprintf("%s|%.1f|%v|%v|%s", expr, size, dark, display, fontFamily)
-	if render, ok := mathCache.Load(key); ok {
-		return render
-	}
-	mathMu.Lock()
-	defer mathMu.Unlock()
-	if render, ok := mathCache.Load(key); ok {
-		return render
-	}
-	render := &mathVisual{}
-	if raster, ok := texmath.Typeset(expr, size, display); ok {
-		img := raster.Image
-		if dark {
-			img = texmath.InvertColors(img)
-		}
-		render.bmp = ui.NewBitmap(img)
-		render.baseline = raster.Baseline
-		for _, glyph := range raster.Fallback {
-			shaped := ui.Shape(string(glyph.Rune), ui.Font{Family: fontFamily, Size: float32(size) * float32(glyph.Scale)})
-			if len(shaped) == 0 {
-				continue
-			}
-			ink := ui.Color{R: glyph.Color.R, G: glyph.Color.G, B: glyph.Color.B, A: glyph.Color.A}
-			if dark {
-				ink.R, ink.G, ink.B = 255-ink.R, 255-ink.G, 255-ink.B
-			}
-			render.fallback = append(render.fallback, mathFallbackGlyph{x: float32(glyph.X), y: float32(glyph.Y), glyphs: shaped, color: ink})
-		}
-	}
-	mathCache.Store(key, render)
-	return render
-}
-
-func (render *mathVisual) Bitmap() *ui.Bitmap {
-	if render == nil {
+func legacyMathVisualFor(raster *texmath.Raster, dark bool, font string) *mathVisual {
+	if raster == nil || raster.Image == nil {
 		return nil
 	}
-	return render.bmp
-}
-
-func (render *mathVisual) Baseline() float32 {
-	if render == nil {
-		return 0
+	key := fmt.Sprintf("%p|%t|%s", raster, dark, font)
+	if visual, ok := legacyMathVisualCache.Load(key); ok {
+		return visual
 	}
-	return render.baseline
+	legacyMathVisualMu.Lock()
+	defer legacyMathVisualMu.Unlock()
+	if visual, ok := legacyMathVisualCache.Load(key); ok {
+		return visual
+	}
+	img := raster.Image
+	if dark {
+		img = texmath.InvertColors(img)
+	}
+	visual := &mathVisual{bmp: ui.NewBitmap(img)}
+	for _, glyph := range raster.Fallback {
+		shaped := ui.Shape(string(glyph.Rune), ui.Font{Family: font, Size: float32(raster.Size) * float32(glyph.Scale)})
+		if len(shaped) == 0 {
+			continue
+		}
+		ink := ui.Color{R: glyph.Color.R, G: glyph.Color.G, B: glyph.Color.B, A: glyph.Color.A}
+		if dark {
+			ink.R, ink.G, ink.B = 255-ink.R, 255-ink.G, 255-ink.B
+		}
+		visual.fallback = append(visual.fallback, mathFallbackGlyph{x: float32(glyph.X), y: float32(glyph.Y), glyphs: shaped, color: ink})
+	}
+	legacyMathVisualCache.Store(key, visual)
+	return visual
 }
 
-func (render *mathVisual) Draw(p *ui.Painter, dst ui.Rect) {
-	if render == nil || render.bmp == nil || dst.W <= 0 || dst.H <= 0 {
+func (visual *mathVisual) Draw(p *ui.Painter, dst ui.Rect) {
+	if visual == nil || visual.bmp == nil || dst.W <= 0 || dst.H <= 0 {
 		return
 	}
-	bw, bh := render.bmp.Size()
+	bw, bh := visual.bmp.Size()
 	if bw <= 0 || bh <= 0 {
 		return
 	}
@@ -103,8 +83,8 @@ func (render *mathVisual) Draw(p *ui.Painter, dst ui.Rect) {
 	extra := scale / float32(texmath.MathScale)
 	p.Transform(ui.Scaling(extra, extra), x, y, func() {
 		natural := float32(texmath.MathScale)
-		p.Image(render.bmp, ui.Rect{X: x, Y: y, W: float32(bw) * natural, H: float32(bh) * natural}, ui.Contain)
-		for _, glyph := range render.fallback {
+		p.Image(visual.bmp, ui.Rect{X: x, Y: y, W: float32(bw) * natural, H: float32(bh) * natural}, ui.Contain)
+		for _, glyph := range visual.fallback {
 			p.Glyphs(glyph.glyphs, x+glyph.x*natural, y+glyph.y*natural, glyph.color)
 		}
 	})

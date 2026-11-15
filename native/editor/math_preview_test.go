@@ -1,10 +1,28 @@
 package editor
 
 import (
-	"github.com/egoist/mygo/ui"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+
+	texmath "muse/markdown/math"
 )
+
+func TestLegacyMathVisualBridgeBuildsFromNeutralRaster(t *testing.T) {
+	raster, ok := texmath.TypesetCached(`\alpha + x`, 16, false)
+	if !ok || raster == nil {
+		t.Fatal("formula did not typeset")
+	}
+	light := legacyMathVisualFor(raster, false, "")
+	dark := legacyMathVisualFor(raster, true, "")
+	if light == nil || light.bmp == nil || dark == nil || dark.bmp == nil {
+		t.Fatal("legacy Editor.View bridge did not create toolkit bitmaps")
+	}
+	if light == dark {
+		t.Fatal("light and dark formula visuals shared a theme-specific bitmap")
+	}
+}
 
 func TestMathPreviewBounds(t *testing.T) {
 	view := ui.Rect{X: 100, Y: 50, W: 400, H: 300}

@@ -17,6 +17,7 @@ import (
 	layoutindex "muse/editor/layout"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
+	texmath "muse/markdown/math"
 	"muse/ui/scrollbar"
 )
 
@@ -151,6 +152,10 @@ type Options struct {
 // supplies it; Markdown parsing and editor geometry never depend on a painter.
 type DiagramRenderer func(p *ui.Painter, rect ui.Rect, theme *ui.Theme, model *diagrams.Model)
 
+// MathRenderer is a temporary UI adapter port for drawing a neutral math
+// raster in the virtualized editor and its inline preview.
+type MathRenderer func(p *ui.Painter, rect ui.Rect, raster *texmath.Raster, dark bool, font string)
+
 // Editor is the state of a Markdown editor, kept by the app across frames:
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
@@ -171,6 +176,7 @@ type Editor struct {
 	foldSectionsCache      []foldSection
 	opts                   Options
 	diagramRenderer        DiagramRenderer
+	mathRenderer           MathRenderer
 	inlineMath             inlineblock.MathSession
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
@@ -427,6 +433,17 @@ func (e *Editor) SetDiagramRenderer(renderer DiagramRenderer) {
 	}
 	e.paintMu.Lock()
 	e.diagramRenderer = renderer
+	e.paintMu.Unlock()
+}
+
+// SetMathRenderer installs the presentation adapter used to paint math
+// rasters. Pass nil when the host releases the editor.
+func (e *Editor) SetMathRenderer(renderer MathRenderer) {
+	if e == nil {
+		return
+	}
+	e.paintMu.Lock()
+	e.mathRenderer = renderer
 	e.paintMu.Unlock()
 }
 

@@ -117,10 +117,10 @@ func TestInlineMathSourceUsesTeXSyntaxColorsAndKeepsPreview(t *testing.T) {
 	l = h.e.leaves[0]
 	foundFormulaObject := false
 	for _, piece := range l.view.disp.pieces {
-		foundFormulaObject = foundFormulaObject || piece.kind == pAtom && piece.obj != nil && piece.obj.bmp != nil
+		foundFormulaObject = foundFormulaObject || piece.kind == pAtom && piece.obj != nil && piece.obj.math != nil && piece.obj.math.Image != nil
 	}
 	if !foundFormulaObject {
-		t.Fatal("collapsing source reveal stopped rendering the inline formula object")
+		t.Fatal("collapsing source reveal stopped projecting the inline formula raster")
 	}
 }
 
@@ -149,8 +149,8 @@ func TestDisplayMathSourceUsesTeXSyntaxColors(t *testing.T) {
 	math = h.e.leaves[0]
 	assertMathToken(t, h, math, "\\frac", editor.TokenFunction)
 	assertMathToken(t, h, math, "2", editor.TokenNumber)
-	if math.view == nil || math.view.block == nil || math.view.block.bmp == nil {
-		t.Fatal("display math source reveal stopped rendering the formula preview")
+	if math.view == nil || math.view.block == nil || math.view.block.math == nil || math.view.block.math.Image == nil {
+		t.Fatal("display math source reveal stopped projecting the formula preview raster")
 	}
 	h.shot("display-math-syntax-reveal")
 }

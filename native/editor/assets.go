@@ -26,16 +26,16 @@ func (e *Editor) mathObject(tex string, size float32, display bool) *object {
 	if display {
 		size *= 1.15
 	}
-	visual := renderMathVisual(tex, float64(size), e.lk.dark, false, e.lk.font)
-	if visual == nil || visual.Bitmap() == nil {
+	raster, ok := texmath.TypesetCached(tex, float64(size), false)
+	if !ok || raster == nil || raster.Image == nil {
 		return nil
 	}
-	bmp, baseline := visual.Bitmap(), visual.Baseline()
-	w, h := bmp.Size()
+	bounds := raster.Image.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
 	fw, fh := float32(w)*mathScale, float32(h)*mathScale
 	// The formula's baseline sits on the text's.
-	ascent := min(baseline*mathScale, fh)
-	return &object{bmp: bmp, math: visual, w: fw + 2, h: ascent, descent: fh - ascent}
+	ascent := min(raster.Baseline*mathScale, fh)
+	return &object{math: raster, w: fw + 2, h: ascent, descent: fh - ascent}
 }
 
 // mathBlockObject returns the typeset formula of a block of math.
@@ -44,18 +44,18 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 	if tex == "" {
 		return nil
 	}
-	visual := renderMathVisual(tex, float64(e.lk.size*1.2), e.lk.dark, true, e.lk.font)
-	if visual == nil || visual.Bitmap() == nil {
+	raster, ok := texmath.TypesetCached(tex, float64(e.lk.size*1.2), true)
+	if !ok || raster == nil || raster.Image == nil {
 		return nil
 	}
-	bmp := visual.Bitmap()
-	w, h := bmp.Size()
+	bounds := raster.Image.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
 	fw, fh := float32(w)*mathScale, float32(h)*mathScale
 	if width > 0 && fw > width {
 		fh = fh * width / fw
 		fw = width
 	}
-	return &object{bmp: bmp, math: visual, w: fw, h: fh, block: true}
+	return &object{math: raster, w: fw, h: fh, block: true}
 }
 
 // imageObject returns the image at dest as an inline object, scaled down

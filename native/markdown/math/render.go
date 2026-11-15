@@ -1,8 +1,10 @@
 package math
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"sync"
 
 	"github.com/luo-studio/go-tex/tex/layout"
 	"github.com/luo-studio/go-tex/tex/mathstyle"
@@ -11,6 +13,19 @@ import (
 	"github.com/tdewolff/canvas/renderers/rasterizer"
 
 	"muse/markdown/math/texcanvas"
+)
+
+const rasterCacheBudget = 8 << 20
+
+var (
+	rasterCache = NewCache[*Raster](rasterCacheBudget, func(_ string, raster *Raster) int64 {
+		if raster == nil || raster.Image == nil {
+			return 0
+		}
+		bounds := raster.Image.Bounds()
+		return int64(bounds.Dx())*int64(bounds.Dy())*4 + int64(len(raster.Fallback))*32
+	})
+	rasterRenderMu sync.Mutex
 )
 
 // MathDPI is the raster density used for Markdown formulas: twice the DIP
@@ -33,6 +48,7 @@ type FallbackGlyph struct {
 type Raster struct {
 	Image    image.Image
 	Baseline float32
+	Size     float64
 	Fallback []FallbackGlyph
 }
 
@@ -61,13 +77,41 @@ func Typeset(expr string, size float64, display bool) (*Raster, bool) {
 	if img == nil {
 		return nil, false
 	}
-	raster := &Raster{Image: img, Baseline: float32(box.Height * px)}
+	raster := &Raster{Image: img, Baseline: float32(box.Height * px), Size: size}
 	raster.Fallback = make([]FallbackGlyph, len(fallback))
 	for i, glyph := range fallback {
 		raster.Fallback[i] = FallbackGlyph{X: glyph.X, Y: glyph.Y, Scale: glyph.Scale, Rune: glyph.Rune, Color: glyph.Color}
 	}
 	return raster, true
 }
+
+// TypesetCached returns a renderer-neutral raster result from a bounded LRU.
+// Large expressions bypass the cache key retention cap but are still typeset
+// normally for the caller that requested them.
+func TypesetCached(expr string, size float64, display bool) (*Raster, bool) {
+	if len(expr) > 64<<10 {
+		return Typeset(expr, size, display)
+	}
+	key := fmt.Sprintf("%s|%.1f|%t", expr, size, display)
+	if raster, ok := rasterCache.Load(key); ok {
+		return raster, raster != nil
+	}
+	rasterRenderMu.Lock()
+	defer rasterRenderMu.Unlock()
+	if raster, ok := rasterCache.Load(key); ok {
+		return raster, raster != nil
+	}
+	raster, ok := Typeset(expr, size, display)
+	if !ok {
+		return nil, false
+	}
+	rasterCache.Store(key, raster)
+	return raster, true
+}
+
+// RasterCacheStats reports the neutral formula cache's retained entries and
+// estimated bytes for diagnostics and boundary tests.
+func RasterCacheStats() (entries int, weight int64) { return rasterCache.Stats() }
 
 // InvertColors returns a formula raster with RGB channels inverted while
 // preserving its alpha channel, for dark theme rendering.

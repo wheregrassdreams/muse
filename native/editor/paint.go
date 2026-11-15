@@ -645,7 +645,16 @@ func (e *Editor) paintObject(p *ui.Painter, o *object, r ui.Rect) {
 		return
 	}
 	if o.math != nil {
-		o.math.Draw(p, r)
+		if e.mathRenderer != nil {
+			e.mathRenderer(p, r, o.math, e.lk.dark, e.lk.font)
+		} else {
+			// Temporary compatibility path for hosts that still call Editor.View
+			// directly. ProductionContent owns this conversion once the App pane
+			// route is connected.
+			if visual := legacyMathVisualFor(o.math, e.lk.dark, e.lk.font); visual != nil {
+				visual.Draw(p, r)
+			}
+		}
 		return
 	}
 	if o.bmp != nil {

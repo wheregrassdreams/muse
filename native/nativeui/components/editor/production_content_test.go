@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	tappeditor "muse/editor"
+	texmath "muse/markdown/math"
 	"muse/nativeui/window"
 )
 
@@ -70,5 +71,30 @@ func TestProductionContentPaintsNeutralDiagramModel(t *testing.T) {
 	tester.Frame()
 	if len(content.diagrams) == 0 {
 		t.Fatal("production editor did not send its neutral diagram model to the component painter")
+	}
+}
+
+func TestProductionContentRendersNeutralMathRaster(t *testing.T) {
+	source := "$$\n\\sum_{k=1}^{7} k^2\n$$\n\nend"
+	if _, ok := texmath.TypesetCached("\\sum_{k=1}^{7} k^2", 19.2, true); !ok {
+		t.Fatal("math fixture did not typeset")
+	}
+	value := tappeditor.New(source, tappeditor.Options{})
+	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len(source), Head: len(source)}); err != nil {
+		t.Fatal(err)
+	}
+	content := NewProductionContent(value, nil)
+	drawn := 0
+	value.SetMathRenderer(func(p *ui.Painter, r ui.Rect, raster *texmath.Raster, dark bool, font string) {
+		drawn++
+		drawMathRaster(p, r, raster, dark, font)
+	})
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { content.Render(c) })
+	}, 1000, 700)
+	tester.Frame()
+	tester.Frame()
+	if drawn == 0 {
+		t.Fatal("production editor did not send a neutral math raster to the component renderer")
 	}
 }

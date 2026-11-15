@@ -8,6 +8,7 @@ import (
 	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
 	"muse/markdown/images"
+	texmath "muse/markdown/math"
 	syntax "muse/markdown/syntax"
 )
 
@@ -46,7 +47,7 @@ type piece struct {
 // gives its object replacement character.
 type object struct {
 	bmp                   *ui.Bitmap
-	math                  *mathVisual
+	math                  *texmath.Raster
 	asset                 *images.Asset
 	assetFrameVersion     uint64
 	imagePending          bool

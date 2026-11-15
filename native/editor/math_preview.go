@@ -81,7 +81,11 @@ func (e *Editor) mathPreviewView(c *ui.Context, viewport ui.Rect) {
 				}
 				dst := ui.Rect{X: r.X + 12, Y: r.Y + 12, W: max(r.W-24, 1), H: max(r.H-24, 1)}
 				if obj.math != nil {
-					obj.math.Draw(p, dst)
+					if e.mathRenderer != nil {
+						e.mathRenderer(p, dst, obj.math, e.lk.dark, e.lk.font)
+					} else if visual := legacyMathVisualFor(obj.math, e.lk.dark, e.lk.font); visual != nil {
+						visual.Draw(p, dst)
+					}
 				} else {
 					p.Image(obj.bmp, dst, ui.Contain)
 				}
