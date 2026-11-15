@@ -2,67 +2,29 @@ package editor
 
 import (
 	"image/color"
-	"muse/locales"
 	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// The navigation rail marks every heading of the document with a tick
-// along the right edge of the editor, as a map of the headings, however
-// long the document. The ticks sit as one centered group, and the ones
-// near the heading the reader is in, or the one the pointer is on, grow
-// longer than the others: a lens that shows where the reader is and where
-// the pointer goes. The pointer previews a heading's text and the first
-// lines of its section, and a click brings the heading to the middle of
-// the view.
-const (
-	// railWidth is the width of the rail's strip, and railInset how far it
-	// stands from the editor's edges. The ticks take railTickWidth inside,
-	// at the strip's right end, and railItemHeight is the room of each
-	// row, unless there are too many headings for them all to fit.
-	railWidth      = float32(28)
-	railInset      = float32(12)
-	railTickWidth  = float32(16)
-	railTickHeight = float32(2)
-	railItemHeight = float32(14)
-	railCardWidth  = float32(256)
-	// railEdge is how near the document's start or end the view must be
-	// for the first or last heading to be the current one, rather than the
-	// one at the middle of the view.
-	railEdge = float32(56)
-)
+// railEdge is how near the document's start or end the view must be for the
+// first or last heading to be the current one.
+const railEdge = float32(56)
 
-// railScale returns how wide the tick of a heading is when the highlighted
-// one is dist ticks away: the lens falls off by distance, the same at
-// every count.
-func railScale(dist int) float32 {
-	switch dist {
-	case 0:
-		return 1
-	case 1:
-		return 0.68
-	case 2:
-		return 0.44
-	}
-	return 0.25
-}
-
-// railView draws the rail over the right edge of the scroll area b, and
-// takes the pointer over it.
+// railView supplies the current editor snapshot to the presentation adapter.
+// The component owns pointer tracking, animation, hit testing and painting.
 func (e *Editor) railView(c *ui.Context, b ui.Rect) {
-	if e.headingRailRenderer != nil {
-		frame := e.HeadingRailSnapshot(HeadingRailViewport{Width: b.W, Height: b.H})
-		e.headingRailRenderer(c, b, frame, e.HeadingRailPreview, func(offset int) { e.JumpToHeading(offset) })
+	if e.headingRailRenderer == nil {
 		return
 	}
-	e.legacyRailView(c, b)
+	frame := e.HeadingRailSnapshot(HeadingRailViewport{Width: b.W, Height: b.H})
+	e.headingRailRenderer(c, b, frame, e.HeadingRailPreview, func(offset int) { e.JumpToHeading(offset) })
 }
 
-// HeadingRailSnapshot returns the current detached heading list and active
-// section for a navigation rail. The item slice remains valid until the
-// document revision changes.
+// HeadingRailSnapshot returns the detached heading list and active section
+// for a navigation rail. The item slice remains valid until the document
+// revision changes. Hover, animation and paint state belong to the UI adapter.
 func (e *Editor) HeadingRailSnapshot(viewport HeadingRailViewport) HeadingRailFrame {
 	frame := HeadingRailFrame{
 		Active: -1, Revision: e.rev,
@@ -86,9 +48,9 @@ func (e *Editor) HeadingRailSnapshot(viewport HeadingRailViewport) HeadingRailFr
 	return frame
 }
 
-// HeadingRailPreview returns the title and short excerpt for an item in the
-// current HeadingRailSnapshot. It is intended to run only for the hovered
-// heading, so a large document does not project all prose on every frame.
+// HeadingRailPreview returns the title and a short excerpt for one item in
+// the current snapshot. It is intended to run only for the hovered heading,
+// so large documents do not project every section on each frame.
 func (e *Editor) HeadingRailPreview(index int) HeadingRailPreview {
 	if index < 0 || index >= len(e.railLeaves) {
 		return HeadingRailPreview{}
@@ -97,8 +59,8 @@ func (e *Editor) HeadingRailPreview(index int) HeadingRailPreview {
 	return HeadingRailPreview{Title: e.railText, Excerpt: e.railDesc, Level: e.railLeaves[index].level}
 }
 
-// JumpToHeading navigates to an exact heading source offset from a rail
-// snapshot. It returns false if the offset no longer identifies a heading.
+// JumpToHeading navigates to an exact heading source offset from a snapshot.
+// It returns false if the offset no longer identifies a heading.
 func (e *Editor) JumpToHeading(offset int) bool {
 	for i, leaf := range e.railLeaves {
 		if leaf.start == offset {
@@ -109,122 +71,13 @@ func (e *Editor) JumpToHeading(offset int) bool {
 	return false
 }
 
-func (e *Editor) legacyRailView(c *ui.Context, b ui.Rect) {
-	e.railAnim = false
-	if !e.railVisible(b) {
-		e.railHover, e.railCardOn = -1, false
-		e.railRect = ui.Rect{}
-		return
-	}
-	avail := b.H - 2*railInset
-	e.railYs = e.railPositions(avail)
-	e.railActive = e.railCurrent()
-	// The widths and the preview's place move from frame to frame toward
-	// where the pointer puts them: mygo has no CSS transitions, so the
-	// frames do that work here.
-	if n := len(e.railLeaves); len(e.railScales) != n {
-		e.railScales = make([]float32, n)
-		for i := range e.railScales {
-			e.railScales[i] = 1
-		}
-	}
-	hi := e.railHover
-	if hi < 0 {
-		hi = e.railActive
-	}
-	for i := range e.railScales {
-		dist := 1 << 20
-		if hi >= 0 {
-			dist = max(i-hi, hi-i)
-		}
-		e.railStep(&e.railScales[i], railScale(dist))
-	}
-
-	strip := ui.Rect{X: b.X + b.W - railWidth - railInset, Y: b.Y + railInset, W: railWidth, H: avail}
-	e.railRect = strip
-	ui.Overlay(c, func() {
-		rail := ui.Box(c).Absolute().Left(strip.X).Top(strip.Y).Width(strip.W).Height(strip.H).
-			Label(locales.EditorHeadingNavigation()).Cursor(ui.CursorPointer).Draw(e.paintRail)
-		// The pointer's moves over the rail ask for frames (PointerPosition),
-		// but its leaving does not: View asks for one while a tick is
-		// hovered, so that the preview goes when the pointer does.
-		_, py, over := rail.PointerPosition()
-		hover := -1
-		if over {
-			hover = e.railIndexAt(py)
-		}
-		if hover != e.railHover {
-			e.railHover = hover
-			if hover < 0 {
-				e.railCardOn = false
-			}
-			e.invalidate()
-		}
-		if hover >= 0 && rail.Clicked() {
-			e.railJump(hover)
-		}
-		if e.railHover >= 0 && e.railHover < len(e.railYs) {
-			center := strip.Y + e.railYs[e.railHover]
-			if !e.railCardOn {
-				// The card is a singleton: it comes from the rail's middle
-				// the first time a tick is hovered.
-				e.railCardOn = true
-				e.railCardY = strip.Y + strip.H/2
-			}
-			e.railStep(&e.railCardY, center)
-			e.railPreview(c, b)
-		}
-	})
-}
-
-// railVisible reports whether the rail has something to show: more than
-// one heading, in a document that scrolls.
-func (e *Editor) railVisible(b ui.Rect) bool {
-	return e.headingRailVisible(b.W, b.H)
-}
-
 func (e *Editor) headingRailVisible(width, height float32) bool {
 	return len(e.railLeaves) > 1 && e.docH > e.viewH+1 &&
-		width > railWidth+2*railInset && height > 2*railInset+railItemHeight
+		width > 52 && height > 52
 }
 
-// railPositions returns the center of every tick along a rail of height h:
-// one group, centered in it, a row of railItemHeight each until the rows
-// no longer fit, when they share the height evenly.
-func (e *Editor) railPositions(h float32) []float32 {
-	n := len(e.railLeaves)
-	e.railYs = e.railYs[:0]
-	if n == 0 || h <= 0 {
-		e.railPitch = 0
-		return nil
-	}
-	pitch := min(railItemHeight, h/float32(n))
-	e.railPitch = pitch
-	top := (h - pitch*float32(n)) / 2
-	for i := 0; i < n; i++ {
-		e.railYs = append(e.railYs, top+(float32(i)+0.5)*pitch)
-	}
-	return e.railYs
-}
-
-// railIndexAt returns the tick whose row holds y, a y relative to the
-// rail's top, or -1 above or below the rows.
-func (e *Editor) railIndexAt(y float32) int {
-	n := len(e.railYs)
-	if n == 0 || e.railPitch <= 0 {
-		return -1
-	}
-	top := e.railYs[0] - e.railPitch/2
-	if y < top-2 || y > top+e.railPitch*float32(n)+2 {
-		return -1
-	}
-	i := int((y - top) / e.railPitch)
-	return min(max(i, 0), n-1)
-}
-
-// railCurrent returns the heading whose section holds the middle of the
-// view, the first at the document's start and the last at its end, or -1
-// with no headings.
+// railCurrent returns the heading whose section contains the center of the
+// viewport, with the first and last headings selected near document edges.
 func (e *Editor) railCurrent() int {
 	n := len(e.railLeaves)
 	if n == 0 {
@@ -241,8 +94,6 @@ func (e *Editor) railCurrent() int {
 	return max(i-1, 0)
 }
 
-// railJump brings heading i to the middle of the view, and the caret
-// there.
 func (e *Editor) railJump(i int) {
 	if i < 0 || i >= len(e.railLeaves) {
 		return
@@ -251,33 +102,7 @@ func (e *Editor) railJump(i int) {
 	e.Focus()
 }
 
-// railStep moves v a step toward target, and reports whether it has
-// arrived: the easing of the lens and of the card.
-func (e *Editor) railStep(v *float32, target float32) {
-	d := target - *v
-	if d > -0.01 && d < 0.01 {
-		*v = target
-		return
-	}
-	*v += d * 0.22
-	e.railAnim = true
-}
-
-// railHeadingText returns the text of heading i, as the preview shows it.
-func (e *Editor) railHeadingText(i int) string {
-	e.railPreviewText(i)
-	return e.railText
-}
-
-// railHeadingDesc returns the first lines of heading i's section, as the
-// preview shows them.
-func (e *Editor) railHeadingDesc(i int) string {
-	e.railPreviewText(i)
-	return e.railDesc
-}
-
-// railPreviewText reads the text and the section's first lines of heading
-// i, once per revision.
+// railPreviewText reads a heading and its section excerpt once per revision.
 func (e *Editor) railPreviewText(i int) {
 	if i < 0 || i >= len(e.railLeaves) {
 		e.railText, e.railDesc = "", ""
@@ -286,8 +111,8 @@ func (e *Editor) railPreviewText(i int) {
 	if e.railTextIdx == i && e.railTextRev == e.rev {
 		return
 	}
-	l := e.railLeaves[i]
-	e.railText = strings.TrimSpace(e.plainText(e.p.doc.Inlines(l.id)))
+	leaf := e.railLeaves[i]
+	e.railText = strings.TrimSpace(e.plainText(e.p.doc.Inlines(leaf.id)))
 	e.railDesc = ""
 	if i < len(e.railNext) && e.railNext[i] != nil && e.railNext[i].id >= 0 {
 		e.railDesc = railExcerpt(e.plainText(e.p.doc.Inlines(e.railNext[i].id)))
@@ -295,110 +120,10 @@ func (e *Editor) railPreviewText(i int) {
 	e.railTextIdx, e.railTextRev = i, e.rev
 }
 
-// railExcerpt returns text as a short line of the preview: its whitespace
-// runs made single spaces, and its end cut off with an ellipsis.
 func railExcerpt(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
-	if r := []rune(text); len(r) > 140 {
-		return strings.TrimSpace(string(r[:140])) + "…"
+	if runes := []rune(text); len(runes) > 140 {
+		return strings.TrimSpace(string(runes[:140])) + "…"
 	}
 	return text
-}
-
-// paintRail draws the ticks: their width tells their distance from the
-// highlighted one, and the color whether it is the one the view is in.
-func (e *Editor) paintRail(p *ui.Painter, r ui.Rect) {
-	e.railRect = r
-	n := min(len(e.railYs), min(len(e.railLeaves), len(e.railScales)))
-	dense := e.railPitch < railTickHeight
-	for i := 0; i < n; {
-		w, col := e.railTickStyle(i)
-		end := i + 1
-		if dense {
-			end = railRunEnd(e.railYs[:n], e.railScales[:n], i, e.railActive, e.railHover)
-		}
-		top := r.Y + e.railYs[i] - railTickHeight/2
-		bottom := r.Y + e.railYs[end-1] + railTickHeight/2
-		p.Fill(ui.Rect{X: r.X + r.W - w, Y: top, W: w, H: bottom - top}, col, railTickHeight/2)
-		i = end
-	}
-}
-
-func (e *Editor) railTickStyle(i int) (float32, ui.Color) {
-	col := e.lk.marker
-	switch {
-	case i == e.railActive:
-		col = e.lk.text
-	case i == e.railHover:
-		col = e.lk.muted
-	}
-	return railTickWidth * e.railScales[i], col
-}
-
-// railRunEnd coalesces overlapping ticks with the same visible style. Dense
-// rails use subpixel spacing, so the opaque rounded rectangles form one
-// continuous run; submitting every heading separately wastes paint and
-// raster time without adding detail.
-func railRunEnd(ys, scales []float32, start, active, hover int) int {
-	if start < 0 || start >= len(ys) || start >= len(scales) {
-		return start
-	}
-	w := railTickWidth * scales[start]
-	style := railStyleKind(start, active, hover)
-	bottom := ys[start] + railTickHeight/2
-	end := start + 1
-	for end < len(ys) && end < len(scales) {
-		nextWidth := railTickWidth * scales[end]
-		if nextWidth != w || railStyleKind(end, active, hover) != style || ys[end]-railTickHeight/2 > bottom {
-			break
-		}
-		bottom = max(bottom, ys[end]+railTickHeight/2)
-		end++
-	}
-	return end
-}
-
-func railStyleKind(i, active, hover int) uint8 {
-	switch {
-	case i == active:
-		return 1
-	case i == hover:
-		return 2
-	default:
-		return 0
-	}
-}
-
-// railPreview floats the hovered heading's text and section beside the
-// rail, level first, centered on the tick it belongs to.
-func (e *Editor) railPreview(c *ui.Context, b ui.Rect) {
-	i := e.railHover
-	if i < 0 || i >= len(e.railLeaves) {
-		return
-	}
-	text := e.railHeadingText(i)
-	if text == "" {
-		return
-	}
-	t := c.Theme()
-	right := e.railRect.X - 8
-	left := max(right-min(railCardWidth, b.W-16), b.X+4)
-	const cardH = float32(66)
-	top := min(max(e.railCardY-cardH/2, b.Y+6), max(b.Y+b.H-6-cardH, b.Y+6))
-	shade := ui.RGBA(0, 0, 0, 0.12)
-	if t.Dark {
-		shade = ui.RGBA(0, 0, 0, 0.4)
-	}
-	card := ui.Box(c).Absolute().Left(left).Top(top).Width(right-left).Radius(10).
-		Padding(8, 12).Background(t.Surface).Border(1, t.Border).
-		Shadow(0, 6, 18, 0, shade)
-	card.Children(func() {
-		ui.Column(c).GapY(2).Children(func() {
-			ui.Text(c, locales.EditorHeadingLevelLabel(e.railLeaves[i].level, text)).FontSize(14).FontWeight(600).
-				TextColor(t.Text).SingleLine().Ellipsis("…")
-			if desc := e.railHeadingDesc(i); desc != "" {
-				ui.Text(c, desc).FontSize(12).TextColor(t.TextMuted).MaxLines(2)
-			}
-		})
-	})
 }

@@ -423,14 +423,8 @@ type Editor struct {
 	tableEdgeIndexRev uint64
 	tableEdgeIndexed  bool
 
-	// The navigation rail: the headings of the parse, in order, and the
-	// first block of each one's section for the preview; railRev is the rev
-	// they were collected at. railHover is the tick the pointer is on (-1
-	// none) and railActive the one the view is in; railRect is the rail's
-	// box and railYs its ticks' centers as the last frame drew them.
-	// railScales are the ticks' widths, animated toward their distances
-	// from the highlighted tick, and railCardY the preview's center,
-	// animated the same way; railCardOn says whether it shows.
+	// The navigation rail's heading list, plus the next content block for
+	// each preview. Pointer, animation and paint state live in nativeui.
 	railLeaves   []*leaf
 	railNext     []*leaf
 	railRev      uint64
@@ -452,15 +446,6 @@ type Editor struct {
 	// says it does. The caret leaving the block stops it.
 	sourceAt    int
 	sourceOK    bool
-	railHover   int
-	railActive  int
-	railRect    ui.Rect
-	railYs      []float32
-	railPitch   float32
-	railScales  []float32
-	railAnim    bool
-	railCardY   float32
-	railCardOn  bool
 	railText    string
 	railDesc    string
 	railTextRev uint64
@@ -541,7 +526,6 @@ type phantom struct {
 // New returns an editor of src.
 func New(src string, opts Options) *Editor {
 	e := &Editor{Session: NewSession(src), opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
-		railHover: -1, railActive: -1,
 		hoverBlock: -1, foldHover: -1}
 	e.bindSessionAdapters()
 	// The window's theme comes with the first frame; until then, the light
@@ -651,7 +635,6 @@ func (e *Editor) SetSource(src string) {
 	e.wikiHover = ""
 	e.wikiHoverBounds = ui.Rect{}
 	e.railLeaves, e.railNext = nil, nil
-	e.railYs, e.railScales = nil, nil
 	e.railText, e.railDesc = "", ""
 	e.railTextRev, e.railTextIdx = 0, 0
 	e.wordIndexCache, e.wordIndexCacheCost = nil, 0
@@ -694,8 +677,6 @@ func (e *Editor) SetSource(src string) {
 	e.searchPulseActive = false
 	e.scroll.Y = 0
 	e.hasGoal = false
-	e.railHover = -1
-	e.railCardOn = false
 	e.sync()
 	if src == "" {
 		// The empty document is the one line the source does not hold: a

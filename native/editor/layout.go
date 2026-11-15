@@ -1441,9 +1441,6 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 			}
 			e.railNext = append(e.railNext, next)
 		}
-		if e.railHover >= len(e.railLeaves) {
-			e.railHover = -1
-		}
 	}
 }
 

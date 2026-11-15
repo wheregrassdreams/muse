@@ -583,15 +583,6 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 		e.tableEdgesView(c, b, tablePointer)
 		e.mathPreviewView(c, b)
 		e.wikiSuggestionsView(c, b)
-		if e.railAnim {
-			// The lens and the preview are on their way to somewhere: frames
-			// move them, as CSS transitions would.
-			c.After(16 * time.Millisecond)
-		} else if e.railHover >= 0 {
-			// The pointer's leaving the rail makes no event here: ask for a
-			// frame, so the hover and its preview clear once it has gone.
-			c.After(80 * time.Millisecond)
-		}
 		if _, active := e.searchMatchPulse(c.Now()); active {
 			c.After(16 * time.Millisecond)
 		}
