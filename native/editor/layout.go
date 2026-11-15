@@ -797,7 +797,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(l.language()), "mermaid") && (open || caretIn || mermaidModel == nil) {
-			renderSourceTokens(b, ln.off, ln.text, mermaidSourceTokens(ln.text), plain)
+			renderSourceTokens(b, ln.off, ln.text, syntax.HighlightMermaidLine(ln.text), plain)
 			continue
 		}
 		if lang == nil || lang.Tokenizer == nil {
@@ -1076,7 +1076,7 @@ func (e *Editor) linesView(l *leaf, width float32, at int, withCompose, panel bo
 			b.spanAtom(prev.off+len(prev.text), ln.off, "\n", sp)
 		}
 		if l.kind == kMath {
-			renderSourceTokens(b, ln.off, ln.text, latexSourceTokens(ln.text), sp)
+			renderSourceTokens(b, ln.off, ln.text, syntax.HighlightTeXSource(ln.text), sp)
 		} else {
 			b.codeRun(ln.off, ln.off+len(ln.text), sp)
 		}

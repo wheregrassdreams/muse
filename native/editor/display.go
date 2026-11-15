@@ -1220,17 +1220,18 @@ func (b *builder) mathSource(start, end int, st istyle) {
 	b.codeMarker(start, start+content.Start, st)
 	tex := b.src[start+content.Start : start+content.End]
 	at := 0
-	for _, tok := range latexSourceTokens(tex) {
-		tokStart, tokEnd := max(0, tok.start), min(len(tex), tok.end)
+	for _, tok := range syntax.HighlightTeXSource(tex) {
+		tokStart, tokEnd := max(0, tok.Start), min(len(tex), tok.End)
 		if tokEnd <= tokStart || tokStart < at {
 			continue
 		}
 		b.textRun(start+content.Start+at, start+content.Start+tokStart, inner)
 		tokenStyle := inner
-		if color := b.e.lk.code.TokenColor(tok.kind); color.A != 0 {
+		paletteKind := sourceTokenPaletteKind(tok.Kind)
+		if color := b.e.lk.code.TokenColor(paletteKind); color.A != 0 {
 			tokenStyle.color = color
 		}
-		ts := b.e.lk.code.Tokens[tok.kind]
+		ts := b.e.lk.code.Tokens[paletteKind]
 		tokenStyle.bold = ts.Bold
 		tokenStyle.italic = ts.Italic
 		b.textRun(start+content.Start+tokStart, start+content.Start+tokEnd, tokenStyle)

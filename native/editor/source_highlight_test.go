@@ -6,34 +6,35 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui/editor"
+	syntax "muse/markdown/syntax"
 )
 
 func TestMermaidSourceTokensPreserveUTF8ByteRanges(t *testing.T) {
 	line := "A[开始] --> B[解析] %% 注释"
-	tokens := mermaidSourceTokens(line)
+	tokens := syntax.HighlightMermaidLine(line)
 	if len(tokens) == 0 {
 		t.Fatal("Mermaid lexer returned no tokens")
 	}
 	at := 0
 	for _, token := range tokens {
-		if token.start < at || token.end > len(line) || token.start >= token.end {
+		if token.Start < at || token.End > len(line) || token.Start >= token.End {
 			t.Fatalf("invalid or overlapping token range: %+v in %q", token, line)
 		}
-		if !utf8.RuneStart(line[token.start]) || token.end < len(line) && !utf8.RuneStart(line[token.end]) {
+		if !utf8.RuneStart(line[token.Start]) || token.End < len(line) && !utf8.RuneStart(line[token.End]) {
 			t.Fatalf("token split a UTF-8 rune: %+v in %q", token, line)
 		}
-		at = token.end
+		at = token.End
 	}
-	assertTokenTextKind(t, line, tokens, "A", editor.TokenVariable)
-	assertTokenTextKind(t, line, tokens, "开始", editor.TokenString)
-	assertTokenTextKind(t, line, tokens, "-->", editor.TokenOperator)
-	assertTokenTextKind(t, line, tokens, "%% 注释", editor.TokenComment)
+	assertTokenTextKind(t, line, tokens, "A", syntax.SourceTokenVariable)
+	assertTokenTextKind(t, line, tokens, "开始", syntax.SourceTokenString)
+	assertTokenTextKind(t, line, tokens, "-->", syntax.SourceTokenOperator)
+	assertTokenTextKind(t, line, tokens, "%% 注释", syntax.SourceTokenComment)
 }
 
-func assertTokenTextKind(t *testing.T, line string, tokens []sourceToken, text string, kind editor.TokenKind) {
+func assertTokenTextKind(t *testing.T, line string, tokens []syntax.SourceToken, text string, kind syntax.SourceTokenKind) {
 	t.Helper()
 	for _, token := range tokens {
-		if token.kind == kind && line[token.start:token.end] == text {
+		if token.Kind == kind && line[token.Start:token.End] == text {
 			return
 		}
 	}
