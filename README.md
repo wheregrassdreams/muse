@@ -14,7 +14,7 @@ Built with [MyGo](https://mygo.egoist.dev/). The window, icon rail, file tree, o
 
 ## The editor
 
-The editor (`native/mdedit`) is one surface the whole document is written on, behaving as Typora does:
+The editor (`native/editor`) is one surface the whole document is written on, behaving as Typora does:
 
 - **Seamless WYSIWYG** — the document *is* the rendering: the caret moves continuously through paragraphs, headings, lists, quotes, tables, code and math, and selections cross blocks to copy, cut and delete.
 - **Syntax only at the caret** — block syntax (`#`, list markers, `>`, fences, table pipes) never shows; the markers of `**bold**`, `` `code` ``, `[links](url)`, `$math$` and `![images](src)` appear in light gray only while the caret is in them, and render again when it leaves.
@@ -65,8 +65,20 @@ No Node, no pnpm, no vite — there is no frontend build at all.
 native/
 ├── main.go            native entry point
 ├── nativeui/          window, icon rail, context panel, agent
-├── mdedit/            the WYSIWYG Markdown editor: parse, layout, paint, caret, IME, undo
-├── mdoc/              Markdown model and renderer (agent chat), math typesetting, Mermaid
+├── app/               process composition root and platform adapter wiring
+├── application/       document, vault and workspace use cases
+├── document/          note, revision, metadata and persistence ports
+├── editor/            WYSIWYG editing, block systems and text layout
+├── markdown/          Markdown syntax, rendering, images, math and diagrams
+├── search/            query language, metadata filters, ranking and full-text index
+├── vault/             filesystem catalog, links, index and file watching
+├── workspace/         persisted session state and repository contract
+├── platform/          filesystem and OS-backed adapters
+├── nativeui/          native window and UI composition
+├── agent/             AI client and tool workflows
+├── config/            application settings and theme configuration
+├── events/            typed, instance-scoped application events
+└── ui/                shared native UI infrastructure, including scrollbars
 ├── doc/               document type registry
 ├── services/          native AI HTTP client
 └── cmd/               auxiliary commands

@@ -77,8 +77,9 @@ launch() {
 # The files whose change means a rebuild; the fixture is one of them, so
 # editing it brings the note back with what was written.
 sources() {
-  find native/mdedit native/nativeui native/mdoc native/cachepath native/services native/doc \
-    native/cmd native/frontmatter native/notestore native/vaultindex native/vaultsearch native/vaultwatch native/scrollui native/main.go "$fixture" \
+  find native/app native/application native/agent native/config native/document native/editor native/events \
+    native/locales native/markdown native/nativeui native/platform native/search native/theme native/ui \
+    native/vault native/workspace native/cmd native/app/main.go "$fixture" \
     -newer "$1" \( -name '*.go' -o -name '*.md' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) -print -quit 2>/dev/null
 }
 

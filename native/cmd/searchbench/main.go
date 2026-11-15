@@ -1,4 +1,4 @@
-// searchbench measures the persistent vaultsearch backend in a standalone
+// searchbench measures the persistent search backend in a standalone
 // process. It intentionally reports Go heap separately from process RSS:
 // Tantivy and its Rust allocations are not visible to runtime.MemStats.
 package main
@@ -16,7 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"muse/vaultsearch"
+	"muse/document/types"
+	"muse/search"
 )
 
 const sourceBytes = 2 * 1024
@@ -92,7 +93,7 @@ func main() {
 
 	docs := synthetic(*n)
 	r := report{
-		Backend:                "muse/vaultsearch (Tantivy)",
+		Backend:                "muse/search (Tantivy)",
 		Dataset:                "deterministic mixed English/Chinese UTF-8 notes",
 		Documents:              len(docs),
 		SourceBytesPerDocument: sourceBytes,
@@ -108,10 +109,10 @@ func main() {
 	}
 
 	ctx := context.Background()
-	var idx *vaultsearch.Index
+	var idx *search.Index
 	r.InitialOpen = measure(func() error {
 		var err error
-		idx, err = vaultsearch.Open(*indexDir)
+		idx, err = search.Open(*indexDir)
 		return err
 	})
 	defer func() {
@@ -131,7 +132,7 @@ func main() {
 	idx = nil
 	r.Reopen = measure(func() error {
 		var err error
-		idx, err = vaultsearch.Open(*indexDir)
+		idx, err = search.Open(*indexDir)
 		return err
 	})
 	r.NoChangeReconcile = measure(func() error { return idx.Reconcile(ctx, docs) })
@@ -141,7 +142,7 @@ func main() {
 		updated.Revision = "revision-updated"
 		updated.Source = strings.Replace(updated.Source, "oldrevisiontoken", "updatedrevisiontoken", 1)
 		updated.Source = fitUTF8Bytes(updated.Source, sourceBytes)
-		r.SingleDocumentUpdate = measure(func() error { return idx.Apply(ctx, []vaultsearch.Document{updated}, nil) })
+		r.SingleDocumentUpdate = measure(func() error { return idx.Apply(ctx, []search.Document{updated}, nil) })
 		updatedHits, searchErr := idx.Search(ctx, "updatedrevisiontoken", 10)
 		must(searchErr)
 		oldHits, searchErr := idx.Search(ctx, "oldrevisiontoken", 10)
@@ -166,7 +167,7 @@ func main() {
 	}
 	for _, item := range queries {
 		name, query := item.name, item.query
-		var hits []vaultsearch.Hit
+		var hits []search.Hit
 		measurement := measure(func() error {
 			var searchErr error
 			if name == "literal" || strings.HasPrefix(name, "literal_") {
@@ -199,8 +200,8 @@ func main() {
 	idx = nil
 }
 
-func synthetic(count int) []vaultsearch.Document {
-	docs := make([]vaultsearch.Document, count)
+func synthetic(count int) []search.Document {
+	docs := make([]search.Document, count)
 	for i := range docs {
 		id := fmt.Sprintf("note-%06d", i)
 		path := fmt.Sprintf("notes/%06d.md", i)
@@ -216,14 +217,17 @@ func synthetic(count int) []vaultsearch.Document {
 		if len(source) != sourceBytes || !utf8.ValidString(source) {
 			fatalf("generated source for %s is not valid UTF-8 with exactly %d bytes", path, sourceBytes)
 		}
-		docs[i] = vaultsearch.Document{
+		docs[i] = search.Document{
 			ID:       id,
 			Path:     path,
 			Title:    fmt.Sprintf("知识笔记 Knowledge %06d", i),
 			Source:   source,
 			Revision: "revision-1",
-			Aliases:  []string{fmt.Sprintf("alias-%06d", i)},
-			Tags:     []string{"benchmark", "中文"},
+			Metadata: types.Metadata{
+				Type:    types.DefaultNoteType,
+				Aliases: []string{fmt.Sprintf("alias-%06d", i)},
+				Tags:    []string{"benchmark", "中文"},
+			},
 		}
 	}
 	return docs
