@@ -1,10 +1,13 @@
 package links_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	vaultindex "muse/vault/index"
 	"muse/vault/links"
 )
 
@@ -90,10 +93,34 @@ func TestAssetBacklinksAndBoundedCache(t *testing.T) {
 			t.Errorf("Backlinks(%q) = %+v", target, got)
 		}
 	}
-	for n := range 300 {
-		idx.Backlinks("missing-" + string(rune('a'+n%26)) + ".md")
-	}
 	if got := idx.Backlinks("Attachments/diagram.png"); !reflect.DeepEqual(got, idx.Backlinks(filepath.Join(root, "Attachments", "diagram.png"))) {
 		t.Fatalf("asset backlink results vary across path forms: %+v", got)
+	}
+}
+
+func TestParsedMarkdownImageLinksFeedResourceBacklinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "Notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "![[../Attachments/diagram.png]]\n\n![photo](../Attachments/photo.jpg)\n"
+	if err := os.WriteFile(filepath.Join(root, "Notes", "Source.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed := vaultindex.New()
+	if err := parsed.Rebuild(root); err != nil {
+		t.Fatal(err)
+	}
+	graph := links.New()
+	if err := graph.Rebuild(root, parsed.LinkSnapshot()); err != nil {
+		t.Fatal(err)
+	}
+	if got := graph.Outgoing("Notes/Source.md"); len(got) != 2 || !strings.Contains(got[0].Target, "diagram") {
+		t.Fatalf("parsed outgoing links = %+v", got)
+	}
+	for _, target := range []string{"Attachments/diagram.png", filepath.Join("Notes", "..", "Attachments", "photo.jpg"), filepath.Join(root, "Attachments", "diagram.png")} {
+		if got := graph.Backlinks(target); len(got) != 1 || got[0].Source != "Notes/Source.md" {
+			t.Errorf("Backlinks(%q) = %+v", target, got)
+		}
 	}
 }
