@@ -55,18 +55,17 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 	qb := tantivy.NewQueryBuilder()
 	terms := qb.NestedBuilder().
 		Query(tantivy.Should, fieldTitleEN, query, tantivy.PhrasePrefixQuery, 14.0).
-		Query(tantivy.Should, fieldTitleZH, query, tantivy.PhrasePrefixQuery, 14.0).
 		Query(tantivy.Should, fieldTitleEdge, query, tantivy.EveryTermQuery, 10.0).
-		Query(tantivy.Should, fieldTitleHanNG, query, tantivy.EveryTermQuery, 8.0).
 		Query(tantivy.Should, fieldPathEN, query, tantivy.PhrasePrefixQuery, 10.0).
-		Query(tantivy.Should, fieldPathZH, query, tantivy.PhrasePrefixQuery, 10.0).
 		Query(tantivy.Should, fieldPathEdge, query, tantivy.EveryTermQuery, 8.0).
-		Query(tantivy.Should, fieldPathHanNG, query, tantivy.EveryTermQuery, 6.0).
 		Query(tantivy.Should, fieldBodyEN, query, tantivy.PhrasePrefixQuery, 1.0).
-		Query(tantivy.Should, fieldBodyZH, query, tantivy.PhrasePrefixQuery, 1.0).
-		Query(tantivy.Should, fieldBodyHanNG, query, tantivy.EveryTermQuery, 0.75).
-		Query(tantivy.Should, fieldMetaEN, query, tantivy.PhrasePrefixQuery, 4.0).
-		Query(tantivy.Should, fieldMetaZH, query, tantivy.PhrasePrefixQuery, 4.0)
+		Query(tantivy.Should, fieldMetaEN, query, tantivy.PhrasePrefixQuery, 4.0)
+	if hanQuery := hanOnly(query); hanQuery != "" {
+		terms.Query(tantivy.Should, fieldTitleHanNG, hanQuery, tantivy.EveryTermQuery, 8.0).
+			Query(tantivy.Should, fieldPathHanNG, hanQuery, tantivy.EveryTermQuery, 6.0).
+			Query(tantivy.Should, fieldBodyHanNG, hanQuery, tantivy.EveryTermQuery, 0.75).
+			Query(tantivy.Should, fieldMetaHanNG, hanQuery, tantivy.EveryTermQuery, 3.0)
+	}
 	qb.BooleanQuery(tantivy.Must, terms, 1.0)
 	result, err := s.engine.SearchJson(tantivy.NewSearchContextBuilder().SetQueryFromJson(ptrQuery(qb.Build())).SetDocsLimit(uintptr(limit + len(overlays))).Build())
 	if err != nil {

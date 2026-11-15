@@ -14,11 +14,45 @@ func TestLosslessPropertyEdit(t *testing.T) {
 	if !strings.Contains(next, `title: "New: title" # retain`) || !strings.Contains(next, "custom:\r\n  nested: true") || !strings.HasSuffix(next, "# Body\r\n") {
 		t.Fatalf("unexpected rewrite %q", next)
 	}
-	if Title(next, "file.md") != "New: title" {
-		t.Fatal("title override")
+	if Title(next, "file.md") != "Body" {
+		t.Fatal("title should come from the leading H1")
 	}
 	if Title("body", "file.md") != "file" {
 		t.Fatal("filename fallback")
+	}
+}
+
+func TestCanonicalTitleUsesOnlyFirstNonblankATXHeading(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{"---\ntitle: Legacy\n---\n\n# Heading ##\ntext", "Heading"},
+		{"text\n\n# Later", "file"},
+		{"---\ntitle: Legacy\n---\n    # Code\n# Later", "file"},
+		{"---\ntitle: Legacy\n---\n```md\n# Code\n```\n# Later", "file"},
+		{"  # Valid\n", "Valid"},
+		{"# Keep attached###\n", "Keep attached###"},
+		{"#### Heading\n", "file"},
+	} {
+		if got := Title(tc.src, "file.md"); got != tc.want {
+			t.Errorf("Title(%q) = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}
+
+func TestEnsureCoreKeepsEmptyCoreProperties(t *testing.T) {
+	for _, src := range []string{"# Body\n", "---\ncustom: keep\n---\n# Body\n"} {
+		got, err := EnsureCore(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"type: \"note\"", "tags: []", "aliases: []", "created_at: \"\"", "updated_at: \"\""} {
+			if !strings.Contains(got, field) {
+				t.Errorf("missing %q in %q", field, got)
+			}
+		}
+		again, err := EnsureCore(got)
+		if err != nil || again != got {
+			t.Errorf("EnsureCore should be idempotent: %v", err)
+		}
 	}
 }
 func TestPropertyTypesAndErrors(t *testing.T) {
@@ -41,7 +75,7 @@ func TestPropertyTypesAndErrors(t *testing.T) {
 		t.Fatal("accepted duplicate keys")
 	}
 	s, err = Set("body", "title", "hello")
-	if err != nil || Title(s, "") != "hello" {
+	if err != nil || Title(s, "") != "未命名" {
 		t.Fatal(s, err)
 	}
 }
@@ -78,5 +112,16 @@ func TestTypedNewPropertiesAndUnchangedBody(t *testing.T) {
 		if d.Err != nil || len(d.Fields) != 1 || d.Fields[0].Kind != x.kind || !strings.HasSuffix(next, src) {
 			t.Fatalf("typed projection: %+v / %q", d, next)
 		}
+	}
+}
+
+func TestTypedDatesAcceptCommonUnambiguousFormats(t *testing.T) {
+	for _, value := range []string{"2026-11-13", "2026-11-13T08:54:30Z", "Nov 13, 2026 8:54:30 AM", "2026/11/13 08:54"} {
+		if _, err := SetTyped("", "updated_at", value, "date"); err != nil {
+			t.Errorf("rejected %q: %v", value, err)
+		}
+	}
+	if _, err := SetTyped("", "updated_at", "03/04/2026", "date"); err == nil {
+		t.Fatal("ambiguous month/day value was accepted")
 	}
 }

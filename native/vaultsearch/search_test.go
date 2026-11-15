@@ -19,6 +19,7 @@ func TestSearchChineseEnglishPrefixPathAndLiteralInput(t *testing.T) {
 		{ID: "quantum", Path: "physics/quantum-mechanics.md", Title: "Quantum Mechanics", Source: "A compact note about particles.", Revision: "1"},
 		{ID: "chinese", Path: "notes/法术.md", Title: "Archive", Source: "法术与修行。", Revision: "1"},
 		{ID: "path-only", Path: "reference/oddfilename.md", Title: "Index Card", Source: "The body is unremarkable.", Revision: "1"},
+		{ID: "typed", Path: "projects/architecture.md", Source: "A body with no type token.", Type: "research", CreatedAt: "2026-11-13T00:00:00Z", Revision: "1"},
 	}
 	if err := i.Reconcile(context.Background(), docs); err != nil {
 		t.Fatal(err)
@@ -28,6 +29,7 @@ func TestSearchChineseEnglishPrefixPathAndLiteralInput(t *testing.T) {
 		{"mechan", "physics/quantum-mechanics.md"}, // Token prefix in file path.
 		{"法", "notes/法术.md"},                       // Single Han character via the Han-only ngram field.
 		{"oddfile", "reference/oddfilename.md"},    // Filename search independent of title.
+		{"research", "projects/architecture.md"},   // Core type participates in metadata search.
 	} {
 		hits, err := i.Search(context.Background(), tc.query, 10)
 		if err != nil {
@@ -45,6 +47,28 @@ func TestSearchChineseEnglishPrefixPathAndLiteralInput(t *testing.T) {
 	}
 	if _, err := i.Search(context.Background(), `not-a-parser:(OR * "`, 10); err != nil {
 		t.Fatalf("query syntax characters must remain safe text: %v", err)
+	}
+}
+
+func TestSearchChineseNgramCoversTitleBodyAndMetadata(t *testing.T) {
+	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
+	defer i.Close()
+	docs := []vaultsearch.Document{{
+		ID: "han", Path: "notes/中文路径.md", Title: "中文标题检索",
+		Source: "正文检索内容，包含跨分词片段。", Aliases: []string{"中文别名"},
+		Tags: []string{"元数据标签"}, Type: "研究", Revision: "1",
+	}}
+	if err := i.Reconcile(context.Background(), docs); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"中文标题", "A中文标题检索B", "正文检索", "中文别名", "元数据标签", "研究"} {
+		hits, err := i.Search(context.Background(), query, 10)
+		if err != nil {
+			t.Fatalf("Search(%q): %v", query, err)
+		}
+		if len(hits) != 1 || hits[0].Path != docs[0].Path {
+			t.Errorf("Search(%q) = %#v, want %q", query, hits, docs[0].Path)
+		}
 	}
 }
 
@@ -72,6 +96,35 @@ func TestSearchOverlayShadowsDiskAndCanceledAndClosedLifecycle(t *testing.T) {
 	}
 	if _, err := i.Search(ctx, "newneedle", 10); err == nil {
 		t.Fatal("Search after Close succeeded")
+	}
+}
+
+func TestNeedsReconcileMatchesManifestWithoutMutatingIt(t *testing.T) {
+	i := acceptanceIndex(t, filepath.Join(t.TempDir(), "cache"))
+	defer i.Close()
+	docs := []vaultsearch.Document{
+		{ID: "one", Path: "one.md", Title: "One", Source: "one body", Revision: "rev-one"},
+		{ID: "two", Path: "two.md", Title: "Two", Source: "two body", Revision: "rev-two"},
+	}
+	if needed, err := i.NeedsReconcile(docs); err != nil || !needed {
+		t.Fatalf("empty index NeedsReconcile = %v, %v; want true", needed, err)
+	}
+	if err := i.Reconcile(context.Background(), docs); err != nil {
+		t.Fatal(err)
+	}
+	if needed, err := i.NeedsReconcile(docs); err != nil || needed {
+		t.Fatalf("unchanged index NeedsReconcile = %v, %v; want false", needed, err)
+	}
+	changed := append([]vaultsearch.Document(nil), docs...)
+	changed[1].Revision = "rev-two-new"
+	if needed, err := i.NeedsReconcile(changed); err != nil || !needed {
+		t.Fatalf("changed document NeedsReconcile = %v, %v; want true", needed, err)
+	}
+	if needed, err := i.NeedsReconcile(docs[:1]); err != nil || !needed {
+		t.Fatalf("deleted document NeedsReconcile = %v, %v; want true", needed, err)
+	}
+	if _, err := i.NeedsReconcile([]vaultsearch.Document{docs[0], docs[0]}); err == nil {
+		t.Fatal("duplicate document IDs were accepted")
 	}
 }
 
@@ -184,7 +237,9 @@ func (c *cancelAfterChecks) Err() error {
 func TestPartialBatchFailurePoisonsAndRebuildsOnOpen(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cache")
 	i := acceptanceIndex(t, dir)
-	docs := make([]vaultsearch.Document, 129)
+	// The upsert batch cap is 1024, so this exercises cancellation after the
+	// first batch has committed and before the second batch starts.
+	docs := make([]vaultsearch.Document, 1025)
 	for n := range docs {
 		docs[n] = vaultsearch.Document{ID: fmt.Sprintf("doc-%03d", n), Path: fmt.Sprintf("%03d.md", n), Source: fmt.Sprintf("batchtoken-%03d", n), Revision: "r1"}
 	}
@@ -211,8 +266,8 @@ func TestPartialBatchFailurePoisonsAndRebuildsOnOpen(t *testing.T) {
 	if err := i.Reconcile(context.Background(), docs); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := i.Search(context.Background(), "batchtoken-128", 10)
-	if err != nil || len(hits) != 1 || hits[0].Path != "128.md" {
+	hits, err := i.Search(context.Background(), "batchtoken-1024", 10)
+	if err != nil || len(hits) != 1 || hits[0].Path != "1024.md" {
 		t.Fatalf("reconciled post-recovery index: %#v, %v", hits, err)
 	}
 }

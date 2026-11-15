@@ -21,6 +21,7 @@ func TestNestedVaultFixtureLinksAndBacklinks(t *testing.T) {
 		"Journal/2026-11-12.md",
 		"Projects/Atlas/Design Notes.md",
 		"Projects/Atlas/Overview.md",
+		"Projects/Atlas/Rendering Notes.md",
 	}
 	snapshot := idx.Snapshot()
 	if len(snapshot) != len(wantPaths) {
@@ -37,9 +38,11 @@ func TestNestedVaultFixtureLinksAndBacklinks(t *testing.T) {
 		wantHeading           string
 	}{
 		{"Home.md", "Projects/Atlas/Overview", "Projects/Atlas/Overview.md", ""},
+		{"Home.md", "Projects/Atlas/Rendering Notes", "Projects/Atlas/Rendering Notes.md", ""},
 		{"Journal/2026-11-12.md", "../Projects/Atlas/Overview#Architecture", "Projects/Atlas/Overview.md", "architecture"},
 		{"Journal/2026-11-12.md", "Atlas Overview", "Projects/Atlas/Overview.md", ""},
 		{"Projects/Atlas/Design Notes.md", "Atlas Overview#Architecture", "Projects/Atlas/Overview.md", "architecture"},
+		{"Projects/Atlas/Rendering Notes.md", "Atlas Overview#Architecture", "Projects/Atlas/Overview.md", "architecture"},
 	} {
 		loc, ok := idx.Resolve(tc.current, tc.target)
 		if !ok || loc.Path != tc.path {
@@ -64,13 +67,14 @@ func TestNestedVaultFixtureLinksAndBacklinks(t *testing.T) {
 		t.Fatal("unresolved fixture link unexpectedly resolved")
 	}
 	backlinks := idx.Backlinks("Projects/Atlas/Overview.md")
-	if len(backlinks) != 5 {
-		t.Fatalf("Overview backlinks = %#v, want Home's link and embed, Design Notes, and two links from Journal", backlinks)
+	if len(backlinks) != 6 {
+		t.Fatalf("Overview backlinks = %#v, want Home's link and embed, two Atlas notes, and two links from Journal", backlinks)
 	}
 	wantSources := map[string]bool{
-		"Home.md":                        false,
-		"Journal/2026-11-12.md":          false,
-		"Projects/Atlas/Design Notes.md": false,
+		"Home.md":                           false,
+		"Journal/2026-11-12.md":             false,
+		"Projects/Atlas/Design Notes.md":    false,
+		"Projects/Atlas/Rendering Notes.md": false,
 	}
 	for _, link := range backlinks {
 		if _, ok := wantSources[link.Source]; !ok {
@@ -86,8 +90,8 @@ func TestNestedVaultFixtureLinksAndBacklinks(t *testing.T) {
 	if got := idx.Backlinks("Home"); len(got) != 1 || got[0].Source != "Projects/Atlas/Overview.md" {
 		t.Fatalf("Home backlinks = %#v, want Overview", got)
 	}
-	if got := idx.Backlinks("Atlas Overview#Architecture"); len(got) != 2 {
-		t.Fatalf("heading backlinks through alias = %#v, want the design note and journal", got)
+	if got := idx.Backlinks("Atlas Overview#Architecture"); len(got) != 3 {
+		t.Fatalf("heading backlinks through alias = %#v, want both Atlas notes and journal", got)
 	}
 }
 
@@ -100,11 +104,11 @@ func TestVaultFixtureIndexUpdatesLinksAfterDeletion(t *testing.T) {
 	if err := idx.Rebuild(root); err != nil {
 		t.Fatal(err)
 	}
-	if got := idx.Backlinks("Projects/Atlas/Overview"); len(got) != 5 {
-		t.Fatalf("initial backlinks = %d, want 5", len(got))
+	if got := idx.Backlinks("Projects/Atlas/Overview"); len(got) != 6 {
+		t.Fatalf("initial backlinks = %d, want 6", len(got))
 	}
 	idx.Remove("Journal/2026-11-12.md")
-	if got := idx.Backlinks("Projects/Atlas/Overview"); len(got) != 3 {
-		t.Fatalf("backlinks after journal removal = %d, want Home's link and embed plus Design Notes, got %d", len(got), len(got))
+	if got := idx.Backlinks("Projects/Atlas/Overview"); len(got) != 4 {
+		t.Fatalf("backlinks after journal removal = %d, want Home's link and embed plus two Atlas notes, got %d", len(got), len(got))
 	}
 }

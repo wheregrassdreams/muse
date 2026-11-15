@@ -78,6 +78,75 @@ func BenchmarkBacklinks(b *testing.B) {
 	}
 }
 
+func BenchmarkBacklinksSparse(b *testing.B) {
+	for _, count := range []int{1_000, 10_000} {
+		b.Run(fmt.Sprintf("files=%d", count), func(b *testing.B) {
+			root := b.TempDir()
+			writeSparseBacklinkVault(b, root, count)
+			idx := New()
+			if err := idx.Rebuild(root); err != nil {
+				b.Fatal(err)
+			}
+			b.Run("candidate-index", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for n := 0; n < b.N; n++ {
+					benchmarkLinks = idx.Backlinks(fmt.Sprintf("Target.md#uncached-%d", n))
+				}
+			})
+			b.Run("cached-result", func(b *testing.B) {
+				_ = idx.Backlinks("Target.md")
+				b.ReportAllocs()
+				b.ResetTimer()
+				for n := 0; n < b.N; n++ {
+					benchmarkLinks = idx.Backlinks("Target.md")
+				}
+			})
+			b.Run("full-scan-reference", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for n := 0; n < b.N; n++ {
+					benchmarkLinks = backlinksFullScan(idx, fmt.Sprintf("Target.md#uncached-%d", n))
+				}
+			})
+		})
+	}
+}
+
+func writeSparseBacklinkVault(b *testing.B, root string, count int) {
+	b.Helper()
+	if err := os.WriteFile(filepath.Join(root, "Target.md"), []byte("# Target\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	for n := 0; n < count; n++ {
+		target := fmt.Sprintf("unique-%05d", n)
+		if n%100 == 0 {
+			target = "Target"
+		}
+		path := filepath.Join(root, "notes", fmt.Sprintf("%05d.md", n))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("[["+target+"]]\n"), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func backlinksFullScan(idx *Index, target string) []Link {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	var out []Link
+	for _, path := range sortedPaths(idx.docs) {
+		for _, link := range idx.docs[path].Links {
+			if resolvesLocked(idx, path, link.Target, target) {
+				out = append(out, link)
+			}
+		}
+	}
+	return out
+}
+
 var benchmarkMatches []Match
 var benchmarkLinks []Link
 

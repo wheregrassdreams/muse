@@ -37,6 +37,9 @@ func (i *Index) literal(ctx context.Context, query string, limit int, overlays .
 	if s.poisoned {
 		return nil, errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
 	}
+	if s.literalReady {
+		return literalCachedLocked(ctx, s, query, limit, overlays)
+	}
 	shadow := make(map[string]Document, len(overlays))
 	for _, d := range overlays {
 		if err := validateDocument(d); err != nil {

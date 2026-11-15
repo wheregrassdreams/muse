@@ -7,6 +7,7 @@ import "context"
 // path changes; Revision identifies the caller's snapshot version.
 type Document struct {
 	ID, Path, Title, Source, Revision string
+	Type, CreatedAt, UpdatedAt        string
 	Aliases, Tags                     []string
 }
 
@@ -27,6 +28,12 @@ func Open(dir string) (*Index, error) { return openIndex(dir) }
 // Reconcile makes the disk index match docs, skipping unchanged revisions.
 func (i *Index) Reconcile(ctx context.Context, docs []Document) error {
 	return i.reconcile(ctx, docs)
+}
+
+// NeedsReconcile reports whether docs differ from the durable snapshot without
+// changing the index. It is useful for choosing a full-rebuild execution path.
+func (i *Index) NeedsReconcile(docs []Document) (bool, error) {
+	return i.needsReconcile(docs)
 }
 
 // Apply applies disk snapshot upserts and deletions and makes them searchable.

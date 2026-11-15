@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"muse/frontmatter"
 )
 
 var blockRE = regexp.MustCompile(`\^([A-Za-z0-9_-]+)\s*$`)
@@ -18,28 +20,31 @@ func readDocument(abs, rel string) (*Document, error) {
 }
 
 func parseDocument(path, source string) *Document {
-	d := &Document{Path: cleanPath(path), Source: source}
+	d := &Document{Path: cleanPath(path), Source: source, Type: "note"}
+	metadata := frontmatter.Parse(source)
+	if metadata.Err == nil {
+		for _, field := range metadata.Fields {
+			switch field.Key {
+			case "type":
+				if strings.TrimSpace(field.Value) != "" {
+					d.Type = strings.TrimSpace(field.Value)
+				}
+			case "created_at":
+				d.CreatedAt = strings.TrimSpace(field.Value)
+			case "updated_at":
+				d.UpdatedAt = strings.TrimSpace(field.Value)
+			}
+		}
+	}
 	body := source
 	if strings.HasPrefix(body, "---\n") || strings.HasPrefix(body, "---\r\n") {
 		if end := frontmatterEnd(body); end >= 0 {
-			d.Title, d.Aliases, d.Tags = parseFrontmatter(body[:end])
+			_, d.Aliases, d.Tags = parseFrontmatter(body[:end])
 			body = body[end:]
 		}
 	}
 	visible := maskNonContent(body)
-	if d.Title == "" {
-		for _, line := range strings.Split(visible, "\n") {
-			s := strings.TrimSpace(line)
-			if strings.HasPrefix(s, "# ") {
-				d.Title = strings.TrimSpace(strings.TrimLeft(s, "# "))
-				break
-			}
-		}
-	}
-	if d.Title == "" {
-		base := d.Path[strings.LastIndex(d.Path, "/")+1:]
-		d.Title = strings.TrimSuffix(base, base[strings.LastIndex(base, "."):])
-	}
+	d.Title = frontmatter.Title(source, d.Path)
 	baseOffset := len(source) - len(body)
 	lines := strings.SplitAfter(visible, "\n")
 	offset := 0
@@ -55,12 +60,16 @@ func parseDocument(path, source string) *Document {
 				text := strings.TrimSpace(strings.TrimLeft(trim[n:], " \t"))
 				text = stripClosingHashes(text)
 				if text != "" {
-					d.Headings = append(d.Headings, Heading{Text: text, Slug: slugify(text), Offset: baseOffset + offset + indent})
+					// Heading text is sliced from the masked copy of the whole
+					// document. Keep only the short heading string so indexed notes
+					// do not retain a second full-size source buffer each.
+					d.Headings = append(d.Headings, Heading{Text: strings.Clone(text), Slug: slugify(text), Offset: baseOffset + offset + indent})
 				}
 			}
 		}
 		if m := blockRE.FindStringSubmatch(strings.TrimSpace(line)); len(m) == 2 {
-			d.Blocks = append(d.Blocks, BlockID{ID: m[1], Offset: baseOffset + offset + strings.Index(line, strings.TrimSpace(line))})
+			// Regexp submatches also point into the masked document buffer.
+			d.Blocks = append(d.Blocks, BlockID{ID: strings.Clone(m[1]), Offset: baseOffset + offset + strings.Index(line, strings.TrimSpace(line))})
 		}
 		offset += len(line)
 	}
@@ -198,13 +207,14 @@ func parseLinks(path, source, visible string, base int) []Link {
 		}
 		p = j + 2
 	}
-	// Inline Markdown links: [label](destination), with balanced destination
-	// parentheses and optional angle-bracket destinations. Reference links and
-	// images are omitted deliberately in this first index implementation.
+	// Inline Markdown links and images: [label](destination) and
+	// ![alt](destination), with balanced destination parentheses and optional
+	// angle-bracket destinations. Reference links are omitted.
 	for p := 0; p < len(visible); p++ {
-		if visible[p] != '[' || (p > 0 && visible[p-1] == '!') {
+		if visible[p] != '[' {
 			continue
 		}
+		isImage := p > 0 && visible[p-1] == '!'
 		close := strings.IndexByte(visible[p+1:], ']')
 		if close < 0 {
 			continue
@@ -237,7 +247,11 @@ func parseLinks(path, source, visible string, base int) []Link {
 			dest = dest[:cut]
 		}
 		if dest != "" {
-			out = append(out, Link{Source: path, Target: dest, Label: strings.TrimSpace(source[p+1 : close]), Kind: "markdown", Start: base + p, End: base + q + 1})
+			start, kind := p, "markdown"
+			if isImage {
+				start, kind = p-1, "image"
+			}
+			out = append(out, Link{Source: path, Target: dest, Label: strings.TrimSpace(source[p+1 : close]), Kind: kind, Start: base + start, End: base + q + 1})
 		}
 		p = q
 	}

@@ -26,27 +26,25 @@ const (
 	fieldID         = "id"
 	fieldPath       = "path"
 	fieldPathEN     = "path_en"
-	fieldPathZH     = "path_zh"
 	fieldPathEdge   = "path_edge"
 	fieldPathHanNG  = "path_han_ng"
 	fieldRevision   = "revision"
 	fieldSource     = "source"
 	fieldTitleEN    = "title_en"
-	fieldTitleZH    = "title_zh"
 	fieldTitleEdge  = "title_edge"
 	fieldTitleHanNG = "title_han_ng"
 	fieldBodyEN     = "body_en"
-	fieldBodyZH     = "body_zh"
 	fieldBodyHanNG  = "body_han_ng"
 	fieldMetaEN     = "meta_en"
-	fieldMetaZH     = "meta_zh"
+	fieldMetaHanNG  = "meta_han_ng"
 
-	indexSubdir      = "tantivy"
-	manifestName     = "manifest.json"
-	dirtyName        = "dirty.marker"
-	ngramMax         = 2
-	literalBatchSize = 64
-	nativeBatchSize  = 128
+	indexSubdir           = "tantivy"
+	manifestName          = "manifest.json"
+	dirtyName             = "dirty.marker"
+	ngramMax              = 2
+	literalBatchSize      = 64
+	nativeDeleteBatchSize = 128
+	nativeUpsertBatchSize = 1024
 	// A small document count alone does not bound copies of large notes.
 	// A single oversized note is allowed on its own.
 	nativeBatchSourceBytes = 2 << 20
@@ -73,6 +71,20 @@ type indexState struct {
 	fileLock *flock.Flock
 	closed   bool
 	poisoned bool
+
+	// literalDocs holds lowercase searchable text for the current in-memory
+	// snapshot. It avoids fetching and normalizing every stored source for each
+	// literal query; original sources remain in Tantivy and are loaded only for
+	// matching documents whose snippets are returned.
+	literalDocs  map[string]literalDoc
+	literalBytes int64
+	literalReady bool
+	// literalOrder is an optional path/ID-sorted manifest key projection used
+	// to avoid sorting the full corpus for every literal query. Its separate
+	// budget bounds the extra string headers; IDs share storage with manifest.
+	literalOrder      []string
+	literalOrderBytes int64
+	literalOrderReady bool
 }
 
 func openIndex(dir string) (*Index, error) {
@@ -299,20 +311,17 @@ func openEngine(dir string) (*tantivy.TantivyContext, error) {
 		{fieldID, true, false, true, tantivy.IndexRecordOptionBasic, tantivy.TokenizerRaw},
 		{fieldPath, true, false, true, tantivy.IndexRecordOptionBasic, tantivy.TokenizerRaw},
 		{fieldPathEN, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerSimple},
-		{fieldPathZH, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerJieba},
 		{fieldPathEdge, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerEdgeNgram},
 		{fieldPathHanNG, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerNgram},
 		{fieldRevision, true, false, true, tantivy.IndexRecordOptionBasic, tantivy.TokenizerRaw},
 		{fieldSource, true, false, false, tantivy.IndexRecordOptionBasic, tantivy.TokenizerRaw},
 		{fieldTitleEN, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerSimple},
-		{fieldTitleZH, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerJieba},
 		{fieldTitleEdge, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerEdgeNgram},
 		{fieldTitleHanNG, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerNgram},
 		{fieldBodyEN, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerSimple},
-		{fieldBodyZH, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerJieba},
 		{fieldBodyHanNG, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerNgram},
 		{fieldMetaEN, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerSimple},
-		{fieldMetaZH, false, true, false, tantivy.IndexRecordOptionWithFreqsAndPositions, tantivy.TokenizerJieba},
+		{fieldMetaHanNG, false, true, false, tantivy.IndexRecordOptionWithFreqs, tantivy.TokenizerNgram},
 	} {
 		if err := add(field.name, field.stored, field.text, field.fast, field.option, field.tokenizer); err != nil {
 			return nil, fmt.Errorf("add schema field %q: %w", field.name, err)
@@ -331,7 +340,6 @@ func openEngine(dir string) (*tantivy.TantivyContext, error) {
 		run  func() error
 	}{
 		{tantivy.TokenizerSimple, func() error { return engine.RegisterTextAnalyzerSimple(tantivy.TokenizerSimple, 100, tantivy.English) }},
-		{tantivy.TokenizerJieba, func() error { return engine.RegisterTextAnalyzerJieba(tantivy.TokenizerJieba, 100) }},
 		{tantivy.TokenizerNgram, func() error { return engine.RegisterTextAnalyzerNgram(tantivy.TokenizerNgram, 1, ngramMax, false) }},
 		{tantivy.TokenizerRaw, func() error { return engine.RegisterTextAnalyzerRaw(tantivy.TokenizerRaw) }},
 		{tantivy.TokenizerEdgeNgram, func() error { return engine.RegisterTextAnalyzerEdgeNgram(tantivy.TokenizerEdgeNgram, 1, 32, 256) }},
@@ -354,6 +362,22 @@ func (i *Index) getState() (*indexState, error) {
 
 func (i *Index) reconcile(ctx context.Context, docs []Document) error {
 	s, err := i.getState()
+	if err != nil {
+		return err
+	}
+	// Build the bounded projection outside the exclusive Tantivy/index lock so
+	// normalization of large snapshots does not block concurrent readers.
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return errors.New("vaultsearch: index is closed")
+	}
+	previous := make(map[string]literalDoc, len(s.literalDocs))
+	for id, projection := range s.literalDocs {
+		previous[id] = projection
+	}
+	s.mu.RUnlock()
+	nextLiteral, nextLiteralBytes, nextOrder, nextOrderReady, err := buildLiteralProjection(ctx, docs, previous)
 	if err != nil {
 		return err
 	}
@@ -399,15 +423,101 @@ func (i *Index) reconcile(ctx context.Context, docs []Document) error {
 	}
 	sort.Strings(deletes)
 	if len(upserts) == 0 && len(deletes) == 0 {
+		s.literalDocs = nextLiteral
+		s.literalBytes = nextLiteralBytes
+		s.literalReady = true
+		s.literalOrder = nextOrder
+		s.literalOrderBytes = literalOrderSize(nextOrder)
+		s.literalOrderReady = nextOrderReady
 		return nil
 	}
-	return s.applyLocked(ctx, upserts, deletes)
+	if err := s.applyLocked(ctx, upserts, deletes); err != nil {
+		return err
+	}
+	s.literalDocs = nextLiteral
+	s.literalBytes = nextLiteralBytes
+	s.literalReady = true
+	s.literalOrder = nextOrder
+	s.literalOrderBytes = literalOrderSize(nextOrder)
+	s.literalOrderReady = nextOrderReady
+	return nil
+}
+
+// NeedsReconcile reports whether the durable Tantivy snapshot differs from
+// docs without mutating the index or building its query-time projections.
+// Callers can use this to move expensive full-corpus indexing into a short-lived
+// worker process while keeping the long-lived UI process read-only.
+func (i *Index) needsReconcile(docs []Document) (bool, error) {
+	s, err := i.getState()
+	if err != nil {
+		return false, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return false, errors.New("vaultsearch: index is closed")
+	}
+	if s.poisoned {
+		return false, errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
+	}
+	if len(docs) != len(s.manifest.Docs) {
+		return true, nil
+	}
+	seen := make(map[string]struct{}, len(docs))
+	for _, d := range docs {
+		if err := validateDocument(d); err != nil {
+			return false, err
+		}
+		if _, ok := seen[d.ID]; ok {
+			return false, fmt.Errorf("vaultsearch: duplicate document ID %q", d.ID)
+		}
+		seen[d.ID] = struct{}{}
+		revision := d.Revision
+		if revision == "" {
+			revision = sourceDigest(d.Source)
+		}
+		old, ok := s.manifest.Docs[d.ID]
+		if !ok || old.Path != d.Path || old.Revision != revision {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (i *Index) apply(ctx context.Context, upserts []Document, deletes []string) error {
 	s, err := i.getState()
 	if err != nil {
 		return err
+	}
+	prepared := append([]Document(nil), upserts...)
+	s.mu.RLock()
+	prepareProjection := s.literalReady
+	availableProjectionBytes := int64(0)
+	if prepareProjection {
+		availableProjectionBytes = literalProjectionBudget - s.literalBytes
+		reclaim := make(map[string]struct{}, len(deletes)+len(prepared))
+		for _, id := range deletes {
+			reclaim[id] = struct{}{}
+		}
+		for _, d := range prepared {
+			reclaim[d.ID] = struct{}{}
+		}
+		for id := range reclaim {
+			if old, ok := s.literalDocs[id]; ok {
+				availableProjectionBytes += old.bytes(id)
+			}
+		}
+		availableProjectionBytes = min(availableProjectionBytes, literalProjectionBudget)
+	}
+	s.mu.RUnlock()
+	projections := make(map[string]literalDoc)
+	if prepareProjection {
+		for n := range prepared {
+			if prepared[n].Revision == "" {
+				prepared[n].Revision = sourceDigest(prepared[n].Source)
+			}
+		}
+		projections = prepareLiteralProjections(prepared, availableProjectionBytes)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -417,7 +527,14 @@ func (i *Index) apply(ctx context.Context, upserts []Document, deletes []string)
 	if s.poisoned {
 		return errors.New("vaultsearch: index transaction is incomplete; close and reopen to rebuild")
 	}
-	return s.applyLocked(ctx, upserts, deletes)
+	if err := s.applyLocked(ctx, prepared, deletes); err != nil {
+		return err
+	}
+	if s.literalReady {
+		s.applyLiteralProjection(prepared, deletes, projections)
+	}
+	s.applyLiteralOrder(prepared, deletes)
+	return nil
 }
 
 func (s *indexState) applyLocked(ctx context.Context, upserts []Document, deletes []string) error {
@@ -468,13 +585,13 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 	s.poisoned = true
 	// Tantivy commits each bounded batch independently. The marker makes a
 	// partial operation recoverable; it is cleared only after the final manifest.
-	for at := 0; at < len(deleteIDs); at += nativeBatchSize {
+	for at := 0; at < len(deleteIDs); at += nativeDeleteBatchSize {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		end := min(at+nativeBatchSize, len(deleteIDs))
+		end := min(at+nativeDeleteBatchSize, len(deleteIDs))
 		if _, err := s.engine.BatchAddAndDeleteDocumentsWithOpstamp(nil, fieldID, deleteIDs[at:end]); err != nil {
-			return fmt.Errorf("vaultsearch: apply Tantivy delete batch %d: %w", at/nativeBatchSize, err)
+			return fmt.Errorf("vaultsearch: apply Tantivy delete batch %d: %w", at/nativeDeleteBatchSize, err)
 		}
 	}
 	for at := 0; at < len(upserts); {
@@ -482,7 +599,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 			return err
 		}
 		end, sourceBytes := at, 0
-		for end < len(upserts) && end-at < nativeBatchSize {
+		for end < len(upserts) && end-at < nativeUpsertBatchSize {
 			d := upserts[end]
 			size := len(d.Source) + len(d.Title) + len(d.Path)
 			for _, value := range d.Aliases {
@@ -515,7 +632,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 			batchIDs = append(batchIDs, d.ID)
 		}
 		if _, err := s.engine.BatchAddAndDeleteDocumentsWithOpstamp(docs, fieldID, batchIDs); err != nil {
-			return fmt.Errorf("vaultsearch: apply Tantivy upsert batch %d: %w", at/nativeBatchSize, err)
+			return fmt.Errorf("vaultsearch: apply Tantivy upsert batch %d: %w", at/nativeUpsertBatchSize, err)
 		}
 		at = end
 	}
@@ -574,9 +691,9 @@ func makeNativeDocument(engine *tantivy.TantivyContext, d Document) (*tantivy.Do
 	doc := tantivy.NewDocument()
 	add := func(field, value string) error { return doc.AddField(value, engine, field) }
 	for _, f := range []struct{ field, value string }{
-		{fieldID, d.ID}, {fieldPath, d.Path}, {fieldPathEN, d.Path}, {fieldPathZH, d.Path}, {fieldPathEdge, d.Path}, {fieldPathHanNG, hanOnly(d.Path)}, {fieldRevision, d.Revision}, {fieldSource, d.Source},
-		{fieldTitleEN, d.Title}, {fieldTitleZH, d.Title}, {fieldTitleEdge, d.Title},
-		{fieldBodyEN, d.Source}, {fieldBodyZH, d.Source},
+		{fieldID, d.ID}, {fieldPath, d.Path}, {fieldPathEN, d.Path}, {fieldPathEdge, d.Path}, {fieldPathHanNG, hanOnly(d.Path)}, {fieldRevision, d.Revision}, {fieldSource, d.Source},
+		{fieldTitleEN, d.Title}, {fieldTitleEdge, d.Title},
+		{fieldBodyEN, d.Source},
 		{fieldTitleHanNG, hanOnly(d.Title)}, {fieldBodyHanNG, hanOnly(d.Source)},
 	} {
 		if err := add(f.field, f.value); err != nil {
@@ -584,11 +701,13 @@ func makeNativeDocument(engine *tantivy.TantivyContext, d Document) (*tantivy.Do
 			return nil, fmt.Errorf("vaultsearch: index %s for %q: %w", f.field, d.ID, err)
 		}
 	}
-	meta := strings.Join(append(append([]string(nil), d.Aliases...), d.Tags...), "\n")
-	for _, field := range []string{fieldMetaEN, fieldMetaZH} {
-		if err := add(field, meta); err != nil {
+	metaValues := append(append([]string(nil), d.Aliases...), d.Tags...)
+	metaValues = append(metaValues, d.Type, d.CreatedAt, d.UpdatedAt)
+	meta := strings.Join(metaValues, "\n")
+	for _, f := range []struct{ field, value string }{{fieldMetaEN, meta}, {fieldMetaHanNG, hanOnly(meta)}} {
+		if err := add(f.field, f.value); err != nil {
 			doc.Free()
-			return nil, fmt.Errorf("vaultsearch: index metadata for %q: %w", d.ID, err)
+			return nil, fmt.Errorf("vaultsearch: index %s metadata for %q: %w", f.field, d.ID, err)
 		}
 	}
 	return doc, nil
@@ -611,14 +730,23 @@ func sourceDigest(source string) string {
 
 func hanOnly(source string) string {
 	var out strings.Builder
+	out.Grow(len(source))
+	hasHan, previousHan := false, false
 	for _, r := range source {
 		if unicode.Is(unicode.Han, r) {
+			// Defer the separator until another Han rune arrives. This is
+			// equivalent to collapsing intervening non-Han runs with Fields,
+			// without allocating builder and Fields copies.
+			if hasHan && !previousHan {
+				out.WriteByte(' ')
+			}
 			out.WriteRune(r)
-		} else if out.Len() > 0 {
-			out.WriteByte(' ')
+			hasHan, previousHan = true, true
+		} else {
+			previousHan = false
 		}
 	}
-	return strings.Join(strings.Fields(out.String()), " ")
+	return out.String()
 }
 
 func (i *Index) close() error {
@@ -632,6 +760,11 @@ func (i *Index) close() error {
 		return errors.New("vaultsearch: index already closed")
 	}
 	s.closed = true
+	s.literalDocs = nil
+	s.literalBytes = 0
+	s.literalOrder = nil
+	s.literalOrderBytes = 0
+	s.literalOrderReady = false
 	engineErr := s.engine.Close()
 	lockErr := s.fileLock.Unlock()
 	return errors.Join(wrapCloseError("close Tantivy index", engineErr), wrapCloseError("release index lock", lockErr))
