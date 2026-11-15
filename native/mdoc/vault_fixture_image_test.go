@@ -40,6 +40,49 @@ func TestVaultFixtureImagesResolveAndDecode(t *testing.T) {
 	}
 }
 
+func TestResolveImageSourceWithSharedLookup(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "Notes")
+	assets := filepath.Join(root, "Attachments")
+	for _, dir := range []string{base, assets} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	image := filepath.Join(assets, "shared.png")
+	if err := os.WriteFile(image, []byte("catalog metadata only"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	lookup := func(name string) string {
+		calls++
+		if name == "shared.png" {
+			return image
+		}
+		return ""
+	}
+	if got := ResolveImageSourceWithLookup("shared.png", base, root, lookup); got != image {
+		t.Fatalf("resolved = %q, want %q", got, image)
+	}
+	if calls != 1 {
+		t.Fatalf("lookup calls = %d, want 1", calls)
+	}
+	remote := "https://example.test/image.png"
+	if got := ResolveImageSourceWithLookup(remote, base, root, lookup); got != remote {
+		t.Fatalf("remote = %q", got)
+	}
+	if calls != 1 {
+		t.Fatalf("remote invoked lookup: calls=%d", calls)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveImageSourceWithLookup("outside.png", base, root, func(string) string { return outside }); got == outside {
+		t.Fatalf("outside resolver escaped root: %q", got)
+	}
+}
+
 func TestVaultFixtureBareDuplicateAttachmentHasStableResolution(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "testdata", "vault-fixture"))
 	if err != nil {

@@ -34,11 +34,9 @@ func TestRemoteImagePersistsAndReloadsFromDisk(t *testing.T) {
 		_, _ = w.Write(pngBytes.Bytes())
 	}))
 	defer srv.Close()
-	remoteImageAssets.Delete(srv.URL)
-	remoteImages.Delete(srv.URL)
+	decodedImageAssets.delete(imageAssetCacheKey{kind: imageAssetCacheRemote, value: srv.URL})
 	t.Cleanup(func() {
-		remoteImageAssets.Delete(srv.URL)
-		remoteImages.Delete(srv.URL)
+		decodedImageAssets.delete(imageAssetCacheKey{kind: imageAssetCacheRemote, value: srv.URL})
 	})
 
 	loaded := make(chan struct{}, 1)
@@ -81,8 +79,7 @@ func TestRemoteImagePersistsAndReloadsFromDisk(t *testing.T) {
 	// Simulate a fresh process: discard all in-process entries, then make the
 	// endpoint return 404. The on-disk copy must serve both loaders without a
 	// second request.
-	remoteImageAssets.Delete(srv.URL)
-	remoteImages.Delete(srv.URL)
+	decodedImageAssets.delete(imageAssetCacheKey{kind: imageAssetCacheRemote, value: srv.URL})
 	unavailable.Store(true)
 
 	loadedAgain := make(chan struct{}, 1)
@@ -92,7 +89,7 @@ func TestRemoteImagePersistsAndReloadsFromDisk(t *testing.T) {
 		t.Fatalf("disk-backed ImageAsset did not initialize: next=%v changed=%v bitmap=%v", next, changed, reloaded.Bitmap())
 	}
 
-	remoteImages.Delete(srv.URL)
+	decodedImageAssets.delete(imageAssetCacheKey{kind: imageAssetCacheRemote, value: srv.URL})
 	legacyDone := make(chan struct{}, 1)
 	if bmp := LoadImage(srv.URL, "", func() { legacyDone <- struct{}{} }); bmp != nil {
 		t.Fatal("legacy LoadImage should notify asynchronously after process cache reset")

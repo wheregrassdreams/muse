@@ -1,6 +1,7 @@
 package mdoc
 
 import (
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -134,33 +135,124 @@ type delimRun struct {
 // the parser makes of it is read from src. What it swaps on a line
 // depends on that line alone.
 func CJKFriendly(src string) string {
-	runs := delimRuns(src)
-	if len(runs) == 0 {
+	if !hasNonASCIIByte(src) {
 		return src
 	}
-	m := masker{src: src, runs: runs}
-	for k := range runs {
-		runs[k].open, runs[k].close = m.can(k, true)
-	}
-	swapped := false
-	for k := range runs {
-		if !m.matches(k) && m.fix(k) {
-			swapped = true
-		}
-	}
-	if !swapped {
+	// Without emphasis delimiters, no line can need CJK flanking fixes.
+	// This avoids walking a large plain CJK document line by line.
+	if !strings.ContainsAny(src, "*_~") {
 		return src
 	}
-	b := []byte(src)
-	for _, r := range runs {
-		if r.sb != 0 {
-			utf8.EncodeRune(b[r.before:], r.sb)
+	return cjkFriendlyScan(src)
+}
+
+// cjkFriendlyScan handles sources with both CJK text and emphasis delimiters.
+func cjkFriendlyScan(src string) string {
+	var out strings.Builder
+	outStarted := false
+	written := 0
+	var runs []delimRun
+	wide := false
+	lead := true
+	applyLine := func() {
+		if wide {
+			m := masker{src: src, runs: runs}
+			for k := range runs {
+				runs[k].open, runs[k].close = m.can(k, true)
+			}
+			swapped := false
+			for k := range runs {
+				if !m.matches(k) && m.fix(k) {
+					swapped = true
+				}
+			}
+			if swapped {
+				if !outStarted {
+					out.Grow(len(src))
+					outStarted = true
+				}
+				for _, r := range runs {
+					if r.sb != 0 && r.before >= written {
+						out.WriteString(src[written:r.before])
+						out.WriteRune(r.sb)
+						_, n := utf8.DecodeRuneInString(src[r.before:])
+						written = r.before + n
+					}
+					if r.sa != 0 && r.after >= written {
+						out.WriteString(src[written:r.after])
+						out.WriteRune(r.sa)
+						_, n := utf8.DecodeRuneInString(src[r.after:])
+						written = r.after + n
+					}
+				}
+			}
 		}
-		if r.sa != 0 {
-			utf8.EncodeRune(b[r.after:], r.sa)
+		runs = runs[:0]
+		wide = false
+	}
+	for i := 0; i < len(src); {
+		next := strings.IndexAny(src[i:], "*_~\n")
+		if next < 0 {
+			break
+		}
+		if next > 0 && lead && strings.TrimLeft(src[i:i+next], " \t>") != "" {
+			lead = false
+		}
+		i += next
+		c := src[i]
+		if c == '\n' {
+			if len(runs) > 0 {
+				applyLine()
+			}
+			lead = true
+			i++
+			continue
+		}
+		j := i
+		for j < len(src) && src[j] == c {
+			j++
+		}
+		s := i
+		if escapedAt(src, i) {
+			s++
+		}
+		i = j
+		if s == j || c == '~' && j-s > 2 {
+			lead = false
+			continue
+		}
+		r := delimRun{start: s, end: j, c: c, before: -1, after: -1, br: '\n', ar: '\n'}
+		if s > 0 {
+			if p, n := utf8.DecodeLastRuneInString(src[:s]); p != '\n' && p != '\r' {
+				r.before, r.br = s-n, p
+				r.lead = lead
+			}
+		}
+		if j < len(src) && src[j] != '\n' && src[j] != '\r' {
+			r.after = j
+			r.ar, _ = utf8.DecodeRuneInString(src[j:])
+		}
+		lead = false
+		wide = wide || r.br >= utf8.RuneSelf || r.ar >= utf8.RuneSelf
+		runs = append(runs, r)
+	}
+	if len(runs) > 0 {
+		applyLine()
+	}
+	if !outStarted {
+		return src
+	}
+	out.WriteString(src[written:])
+	return out.String()
+}
+
+func hasNonASCIIByte(src string) bool {
+	for i := 0; i < len(src); i++ {
+		if src[i] >= utf8.RuneSelf {
+			return true
 		}
 	}
-	return string(b)
+	return false
 }
 
 // masker finds the swaps of CJKFriendly.
@@ -301,59 +393,6 @@ func (m *masker) seqClass(off int, b cjkClass) cjkClass {
 		}
 	}
 	return b
-}
-
-// delimRuns returns the runs of *, _ and ~ in src that may be emphasis or
-// strikethrough, when one has a character that is not ASCII beside it;
-// nil otherwise, when the parser reads them all as the amendment does.
-func delimRuns(src string) []delimRun {
-	var runs []delimRun
-	wide := false
-	// lead tells the line so far is a prefix of quotation markers.
-	lead := true
-	for i := 0; i < len(src); {
-		c := src[i]
-		if c != '*' && c != '_' && c != '~' {
-			if c == '\n' {
-				lead = true
-			} else if c != ' ' && c != '\t' && c != '>' {
-				lead = false
-			}
-			i++
-			continue
-		}
-		j := i
-		for j < len(src) && src[j] == c {
-			j++
-		}
-		s := i
-		if escapedAt(src, i) {
-			s++
-		}
-		i = j
-		if s == j || c == '~' && j-s > 2 {
-			lead = false
-			continue
-		}
-		r := delimRun{start: s, end: j, c: c, before: -1, after: -1, br: '\n', ar: '\n'}
-		if s > 0 {
-			if p, n := utf8.DecodeLastRuneInString(src[:s]); p != '\n' && p != '\r' {
-				r.before, r.br = s-n, p
-				r.lead = lead
-			}
-		}
-		if j < len(src) && src[j] != '\n' && src[j] != '\r' {
-			r.after = j
-			r.ar, _ = utf8.DecodeRuneInString(src[j:])
-		}
-		lead = false
-		wide = wide || r.br >= utf8.RuneSelf || r.ar >= utf8.RuneSelf
-		runs = append(runs, r)
-	}
-	if !wide {
-		return nil
-	}
-	return runs
 }
 
 // escapedAt reports whether the character at i is escaped by a backslash.

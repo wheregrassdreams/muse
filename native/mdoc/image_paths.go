@@ -2,6 +2,7 @@ package mdoc
 
 import (
 	"io/fs"
+	"muse/locales"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +13,18 @@ import (
 // MissingImageMessage is the shared, user-facing state for an image source
 // that could not be loaded by a document renderer or the image preview.
 func MissingImageMessage(src string) string {
-	src = strings.TrimSpace(strings.ReplaceAll(src, "\\", "/"))
-	if src == "" {
-		return "找不到图片。"
+	src = strings.TrimSpace(src)
+	// An embedded data URL is an opaque payload rather than a useful file
+	// name. Returning it in the error label can make text layout attempt to
+	// shape tens of megabytes after a decode failure.
+	if len(src) >= len("data:") && strings.EqualFold(src[:len("data:")], "data:") {
+		return locales.DocumentMissingImage()
 	}
-	return "找不到“" + src + "”。"
+	src = strings.ReplaceAll(src, "\\", "/")
+	if src == "" {
+		return locales.DocumentMissingImage()
+	}
+	return locales.DocumentMissingImageNamed(src)
 }
 
 type attachmentPaths struct {
@@ -29,6 +37,15 @@ var attachmentIndexes sync.Map
 // ResolveImageSource handles document-relative, vault-relative and bare wiki
 // attachment names. The fallback catalog holds paths only, never image pixels.
 func ResolveImageSource(src, base, root string) string {
+	return ResolveImageSourceWithLookup(src, base, root, func(name string) string {
+		return legacyAttachmentPath(root, name)
+	})
+}
+
+// ResolveImageSourceWithLookup resolves normal Markdown paths first and asks
+// lookup only for a bare attachment name. Callers with a maintained vault
+// catalog can avoid the renderer's standalone fallback scan entirely.
+func ResolveImageSourceWithLookup(src, base, root string, lookup func(name string) string) string {
 	if isRemoteImage(src) || strings.HasPrefix(src, "data:") {
 		return src
 	}
@@ -55,7 +72,24 @@ func ResolveImageSource(src, base, root string) string {
 	if strings.ContainsAny(src, "/\\") {
 		return local
 	}
-	name := strings.ToLower(filepath.Base(local))
+	if lookup == nil {
+		return local
+	}
+	if p := lookup(filepath.Base(local)); p != "" {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if pathWithinRoot(p, root) {
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				return p
+			}
+		}
+	}
+	return local
+}
+
+func legacyAttachmentPath(root, name string) string {
+	name = strings.ToLower(filepath.Base(name))
 	var idx attachmentPaths
 	if old, ok := attachmentIndexes.Load(root); ok {
 		idx = old.(attachmentPaths)
@@ -89,7 +123,7 @@ func ResolveImageSource(src, base, root string) string {
 	if p := idx.names[name]; p != "" {
 		return p
 	}
-	return local
+	return ""
 }
 
 // pathWithinRoot checks both lexical traversal and existing symlink targets.

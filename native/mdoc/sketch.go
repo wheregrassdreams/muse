@@ -301,15 +301,22 @@ func svgColor(s string) (ui.Color, bool) {
 // group is the font of the text in it unless the text says otherwise.
 func svgTexts(svg string) []svgText {
 	dec := xml.NewDecoder(strings.NewReader(svg))
+	type textRun struct {
+		text svgText
+		m    svgMatrix
+	}
+	type textGroup struct {
+		direct svgText
+		m      svgMatrix
+		runs   []*textRun
+	}
 	type frame struct {
 		m     svgMatrix
 		size  float32
 		bold  bool
 		fill  ui.Color
-		text  bool // inside a <text>: character data is a label
-		start svgText
-		cur   svgText
-		has   bool
+		group *textGroup
+		run   *textRun
 	}
 	base := svgMatrix{a: 1, d: 1}
 	stack := []*frame{{m: base, size: 16}}
@@ -326,7 +333,7 @@ func svgTexts(svg string) []svgText {
 		switch tok := tok.(type) {
 		case xml.StartElement:
 			parent := top()
-			f := &frame{m: parent.m, size: parent.size, bold: parent.bold, fill: parent.fill}
+			f := &frame{m: parent.m, size: parent.size, bold: parent.bold, fill: parent.fill, group: parent.group, run: parent.run}
 			attrs := map[string]string{}
 			for _, a := range tok.Attr {
 				attrs[a.Name.Local] = a.Value
@@ -345,12 +352,8 @@ func svgTexts(svg string) []svgText {
 					f.fill = c
 				}
 			}
-			if v, ok := attrs["text-anchor"]; ok {
-				f.start.anchor = anchorIndex(v)
-			}
 			if tok.Name.Local == "text" {
-				f.text = true
-				f.cur = svgText{
+				label := svgText{
 					x:      svgNum(attrs["x"], 0),
 					y:      svgNum(attrs["y"], 0),
 					size:   f.size,
@@ -358,24 +361,76 @@ func svgTexts(svg string) []svgText {
 					color:  f.fill,
 					anchor: anchorIndex(attrs["text-anchor"]),
 				}
-				f.has = true
+				f.group = &textGroup{direct: label, m: f.m}
+				f.run = nil
+			} else if tok.Name.Local == "tspan" && f.group != nil {
+				_, hasX := attrs["x"]
+				_, hasY := attrs["y"]
+				y := f.group.direct.y
+				x := f.group.direct.x
+				if len(f.group.runs) > 0 {
+					last := f.group.runs[len(f.group.runs)-1]
+					x, y = last.text.x, last.text.y
+				}
+				if hasX {
+					x = svgNum(attrs["x"], x)
+				}
+				if hasY {
+					y = svgNum(attrs["y"], y)
+				}
+				// Adjacent tspans without a new x position continue the current
+				// SVG text run. A new baseline starts a separate rendered line.
+				if !hasX && len(f.group.runs) > 0 {
+					last := f.group.runs[len(f.group.runs)-1]
+					if !hasY || y == last.text.y {
+						f.run = last
+						stack = append(stack, f)
+						continue
+					}
+				}
+				anchor := f.group.direct.anchor
+				if v, ok := attrs["text-anchor"]; ok {
+					anchor = anchorIndex(v)
+				}
+				run := &textRun{
+					text: svgText{x: x, y: y, size: f.size, bold: f.bold, color: f.fill, anchor: anchor},
+					m:    f.m,
+				}
+				f.group.runs = append(f.group.runs, run)
+				f.run = run
 			}
 			stack = append(stack, f)
 		case xml.CharData:
 			f := top()
-			if !f.text {
+			if f.group == nil {
 				continue
 			}
-			f.cur.text += string(tok)
+			if f.run != nil {
+				f.run.text.text += string(tok)
+			} else {
+				f.group.direct.text += string(tok)
+			}
 		case xml.EndElement:
 			f := top()
-			if tok.Name.Local == "text" && f.has {
-				t := f.cur
-				t.text = strings.TrimSpace(t.text)
-				if t.text != "" {
-					t.x, t.y = f.m.apply(t.x, t.y)
-					t.size = f.m.scale() * t.size
-					out = append(out, t)
+			if tok.Name.Local == "text" && f.group != nil {
+				if len(f.group.runs) == 0 {
+					t := f.group.direct
+					t.text = strings.TrimSpace(t.text)
+					if t.text != "" {
+						t.x, t.y = f.group.m.apply(t.x, t.y)
+						t.size = f.group.m.scale() * t.size
+						out = append(out, t)
+					}
+				} else {
+					for _, run := range f.group.runs {
+						if strings.TrimSpace(run.text.text) == "" {
+							continue
+						}
+						t := run.text
+						t.x, t.y = run.m.apply(t.x, t.y)
+						t.size = run.m.scale() * t.size
+						out = append(out, t)
+					}
 				}
 			}
 			if len(stack) > 1 {

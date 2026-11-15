@@ -6,11 +6,11 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"muse/locales"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -45,6 +45,9 @@ type Options struct {
 	// AssetRoot is an optional vault root used after BaseDir lookup fails.
 	// Bare attachment names can then resolve to a file elsewhere in the vault.
 	AssetRoot string
+	// ResolveImage overrides path resolution when the application maintains a
+	// shared vault file catalog. Nil uses the standalone resolver.
+	ResolveImage func(src, base, root string) string
 	// OnTask is called when a task-list checkbox is clicked, with the item's
 	// index in the list and its new checked state. Nil leaves the boxes
 	// read-only.
@@ -196,8 +199,8 @@ func renderBlock(c *ui.Context, b Block, depth int, s rstyle) {
 	case Image:
 		renderImage(c, b, s)
 	case Math:
-		if bmp := mathBitmap(b.Text, 18, t.Dark, true); bmp != nil {
-			drawMathBlock(c, bmp, s)
+		if visual := RenderMathVisual(b.Text, 18, t.Dark, true, s.o.Font); visual != nil && visual.Bitmap() != nil {
+			drawMathBlock(c, visual, s)
 			return
 		}
 		ui.Row(c).FillWidth().Justify(ui.Center).Padding(8, 0).Children(func() {
@@ -245,7 +248,7 @@ func renderCode(c *ui.Context, b Block, s rstyle) {
 		Background(CodePanelColor(t.Dark))
 	if s.o.OnCopyCode != nil {
 		code.ContextMenu(func(m *ui.Menu) {
-			if m.Item("复制代码").Chosen() {
+			if m.Item(locales.DocumentCopyCode()).Chosen() {
 				s.o.OnCopyCode(b.Text)
 			}
 		})
@@ -346,7 +349,7 @@ func renderTable(c *ui.Context, b Block, s rstyle) {
 					if e := s.o.CellEdit; e != nil && e.Row == ri && e.Col == ci {
 						box.Children(func() {
 							inp := ui.TextInputBase(c, e.Value).AutoFocus().FillWidth().
-								FontSize(s.o.BodyFontSize - 1).TextColor(t.Text).Label("单元格")
+								FontSize(s.o.BodyFontSize - 1).TextColor(t.Text).Label(locales.DiagramCellLabel())
 							if inp.Focused() && e.WasFocus != nil {
 								*e.WasFocus = true
 							}
@@ -407,7 +410,12 @@ func cellAlign(a []Align, i int) ui.Align {
 // File and network reads happen in ImageAsset loaders, outside this draw.
 func renderImage(c *ui.Context, b Block, s rstyle) {
 	t := c.Theme()
-	path := ResolveImageSource(b.Src, s.o.BaseDir, s.o.AssetRoot)
+	path := ""
+	if s.o.ResolveImage != nil {
+		path = s.o.ResolveImage(b.Src, s.o.BaseDir, s.o.AssetRoot)
+	} else {
+		path = ResolveImageSource(b.Src, s.o.BaseDir, s.o.AssetRoot)
+	}
 	var asset *ImageAsset
 	if path != "" {
 		asset = LoadImageAsset(path, "", s.o.OnAsync)
@@ -474,70 +482,31 @@ func isRemoteImage(src string) bool {
 	return strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://")
 }
 
-type remoteEntry struct {
-	mu      sync.Mutex
-	bmp     *ui.Bitmap
-	loading bool
-	failed  bool
-	waiters []func()
-}
-
-var remoteImages sync.Map
-
 // remoteBitmap returns a fetched remote image, or nil while it loads. The
 // first caller starts the fetch; OnAsync repaints the view when it lands.
 func remoteBitmap(src string, done func()) *ui.Bitmap {
-	e := &remoteEntry{loading: true}
-	if done != nil {
-		e.waiters = append(e.waiters, done)
-	}
-	actual, loaded := remoteImages.LoadOrStore(src, e)
-	if loaded {
-		e = actual.(*remoteEntry)
-		e.mu.Lock()
-		bmp, failed := e.bmp, e.failed
-		if e.loading && done != nil {
-			e.waiters = append(e.waiters, done)
+	// Use the same in-flight request and bounded decoded-image cache as the
+	// Markdown renderer. A buffered handoff covers a fetch completing before
+	// LoadImageAsset returns to this caller.
+	ready := make(chan *ImageAsset, 1)
+	asset := LoadImageAsset(src, "", func() {
+		loaded := <-ready
+		loaded.Advance(time.Now())
+		if done != nil {
+			done()
 		}
-		e.mu.Unlock()
-		// A new viewer still needs a completion signal for a cached failure;
-		// otherwise it would show a loading spinner indefinitely.
-		if failed && done != nil {
+	})
+	ready <- asset
+	if asset.Loaded() {
+		asset.Advance(time.Now())
+		bmp := asset.Bitmap()
+		if bmp == nil && done != nil {
+			// A previously cached failure still completes each new viewer so it
+			// can replace its loading state with the error placeholder.
 			go done()
 		}
 		return bmp
 	}
-	go func() {
-		fail := func() {
-			e.mu.Lock()
-			e.loading, e.failed = false, true
-			waiters := e.waiters
-			e.waiters = nil
-			e.mu.Unlock()
-			for _, notify := range waiters {
-				notify()
-			}
-		}
-		data, err := fetchRemoteImageData(src)
-		if err != nil {
-			fail()
-			return
-		}
-		bmp, err := decodeDocumentImage(data)
-		e.mu.Lock()
-		e.loading = false
-		if err != nil {
-			e.failed = true
-		} else {
-			e.bmp = bmp
-		}
-		waiters := e.waiters
-		e.waiters = nil
-		e.mu.Unlock()
-		for _, notify := range waiters {
-			notify()
-		}
-	}()
 	return nil
 }
 
@@ -560,25 +529,7 @@ func resolveImagePath(src, base string) string {
 	return filepath.Join(base, src)
 }
 
-type imageEntry struct {
-	mod  time.Time
-	size int64
-	bmp  *ui.Bitmap
-}
-
-var imageCache sync.Map
-
 func loadBitmap(path string) *ui.Bitmap {
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-	if v, ok := imageCache.Load(path); ok {
-		e := v.(imageEntry)
-		if e.mod.Equal(st.ModTime()) && e.size == st.Size() {
-			return e.bmp
-		}
-	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -587,7 +538,6 @@ func loadBitmap(path string) *ui.Bitmap {
 	if err != nil {
 		return nil
 	}
-	imageCache.Store(path, imageEntry{mod: st.ModTime(), size: st.Size(), bmp: bmp})
 	return bmp
 }
 
@@ -747,22 +697,15 @@ func LoadImage(src, baseDir string, onLoad func()) *ui.Bitmap {
 	return loadBitmap(path)
 }
 
-var dataImages sync.Map
-
 // dataBitmap decodes a base64 data: URL, as pasted images are kept.
 func dataBitmap(src string) *ui.Bitmap {
-	if v, ok := dataImages.Load(src); ok {
-		bmp, _ := v.(*ui.Bitmap)
-		return bmp
-	}
-	var bmp *ui.Bitmap
 	if comma := strings.IndexByte(src, ','); comma > 0 && strings.Contains(src[:comma], ";base64") {
 		if data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(src[comma+1:])); err == nil {
-			bmp, _ = decodeDocumentImage(data)
+			bmp, _ := decodeDocumentImage(data)
+			return bmp
 		}
 	}
-	dataImages.Store(src, bmp)
-	return bmp
+	return nil
 }
 
 // HTMLOnlyImage reports the image of an HTML block that holds nothing but

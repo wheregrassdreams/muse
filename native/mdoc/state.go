@@ -1,6 +1,7 @@
 package mdoc
 
 import (
+	"muse/locales"
 	"strings"
 )
 
@@ -88,10 +89,10 @@ func parseState(src string) (*mermaidGraph, bool) {
 			continue
 		}
 		if fromID == "[*]start" {
-			from.label = "开始"
+			from.label = locales.DiagramStart()
 		}
 		if toID == "[*]end" {
-			to.label = "结束"
+			to.label = locales.DiagramEnd()
 		}
 		g.edges = append(g.edges, mermaidEdge{from: from, to: to, label: label})
 	}

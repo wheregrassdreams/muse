@@ -32,7 +32,7 @@ func fetchRemoteImageData(src string) ([]byte, error) {
 		if st, err := os.Stat(path); err == nil {
 			if st.Size() > 0 && st.Size() <= maxRemoteImageBytes {
 				if data, readErr := os.ReadFile(path); readErr == nil {
-					if _, _, _, decodeErr := decodeImageFrames(data); decodeErr == nil {
+					if decodeErr := validateImageData(data); decodeErr == nil {
 						return data, nil
 					}
 				}
@@ -56,7 +56,7 @@ func fetchRemoteImageData(src string) ([]byte, error) {
 	if len(data) > maxRemoteImageBytes {
 		return nil, fmt.Errorf("download image: response exceeds %d bytes", maxRemoteImageBytes)
 	}
-	if _, _, _, err := decodeImageFrames(data); err != nil {
+	if err := validateImageData(data); err != nil {
 		return nil, err
 	}
 	if pathErr == nil {

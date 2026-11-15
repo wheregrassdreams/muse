@@ -1,6 +1,7 @@
 package mdoc
 
 import (
+	"muse/locales"
 	"strconv"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ func parseGantt(src string) (*ganttChart, bool) {
 		return nil, false
 	}
 	g := &ganttChart{format: "2006-01-02"}
-	section := "任务"
+	section := locales.DiagramTask()
 	for _, raw := range lines[1:] {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "%%") {

@@ -11,6 +11,7 @@ import (
 type inlineRun struct {
 	span  ui.Span
 	bmp   *ui.Bitmap
+	math  *MathVisual
 	w, h  float32
 	pad   float32
 	space bool
@@ -32,7 +33,10 @@ func renderInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 		for _, line := range layout.lines {
 			x := r.X
 			for _, run := range line.runs {
-				if run.bmp != nil {
+				if run.math != nil {
+					h := run.h
+					run.math.Draw(p, ui.Rect{X: x + run.pad, Y: y + (line.h-h)/2, W: run.w - 2*run.pad, H: h})
+				} else if run.bmp != nil {
 					h := run.h
 					p.Image(run.bmp, ui.Rect{X: x + run.pad, Y: y + (line.h-h)/2, W: run.w - 2*run.pad, H: h}, ui.Contain)
 				} else {
@@ -85,10 +89,11 @@ func layoutInlineMath(c *ui.Context, spans []Span, s rstyle, size float32, weigh
 	}
 	for _, sp := range spans {
 		if sp.Math {
-			if bmp := mathBitmap(sp.Text, float64(body), c.Theme().Dark, false); bmp != nil {
+			if visual := RenderMathVisual(sp.Text, float64(body), c.Theme().Dark, false, s.o.Font); visual != nil && visual.Bitmap() != nil {
+				bmp := visual.Bitmap()
 				w, h := bmp.Size()
 				iw := float32(w) * 72 / MathDPI
-				add(inlineRun{bmp: bmp, w: iw + 3, h: float32(h) * 72 / MathDPI, pad: 1.5})
+				add(inlineRun{bmp: bmp, math: visual, w: iw + 3, h: float32(h) * 72 / MathDPI, pad: 1.5})
 				continue
 			}
 			sp.Text = texToUnicode(sp.Text)

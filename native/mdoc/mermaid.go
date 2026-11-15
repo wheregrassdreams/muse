@@ -1,6 +1,7 @@
 package mdoc
 
 import (
+	"muse/locales"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -122,7 +123,7 @@ func (g *mermaidGraph) node(spec string) *mermaidNode {
 	}
 	label = strings.Trim(label, `"'`)
 	if id == "[*]" {
-		label = "开始"
+		label = locales.DiagramStart()
 	}
 	if n, ok := g.byID[id]; ok {
 		if label != "" && label != id {

@@ -56,6 +56,24 @@ func DefaultOptions() Options {
 // matching tex/svg's viewBox so callers can pass DPMM(1) to get a 1:1
 // pixel image.
 func Render(dl layout.DisplayList, opts Options) *canvas.Canvas {
+	c, _ := RenderWithFallback(dl, opts)
+	return c
+}
+
+// FallbackGlyph is a CJK glyph laid out by go-tex. X and Y are its origin
+// and baseline in the rendered canvas's user units. The host text renderer
+// should draw it so CJK characters use the application's system fallback.
+type FallbackGlyph struct {
+	X, Y  float64
+	Scale float64
+	Rune  rune
+	Color color.RGBA
+}
+
+// RenderWithFallback paints math-font glyphs and geometry, leaving CJK glyphs
+// to the host text renderer. This avoids retaining a full CJK font file in
+// the Go heap and follows the same system fallback as surrounding text.
+func RenderWithFallback(dl layout.DisplayList, opts Options) (*canvas.Canvas, []FallbackGlyph) {
 	totalW := dl.Width*opts.FontSize + 2*opts.Padding
 	totalH := (dl.Height+dl.Depth)*opts.FontSize + 2*opts.Padding
 	if totalW < 1 {
@@ -71,9 +89,17 @@ func Render(dl layout.DisplayList, opts Options) *canvas.Canvas {
 	// bottom-left origin / Y-up. Translate to top, then negate Y.
 	ctx.SetCoordSystem(canvas.CartesianIV) // (0,0) at top-left, Y down
 
+	var fallback []FallbackGlyph
 	for _, item := range dl.Items {
 		switch v := item.(type) {
 		case layout.GlyphPath:
+			if isCJKFallback(v.Font) {
+				fallback = append(fallback, FallbackGlyph{
+					X: v.X * opts.FontSize, Y: v.Y * opts.FontSize,
+					Scale: v.Scale, Rune: v.CharCode, Color: toCanvasColor(v.Color),
+				})
+				continue
+			}
 			drawGlyph(ctx, v, opts)
 		case layout.Rect:
 			drawRect(ctx, v, opts)
@@ -83,7 +109,11 @@ func Render(dl layout.DisplayList, opts Options) *canvas.Canvas {
 			drawPath(ctx, v, opts)
 		}
 	}
-	return c
+	return c, fallback
+}
+
+func isCJKFallback(fontID string) bool {
+	return fontID == "CJK-Regular" || fontID == "CJK-Fallback"
 }
 
 // canvasFonts caches FontFamily objects keyed by layout font ID so we
@@ -98,6 +128,9 @@ func familyFor(fontID string) (*canvas.FontFamily, error) {
 	defer familyMu.Unlock()
 	if fam, ok := families[fontID]; ok {
 		return fam, nil
+	}
+	if isCJKFallback(fontID) {
+		return nil, fmt.Errorf("texcanvas: %s must be drawn by the host text renderer", fontID)
 	}
 	b, err := fonts.TTF(fontID)
 	if err != nil {
@@ -118,8 +151,8 @@ func toCanvasColor(c layout.Color) color.RGBA {
 func drawGlyph(ctx *canvas.Context, g layout.GlyphPath, opts Options) {
 	fam, err := familyFor(g.Font)
 	if err != nil {
-		// Unknown font (e.g. CJK-Regular fallback) — skip silently;
-		// the rasterizer would otherwise panic.
+		// A missing CJK font leaves the glyph absent; the rasterizer would
+		// otherwise panic when asked to draw it with an unknown font family.
 		return
 	}
 	em := opts.FontSize * g.Scale
