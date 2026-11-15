@@ -17,7 +17,7 @@ type treeClipboardItem struct{ path string }
 
 func (a *App) anyModalOwnsKeyboard() bool {
 	return a.settingsOpen || a.renameOpen || a.quickOpen || a.cmdPalette || a.workspaceSearch ||
-		a.imagePreview.open || a.navIconPickerOpen || a.propertyEditKey != "" || a.propertySourceMode ||
+		a.imagePreview.IsOpen() || a.navIconPickerOpen || a.propertyEditKey != "" || a.propertySourceMode ||
 		a.propertyHiddenOpen || a.propertyAddOpen || a.busy || a.treeHelpOpen ||
 		(a.documents != nil && (a.documents.conflictOpen || a.documents.recoveryOpen || a.documents.historyOpen))
 }

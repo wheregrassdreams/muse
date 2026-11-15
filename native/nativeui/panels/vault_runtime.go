@@ -897,8 +897,8 @@ func (a *App) openLinks() {
 	v.incoming = nil
 	v.outgoing = nil
 	path := a.path
-	if a.imageDocument.open && a.imageDocument.path != "" {
-		path = a.imageDocument.path
+	if a.imageDocument.IsOpen() && a.imageDocument.Path() != "" {
+		path = a.imageDocument.Path()
 	}
 	rel, _ := filepath.Rel(v.root, path)
 	rel = filepath.ToSlash(rel)

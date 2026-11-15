@@ -47,7 +47,7 @@ func (f noteExportFormat) label() string {
 }
 
 func (a *App) exportDocument(format noteExportFormat) {
-	if a.busy || a.imageDocument.open {
+	if a.busy || a.imageDocument.IsOpen() {
 		return
 	}
 	_, name, sourcePath, source, _ := a.snapshotDoc()

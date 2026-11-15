@@ -35,6 +35,8 @@ import (
 	"muse/mdedit"
 	"muse/mdoc"
 	"muse/nativeui/interactions"
+	"muse/nativeui/panels/imagedocument"
+	"muse/nativeui/panels/imagepreview"
 	"muse/navicons"
 	"muse/scrollui"
 	"muse/services"
@@ -146,7 +148,7 @@ type App struct {
 	indexedOffset               int
 	indexedRevision             string
 	win                         *mygo.Window
-	imagePreview                imagePreviewState
+	imagePreview                imagepreview.State
 	treePreviewPath             string
 	treePreviewRect             ui.Rect
 	treePreviewLeave            time.Time
@@ -170,7 +172,7 @@ type App struct {
 	navIconPickerResults        []iconlibrary.Icon
 	navIconPickerLoading        bool
 	navIconPickerRequest        uint64
-	imageDocument               imageDocumentState
+	imageDocument               imagedocument.State
 	restoreEditorFocus          bool
 
 	folderToggled map[string]time.Time
@@ -502,7 +504,7 @@ func (a *App) View(c *ui.Context) {
 		}
 		a.invalidate()
 	}
-	if a.imagePreview.open && c.Shortcut(0, ui.KeyEscape) {
+	if a.imagePreview.IsOpen() && c.Shortcut(0, ui.KeyEscape) {
 		a.closeImagePreview()
 		closedImagePreview = true
 		a.invalidate()
@@ -516,7 +518,7 @@ func (a *App) View(c *ui.Context) {
 	if !a.anyModalOwnsKeyboard() && c.Shortcut(ui.Cmd, ui.KeyO) {
 		a.openWorkspaceSearch()
 	}
-	if !a.imagePreview.open && a.restoreEditorFocus && !closedImagePreview {
+	if !a.imagePreview.IsOpen() && a.restoreEditorFocus && !closedImagePreview {
 		a.ed.Focus()
 		a.restoreEditorFocus = false
 	}
@@ -593,7 +595,7 @@ func (a *App) View(c *ui.Context) {
 
 	a.sidebarToggle(c)
 	a.windowControls(c)
-	if !a.imagePreview.open && !closedImagePreview {
+	if !a.imagePreview.IsOpen() && !closedImagePreview {
 		a.settingsDialog(c)
 		a.renameDialog(c)
 		a.documentDialogs(c)
@@ -2588,7 +2590,7 @@ func hitSnippet(src string, s, e int) string {
 // Editor
 
 func (a *App) editorContent(c *ui.Context) {
-	if a.imageDocument.open {
+	if a.imageDocument.IsOpen() {
 		a.imageDocumentView(c)
 		return
 	}
@@ -2659,8 +2661,8 @@ func (a *App) editorHeader(c *ui.Context) {
 			ui.Text(c, a.tailPath(c, a.docPath(), 12.5, avail)).
 				FontSize(12.5).TextColor(t.TextMuted).SingleLine()
 		})
-		if a.imageDocument.open {
-			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocument.path) })
+		if a.imageDocument.IsOpen() {
+			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocument.Path()) })
 		}
 		if label := a.ed.ModeLabel(); label != "" {
 			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label(locales.DocumentMode())
@@ -2668,7 +2670,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
-		if a.dirty && !a.imageDocument.open {
+		if a.dirty && !a.imageDocument.IsOpen() {
 			a.smallIcon(c, iconSave, locales.MenuSave(), func() { a.save() })
 		}
 		if a.propertiesEnabled() {
@@ -2690,7 +2692,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		}
 		more := a.smallIconTint(c, iconMore, locales.DocumentMore(), nil, tint)
 		more.Menu(func(m *ui.Menu) {
-			if !a.imageDocument.open && codeLanguage(a.path) == "" {
+			if !a.imageDocument.IsOpen() && codeLanguage(a.path) == "" {
 				m.Submenu(locales.DocumentExport(), func(export *ui.Menu) {
 					if export.Item(locales.DocumentExportMarkdown()).Chosen() {
 						a.exportDocument(noteExportMarkdown)
@@ -2967,7 +2969,7 @@ func (a *App) applyOpen(path, data string) {
 		return
 	}
 	a.pushNav(path)
-	a.imageDocument = imageDocumentState{}
+	a.imageDocument = imagedocument.State{}
 	a.path = path
 	a.selectedPath = path
 	if a.vault != nil && a.vault.watch != nil {
@@ -3004,7 +3006,7 @@ func (a *App) newDoc() {
 }
 
 func (a *App) resetDoc() {
-	a.imageDocument = imageDocumentState{}
+	a.imageDocument = imagedocument.State{}
 	a.path = ""
 	a.selectedPath = ""
 	a.loadDoc("")
@@ -4170,7 +4172,7 @@ func (a *App) nav(delta int) {
 	// state, including unsaved edits, rather than reload the on-disk version.
 	if path == a.path {
 		a.navAt = target
-		a.imageDocument = imageDocumentState{}
+		a.imageDocument = imagedocument.State{}
 		a.ed.Focus()
 		a.updateTitle()
 		a.invalidate()
@@ -4200,8 +4202,8 @@ func (a *App) nav(delta int) {
 // docPath is the document's path within its workspace. The workspace folder
 // itself is the vault root and is not repeated in a vault-relative path.
 func (a *App) docPath() string {
-	if a.imageDocument.open {
-		path := a.imageDocument.path
+	if a.imageDocument.IsOpen() {
+		path := a.imageDocument.Path()
 		if a.root != "" {
 			if rel, err := filepath.Rel(a.root, path); err == nil && !strings.HasPrefix(rel, "..") {
 				return filepath.ToSlash(rel)
@@ -4249,8 +4251,8 @@ func (a *App) tailPath(c *ui.Context, path string, size, width float32) string {
 }
 
 func (a *App) displayName() string {
-	if a.imageDocument.open {
-		return filepath.Base(a.imageDocument.path)
+	if a.imageDocument.IsOpen() {
+		return filepath.Base(a.imageDocument.Path())
 	}
 	if a.path == "" {
 		return locales.DocumentUntitled()

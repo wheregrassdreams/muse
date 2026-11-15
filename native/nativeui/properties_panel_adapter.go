@@ -283,7 +283,9 @@ func systemPropertyLabel(key string) string {
 type fieldDisplayPreference = config.FieldDisplayPreference
 type documentPropertyPrefs = config.DocumentPropertyPreferences
 
-func (a *App) propertiesEnabled() bool { return !a.imageDocument.open && codeLanguage(a.path) == "" }
+func (a *App) propertiesEnabled() bool {
+	return !a.imageDocument.IsOpen() && codeLanguage(a.path) == ""
+}
 
 // propertyDocument caches parsing for one source/path pair. frontmatter owns
 // YAML interpretation; this cache is only an App presentation optimization.
@@ -632,8 +634,8 @@ func propertyDocumentType(d frontmatter.Document) string {
 func (a *App) documentBacklinkSources() []vaultlinks.BacklinkSource {
 	v := a.vault
 	path := a.path
-	if a.imageDocument.open && a.imageDocument.path != "" {
-		path = a.imageDocument.path
+	if a.imageDocument.IsOpen() && a.imageDocument.Path() != "" {
+		path = a.imageDocument.Path()
 	}
 	if v == nil || v.index == nil || path == "" || v.links == nil {
 		return nil

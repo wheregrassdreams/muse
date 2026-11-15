@@ -485,7 +485,7 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 		t.Fatalf("attachment link style state = %v, want valid", got)
 	}
 	a.openLink("wiki:Attachments/diagram.png")
-	if !a.imagePreview.open || a.imagePreview.src != filepath.Join(root, "Attachments", "diagram.png") || a.imagePreview.bmp == nil {
+	if !a.imagePreview.IsOpen() || a.imagePreview.Source() != filepath.Join(root, "Attachments", "diagram.png") || a.imagePreview.ViewModel().Bitmap == nil {
 		t.Fatalf("wiki image click preview state = %+v", a.imagePreview)
 	}
 }
@@ -504,7 +504,7 @@ func TestWikiImageHoverShowsThumbnailBeforeFullPreviewClick(t *testing.T) {
 	}
 	runtimeShot(t, tt, "wiki-image-hover-thumbnail")
 	a.openLink("wiki:Attachments/diagram.png")
-	if !a.imagePreview.open || a.imagePreview.bmp == nil || a.linkPreview.target != "" {
+	if !a.imagePreview.IsOpen() || a.imagePreview.ViewModel().Bitmap == nil || a.linkPreview.target != "" {
 		t.Fatalf("image click did not replace thumbnail with full preview: preview=%+v hover=%+v", a.imagePreview, a.linkPreview)
 	}
 }

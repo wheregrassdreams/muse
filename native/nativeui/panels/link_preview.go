@@ -189,7 +189,7 @@ func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string,
 
 func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 	p := &a.linkPreview
-	if p.target == "" || a.imagePreview.open || a.workspaceSearch {
+	if p.target == "" || a.imagePreview.IsOpen() || a.workspaceSearch {
 		return
 	}
 	if !p.leaveAt.IsZero() && !p.overlayHovered {

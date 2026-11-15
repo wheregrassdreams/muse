@@ -107,10 +107,10 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 		t.Fatal("image missing from tree")
 	}
 	tt.ClickAt(imageRow.X+4, imageRow.Y+imageRow.H/2)
-	if !a.imageDocument.open || a.imageDocument.path != path {
+	if !a.imageDocument.IsOpen() || a.imageDocument.Path() != path {
 		t.Fatalf("image document = %+v, want open %q", a.imageDocument, path)
 	}
-	if a.imagePreview.open {
+	if a.imagePreview.IsOpen() {
 		t.Fatal("opening image from file tree opened global preview")
 	}
 	if a.path != "existing.md" || a.ed.Source() != "preserve me" || !a.dirty {
