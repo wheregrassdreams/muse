@@ -2,9 +2,9 @@ package nativeui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"muse/application/agent"
@@ -18,9 +18,11 @@ import (
 // It keeps only transient presentation state; transcript and stream lifecycle
 // live in application/agent.Session.
 type assistantPanel struct {
-	session *agent.Session
-	draft   string
-	scroll  ui.ScrollState
+	session    *agent.Session
+	draft      string
+	scroll     ui.ScrollState
+	permission agent.Permission
+	schemas    []map[string]any
 }
 
 func newAssistantPanel(app *App) *assistantPanel {
@@ -29,32 +31,9 @@ func newAssistantPanel(app *App) *assistantPanel {
 	if app != nil && app.aiClient != nil {
 		client = agent.NewProviderClient(app.aiClient)
 	}
-	panel.session = agent.NewSession(app.ai, client, agent.Capabilities{Tools: appAgentTools{app}, Policy: appAgentPolicy{app}})
-	legacy := make([]agent.Message, 0, len(app.aiMessages))
-	for _, message := range app.aiMessages {
-		role := agent.Assistant
-		if message.Role == "user" {
-			role = agent.User
-		}
-		converted := agent.Message{Role: role, Content: message.Content}
-		for _, part := range message.Parts {
-			kind := agent.TextPart
-			if part.Kind == partThink {
-				kind = agent.ThoughtPart
-			}
-			if part.Kind == partTool {
-				kind = agent.ToolPart
-			}
-			tool := agent.ToolPartState{}
-			if part.Tool != nil {
-				tool = agent.ToolPartState{ID: part.Tool.ID, Name: part.Tool.Name, Arguments: part.Tool.Args, Result: part.Tool.Result, Error: part.Tool.Err}
-			}
-			converted.Parts = append(converted.Parts, agent.Part{Kind: kind, Text: part.Text, Duration: time.Duration(part.Ms) * time.Millisecond, Expanded: part.open, Tool: tool})
-		}
-		legacy = append(legacy, converted)
-	}
-	panel.session.RestoreMessages(legacy)
-	panel.draft = app.aiInput
+	panel.permission = agent.AskBeforeChanges
+	panel.schemas = agentToolSchemas(app.toolGroupEnabled)
+	panel.session = agent.NewSession(app.ai, client, agent.Capabilities{Tools: agent.Executor{Operations: appAssistantOperations{app}}, Policy: appAgentPolicy{panel: panel}})
 	return panel
 }
 
@@ -118,7 +97,7 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		case agentpanel.ApproveTool:
 			_ = p.session.DecideApproval(action.ToolID, agent.Approve)
 		case agentpanel.AlwaysAllowTool:
-			app.aiPerm = permFull
+			p.permission = agent.AllowChanges
 			_ = p.session.DecideApproval(action.ToolID, agent.AlwaysApprove)
 		case agentpanel.RejectTool:
 			_ = p.session.DecideApproval(action.ToolID, agent.Reject)
@@ -131,41 +110,86 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 	}
 }
 
-type appAgentTools struct{ app *App }
+type appAssistantOperations struct{ app *App }
 
-func (t appAgentTools) Execute(_ context.Context, request agent.ToolRequest) agent.ToolResult {
-	if t.app == nil {
-		return agent.ToolResult{Err: agent.ErrUnavailable}
+func (o appAssistantOperations) call(ctx context.Context, name string, input agent.ToolInput) (any, error) {
+	if o.app == nil {
+		return nil, agent.ErrUnavailable
 	}
-	out := t.app.execTool(request.Name, request.Arguments)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	data, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	out := o.app.execTool(name, string(data))
 	if !out.OK {
-		return agent.ToolResult{Content: out.Content, Err: errors.New(out.Content)}
+		return nil, errors.New(out.Content)
 	}
-	return agent.ToolResult{Content: out.Content}
+	var result any
+	if err := json.Unmarshal([]byte(out.Content), &result); err != nil {
+		return out.Content, nil
+	}
+	return result, nil
+}
+func (o appAssistantOperations) ListDocuments(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "list_documents", i)
+}
+func (o appAssistantOperations) ReadDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "read_document", i)
+}
+func (o appAssistantOperations) SearchDocuments(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "search_document", i)
+}
+func (o appAssistantOperations) ReadOutline(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "read_outline", i)
+}
+func (o appAssistantOperations) WorkspaceTree(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "workspace_tree", i)
+}
+func (o appAssistantOperations) DocumentStats(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "document_stats", i)
+}
+func (o appAssistantOperations) OpenDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "open_document", i)
+}
+func (o appAssistantOperations) EditDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "edit_document", i)
+}
+func (o appAssistantOperations) InsertIntoDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "insert_into_document", i)
+}
+func (o appAssistantOperations) WriteDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "write_document", i)
+}
+func (o appAssistantOperations) RenameDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "rename_document", i)
+}
+func (o appAssistantOperations) DeleteDocument(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "delete_document", i)
+}
+func (o appAssistantOperations) CreateFolder(c context.Context, i agent.ToolInput) (any, error) {
+	return o.call(c, "create_folder", i)
 }
 
-type appAgentPolicy struct{ app *App }
+type appAgentPolicy struct{ panel *assistantPanel }
 
 func (p appAgentPolicy) Enabled(settings config.AssistantSettings, name string) bool {
 	return agent.ToolEnabled(settings, name)
 }
 func (p appAgentPolicy) RequiresApproval(name string) bool { return agent.ToolRequiresApproval(name) }
 func (p appAgentPolicy) Permission() agent.Permission {
-	if p.app == nil {
+	if p.panel == nil {
 		return agent.ReadOnly
 	}
-	switch p.app.aiPerm {
-	case permFull:
-		return agent.AllowChanges
-	case permReadonly:
-		return agent.ReadOnly
-	default:
-		return agent.AskBeforeChanges
-	}
+	return p.panel.permission
 }
 func (p appAgentPolicy) Schemas(_ config.AssistantSettings) []map[string]any {
-	if p.app == nil {
+	if p.panel == nil {
 		return nil
 	}
-	return agentToolSchemas(p.app.toolGroupEnabled)
+	return p.panel.schemas
 }
