@@ -12,6 +12,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	workspaceapp "muse/application/workspace"
+	"muse/platform/filesystem/recentstore"
 )
 
 func TestNativeShellRendersMarkdown(t *testing.T) {
@@ -79,8 +81,8 @@ func TestCmdOOpensWorkspaceQuickSearch(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyO)
 	tt.Frame()
-	if !a.workspaceSearch || a.quickOpen {
-		t.Fatalf("Cmd+O should open workspace quick search: workspaceSearch=%v quickOpen=%v", a.workspaceSearch, a.quickOpen)
+	if !a.workspaceSearch || a.quickOpenOpen() {
+		t.Fatalf("Cmd+O should open workspace quick search: workspaceSearch=%v quickOpen=%v", a.workspaceSearch, a.quickOpenOpen())
 	}
 	if !tt.HasText("搜索笔记库") {
 		t.Fatalf("Cmd+O opened the wrong panel: %q", tt.Texts())
@@ -103,6 +105,7 @@ func TestWorkspaceSearchEmacsNavigationAndVaultRelativePaths(t *testing.T) {
 		}
 	}
 	a := New()
+	a.SetDependencies(Dependencies{RecentItems: workspaceapp.NewRecentItems(recentstore.New(filepath.Join(config, "recent.json")))})
 	a.setWorkspace(root)
 	a.addRecent(rendering, false)
 	a.addRecent(home, false)
