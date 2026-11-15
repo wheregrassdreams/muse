@@ -1,7 +1,6 @@
 package nativeui
 
 import (
-	"context"
 	"muse/locales"
 	"os"
 	"path/filepath"
@@ -11,14 +10,39 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/frontmatter"
-	"muse/notestore"
-	"muse/vaultindex"
-	"muse/vaultsearch"
+	applicationvault "muse/application/vault"
+	"muse/document"
+	"muse/document/frontmatter"
+	vaultindex "muse/vault/index"
 )
 
 type coreMigrationItem struct {
-	path, expected, source string
+	path, source string
+	expected     document.Revision
+}
+
+func (a *App) vaultSearchSnapshots(session *applicationvault.Session) []vaultindex.SearchSnapshot {
+	if session == nil {
+		return nil
+	}
+	root := session.Snapshot().Root
+	paths := session.Paths()
+	docs := make([]vaultindex.SearchSnapshot, 0, len(paths))
+	for _, path := range paths {
+		if filepath.Ext(path) != ".md" {
+			continue
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		doc, ok := session.Document(filepath.ToSlash(rel))
+		if !ok {
+			continue
+		}
+		docs = append(docs, vaultindex.SearchSnapshot{Path: filepath.ToSlash(rel), Title: doc.Title, Source: doc.Source, Revision: doc.Revision, Metadata: doc.Metadata()})
+	}
+	return docs
 }
 
 type coreMigrationPreview struct {
@@ -78,7 +102,7 @@ func previewCoreMetadataMigration(root, openPath string, docs []vaultindex.Searc
 		if updated == doc.Source {
 			continue
 		}
-		preview.items = append(preview.items, coreMigrationItem{path: full, expected: notestore.Revision(doc.Source), source: updated})
+		preview.items = append(preview.items, coreMigrationItem{path: full, expected: document.RevisionOf(doc.Source), source: updated})
 		if len(preview.samples) < 5 {
 			preview.samples = append(preview.samples, doc.Path)
 		}
@@ -109,17 +133,17 @@ func trustedFileBirthTime(info os.FileInfo) (time.Time, bool) {
 }
 
 func (a *App) openCoreMigrationPreview() {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		a.notice(locales.VaultOpenFirst())
 		return
 	}
-	v, root, path := a.vault, a.vault.root, a.path
+	v, root, path := a.vault, a.vaultSnapshot.Root, a.path
 	a.coreMigration = nil
 	a.coreMigrationOpen = true
 	a.coreMigrationLoading = true
 	a.invalidate()
 	go func() {
-		preview := previewCoreMetadataMigration(root, path, v.index.SearchSnapshot())
+		preview := previewCoreMetadataMigration(root, path, a.vaultSearchSnapshots(v))
 		a.onMain(func() {
 			if a.vault != v {
 				return
@@ -132,52 +156,32 @@ func (a *App) openCoreMigrationPreview() {
 }
 
 func (a *App) applyCoreMetadataMigration() {
-	if a.coreMigration == nil || a.coreMigrationLoading || a.coreMigrationRunning || a.vault == nil || a.documents == nil {
+	if a.coreMigration == nil || a.coreMigrationLoading || a.coreMigrationRunning || a.vault == nil || a.documentSession == nil {
 		return
 	}
 	plan := *a.coreMigration
-	v, store, openPath := a.vault, a.documents.store, filepath.Clean(a.path)
+	v, session, openPath := a.vault, a.documentSession, filepath.Clean(a.path)
 	a.coreMigrationRunning = true
 	a.coreMigrationOpen = false
 	go func() {
-		var upserts []vaultsearch.Document
-		var searchErr string
 		applied, skipped := 0, 0
 		for _, item := range plan.items {
 			if filepath.Clean(item.path) == openPath {
 				skipped++
 				continue
 			}
-			parsed, err := v.index.ParseSnapshot(item.path, item.source)
+			_, err := session.SaveNow(item.path, item.path, item.source, item.expected)
 			if err != nil {
 				skipped++
 				continue
 			}
-			_, err = store.Save(item.path, item.source, item.expected)
-			if err != nil {
-				skipped++
-				continue
-			}
-			v.index.ApplySnapshot(parsed)
-			upserts = append(upserts, searchDocument(parsed))
+			_ = v.Refresh(item.path)
 			applied++
-		}
-		if v.search != nil && len(upserts) > 0 {
-			ctx, cancel := context.WithTimeout(v.lifeCtx, 30*time.Second)
-			v.searchMu.Lock()
-			if err := v.search.Apply(ctx, upserts, nil); err != nil {
-				searchErr = err.Error()
-			}
-			v.searchMu.Unlock()
-			cancel()
 		}
 		a.onMain(func() {
 			a.coreMigrationRunning = false
 			a.coreMigration = nil
 			message := locales.CoreMigrationCompleted(applied, skipped)
-			if searchErr != "" {
-				message += locales.CoreMigrationSearchSyncWarning(searchErr)
-			}
 			a.notice(message)
 			if a.ed != nil {
 				a.ed.SetOptions(a.editorOptions())

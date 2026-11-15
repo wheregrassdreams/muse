@@ -9,7 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"muse/mdoc"
+	editorui "muse/nativeui/components/editor"
+	markdownui "muse/nativeui/components/markdown"
 )
 
 var (
@@ -61,8 +62,8 @@ func logMemoryDiagnostics(app *App) {
 		}
 	}
 	app.mainMu.Lock()
-	image := app.ed.MemoryDiagnostics()
-	vaultReady := app.vault != nil && app.vault.index != nil
+	image := editorui.MemorySnapshot(app.ed)
+	vaultReady := app.vault != nil && app.vaultSnapshot.Ready
 	app.mainMu.Unlock()
 	profilePath := os.Getenv("MUSE_MEMORY_PROFILE_PATH")
 	// A vault can retain meaningful memory even while the editor is on its
@@ -92,8 +93,8 @@ func logMemoryDiagnostics(app *App) {
 				profilePath, memoryHighProfileThreshold, beforeGC, mem.HeapAlloc)
 		})
 	}
-	pending, active := mdoc.ImageDecodeQueueStats()
-	cacheEntries, cacheBytes := mdoc.ImageAssetCacheStats()
+	pending, active := markdownui.ImageDecodeQueueStats()
+	cacheEntries, cacheBytes := markdownui.ImageAssetCacheStats()
 	log.Printf("memory: heap_alloc=%d heap_inuse=%d heap_idle=%d heap_released=%d heap_sys=%d heap_objects=%d stack_inuse=%d stack_sys=%d sys=%d total_alloc=%d gc_cycles=%d gc_pause_total_ms=%.2f goroutines=%d image_cache_entries=%d image_cache_estimated_bytes=%d image_decode_pending=%d image_decode_active=%d doc_source_bytes=%d doc_leaves=%d doc_virtual=%t doc_image_candidate_leaves=%d doc_image_views=%d doc_image_assets=%d doc_loaded_image_assets=%d doc_image_pixel_bytes_estimate=%d",
 		mem.HeapAlloc, mem.HeapInuse, mem.HeapIdle, mem.HeapReleased, mem.HeapSys, mem.HeapObjects,
 		mem.StackInuse, mem.StackSys, mem.Sys, mem.TotalAlloc, mem.NumGC,

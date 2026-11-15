@@ -80,7 +80,9 @@ func (a *App) SetDependencies(dependencies Dependencies) {
 	a.setEventDispatchers(dependencies.WorkspaceEvents, dependencies.DocumentEvents)
 	a.SetWorkspaceRepository(dependencies.Workspace)
 	a.SetDocumentRepositories(dependencies.Documents, dependencies.Recovery, dependencies.History)
-	a.vaultSearchStore = dependencies.VaultSearch
+	a.documentExportWriter = dependencies.DocumentExportWriter
+	a.metadataReader = dependencies.DocumentMetadata
+	a.vaultSearchReconciler = dependencies.VaultSearchReconciler
 	a.newVaultIndex = dependencies.NewVaultIndex
 	a.newVaultCatalog = dependencies.NewVaultCatalog
 	a.fileOperations = dependencies.FileOperations
@@ -92,6 +94,7 @@ func (a *App) SetDependencies(dependencies Dependencies) {
 	}
 	a.imageCacheStore = dependencies.ImageCacheStore
 	a.watcherBackendFactory = dependencies.NewWatcherBackend
+	a.newAgentWorkspace = dependencies.NewAgentWorkspace
 	if dependencies.NavIcons != nil {
 		a.navIconStore, _ = applicationvault.NewIconPreferences(dependencies.NavIcons)
 	}
@@ -209,15 +212,6 @@ func (a *App) applyRestoredWorkspace(state workspace.State) {
 	}
 }
 
-func (a *App) closeVaultRuntimeNow() {
-	if a == nil || a.closeVaultRuntime == nil {
-		return
-	}
-	closeRuntime := a.closeVaultRuntime
-	a.closeVaultRuntime = nil
-	closeRuntime()
-}
-
 func (a *App) closeLifecycle() {
 	if a == nil {
 		return
@@ -233,5 +227,5 @@ func (a *App) closeLifecycle() {
 	if a.windows != nil {
 		a.windows.CloseAll()
 	}
-	a.closeVaultRuntimeNow()
+	a.closeVaultSessionNow()
 }

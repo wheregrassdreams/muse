@@ -17,7 +17,7 @@ import (
 func TestWikiLinkHoverPreviewDelayAndDismissal(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Projects/Atlas/Target.md": "# Preview section\n\nPreview body that should appear in the hover card."})
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Target.md")
+		_, ok := a.vault.Document("Projects/Atlas/Target.md")
 		return ok
 	})
 	a.hoverWikiLink("Projects/Atlas/Target#Preview-section", 120, 80)
@@ -44,7 +44,7 @@ func TestWorkspaceSearchModalCoversWikiPreview(t *testing.T) {
 		"Target.md": "# Preview target\n\nThis hover preview must stay below the search dialog.",
 	})
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Target.md")
+		_, ok := a.vault.Document("Target.md")
 		return ok
 	})
 	trigger := ui.Rect{X: 1000, Y: 700, W: 80, H: 20}
@@ -69,7 +69,7 @@ func TestWorkspaceSearchModalCoversWikiPreview(t *testing.T) {
 func TestWikiPreviewClosesAfterScrolledExit(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	trigger := ui.Rect{X: 300, Y: 80, W: 140, H: 20}
@@ -106,7 +106,7 @@ func TestWikiHoverPreviewRendersMarkdownAndRelativeImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool {
-		doc, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		doc, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && doc.Source == source
 	})
 	preview := wikiPreviewMarkdown(source, strings.Index(source, "Architecture"))
@@ -160,7 +160,7 @@ func TestWikiPreviewPlacementKeepsTriggerVisible(t *testing.T) {
 func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && a.ed.Source() != ""
 	})
 	// runtimeFixtureCopy's 1200×800 canvas places the Home link around this
@@ -221,8 +221,8 @@ func TestWikiLinkClickUsesVaultIndexAndHeadingAnchor(t *testing.T) {
 	source := filepath.Join(root, "Projects", "Source.md")
 	target := filepath.Join(root, "Projects", "Atlas", "Target.md")
 	waitDocument(t, tt, func() bool {
-		_, sourceIndexed := a.vault.index.Document("Projects/Source.md")
-		_, targetIndexed := a.vault.index.Document("Projects/Atlas/Target.md")
+		_, sourceIndexed := a.vault.Document("Projects/Source.md")
+		_, targetIndexed := a.vault.Document("Projects/Atlas/Target.md")
 		return sourceIndexed && targetIndexed
 	})
 	a.openPathNow(source)
@@ -243,11 +243,11 @@ func TestBacklinkListDisplaysAndNavigatesToNestedSource(t *testing.T) {
 	root := filepath.Dir(target)
 	source := filepath.Join(root, "Projects", "Atlas", "Source.md")
 	waitDocument(t, tt, func() bool {
-		got := a.vault.links.Backlinks("note.md")
+		got := a.vault.Backlinks("note.md")
 		return len(got) == 1 && got[0].Source == "Projects/Atlas/Source.md"
 	})
 	a.openLinks()
-	waitDocument(t, tt, func() bool { return !a.vault.linksBusy && len(a.vault.incoming) == 1 })
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.LinksBusy && len(a.vaultSnapshot.Incoming) == 1 })
 	if !tt.HasText("Projects/Atlas/Source.md") {
 		t.Fatalf("backlink source is not visible in the backlinks dialog: %q", tt.Texts())
 	}
@@ -260,18 +260,18 @@ func TestBacklinkListDisplaysAndNavigatesToNestedSource(t *testing.T) {
 func TestFixtureBacklinksDisplayAndNavigateNestedVaultSource(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	target := filepath.Join(a.root, "Projects", "Atlas", "Overview.md")
 	a.openPathNow(target)
 	a.openLinks()
 	waitDocument(t, tt, func() bool {
-		if a.vault.linksBusy {
+		if a.vaultSnapshot.LinksBusy {
 			return false
 		}
 		seen := map[string]bool{}
-		for _, link := range a.vault.incoming {
+		for _, link := range a.vaultSnapshot.Incoming {
 			seen[link.Source] = true
 		}
 		return seen["Home.md"] && seen["Journal/2026-11-12.md"] && seen["Projects/Atlas/Design Notes.md"] && seen["Projects/Atlas/Rendering Notes.md"]
@@ -294,7 +294,7 @@ func TestFixtureBacklinksDisplayAndNavigateNestedVaultSource(t *testing.T) {
 func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Projects/Atlas/Note.md": "---\naliases: [Quick Tag]\n---\n# Display title\n\nnested"})
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Note.md")
+		_, ok := a.vault.Document("Projects/Atlas/Note.md")
 		return ok
 	})
 	want := []string{"Projects/Atlas/Note", "note"}
@@ -311,7 +311,7 @@ func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
 func TestResolveWikiEmbedUsesIndexedVaultSource(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	path, source, ok := a.resolveWikiEmbed(a.path, "Atlas Overview")
@@ -326,7 +326,7 @@ func TestResolveWikiEmbedUsesIndexedVaultSource(t *testing.T) {
 func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	a.loadDoc("![[Projects/Atlas/Overview]]")
@@ -351,7 +351,7 @@ func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Home.md")
+		_, ok := a.vault.Document("Home.md")
 		return ok
 	})
 	suggestions := a.wikiLinkSuggestions("land")
@@ -366,7 +366,7 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 			t.Errorf("wiki suggestions omitted attachment %q", target)
 		}
 	}
-	root := a.vault.root
+	root := a.vaultSnapshot.Root
 	resolved := a.resolveWikiImageTarget("Attachments/diagram.png")
 	if resolved != filepath.Join(root, "Attachments", "diagram.png") {
 		t.Fatalf("vault-relative image target resolved to %q", resolved)
@@ -389,7 +389,7 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 func TestWikiImageHoverShowsThumbnailBeforeFullPreviewClick(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Home.md")
+		_, ok := a.vault.Document("Home.md")
 		return ok
 	})
 	a.hoverWikiLink("Attachments/diagram.png", 120, 80)
@@ -408,7 +408,7 @@ func TestWikiImageHoverShowsThumbnailBeforeFullPreviewClick(t *testing.T) {
 func TestWikiAnimatedImageHoverAdvancesThumbnailFrames(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Home.md")
+		_, ok := a.vault.Document("Home.md")
 		return ok
 	})
 	a.hoverWikiLink("Attachments/animation.gif", 120, 80)
@@ -435,7 +435,7 @@ func TestWikiAnimatedImageHoverAdvancesThumbnailFrames(t *testing.T) {
 
 func TestVaultDocumentPathHeaderIsVaultRelative(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
-	waitDocument(t, tt, func() bool { return a.vault != nil && a.vault.index != nil })
+	waitDocument(t, tt, func() bool { return a.vault != nil && a.vaultSnapshot.Ready })
 	tt.Frame()
 	if got := a.docPath(); got != "Home.md" {
 		t.Fatalf("root note header path = %q, want Home.md", got)

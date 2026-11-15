@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo/ui"
 	"muse/ui/iconlibrary"
 )
 
 func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
-	waitDocument(t, tt, func() bool { return a.vault != nil && a.vault.index != nil })
+	waitDocument(t, tt, func() bool { return a.vault != nil && a.vaultSnapshot.Ready })
 	item := filepath.Join(a.root, "Home.md")
 	rightClickTreeRow(t, tt, "Home.md")
 	if err := tt.ChooseMenuItem("更改图标…"); err != nil {

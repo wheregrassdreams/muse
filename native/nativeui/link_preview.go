@@ -1,7 +1,6 @@
 package nativeui
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -61,8 +60,8 @@ func (a *App) hoverWikiLinkAt(target string, x, y float32, linkBounds ui.Rect) {
 }
 
 func (a *App) resolveVaultImage(src, base, root string) string {
-	if a.vault != nil && a.vault.files != nil {
-		return markdownui.ResolveImageSourceWithLookup(src, base, root, a.vault.files.FindImage)
+	if a.vault != nil {
+		return markdownui.ResolveImageSourceWithLookup(src, base, root, a.vault.FindImage)
 	}
 	// The catalog is built asynchronously when a vault opens. Keep the first
 	// frame free of a fallback WalkDir; local/root-relative images still resolve.
@@ -72,15 +71,25 @@ func (a *App) resolveVaultImage(src, base, root string) string {
 // wikiLinkSuggestions returns vault-relative Markdown paths without their
 // extension. Paths remain unambiguous even when several notes share a title.
 func (a *App) wikiLinkSuggestions(_ string) []string {
-	if a.vault == nil || a.vault.index == nil || a.vault.files == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return nil
 	}
-	root, revision, filesRevision := filepath.Clean(a.vault.root), a.vault.index.Revision(), a.vault.files.Revision()
+	root, revision, filesRevision := filepath.Clean(a.vaultSnapshot.Root), a.vaultSnapshot.IndexRevision, a.vaultSnapshot.FilesRevision
 	if a.wikiSuggestionReady && a.wikiSuggestionVault == a.vault && a.wikiSuggestionRoot == root && a.wikiSuggestionRevision == revision && a.wikiSuggestionFilesRevision == filesRevision {
 		return append([]string(nil), a.wikiSuggestionCache...)
 	}
-	notes := a.vault.index.NotePaths()
-	images := a.vault.files.ImagePaths()
+	paths := a.vault.Paths()
+	images := a.vault.ImagePaths()
+	notes := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if filepath.Ext(path) != ".md" {
+			continue
+		}
+		rel, err := filepath.Rel(root, path)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			notes = append(notes, filepath.ToSlash(rel))
+		}
+	}
 	items := make([]string, 0, len(notes)+len(images))
 	for _, path := range notes {
 		items = append(items, strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path)))
@@ -103,7 +112,7 @@ func (a *App) wikiLinkSuggestions(_ string) []string {
 // index. Targets remain vault-relative paths, which are stable for insertion
 // and disambiguate notes that share a title.
 func (a *App) wikiLinkSuggestionDetails(query string) []mdedit.WikiSuggestion {
-	if a.vault == nil || a.vault.index == nil || a.vault.files == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return nil
 	}
 	targets := a.wikiLinkSuggestions(query)
@@ -111,10 +120,18 @@ func (a *App) wikiLinkSuggestionDetails(query string) []mdedit.WikiSuggestion {
 		return append([]mdedit.WikiSuggestion(nil), a.wikiSuggestionDetailsCache...)
 	}
 	notesByTarget := make(map[string]vaultindex.Document)
-	for _, path := range a.vault.index.NotePaths() {
-		doc, ok := a.vault.index.Document(path)
+	for _, path := range a.vault.Paths() {
+		if filepath.Ext(path) != ".md" {
+			continue
+		}
+		rel, err := filepath.Rel(a.vaultSnapshot.Root, path)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		doc, ok := a.vault.Document(rel)
 		if ok {
-			target := strings.TrimSuffix(filepath.ToSlash(path), filepath.Ext(path))
+			target := strings.TrimSuffix(rel, filepath.Ext(rel))
 			notesByTarget[target] = doc
 		}
 	}
@@ -148,8 +165,8 @@ func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
 		return ""
 	}
 	root := a.root
-	if a.vault != nil && a.vault.root != "" {
-		root = a.vault.root
+	if a.vault != nil && a.vaultSnapshot.Root != "" {
+		root = a.vaultSnapshot.Root
 	}
 	base := a.docDir()
 	if currentPath != "" {
@@ -159,8 +176,7 @@ func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
 	if resolved == "" {
 		return ""
 	}
-	st, err := os.Stat(resolved)
-	if err != nil || st.IsDir() {
+	if a.vault == nil || !a.vault.HasImage(resolved) {
 		return ""
 	}
 	return resolved
@@ -170,18 +186,18 @@ func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
 // The path and source both come from the same vault index used by link style,
 // navigation, previews, and backlinks.
 func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string, ok bool) {
-	if a.vault == nil || a.vault.index == nil || a.vault.links == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return "", "", false
 	}
 	current := ""
-	if rel, err := filepath.Rel(a.vault.root, currentPath); err == nil {
+	if rel, err := filepath.Rel(a.vaultSnapshot.Root, currentPath); err == nil {
 		current = filepath.ToSlash(rel)
 	}
-	loc, ok := a.vault.links.Resolve(current, target)
+	loc, ok := a.vault.ResolveLink(current, target)
 	if !ok {
 		return "", "", false
 	}
-	_, source, ok = a.vault.index.NoteContent(loc.Path)
+	_, source, ok = a.vault.NoteContent(loc.Path)
 	if !ok {
 		return "", "", false
 	}
@@ -205,11 +221,11 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		c.After(remaining)
 		return
 	}
-	if a.vault == nil || a.vault.index == nil || a.vault.links == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return
 	}
 	current := ""
-	if rel, err := filepath.Rel(a.vault.root, a.path); err == nil {
+	if rel, err := filepath.Rel(a.vaultSnapshot.Root, a.path); err == nil {
 		current = filepath.ToSlash(rel)
 	}
 	anchor := a.wikiPreviewAnchor(c, p)
@@ -241,11 +257,11 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		}
 		return
 	}
-	loc, ok := a.vault.links.Resolve(current, p.target)
+	loc, ok := a.vault.ResolveLink(current, p.target)
 	if !ok {
 		return
 	}
-	titleText, source, ok := a.vault.index.NoteContent(loc.Path)
+	titleText, source, ok := a.vault.NoteContent(loc.Path)
 	if !ok {
 		return
 	}
@@ -262,10 +278,10 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		OverlayHovered: p.overlayHovered, Document: previewDoc,
 		MarkdownOptions: markdownui.Options{
 			BodyFontSize: 12, Padding: 0, ContentWidth: 346,
-			BaseDir: filepath.Join(a.vault.root, filepath.Dir(loc.Path)), AssetRoot: a.vault.root,
+			BaseDir: filepath.Join(a.vaultSnapshot.Root, filepath.Dir(loc.Path)), AssetRoot: a.vaultSnapshot.Root,
 			ImageCacheStore: a.imageCacheStore, ResolveImage: a.resolveVaultImage, OnAsync: a.invalidate,
 			OnImagePreview: func(src string) {
-				resolved := a.resolveVaultImage(src, filepath.Join(a.vault.root, filepath.Dir(loc.Path)), a.vault.root)
+				resolved := a.resolveVaultImage(src, filepath.Join(a.vaultSnapshot.Root, filepath.Dir(loc.Path)), a.vaultSnapshot.Root)
 				if resolved != "" {
 					a.openImagePreview(resolved)
 				}

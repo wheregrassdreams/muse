@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"muse/application/agent"
+	documentapp "muse/application/document"
 	applicationvault "muse/application/vault"
 	workspaceapp "muse/application/workspace"
 	"muse/config"
@@ -15,7 +17,10 @@ import (
 	"muse/events"
 	"muse/markdown/images"
 	"muse/platform/cachepath"
+	"muse/platform/filesystem/agentworkspace"
 	"muse/platform/filesystem/documentstore"
+	"muse/platform/filesystem/exportstore"
+	"muse/platform/filesystem/filemetadata"
 	"muse/platform/filesystem/imagecache"
 	"muse/platform/filesystem/naviconstore"
 	"muse/platform/filesystem/recentstore"
@@ -38,11 +43,13 @@ type Runtime struct {
 	Workspace             workspace.Repository
 	WorkspaceEvents       *events.Dispatcher[workspace.WorkspaceRestored]
 	Documents             document.Repository
+	DocumentExportWriter  documentapp.ExportWriter
+	DocumentMetadata      documentapp.MetadataReader
 	Recovery              document.RecoveryRepository
 	History               document.HistoryRepository
 	DocumentEvents        *events.Dispatcher[document.DocumentSaved]
-	VaultSearch           applicationvault.SearchIndexStore
 	VaultSearchReconciler applicationvault.SearchReconciler
+	NewAgentWorkspace     func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error)
 	NewVaultIndex         applicationvault.IndexFactory
 	NewVaultCatalog       applicationvault.CatalogFactory
 	FileOperations        *applicationvault.FileOperations
@@ -76,6 +83,8 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 		return nil, err
 	}
 	documents := documentstore.New(filepath.Join(filepath.Dir(config.PreferencesPath()), "recovery"))
+	documentExportWriter := exportstore.New()
+	documentMetadata := filemetadata.New()
 	workspaceEvents := events.New[workspace.WorkspaceRestored]()
 	documentEvents := events.New[document.DocumentSaved]()
 	newVaultIndex := func(root string) (applicationvault.IndexPort, error) {
@@ -90,12 +99,16 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 		Workspace:             workspacestore.New(workspacestore.DefaultPath()),
 		WorkspaceEvents:       workspaceEvents,
 		Documents:             documents,
+		DocumentExportWriter:  documentExportWriter,
+		DocumentMetadata:      documentMetadata,
 		Recovery:              documents,
 		History:               documents,
 		DocumentEvents:        documentEvents,
-		VaultSearch:           searchStore,
 		VaultSearchReconciler: searchWorker,
-		NewVaultIndex:         newVaultIndex,
+		NewAgentWorkspace: func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error) {
+			return agentworkspace.New(root, agentworkspace.CurrentDocument(current))
+		},
+		NewVaultIndex: newVaultIndex,
 		NewVaultCatalog: func(root string) (applicationvault.CatalogPort, error) {
 			source, err := vaultfilessource.New(root)
 			if err != nil {

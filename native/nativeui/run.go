@@ -19,9 +19,6 @@ import (
 // native entry point; nothing in this package needs a webview or a frontend
 // build.
 func Run(dependencies Dependencies) {
-	if runVaultSearchIndexerMode(dependencies.VaultSearch, dependencies.NewVaultIndex) {
-		return
-	}
 	configureDefaultGCPolicy()
 	app := New()
 	app.SetDependencies(dependencies)
@@ -153,7 +150,7 @@ func (a *App) openWindow() {
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if !a.dirty {
 			a.persistWorkspaceState()
-			a.closeVaultRuntimeNow()
+			a.closeVaultSessionNow()
 			return
 		}
 		e.PreventDefault()

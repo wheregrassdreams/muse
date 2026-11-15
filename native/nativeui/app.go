@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/egoist/mygo/ui/shader"
 
 	"muse/agent"
+	applicationagent "muse/application/agent"
 	documentsave "muse/application/document"
 	applicationvault "muse/application/vault"
 	workspaceapp "muse/application/workspace"
@@ -144,9 +144,11 @@ var (
 type App struct {
 	watcherBackendFactory       func() (vaultwatch.Backend, error)
 	documentSession             *documentsave.Session
+	documentExportWriter        documentsave.ExportWriter
+	metadataReader              documentsave.MetadataReader
 	documentEvents              *events.Dispatcher[document.DocumentSaved]
 	documentSubscription        *events.Subscription
-	vaultSearchStore            applicationvault.SearchIndexStore
+	vaultSearchReconciler       applicationvault.SearchReconciler
 	newVaultIndex               applicationvault.IndexFactory
 	newVaultCatalog             applicationvault.CatalogFactory
 	fileOperations              *applicationvault.FileOperations
@@ -155,8 +157,16 @@ type App struct {
 	workspaceRestorer           *workspaceapp.Restorer
 	workspaceSubscription       *events.Subscription
 	documents                   *documentdialogs.State
-	closeVaultRuntime           func()
-	vault                       *vaultRuntime
+	vault                       *applicationvault.Session
+	vaultSnapshot               applicationvault.Snapshot
+	vaultResultNavigation       chan vaultNavigationResult
+	vaultPendingNavigation      *vaultsearch.Hit
+	vaultSearchLiteral          bool
+	vaultSearchSubmitted        string
+	vaultSearchSubmittedLiteral bool
+	vaultSearchDue              time.Time
+	vaultLinksScroll            ui.ScrollState
+	vaultLinksIndicator         scrollui.Indicator
 	pendingLinks                bool
 	pendingWiki                 string
 	workspaceSearch             bool
@@ -183,7 +193,7 @@ type App struct {
 	treePreviewPopupHovered     bool
 	linkPreview                 wikiLinkPreviewState
 	wikiSuggestionRoot          string
-	wikiSuggestionVault         *vaultRuntime
+	wikiSuggestionVault         *applicationvault.Session
 	wikiSuggestionRevision      uint64
 	wikiSuggestionFilesRevision uint64
 	wikiSuggestionCache         []string
@@ -377,34 +387,13 @@ type App struct {
 	vimYankFlash           bool
 
 	// AI
-	ai          config.AssistantSettings
-	aiClient    *agent.AI
-	assistant   *assistantPanel
-	aiMessages  []chatMessage
-	aiInput     string
-	aiBusy      bool
-	aiPhase     string // 流式进行中的一句话状态，如「深度思考中…」
-	aiRequestID string
-	aiErr       string
-	aiScroll    ui.ScrollState
-	aiStop      atomic.Bool
-	// aiToolsUnsupported 由 Agent 循环置位：端点不支持 function
-	// calling 时整个会话退回纯对话，只在循环 goroutine 上读写。
-	aiToolsUnsupported bool
-	// aiApprovals 是等待用户确认的工具调用（主线程读写）：调用 ID →
-	// 决定通道，审批卡按钮经 decideApproval 递结果。
-	aiApprovals map[string]chan approvalDecision
-	// aiPerm 是修改类工具的权限预设（每次询问/完全访问/只读），
-	// 会话内有效；审批卡上的「总是允许」会把它切到完全访问。
-	aiPerm       aiPerm
-	aiModels     []agent.ProviderModel
-	aiModelsBusy bool
-	aiModelsErr  string
-	// aiMdCache keeps the text of the last few Markdown parts parsed: a
-	// frame that draws a part whose text has not changed does not parse it
-	// again, as scrolling or a chunk arriving elsewhere redraws it.
-	aiMdCache [8]aiMdEntry
-	aiMdNext  int
+	ai                config.AssistantSettings
+	aiClient          *agent.AI
+	assistant         *assistantPanel
+	newAgentWorkspace func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error)
+	aiModels          []agent.ProviderModel
+	aiModelsBusy      bool
+	aiModelsErr       string
 
 	// search: the matches in the document, and the row chosen
 	query       string
@@ -438,20 +427,23 @@ type App struct {
 // Dependencies are concrete persistence ports selected by the composition
 // root. The presentation shell does not construct filesystem adapters.
 type Dependencies struct {
-	Workspace         workspace.Repository
-	WorkspaceEvents   *events.Dispatcher[workspace.WorkspaceRestored]
-	Documents         document.Repository
-	Recovery          document.RecoveryRepository
-	History           document.HistoryRepository
-	DocumentEvents    *events.Dispatcher[document.DocumentSaved]
-	VaultSearch       applicationvault.SearchIndexStore
-	NewVaultIndex     applicationvault.IndexFactory
-	NewVaultCatalog   applicationvault.CatalogFactory
-	FileOperations    *applicationvault.FileOperations
-	RecentItems       *workspaceapp.RecentItems
-	NavIcons          applicationvault.NavigationIconRepository
-	ImageCacheStore   images.CacheStore
-	NewWatcherBackend func() (vaultwatch.Backend, error)
+	Workspace             workspace.Repository
+	WorkspaceEvents       *events.Dispatcher[workspace.WorkspaceRestored]
+	Documents             document.Repository
+	DocumentExportWriter  documentsave.ExportWriter
+	DocumentMetadata      documentsave.MetadataReader
+	Recovery              document.RecoveryRepository
+	History               document.HistoryRepository
+	DocumentEvents        *events.Dispatcher[document.DocumentSaved]
+	VaultSearchReconciler applicationvault.SearchReconciler
+	NewVaultIndex         applicationvault.IndexFactory
+	NewVaultCatalog       applicationvault.CatalogFactory
+	FileOperations        *applicationvault.FileOperations
+	RecentItems           *workspaceapp.RecentItems
+	NavIcons              applicationvault.NavigationIconRepository
+	ImageCacheStore       images.CacheStore
+	NewWatcherBackend     func() (vaultwatch.Backend, error)
+	NewAgentWorkspace     func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error)
 }
 
 // New returns the app on an empty untitled document, with the panel on files.
@@ -478,7 +470,6 @@ func New() *App {
 		smartTypography: true,
 		ai:              assistantSettings,
 		aiClient:        agent.NewAI(),
-		aiMessages:      loadAIChat(),
 		documents:       documentdialogs.New(),
 	}
 	a.assistant = newAssistantPanel(a)
@@ -556,7 +547,6 @@ func (a *App) View(c *ui.Context) {
 	}
 	a.vaultTick(c)
 	a.documentTick(c)
-	a.linkIndexTick(c)
 	a.applyTheme(c)
 	row := ui.Row(c).Fill()
 	rootElement := c.Root()
@@ -1760,11 +1750,9 @@ func (a *App) closeWorkspaceSearch() {
 	a.workspaceSearch = false
 	a.workspaceSubmit = false
 	if a.vault != nil {
-		a.vault.queryToken++
-		if a.vault.queryCancel != nil {
-			a.vault.queryCancel()
-			a.vault.queryCancel = nil
-		}
+		_, _ = a.vault.Query("", a.vaultSearchLiteral, a.path, a.diskSource())
+		a.vaultSearchSubmitted = ""
+		a.vaultSnapshot = a.vault.Snapshot()
 	}
 	a.invalidate()
 }
@@ -1799,10 +1787,11 @@ func (a *App) openWorkspaceRecent(entry recentEntry) {
 }
 
 func (a *App) openSelectedWorkspaceHit() {
-	if a.vault == nil || a.workspaceSearchSel < 0 || a.workspaceSearchSel >= len(a.vault.hits) {
+	hits := a.vaultSnapshot.Search.Hits
+	if a.vault == nil || a.workspaceSearchSel < 0 || a.workspaceSearchSel >= len(hits) {
 		return
 	}
-	hit := a.vault.hits[a.workspaceSearchSel]
+	hit := hits[a.workspaceSearchSel]
 	a.closeWorkspaceSearch()
 	a.navigateSearchHit(hit)
 }
@@ -1840,10 +1829,13 @@ func (a *App) workspaceSearchDialog(c *ui.Context) {
 	}
 	a.syncWorkspaceSearchQuery()
 	v := a.vault
+	if !a.vaultSearchDue.IsZero() && time.Until(a.vaultSearchDue) > 0 {
+		c.After(time.Until(a.vaultSearchDue))
+	}
 	querying := strings.TrimSpace(a.workspaceQuery) != ""
 	count := 0
 	if querying && v != nil {
-		count = len(v.hits)
+		count = len(a.vaultSnapshot.Search.Hits)
 	} else if !querying {
 		count = len(a.workspaceRecentNotes())
 	}
@@ -1882,25 +1874,25 @@ func (a *App) workspaceSearchDialog(c *ui.Context) {
 						return true
 					})
 				fullLabel, literalLabel := locales.WorkspaceSearchFullText(), locales.WorkspaceSearchLiteral()
-				if v == nil || !v.searchLiteral {
+				if v == nil || !a.vaultSearchLiteral {
 					fullLabel = locales.WorkspaceSearchFullTextSelected()
 				} else {
 					literalLabel = locales.WorkspaceSearchLiteralSelected()
 				}
-				if ui.Button(c, fullLabel).Clicked() && v != nil && v.searchLiteral {
-					v.searchLiteral = false
-					v.queryToken++
-					v.hits = nil
+				if ui.Button(c, fullLabel).Clicked() && v != nil && a.vaultSearchLiteral {
+					a.vaultSearchLiteral = false
+					a.vaultSearchSubmitted = "\x00"
+					a.vaultSnapshot.Search.Hits = nil
 					a.workspaceReveal = true
-					v.due = time.Now()
+					a.vaultSearchDue = time.Now()
 					a.workspaceInputFocus.Focus(c)
 				}
-				if ui.Button(c, literalLabel).Clicked() && v != nil && !v.searchLiteral {
-					v.searchLiteral = true
-					v.queryToken++
-					v.hits = nil
+				if ui.Button(c, literalLabel).Clicked() && v != nil && !a.vaultSearchLiteral {
+					a.vaultSearchLiteral = true
+					a.vaultSearchSubmitted = "\x00"
+					a.vaultSnapshot.Search.Hits = nil
 					a.workspaceReveal = true
-					v.due = time.Now()
+					a.vaultSearchDue = time.Now()
 					a.workspaceInputFocus.Focus(c)
 				}
 			})
@@ -1927,11 +1919,11 @@ func (a *App) workspaceSearchDialog(c *ui.Context) {
 			}
 			ui.Box(c).Height(1).FillWidth().Background(t.Border)
 			ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
-				if querying && v != nil && v.search != nil {
-					if v.searchLiteral {
-						ui.Text(c, locales.SearchMatchCount(len(v.hits))).FontSize(10.5).TextColor(t.TextMuted)
+				if querying && v != nil && a.vaultSnapshot.SearchAvailable {
+					if a.vaultSearchLiteral {
+						ui.Text(c, locales.SearchMatchCount(len(a.vaultSnapshot.Search.Hits))).FontSize(10.5).TextColor(t.TextMuted)
 					} else {
-						ui.Text(c, locales.WorkspaceNoteCount(len(v.hits))).FontSize(10.5).TextColor(t.TextMuted)
+						ui.Text(c, locales.WorkspaceNoteCount(len(a.vaultSnapshot.Search.Hits))).FontSize(10.5).TextColor(t.TextMuted)
 					}
 				} else if !querying {
 					ui.Text(c, locales.WorkspaceRecentNotes()).FontSize(10.5).TextColor(t.TextMuted)
@@ -2296,6 +2288,12 @@ func (a *App) setWorkspace(root string) {
 	// previous vault's document visible after switching folders.
 	if filepath.Clean(root) != filepath.Clean(a.root) {
 		a.resetDoc()
+		if a.vault != nil {
+			old := a.vault
+			a.vault = nil
+			a.vaultSnapshot = applicationvault.Snapshot{}
+			go old.Close()
+		}
 	}
 	a.root = root
 	a.fileRowsDirty = true
@@ -2518,8 +2516,8 @@ func (a *App) requestOpen(path string) {
 }
 
 func (a *App) applyOpen(path, data string) {
-	if a.indexedPath == path && a.indexedRevision != "" && document.RevisionOf(data) != a.indexedRevision && a.vault != nil {
-		rel, _ := filepath.Rel(a.vault.root, path)
+	if a.indexedPath == path && a.indexedRevision != "" && string(document.RevisionOf(data)) != a.indexedRevision && a.vault != nil {
+		rel, _ := filepath.Rel(a.activeVaultRoot(), path)
 		hit := vaultsearch.Hit{Path: filepath.ToSlash(rel), Revision: a.indexedRevision}
 		a.indexedPath, a.indexedRevision = "", ""
 		a.notice(locales.WorkspaceSearchMoved())
@@ -2530,8 +2528,11 @@ func (a *App) applyOpen(path, data string) {
 	a.closeImageDocument()
 	a.path = path
 	a.selectedPath = path
-	if a.vault != nil && a.vault.watch != nil {
-		_ = a.vault.watch.WatchFile(path)
+	if a.vault != nil {
+		_ = a.vault.WatchFile(path)
+		if filepath.Ext(path) == ".md" {
+			a.queueLinkIndexSnapshot()
+		}
 	}
 	a.loadDoc(data)
 	a.dirty = false
@@ -2654,7 +2655,6 @@ func (a *App) confirmDiscardOffUI() bool {
 		return false
 	}
 	var expected document.Revision
-	var err error
 	if a.documentSession == nil {
 		err = errors.New("document repository is not configured")
 	} else {
@@ -2847,22 +2847,22 @@ func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 		a.dirMu.Unlock()
 		if isDir {
 			if m.Item(locales.FilesNewFile()).Chosen() {
-				a.dispatchTreeAction(path, ActionCreateFile, nil)
+				a.dispatchTreeAction(path, interactions.ActionCreateFile, nil)
 			}
 			if m.Item(locales.FilesNewFolderMenu()).Chosen() {
-				a.dispatchTreeAction(path, ActionCreateFolder, nil)
+				a.dispatchTreeAction(path, interactions.ActionCreateFolder, nil)
 			}
 			m.Separator()
 		}
 		if m.Item(locales.FilesCopyItem()).Chosen() {
-			a.dispatchTreeAction(path, ActionCopy, nil)
+			a.dispatchTreeAction(path, interactions.ActionCopy, nil)
 		}
 		if m.Item(locales.FilesCutItem()).Chosen() {
-			a.dispatchTreeAction(path, ActionCut, nil)
+			a.dispatchTreeAction(path, interactions.ActionCut, nil)
 		}
 		if len(a.treeClipboard) > 0 {
 			if m.Item(locales.FilesPasteItem()).Chosen() {
-				a.dispatchTreeAction(path, ActionPaste, nil)
+				a.dispatchTreeAction(path, interactions.ActionPaste, nil)
 			}
 		}
 		m.Separator()
@@ -2870,21 +2870,21 @@ func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 			a.openNavIconPicker(path)
 		}
 		if m.Item(locales.FilesCopyRelativePath()).Chosen() {
-			a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": true})
+			a.dispatchTreeAction(path, interactions.ActionCopyPath, map[string]any{"relative": true})
 		}
 		if m.Item(locales.FilesCopyAbsolutePath()).Chosen() {
-			a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": false})
+			a.dispatchTreeAction(path, interactions.ActionCopyPath, map[string]any{"relative": false})
 		}
 		m.Separator()
 		if m.Item(locales.FilesRenameEllipsis()).Chosen() {
-			a.dispatchTreeAction(path, ActionRename, nil)
+			a.dispatchTreeAction(path, interactions.ActionRename, nil)
 		}
 		if m.Item(locales.FilesMoveToTrash()).Chosen() {
-			a.dispatchTreeAction(path, ActionTrash, nil)
+			a.dispatchTreeAction(path, interactions.ActionTrash, nil)
 		}
 		m.Separator()
 		if m.Item(locales.FilesRevealInFinder()).Chosen() {
-			a.dispatchTreeAction(path, ActionRevealInFinder, nil)
+			a.dispatchTreeAction(path, interactions.ActionRevealInFinder, nil)
 		}
 	})
 }
@@ -2895,13 +2895,13 @@ func (a *App) fileMenu(c *ui.Context, row ui.Element, path string) {
 func (a *App) fileRootMenu(list ui.Element) {
 	list.ContextMenu(func(m *ui.Menu) {
 		if m.Item(locales.FilesNewFile()).Chosen() {
-			a.dispatchTreeAction(a.root, ActionCreateFile, nil)
+			a.dispatchTreeAction(a.root, interactions.ActionCreateFile, nil)
 		}
 		if m.Item(locales.FilesNewFolderMenu()).Chosen() {
-			a.dispatchTreeAction(a.root, ActionCreateFolder, nil)
+			a.dispatchTreeAction(a.root, interactions.ActionCreateFolder, nil)
 		}
 		if len(a.treeClipboard) > 0 && m.Item(locales.FilesPasteItem()).Chosen() {
-			a.dispatchTreeAction(a.root, ActionPaste, nil)
+			a.dispatchTreeAction(a.root, interactions.ActionPaste, nil)
 		}
 		m.Separator()
 		if m.Item(locales.FilesCollapseMenu()).Chosen() {
@@ -3428,22 +3428,22 @@ func (a *App) editorOptions() mdedit.Options {
 }
 
 func (a *App) editorLinkRevision() uint64 {
-	if a.vault == nil || a.vault.links == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return 0
 	}
-	return a.vault.index.Revision()
+	return a.vaultSnapshot.IndexRevision
 }
 
 func (a *App) editorLinkContext() string {
 	root := ""
 	if a.vault != nil {
-		root = a.vault.root
+		root = a.vaultSnapshot.Root
 	}
 	return filepath.Clean(root) + "\x00" + filepath.Clean(a.path)
 }
 
 func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTargetState {
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return mdedit.LinkTargetUnknown
 	}
 	current := ""
@@ -3451,11 +3451,11 @@ func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTarget
 		currentPath = a.path
 	}
 	if currentPath != "" {
-		if rel, err := filepath.Rel(a.vault.root, currentPath); err == nil {
+		if rel, err := filepath.Rel(a.vaultSnapshot.Root, currentPath); err == nil {
 			current = filepath.ToSlash(rel)
 		}
 	}
-	if _, ok := a.vault.links.Resolve(current, target); ok {
+	if _, ok := a.vault.ResolveLink(current, target); ok {
 		return mdedit.LinkTargetValid
 	}
 	if a.resolveWikiImageTargetFrom(currentPath, target) != "" {
@@ -3618,7 +3618,7 @@ func (a *App) openWiki(target string) {
 	// resolution. In particular, do not fall back to a path-only resolver
 	// after an anchor failed to resolve: that would open the note while
 	// silently ignoring the requested heading or block.
-	if a.vault == nil || a.vault.index == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		a.pendingWiki = target
 		return
 	}

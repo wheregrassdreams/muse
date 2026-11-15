@@ -2,7 +2,6 @@ package nativeui
 
 import (
 	"github.com/egoist/mygo/ui"
-	applicationvault "muse/application/vault"
 	"muse/nativeui/surfaces/quickopen"
 	"muse/nativeui/window"
 )
@@ -24,17 +23,14 @@ func (rows quickOpenRows) At(i int) quickopen.Row {
 }
 
 func (a *App) quickOpenCandidates(queries ...string) []quickOpenCandidate {
-	if a.vault == nil || a.vault.files == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return nil
-	}
-	if a.vault.quickOpen == nil {
-		a.vault.quickOpen = applicationvault.NewQuickOpen(a.vault.root, a.vault.files, a.vault.index)
 	}
 	query := ""
 	if len(queries) > 0 {
 		query = queries[0]
 	}
-	matches := a.vault.quickOpen.Search(query)
+	matches := a.vault.QuickOpen(query)
 	rows := make([]quickOpenCandidate, 0, len(matches))
 	for _, match := range matches {
 		rows = append(rows, quickOpenCandidate{

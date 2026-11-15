@@ -52,6 +52,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 	dir, one := e2eWorkspace(t)
 
 	a := New()
+	withDocumentPorts(t, a)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -90,6 +91,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 
 func TestE2ESaveUntitledViaDialog(t *testing.T) {
 	a := New()
+	withDocumentPorts(t, a)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
@@ -136,6 +138,7 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 	}
 
 	a := New()
+	withDocumentPorts(t, a)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -174,6 +177,7 @@ func TestE2ETableCmdEnterAddsRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
+	withDocumentPorts(t, a)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -189,7 +193,11 @@ func TestE2ETableCmdEnterAddsRow(t *testing.T) {
 	if !strings.Contains(got, "新行") {
 		t.Fatalf("saved table missing the new row; got:\n%s", got)
 	}
-	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	body := got
+	if _, after, ok := strings.Cut(body, "---\n\n"); ok {
+		body = after
+	}
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	if len(lines) != 4 {
 		t.Fatalf("expected header+alignment+2 body rows, got %d lines:\n%s", len(lines), got)
 	}
@@ -205,6 +213,7 @@ func TestE2EWindowsLineEndingsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
+	withDocumentPorts(t, a)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -219,8 +228,8 @@ func TestE2EWindowsLineEndingsRoundTrip(t *testing.T) {
 	tt.Frame()
 	a.save()
 	got := waitFileContains(t, one, "正文。")
-	if got != "# 标题\r\n\r\n正文。\r\n" {
-		t.Fatalf("saved %q", got)
+	if !strings.HasSuffix(got, "# 标题\r\n\r\n正文。\r\n") {
+		t.Fatalf("saved body did not preserve Windows line endings: %q", got)
 	}
 }
 
@@ -262,7 +271,7 @@ func TestAIEditIsUndoable(t *testing.T) {
 	a.loadDoc("原文。\n")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	a.applyToolSourceEdit("原文。\n\nAI 新增。\n")
+	a.ed.ReplaceAll("原文。\n\nAI 新增。\n")
 	tt.Frame()
 	if !a.dirty || a.source != "原文。\n\nAI 新增。\n" {
 		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.dirty, a.source)

@@ -1,4 +1,4 @@
-package nativeui
+package document
 
 import (
 	"strings"
@@ -12,7 +12,7 @@ func TestMergeDisjointDocumentEdits(t *testing.T) {
 		{"independent body lines", "---\ntags: []\n---\nfirst changed\nsecond\nthird\n", "---\ntags: []\n---\nfirst\nsecond\nthird changed\n", "---\ntags: []\n---\nfirst changed\nsecond\nthird changed\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := mergeDisjointDocumentEdits(base, tc.local, tc.external)
+			got, ok := MergeDisjointEdits(base, tc.local, tc.external)
 			if !ok || got != tc.want {
 				t.Fatalf("merge = (%q, %v), want (%q, true)", got, ok, tc.want)
 			}
@@ -26,7 +26,7 @@ func TestMergeOverlappingDocumentEditsConflicts(t *testing.T) {
 		{"ONE\ntwo\nthree\n", "uno\ntwo\nthree\n"},
 		{"one\ntwo\nthree\nlocal\n", "one\ntwo\nthree\nexternal\n"},
 	} {
-		if _, ok := mergeDisjointDocumentEdits(base, tc.local, tc.external); ok {
+		if _, ok := MergeDisjointEdits(base, tc.local, tc.external); ok {
 			t.Fatalf("overlapping changes were merged: local=%q external=%q", tc.local, tc.external)
 		}
 	}

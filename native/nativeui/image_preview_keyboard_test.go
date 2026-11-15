@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/nativeui/interactions"
 )
 
 func TestImagePreviewOwnsEscapeBeforeFileTreeActions(t *testing.T) {
 	root := keyTestWorkspace(t)
 	a := New()
 	a.setWorkspace(root)
-	a.focusPanel(PanelIDFiles)
+	a.focusPanel(interactions.PanelIDFiles)
 	a.openImagePreview(filepath.Join(root, "missing.png"))
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()

@@ -1,12 +1,16 @@
 package nativeui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/frontmatter"
+	"muse/document/frontmatter"
+	"muse/locales"
+	propertypanel "muse/nativeui/panels/properties"
 )
 
 const referencePage = "---\ntitle: Legacy title kept in YAML\ntype: Note\ntags: [图形学]\ncreated: 2026-06-22T23:58:00+08:00\nmodified: 2026-11-12T11:05:00+08:00\ncreated_by: Zane\nlinks: internal-data\n---\n" +
@@ -25,20 +29,31 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 			a := New()
-			a.path = "/tmp/Bresenham.md"
+			root := t.TempDir()
+			notePath := filepath.Join(root, "Bresenham.md")
+			if err := os.WriteFile(notePath, []byte(referencePage), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "Source.md"), []byte("# Inbound\n\n[[Bresenham]]\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			configureVaultPorts(t, a)
+			withDocumentPorts(t, a)
 			a.panelOpen, a.panelW = false, 0
 			a.flat = true
 			a.themeMode = themeLight
 			if dark {
 				a.themeMode = themeDark
 			}
-			a.loadDoc(referencePage)
+			tt := ui.NewTester(a.View, 1600, 1000)
+			a.setWorkspace(root)
+			a.openPathNow(notePath)
+			waitDocument(t, tt, func() bool { return a.vaultSnapshot.Ready && a.source == referencePage })
 			a.openProperties()
-			tt := ui.NewTester(a.View, 1100, 1000)
 			tt.Frame()
 			tt.Advance(time.Second)
 			tt.Frame()
-			for _, value := range []string{"属性", "Type", "Note", "Backlinks", "Tag", "图形学", "Creation date"} {
+			for _, value := range []string{locales.PropertyTitle(), locales.PropertyTypeFieldLabel(), locales.PropertyDefaultNoteType(), locales.PropertyViewBacklinks(), locales.PropertyTagsFieldLabel(), "图形学", locales.PropertyCreationDate()} {
 				if !tt.HasText(value) {
 					t.Errorf("page inspector lost %q", value)
 				}
@@ -46,15 +61,13 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 			if tt.HasText("Object type") || tt.HasText("Legacy title kept") || tt.HasText("created_by") || tt.HasText("internal-data") {
 				t.Fatal("page exposed retired title or omitted reference properties")
 			}
-			if tt.HasText("Last modified date") || tt.HasText("Last opened date") {
+			if tt.HasText(locales.PropertyModifiedDate()) || tt.HasText(locales.PropertyLastOpenedDate()) {
 				t.Fatal("secondary properties should start collapsed")
 			}
 			runtimeShot(t, tt, "reference-page-"+name)
-			if err := tt.Click("隐藏属性"); err != nil {
-				t.Fatal(err)
-			}
+			a.dispatchPropertyAction(propertypanel.Action{Kind: propertypanel.ToggleHiddenSection})
 			tt.Frame()
-			if !tt.HasText("Last modified date") || !tt.HasText("Last opened date") {
+			if !tt.HasText(locales.PropertyModifiedDate()) || !tt.HasText(locales.PropertyLastOpenedDate()) {
 				t.Fatal("expanded section did not expose real document timestamps")
 			}
 			runtimeShot(t, tt, "reference-properties-expanded-"+name)

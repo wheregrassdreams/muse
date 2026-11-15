@@ -10,6 +10,7 @@ import (
 	mdedit "muse/editor"
 	"muse/locales"
 	doctypes "muse/nativeui/components/doctypes"
+	"muse/nativeui/interactions"
 	"muse/nativeui/panels/filetree"
 )
 
@@ -137,7 +138,7 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 		}
 	}
 	if a.treeFocusHandle.Focused(c) {
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 	}
 
 	if !a.treeDragStarted.IsZero() && !a.treePointerReleased {
@@ -294,17 +295,17 @@ func (a *App) fileTreeContextActions(path string, isDir bool) []filetree.Command
 func (a *App) handleFileTreeAction(c *ui.Context, action filetree.Action[mdedit.VaultItemDrag], rows []fileRow) {
 	switch action.Kind {
 	case filetree.SelectEntry:
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 		a.treeFocusPath = action.ID
 		a.selectTreeRow(action.ID, action.Modifiers, rows)
 	case filetree.ToggleEntry:
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 		a.treeFocusPath = action.ID
 		a.expanded[action.ID] = !a.expanded[action.ID]
 		a.fileRowsDirty = true
 	case filetree.OpenEntry:
 		a.treeFocusPath = action.ID
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 		a.selectedPath = action.ID
 		a.requestOpen(action.ID)
 	case filetree.InvokeContextCommand:
@@ -352,7 +353,7 @@ func (a *App) handleFileTreeAction(c *ui.Context, action filetree.Action[mdedit.
 
 func (a *App) invokeFileTreeContextCommand(path, command string) {
 	if path != "" {
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 		a.treeFocusPath = path
 		if a.treeSelection == nil {
 			a.treeSelection = make(map[string]bool)
@@ -365,29 +366,29 @@ func (a *App) invokeFileTreeContextCommand(path, command string) {
 	}
 	switch command {
 	case fileTreeCommandCreateFile:
-		a.dispatchTreeAction(pathOrRoot(path, a.root), ActionCreateFile, nil)
+		a.dispatchTreeAction(pathOrRoot(path, a.root), interactions.ActionCreateFile, nil)
 	case fileTreeCommandCreateFolder:
-		a.dispatchTreeAction(pathOrRoot(path, a.root), ActionCreateFolder, nil)
+		a.dispatchTreeAction(pathOrRoot(path, a.root), interactions.ActionCreateFolder, nil)
 	case fileTreeCommandPaste:
-		a.dispatchTreeAction(pathOrRoot(path, a.root), ActionPaste, nil)
+		a.dispatchTreeAction(pathOrRoot(path, a.root), interactions.ActionPaste, nil)
 	case fileTreeCommandCollapse:
 		a.collapseAll()
 	case fileTreeCommandCopy:
-		a.dispatchTreeAction(path, ActionCopy, nil)
+		a.dispatchTreeAction(path, interactions.ActionCopy, nil)
 	case fileTreeCommandCut:
-		a.dispatchTreeAction(path, ActionCut, nil)
+		a.dispatchTreeAction(path, interactions.ActionCut, nil)
 	case fileTreeCommandChangeIcon:
 		a.openNavIconPicker(path)
 	case fileTreeCommandCopyRelative:
-		a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": true})
+		a.dispatchTreeAction(path, interactions.ActionCopyPath, map[string]any{"relative": true})
 	case fileTreeCommandCopyAbsolute:
-		a.dispatchTreeAction(path, ActionCopyPath, map[string]any{"relative": false})
+		a.dispatchTreeAction(path, interactions.ActionCopyPath, map[string]any{"relative": false})
 	case fileTreeCommandRename:
-		a.dispatchTreeAction(path, ActionRename, nil)
+		a.dispatchTreeAction(path, interactions.ActionRename, nil)
 	case fileTreeCommandTrash:
-		a.dispatchTreeAction(path, ActionTrash, nil)
+		a.dispatchTreeAction(path, interactions.ActionTrash, nil)
 	case fileTreeCommandReveal:
-		a.dispatchTreeAction(path, ActionRevealInFinder, nil)
+		a.dispatchTreeAction(path, interactions.ActionRevealInFinder, nil)
 	}
 }
 

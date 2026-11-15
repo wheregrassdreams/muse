@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/frontmatter"
+	"muse/document/frontmatter"
 )
 
 // 新建文件（面板工具栏）→ 文件落盘 → 自动打开：整条链路一次走通。

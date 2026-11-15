@@ -102,6 +102,7 @@ type Result struct {
 	Query    string
 	Literal  bool
 	Changed  []string
+	Full     bool
 	Document *vaultindex.Document
 	Err      error
 	Elapsed  time.Duration

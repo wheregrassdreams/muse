@@ -2,7 +2,6 @@ package nativeui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -52,7 +51,12 @@ func (a *App) propertiesViewModel() propertypanel.ViewModel {
 	}
 	model.DocumentType = propertyDocumentType(d)
 	for _, field := range propertyCoreFields(d.Fields) {
-		model.Fields = append(model.Fields, a.panelField(field, true))
+		projected := a.panelField(field, true)
+		if a.propertyPrefs.Fields[field.Key].Hidden || propertySecondary(field.Key) {
+			model.HiddenFields = append(model.HiddenFields, projected)
+		} else {
+			model.Fields = append(model.Fields, projected)
+		}
 	}
 	ordered := a.orderedProperties(d.Fields)
 	summary := summaryPropertyFields(ordered, a.propertyPrefs)
@@ -89,7 +93,7 @@ func (a *App) propertiesViewModel() propertypanel.ViewModel {
 	}
 	if !a.propertyOpenedAt.IsZero() && !propertyHasField(d, "last_opened") {
 		value := locales.PropertyDateTime(a.propertyOpenedAt.Local())
-		model.SystemFields = append(model.SystemFields, propertypanel.Field{
+		model.HiddenFields = append(model.HiddenFields, propertypanel.Field{
 			Key: "system-last-opened", Label: locales.PropertyLastOpenedDate(), Value: value,
 			DisplayValue: value, Kind: propertypanel.Date, System: true,
 		})
@@ -284,7 +288,7 @@ type fieldDisplayPreference = config.FieldDisplayPreference
 type documentPropertyPrefs = config.DocumentPropertyPreferences
 
 func (a *App) propertiesEnabled() bool {
-	return !a.imageDocument.IsOpen() && codeLanguage(a.path) == ""
+	return !a.imageDocumentOpen() && codeLanguage(a.path) == ""
 }
 
 // propertyDocument caches parsing for one source/path pair. frontmatter owns
@@ -325,7 +329,7 @@ func (a *App) propertySummary(c *ui.Context) {
 func summaryPropertyFields(fields []frontmatter.Field, prefs documentPropertyPrefs) []frontmatter.Field {
 	visible := make([]frontmatter.Field, 0, len(fields))
 	for _, f := range fields {
-		if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") || prefs.Fields[f.Key].Hidden {
+		if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") || prefs.Fields[f.Key].Hidden || propertySecondary(f.Key) {
 			continue
 		}
 		if strings.TrimSpace(displayPropertyValue(f)) == "" {
@@ -363,14 +367,16 @@ func (a *App) refreshSystemProperties() {
 		{key: systemPropertyPath, value: a.path},
 		{key: systemPropertyWordCount, value: locales.PropertyWordCount(chars, len(strings.Fields(body)))},
 	}
-	if st, err := os.Stat(a.path); err == nil {
-		if created := fileCreationTime(st); !created.IsZero() {
-			props = append(props, systemProperty{key: systemPropertyCreatedAt, value: locales.PropertyDateTime(created.Local())})
+	if a.metadataReader != nil {
+		if metadata, err := a.metadataReader.ReadMetadata(a.path); err == nil {
+			if created := metadata.CreatedAt; !created.IsZero() {
+				props = append(props, systemProperty{key: systemPropertyCreatedAt, value: locales.PropertyDateTime(created.Local())})
+			}
+			props = append(props,
+				systemProperty{key: systemPropertyFileSize, value: formatPropertySize(metadata.Size)},
+				systemProperty{key: systemPropertyUpdatedAt, value: locales.PropertyDateTime(metadata.ModifiedAt.Local())},
+			)
 		}
-		props = append(props,
-			systemProperty{key: systemPropertyFileSize, value: formatPropertySize(st.Size())},
-			systemProperty{key: systemPropertyUpdatedAt, value: locales.PropertyDateTime(st.ModTime().Local())},
-		)
 	}
 	a.propertySystem = props
 }
@@ -634,13 +640,13 @@ func propertyDocumentType(d frontmatter.Document) string {
 func (a *App) documentBacklinkSources() []vaultlinks.BacklinkSource {
 	v := a.vault
 	path := a.path
-	if a.imageDocument.IsOpen() && a.imageDocument.Path() != "" {
-		path = a.imageDocument.Path()
+	if a.imageDocumentOpen() && a.imageDocumentPath() != "" {
+		path = a.imageDocumentPath()
 	}
-	if v == nil || v.index == nil || path == "" || v.links == nil {
+	if v == nil || path == "" || !a.vaultSnapshot.Ready {
 		return nil
 	}
-	return v.links.BacklinkSources(propertyVaultPath(v.root, path))
+	return v.BacklinkSources(propertyVaultPath(a.vaultSnapshot.Root, path))
 }
 
 func propertyVaultPath(root, path string) string {

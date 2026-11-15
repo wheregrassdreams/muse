@@ -1,0 +1,206 @@
+package document
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	domain "muse/document"
+	"muse/platform/filesystem/documentstore"
+)
+
+func TestSessionDebouncesAutosaveAndTracksGeneration(t *testing.T) {
+	session := NewSession(nil, nil, nil, nil)
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	session.Open("notes/a.md", "before")
+	first := session.Snapshot()
+	session.Changed(now)
+	if _, ok := session.BeginSave("notes/a.md", "after", true, now.Add(AutosaveDelay-time.Nanosecond)); ok {
+		t.Fatal("save started before debounce deadline")
+	}
+	request, ok := session.BeginSave("notes/a.md", "after", true, now.Add(AutosaveDelay))
+	if !ok {
+		t.Fatal("save did not start at debounce deadline")
+	}
+	if request.Generation != first.Generation || request.Expected != domain.RevisionOf("before") {
+		t.Fatalf("save request = %+v, session = %+v", request, first)
+	}
+	if _, ok := session.BeginSave("notes/a.md", "after", true, now.Add(time.Second)); ok {
+		t.Fatal("a second save started while the first was in flight")
+	}
+	session.Open("notes/b.md", "new session")
+	if session.CompleteSave(SaveResult{Request: request}, "notes/a.md", "after") {
+		t.Fatal("stale save completion was accepted after switching documents")
+	}
+	if got := session.Snapshot(); got.Saving {
+		t.Fatalf("new session remained marked saving after switch: %+v", got)
+	}
+}
+
+func TestSessionMetadataUpdatesDoNotRescheduleMetadata(t *testing.T) {
+	session := NewSession(nil, nil, nil, nil)
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	session.SetApplyingMetadata(true)
+	session.Changed(now)
+	state := session.Snapshot()
+	if !state.MetadataDue.IsZero() {
+		t.Fatalf("metadata system edit scheduled another timestamp update: %v", state.MetadataDue)
+	}
+	if !state.AutosaveDue.Equal(now.Add(AutosaveDelay)) {
+		t.Fatalf("autosave deadline = %v", state.AutosaveDue)
+	}
+}
+
+func TestSessionPublishesAsyncSaveResults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	session := NewSession(store, store, store, nil)
+	session.Open(path, "before")
+	now := time.Now()
+	session.Changed(now)
+	request, ok := session.BeginSave(path, "after", true, now.Add(AutosaveDelay))
+	if !ok {
+		t.Fatal("save request was not claimed")
+	}
+	session.StartSave(request)
+	select {
+	case result := <-session.Results():
+		if result.Err != nil || result.Note.Source != "after" || result.Note.Path != path {
+			t.Fatalf("save result = %+v", result)
+		}
+		if !session.CompleteSave(result, path, "after") {
+			t.Fatal("current save result was rejected")
+		}
+		state := session.Snapshot()
+		if state.Saving || state.Revision != result.Note.Revision || state.BaseSource != "after" {
+			t.Fatalf("completed state = %+v", state)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session did not publish the asynchronous save result")
+	}
+}
+
+func TestSessionOwnsDraftHistoryAndDestinationOperations(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "note.md")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(root, "recovery"))
+	session := NewSession(store, store, store, nil)
+	session.Open("", "untitled")
+	key, err := session.PreserveDraft("", "untitled draft")
+	if err != nil || key == "" {
+		t.Fatalf("preserve untitled draft key=%q error=%v", key, err)
+	}
+	drafts, err := session.ListDrafts()
+	if err != nil || len(drafts) != 1 || drafts[0].Key != key {
+		t.Fatalf("drafts=%+v error=%v", drafts, err)
+	}
+	loaded, err := session.ReadDraft(key)
+	if err != nil || loaded.Text != "untitled draft" {
+		t.Fatalf("draft=%+v error=%v", loaded, err)
+	}
+
+	if _, err := store.Save(path, "saved", domain.RevisionOf("before")); err != nil {
+		t.Fatal(err)
+	}
+	history, err := session.ListHistory(path)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history=%+v error=%v", history, err)
+	}
+	previous, err := session.ReadHistory(path, history[0].ID)
+	if err != nil || previous.Source != "before" {
+		t.Fatalf("history note=%+v error=%v", previous, err)
+	}
+
+	if revision, err := session.DestinationRevision(path, path, domain.RevisionOf("open")); err != nil || revision != domain.RevisionOf("open") {
+		t.Fatalf("current path revision=%q error=%v", revision, err)
+	}
+	if revision, err := session.DestinationRevision(filepath.Join(root, "new.md"), path, "initial"); err != nil || revision != "" {
+		t.Fatalf("new destination revision=%q error=%v", revision, err)
+	}
+	if revision, err := session.DestinationRevision(path, filepath.Join(root, "other.md"), "initial"); err != nil || revision != domain.RevisionOf("saved") {
+		t.Fatalf("existing destination revision=%q error=%v", revision, err)
+	}
+}
+
+func TestSessionSaveNowForOtherDocumentDoesNotReplaceActiveRevision(t *testing.T) {
+	root := t.TempDir()
+	activePath := filepath.Join(root, "active.md")
+	otherPath := filepath.Join(root, "other.md")
+	for path, source := range map[string]string{activePath: "active", otherPath: "other"} {
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := documentstore.New(filepath.Join(root, "recovery"))
+	session := NewSession(store, store, store, nil)
+	session.Open(activePath, "active")
+	activeRevision := session.Snapshot().Revision
+	if _, err := session.SaveNow(otherPath, otherPath, "other updated", domain.RevisionOf("other")); err != nil {
+		t.Fatal(err)
+	}
+	state := session.Snapshot()
+	if state.Path != activePath || state.Revision != activeRevision || state.BaseSource != "active" {
+		t.Fatalf("saving another note changed active session state: %+v", state)
+	}
+}
+
+func TestSessionCloseInvalidatesClaimedSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	session := NewSession(store, store, store, nil)
+	session.Open(path, "before")
+	now := time.Now()
+	session.Changed(now)
+	request, ok := session.BeginSave(path, "after", true, now.Add(AutosaveDelay))
+	if !ok {
+		t.Fatal("save request was not claimed")
+	}
+	session.Close()
+	result := session.Save(request)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Note.Path != "" || string(data) != "before" {
+		t.Fatalf("closed session save result=%+v disk=%q", result, data)
+	}
+	state := session.Snapshot()
+	if state.Saving || !state.AutosaveDue.IsZero() || !state.MetadataDue.IsZero() {
+		t.Fatalf("closed session retained pending work: %+v", state)
+	}
+}
+
+func TestUpdateManagedTimestampPreservesCoreMetadata(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	updated, err := UpdateManagedTimestamp("# note", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := domain.NewNote("note.md", updated, domain.RevisionOf(updated)).Metadata
+	if metadata.Type == "" || metadata.UpdatedAt == "" || metadata.UpdatedAt != now.Format(time.RFC3339Nano) {
+		t.Fatalf("updated metadata = %+v", metadata)
+	}
+}
+
+func TestEnsureCreatedAtPreservesAuthoredTimestampOrAddsFallback(t *testing.T) {
+	fallback := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	updated, createdAt, err := EnsureCreatedAt("---\ncreated_at: 2020-01-02T03:04:05Z\n---\nbody", fallback)
+	if err != nil || createdAt != "2020-01-02T03:04:05Z" || !strings.Contains(updated, "created_at: 2020-01-02T03:04:05Z") {
+		t.Fatalf("authored created_at result=%q value=%q error=%v", updated, createdAt, err)
+	}
+	updated, createdAt, err = EnsureCreatedAt("# body", fallback)
+	if err != nil || createdAt != fallback.Format(time.RFC3339Nano) || !strings.Contains(updated, createdAt) {
+		t.Fatalf("fallback created_at result=%q value=%q error=%v", updated, createdAt, err)
+	}
+}

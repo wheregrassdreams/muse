@@ -1,7 +1,6 @@
 package nativeui
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,12 +43,12 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Minute)
 	for time.Now().Before(deadline) {
 		tt.Frame()
-		if a.vault != nil && a.vault.index != nil && a.vault.search != nil {
+		if a.vault != nil && a.vaultSnapshot.Ready && a.vaultSnapshot.SearchAvailable {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if a.vault == nil || a.vault.index == nil || a.vault.search == nil {
+	if a.vault == nil || !a.vaultSnapshot.Ready || !a.vaultSnapshot.SearchAvailable {
 		t.Fatal("vault index did not become ready within 2 minutes")
 	}
 	t.Logf("real vault index ready: %s", time.Since(started).Round(time.Millisecond))
@@ -64,13 +63,14 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			tt.Frame()
-			if a.vault.query == query && !a.vault.searchBusy {
-				if a.vault.searchErr != nil {
-					t.Fatalf("search %q failed: %v", query, a.vault.searchErr)
+			state := a.vault.Snapshot().Search
+			if state.Query == query && !state.Busy {
+				if state.Error != "" {
+					t.Fatalf("search %q failed: %v", query, state.Error)
 				}
 				t.Logf("query=%q end-to-end=%s search=%s estimate=%s next-coalesce=%s hits=%d", query,
-					time.Since(typedAt).Round(time.Millisecond), a.vault.searchElapsed.Round(time.Microsecond),
-					a.vault.searchCost.Round(time.Microsecond), workspaceSearchCoalesce(a.vault.searchCost, false), len(a.vault.hits))
+					time.Since(typedAt).Round(time.Millisecond), state.Elapsed.Round(time.Microsecond),
+					state.Cost.Round(time.Microsecond), workspaceSearchCoalesce(state.Cost, false), len(state.Hits))
 				if query == "的" {
 					first, last := a.workspaceSearchResults.Visible()
 					t.Logf("500-result list built visible rows=%d (range %d..%d)", max(0, last-first+1), first, last)
@@ -79,26 +79,34 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 			}
 			time.Sleep(2 * time.Millisecond)
 		}
-		if a.vault.query != query || a.vault.searchBusy {
+		state := a.vault.Snapshot().Search
+		if state.Query != query || state.Busy {
 			t.Fatalf("search %q did not complete", query)
 		}
 	}
 
 	parseAt := time.Now()
-	doc, err := a.vault.index.ParseSnapshot(a.path, a.diskSource())
-	if err != nil {
-		t.Fatalf("parse current-note overlay: %v", err)
+	if _, err := a.vault.Query("size", false, a.path, a.diskSource()); err != nil {
+		t.Fatalf("start current-note overlay query: %v", err)
 	}
-	overlay := searchDocument(doc)
-	t.Logf("current-note overlay parse: %s (source=%d bytes)", time.Since(parseAt).Round(time.Microsecond), len(doc.Source))
+	t.Logf("current-note overlay parse and search scheduling: %s (source=%d bytes)", time.Since(parseAt).Round(time.Microsecond), len(a.diskSource()))
 	for _, query := range []string{"size", "的"} {
 		for _, limit := range []int{100, 500} {
 			searchAt := time.Now()
-			hits, err := a.vault.search.Search(context.Background(), query, limit, overlay)
-			if err != nil {
-				t.Fatalf("direct full-text search: %v", err)
+			if _, err := a.vault.Query(query, false, a.path, a.diskSource()); err != nil {
+				t.Fatalf("Query: %v", err)
 			}
-			t.Logf("direct Search(%q, limit=%d): %s hits=%d", query, limit, time.Since(searchAt).Round(time.Microsecond), len(hits))
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) && a.vault.Snapshot().Search.Busy {
+				tt.Frame()
+				time.Sleep(2 * time.Millisecond)
+			}
+			state := a.vault.Snapshot().Search
+			hits := state.Hits
+			if len(hits) > limit {
+				hits = hits[:limit]
+			}
+			t.Logf("Session.Query(%q, limit=%d): %s hits=%d", query, limit, time.Since(searchAt).Round(time.Microsecond), len(hits))
 		}
 	}
 	if profilePath := os.Getenv("MUSE_PROFILE_HEAP_PATH"); profilePath != "" {

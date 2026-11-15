@@ -215,6 +215,42 @@ func TestDragAndDropEmitsGenericAction(t *testing.T) {
 	t.Fatalf("actions = %+v, want opaque drop request onto folder", actions)
 }
 
+func TestSingleDragUsesEntryAsPayloadAndDropsOnTargetRow(t *testing.T) {
+	var actions []Action[testPayload]
+	var madeEntry string
+	var madeIDs []string
+	drag := DragPort[testPayload]{
+		Make: func(entryID string, ids []string) testPayload {
+			madeEntry = entryID
+			madeIDs = cloneIDs(ids)
+			return testPayload{IDs: cloneIDs(ids)}
+		},
+		IDs: func(payload testPayload) []string { return payload.IDs },
+	}
+	model := ViewModel{Entries: []Entry{
+		{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanDrop: true},
+		{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true},
+	}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		Render(c, model, drag, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
+	tester.Frame()
+	tester.Press(160, 43)
+	tester.Move(160, 14)
+	tester.Frame()
+	tester.Release(160, 14)
+	tester.Frame()
+	if madeEntry != "note" || len(madeIDs) != 1 || madeIDs[0] != "note" {
+		t.Fatalf("single-item drag projection = entry %q ids %v, want note", madeEntry, madeIDs)
+	}
+	for _, action := range actions {
+		if action.Kind == DropEntries && action.ID == "folder" && len(action.ItemIDs) == 1 && action.ItemIDs[0] == "note" && action.Payload.IDs[0] == "note" {
+			return
+		}
+	}
+	t.Fatalf("actions = %+v, want a typed single-item drop on folder", actions)
+}
+
 func TestInjectedScrollStateReceivesWheelInput(t *testing.T) {
 	entries := make([]Entry, 30)
 	for i := range entries {

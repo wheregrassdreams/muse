@@ -438,6 +438,27 @@ func (s *Session) ImagePaths() []string {
 	return append([]string(nil), catalog.ImagePaths()...)
 }
 
+// HasImage reports whether the active catalog contains the exact image path.
+func (s *Session) HasImage(path string) bool {
+	if s == nil || !s.beginOperation() {
+		return false
+	}
+	defer s.endOperation()
+	s.mu.RLock()
+	catalog, closed := s.catalog, s.closed
+	s.mu.RUnlock()
+	if closed || catalog == nil {
+		return false
+	}
+	want := filepath.Clean(path)
+	for _, candidate := range catalog.ImagePaths() {
+		if filepath.Clean(candidate) == want {
+			return true
+		}
+	}
+	return false
+}
+
 // FindImage resolves a basename through the per-vault catalog.
 func (s *Session) FindImage(name string) string {
 	if s == nil {
@@ -454,6 +475,28 @@ func (s *Session) FindImage(name string) string {
 		return ""
 	}
 	return catalog.FindImage(name)
+}
+
+// WatchFile extends watcher coverage for an active file outside the initial
+// directory walk, such as a document opened directly from disk.
+func (s *Session) WatchFile(path string) error {
+	if s == nil {
+		return ErrSessionClosed
+	}
+	if !s.beginOperation() {
+		return ErrSessionClosed
+	}
+	defer s.endOperation()
+	s.mu.RLock()
+	watcher, closed := s.watcher, s.closed
+	s.mu.RUnlock()
+	if closed {
+		return ErrSessionClosed
+	}
+	if watcher == nil {
+		return ErrSessionNotReady
+	}
+	return watcher.WatchFile(path)
 }
 
 // QuickOpen searches the latest source-agnostic file/title/alias projection.
@@ -533,6 +576,21 @@ func (s *Session) Backlinks(path string) []vaultlinks.Link {
 		return nil
 	}
 	return cloneLinks(graph.Backlinks(path))
+}
+
+// BacklinkSources returns detached source-level groups for the properties UI.
+func (s *Session) BacklinkSources(path string) []vaultlinks.BacklinkSource {
+	if s == nil || !s.beginOperation() {
+		return nil
+	}
+	defer s.endOperation()
+	s.mu.RLock()
+	graph, closed := s.links, s.closed
+	s.mu.RUnlock()
+	if closed || graph == nil {
+		return nil
+	}
+	return append([]vaultlinks.BacklinkSource(nil), graph.BacklinkSources(path)...)
 }
 
 // Close cancels query and watcher work, joins all workers, closes the watcher
@@ -955,7 +1013,7 @@ func (s *Session) refresh(events map[string]vaultwatch.Event, full bool) {
 	snapshot := cloneSnapshot(s.snapshot)
 	s.mu.Unlock()
 	sortStrings(changed)
-	s.publish(Result{Kind: FilesRefreshed, Changed: changed, Err: errors.Join(errs...), Snapshot: snapshot})
+	s.publish(Result{Kind: FilesRefreshed, Changed: changed, Full: full, Err: errors.Join(errs...), Snapshot: snapshot})
 }
 
 func (s *Session) publish(result Result) {

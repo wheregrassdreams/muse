@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"muse/frontmatter"
-	"muse/vaultindex"
+	"muse/document/frontmatter"
+	vaultindex "muse/vault/index"
 )
 
 func TestCoreMetadataMigrationPreviewUsesIndexedSourceAndTrustedTimes(t *testing.T) {

@@ -1,4 +1,4 @@
-package nativeui
+package document
 
 import (
 	"sort"
@@ -13,7 +13,7 @@ type lineHunk struct {
 // mergeDisjointDocumentEdits merges non-overlapping line edits from a shared
 // base. The bounded Myers diff keeps the common small-edit case linear in the
 // note size; unusually large diffs are left for explicit conflict resolution.
-func mergeDisjointDocumentEdits(base, local, external string) (string, bool) {
+func MergeDisjointEdits(base, local, external string) (string, bool) {
 	left, ok := lineDiffHunks(base, local)
 	if !ok {
 		return "", false

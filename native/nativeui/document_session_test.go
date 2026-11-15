@@ -1,10 +1,23 @@
 package nativeui
 
 import (
+	"context"
 	"github.com/egoist/mygo/ui"
 	"image/png"
-	"muse/frontmatter"
-	"muse/notestore"
+	documentsave "muse/application/document"
+	applicationvault "muse/application/vault"
+	"muse/document"
+	"muse/document/frontmatter"
+	"muse/platform/filesystem/documentstore"
+	"muse/platform/filesystem/filemetadata"
+	vaultfilessource "muse/platform/filesystem/vaultfilessource"
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
+	vaultsearchstore "muse/platform/filesystem/vaultsearchstore"
+	filesystemwatcher "muse/platform/filesystem/watcher"
+	"muse/search"
+	vaultfiles "muse/vault/files"
+	vaultindex "muse/vault/index"
+	vaultwatch "muse/vault/watch"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,10 +41,10 @@ func waitDocument(t *testing.T, tt *ui.Tester, check func() bool) {
 func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
 	a, tt, _ := runtimeFixture(t)
 	a.ed.ReplaceAll("a changed note")
-	if a.documents.updatedAtDue.IsZero() {
+	if a.documentSession.Snapshot().MetadataDue.IsZero() {
 		t.Fatal("content edit did not schedule updated_at")
 	}
-	a.documents.updatedAtDue = time.Now().Add(-time.Second)
+	a.documentSession.Changed(time.Now().Add(-documentsave.MetadataUpdateDelay - time.Second))
 	tt.Frame()
 	doc := frontmatter.Parse(a.source)
 	fields := map[string]frontmatter.Field{}
@@ -59,6 +72,8 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
+	a.navIconStore, _ = applicationvault.NewIconPreferences(&memoryNavIconRepository{values: make(map[string]map[string]string)})
+	withDocumentPorts(t, a)
 	a.path = path
 	a.enableDocumentServices()
 	a.loadDoc(base)
@@ -67,7 +82,7 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	a.documents.conflictOpen = true
+	a.documents.ConflictOpen = true
 	if !a.tryMergeExternalChanges() {
 		t.Fatal("non-overlapping edits were not merged")
 	}
@@ -78,6 +93,27 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.dirty {
 		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.dirty, data)
 	}
+}
+
+type memoryNavIconRepository struct{ values map[string]map[string]string }
+
+var _ applicationvault.NavigationIconRepository = (*memoryNavIconRepository)(nil)
+
+func (r *memoryNavIconRepository) LoadVault(root string) (map[string]string, error) {
+	items := make(map[string]string)
+	for key, value := range r.values[root] {
+		items[key] = value
+	}
+	return items, nil
+}
+
+func (r *memoryNavIconRepository) SaveVault(root string, icons map[string]string) error {
+	items := make(map[string]string)
+	for key, value := range icons {
+		items[key] = value
+	}
+	r.values[root] = items
+	return nil
 }
 func runtimeFixture(t *testing.T) (*App, *ui.Tester, string) {
 	return runtimeFixtureWithNotes(t, nil)
@@ -107,6 +143,8 @@ func runtimeFixtureAt(t *testing.T, root, path string) (*App, *ui.Tester, string
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	t.Setenv("MUSE_CACHE_DIR", t.TempDir())
 	a := New()
+	configureVaultPorts(t, a)
+	withDocumentPorts(t, a)
 	a.enableDocumentServices()
 	a.setWorkspace(root)
 	a.openPathNow(path)
@@ -114,19 +152,66 @@ func runtimeFixtureAt(t *testing.T, root, path string) (*App, *ui.Tester, string
 	tt.Frame()
 	t.Cleanup(func() {
 		v := a.vault
-		stopVault(v)
-		if v != nil && v.closeDone != nil {
-			select {
-			case <-v.closeDone:
-			case <-time.After(10 * time.Second):
-				t.Error("search index did not close before test cache cleanup")
+		if v != nil {
+			if err := v.Close(); err != nil {
+				t.Errorf("close vault session: %v", err)
 			}
 		}
 	})
 	waitDocument(t, tt, func() bool {
-		return a.vault != nil && a.vault.watch != nil && a.vault.index != nil && (a.vault.search != nil || a.vault.searchErr != nil)
+		return a.vault != nil && a.vaultSnapshot.Ready && (a.vaultSnapshot.SearchAvailable || a.vaultSnapshot.Search.Error != "")
 	})
 	return a, tt, path
+}
+
+type nativeUITestSearchReconciler struct {
+	store applicationvault.SearchIndexStore
+}
+
+func (r nativeUITestSearchReconciler) OpenAndReconcile(ctx context.Context, root string, corpus search.Corpus) (*search.Index, error) {
+	index, err := r.store.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := index.ReconcileCorpus(ctx, corpus); err != nil {
+		_ = index.Close()
+		return nil, err
+	}
+	return index, nil
+}
+
+func (r nativeUITestSearchReconciler) Reconcile(ctx context.Context, root string, current *search.Index, corpus search.Corpus) (*search.Index, error) {
+	if current == nil {
+		return r.OpenAndReconcile(ctx, root, corpus)
+	}
+	return current, current.ReconcileCorpus(ctx, corpus)
+}
+
+func configureVaultPorts(t *testing.T, a *App) {
+	t.Helper()
+	store, err := vaultsearchstore.New(filepath.Join(t.TempDir(), "search"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.SetDependencies(Dependencies{
+		DocumentMetadata:      filemetadata.New(),
+		VaultSearchReconciler: nativeUITestSearchReconciler{store: store},
+		NewVaultIndex: func(root string) (applicationvault.IndexPort, error) {
+			source, err := vaultindexsource.New(root)
+			if err != nil {
+				return nil, err
+			}
+			return vaultindex.New(source), nil
+		},
+		NewVaultCatalog: func(root string) (applicationvault.CatalogPort, error) {
+			source, err := vaultfilessource.New(root)
+			if err != nil {
+				return nil, err
+			}
+			return vaultfiles.New(source), nil
+		},
+		NewWatcherBackend: func() (vaultwatch.Backend, error) { return filesystemwatcher.New() },
+	})
 }
 
 func runtimeFixtureCopy(t *testing.T, sourceRoot string) (*App, *ui.Tester, string) {
@@ -165,18 +250,18 @@ func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
 	a.ed.SetSource("edited 中文")
 	a.docChanged()
-	a.documents.due = time.Now().Add(-time.Second)
+	expireAutosave(a)
 	waitDocument(t, tt, func() bool { return !a.dirty })
 	data, _ := os.ReadFile(path)
 	if string(data) != "edited 中文" {
 		t.Fatalf("saved %q", data)
 	}
-	history, err := a.documents.store.ListHistory(path)
+	history, err := a.documentSession.ListHistory(path)
 	if err != nil || len(history) == 0 {
 		t.Fatalf("history %v %v", history, err)
 	}
-	d, err := a.documents.store.ReadHistory(path, history[0].ID)
-	if err != nil || d.Text != "original" {
+	d, err := a.documentSession.ReadHistory(path, history[0].ID)
+	if err != nil || d.Source != "original" {
 		t.Fatalf("history content %v %v", d, err)
 	}
 }
@@ -187,8 +272,8 @@ func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	if err := os.WriteFile(path, []byte("external content"), 0640); err != nil {
 		t.Fatal(err)
 	}
-	a.documents.due = time.Now().Add(-time.Second)
-	waitDocument(t, tt, func() bool { return a.documents.conflict != "" })
+	expireAutosave(a)
+	waitDocument(t, tt, func() bool { return a.documentSession.Snapshot().ConflictPath != "" })
 	runtimeShot(t, tt, "document-conflict")
 	data, _ := os.ReadFile(path)
 	if string(data) != "external content" {
@@ -197,11 +282,11 @@ func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	if a.source != "my unsaved edits" || !a.dirty {
 		t.Fatal("lost current edits")
 	}
-	draft, err := a.documents.store.ReadDraft(path)
+	draft, err := a.documentSession.ReadDraft(path)
 	if err != nil || draft.Text != "my unsaved edits" {
 		t.Fatalf("recovery %v %v", draft, err)
 	}
-	a.documents.conflictOpen = false
+	a.documents.ConflictOpen = false
 	a.save()
 	data, _ = os.ReadFile(path)
 	if string(data) != "external content" {
@@ -217,35 +302,51 @@ func TestCleanExternalEditReloadsAndIndexFindsIt(t *testing.T) {
 	if a.dirty {
 		t.Fatal("external reload marked dirty")
 	}
-	if len(a.vault.index.Query("UNIQUE123")) != 1 {
+	if _, err := a.vault.Query("UNIQUE123", false, a.path, a.diskSource()); err != nil {
+		t.Fatal(err)
+	}
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
+	if len(a.vaultSnapshot.Search.Hits) != 1 {
 		t.Fatal("index did not refresh")
 	}
-	if a.documents.revision != notestore.Revision(a.diskSource()) {
+	if a.documentSession.Snapshot().Revision != document.RevisionOf(a.diskSource()) {
 		t.Fatal("baseline stale")
 	}
 }
 func TestUntitledDraftSurvivesRecreatingApp(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
+	withDocumentPorts(t, a)
 	a.enableDocumentServices()
 	a.ed.SetSource("unsaved untitled")
 	a.docChanged()
-	a.documents.due = time.Now().Add(-time.Second)
+	expireAutosave(a)
 	tt := ui.NewTester(a.View, 1200, 800)
-	waitDocument(t, tt, func() bool { return !a.documents.saving && a.documents.due.IsZero() })
+	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
 	b := New()
+	withDocumentPorts(t, b)
 	b.enableDocumentServices()
 	b.openRecovery()
-	if len(b.documents.drafts) != 1 || b.documents.drafts[0].Text != "unsaved untitled" {
+	if len(b.documents.Drafts) != 1 || b.documents.Drafts[0].Text != "unsaved untitled" {
 		t.Fatal("draft not recovered")
 	}
+}
+
+func withDocumentPorts(t *testing.T, a *App) {
+	t.Helper()
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	a.SetDocumentRepositories(store, store, store)
+}
+
+func expireAutosave(a *App) {
+	a.documentSession.Changed(time.Now().Add(-documentsave.AutosaveDelay - time.Second))
 }
 
 func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
 	a.ed.SetSource("unsaved-buffer-only")
 	a.dirty = true
-	if doc, ok := a.vault.index.Document("note.md"); !ok || doc.Source != "original" {
+	if doc, ok := a.vault.Document("note.md"); !ok || doc.Source != "original" {
 		t.Fatalf("editor buffer leaked into persistent metadata snapshot: %#v", doc)
 	}
 	a.ed.SetSource("original")
@@ -254,18 +355,18 @@ func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	if err := os.WriteFile(target, []byte("---\naliases: [Second]\n---\n# Section\n\nneedle-unique-abc\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	waitDocument(t, tt, func() bool { _, ok := a.vault.index.Resolve("note.md", "Second#Section"); return ok })
+	waitDocument(t, tt, func() bool { _, ok := a.vault.ResolveLink("note.md", "Second#Section"); return ok })
 	a.openWorkspaceSearch()
 	a.workspaceQuery = "needle-unique-abc"
-	waitDocument(t, tt, func() bool { return len(a.vault.hits) == 1 })
+	waitDocument(t, tt, func() bool { return len(a.vaultSnapshot.Search.Hits) == 1 })
 	if err := tt.Click("字面量"); err != nil {
 		t.Fatalf("switch to literal mode: %v", err)
 	}
-	waitDocument(t, tt, func() bool { return a.vault.searchLiteral && len(a.vault.hits) == 1 })
+	waitDocument(t, tt, func() bool { return a.vaultSnapshot.Search.Literal && len(a.vaultSnapshot.Search.Hits) == 1 })
 	if err := tt.Click("全文"); err != nil {
 		t.Fatalf("switch to full-text mode: %v", err)
 	}
-	waitDocument(t, tt, func() bool { return !a.vault.searchLiteral && len(a.vault.hits) == 1 })
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Literal && len(a.vaultSnapshot.Search.Hits) == 1 })
 	runtimeShot(t, tt, "vault-search-modal")
 	tt.Key(0, ui.KeyDown)
 	tt.Frame()
@@ -285,13 +386,13 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 	root := filepath.Dir(rootNote)
 	nested := filepath.Join(root, "Projects", "Atlas", "Overview.md")
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	a.openWorkspaceSearch()
 	a.workspaceQuery = "vaultfixturedeepsearchunique"
-	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 1 })
-	if got := a.vault.hits[0].Path; got != "Projects/Atlas/Overview.md" {
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
+	if got := a.vaultSnapshot.Search.Hits[0].Path; got != "Projects/Atlas/Overview.md" {
 		t.Fatalf("deep note search result path = %q", got)
 	}
 
@@ -304,23 +405,23 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool {
-		doc, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		doc, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && strings.Contains(doc.Source, "vaultfixturedeepsearchupdated")
 	})
 	a.workspaceQuery = "vaultfixturedeepsearchupdated"
-	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 1 })
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
 	a.workspaceQuery = "vaultfixturedeepsearchunique"
-	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 0 })
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 0 })
 
 	if err := os.Remove(nested); err != nil {
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return !ok
 	})
 	a.workspaceQuery = "vaultfixturedeepsearchupdated"
-	waitDocument(t, tt, func() bool { return !a.vault.searchBusy && len(a.vault.hits) == 0 })
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 0 })
 }
 
 func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
@@ -331,8 +432,8 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 	a.openHistory()
 	tt.Frame()
 	runtimeShot(t, tt, "document-history")
-	h := a.documents.history[0]
-	label := h.CreatedAt.Local().Format("2006-01-02 15:04:05") + " · " + h.Revision[:8]
+	h := a.documents.History[0]
+	label := h.CreatedAt.Local().Format("2006-01-02 15:04:05") + " · " + string(h.Revision)[:8]
 	if err := tt.Click(label); err != nil {
 		t.Fatal(err)
 	}
@@ -347,13 +448,13 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 }
 func TestPausedAutosaveKeepsBaseline(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	revision := a.documents.revision
-	a.documents.conflict = path
+	revision := a.documentSession.Snapshot().Revision
+	a.documentSession.SetConflict(path)
 	a.ed.SetSource("local edits")
 	a.docChanged()
-	a.documents.due = time.Now().Add(-time.Second)
-	waitDocument(t, tt, func() bool { return !a.documents.saving && a.documents.due.IsZero() })
-	if a.documents.revision != revision || !a.dirty {
+	expireAutosave(a)
+	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
+	if a.documentSession.Snapshot().Revision != revision || !a.dirty {
 		t.Fatal("paused save changed baseline/dirty state")
 	}
 	data, _ := os.ReadFile(path)
@@ -390,12 +491,12 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 	if err := os.WriteFile(path, []byte("[[Target]]"), 0640); err != nil {
 		t.Fatal(err)
 	}
-	waitDocument(t, tt, func() bool { return len(a.vault.index.Backlinks("target.md")) == 1 })
+	waitDocument(t, tt, func() bool { return len(a.vault.Backlinks("target.md")) == 1 })
 	a.openPathNow(target)
 	a.openLinks()
 	tt.Frame()
-	waitDocument(t, tt, func() bool { return !a.vault.linksBusy })
-	if len(a.vault.incoming) != 1 || a.vault.incoming[0].Source != "note.md" {
+	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.LinksBusy })
+	if len(a.vaultSnapshot.Incoming) != 1 || a.vaultSnapshot.Incoming[0].Source != "note.md" {
 		t.Fatal("wrong backlink results")
 	}
 	runtimeShot(t, tt, "backlinks")
@@ -410,22 +511,22 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) && a.documents.conflict != path {
+	for time.Now().Before(deadline) && a.documentSession.Snapshot().ConflictPath != path {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
-	if a.documents.conflict != path {
-		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q refreshing=%v watch=%v queued=%d", a.documents.conflict, a.path, a.vault.refreshing, a.vault.watch != nil, len(a.vault.watch.Events()))
+	if a.documentSession.Snapshot().ConflictPath != path {
+		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q vault=%+v", a.documentSession.Snapshot().ConflictPath, a.path, a.vault.Snapshot())
 	}
-	a.documents.conflictOpen = false
+	a.documents.ConflictOpen = false
 	a.ed.SetSource("keep after deletion")
 	a.docChanged()
-	a.documents.due = time.Now().Add(-time.Second)
-	waitDocument(t, tt, func() bool { return !a.documents.saving && a.documents.due.IsZero() })
+	expireAutosave(a)
+	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("autosave recreated externally deleted file")
 	}
-	d, err := a.documents.store.ReadDraft(path)
+	d, err := a.documentSession.ReadDraft(path)
 	if err != nil || d.Text != "keep after deletion" {
 		t.Fatal("deleted document draft missing")
 	}
@@ -436,15 +537,15 @@ func TestEditorChangesUpdateSharedBacklinkIndex(t *testing.T) {
 	a.ed.SetSource("[[Target]]")
 	a.docChanged()
 	waitDocument(t, tt, func() bool {
-		return len(a.vault.index.Backlinks("Target.md")) == 1
+		return len(a.vault.Backlinks("Target.md")) == 1
 	})
 
 	a.ed.SetSource("No internal link")
 	a.docChanged()
 	waitDocument(t, tt, func() bool {
-		return len(a.vault.index.Backlinks("Target.md")) == 0
+		return len(a.vault.Backlinks("Target.md")) == 0
 	})
-	if got := a.vault.index.Outgoing("note.md"); len(got) != 0 {
+	if got := a.vault.Outgoing("note.md"); len(got) != 0 {
 		t.Fatalf("editor source snapshot left stale outgoing links: %+v", got)
 	}
 }
@@ -456,7 +557,7 @@ func TestIndexedCRLFHeadingOffsets(t *testing.T) {
 	if err := os.WriteFile(target, []byte(raw), 0644); err != nil {
 		t.Fatal(err)
 	}
-	waitDocument(t, tt, func() bool { _, ok := a.vault.index.Resolve("note.md", "crlf#Second"); return ok })
+	waitDocument(t, tt, func() bool { _, ok := a.vault.ResolveLink("note.md", "crlf#Second"); return ok })
 	if !a.indexedLink("crlf#Second") {
 		t.Fatal("link did not resolve")
 	}

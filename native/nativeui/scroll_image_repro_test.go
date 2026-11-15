@@ -11,7 +11,7 @@ import (
 func TestMouseWheelHomeFixtureImagesStayRendered(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, "../testdata/vault-fixture")
 	waitDocument(t, tt, func() bool {
-		_, ok := a.vault.index.Document("Projects/Atlas/Overview.md")
+		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
 	tt.Frame()

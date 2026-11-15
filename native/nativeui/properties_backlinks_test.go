@@ -34,12 +34,10 @@ func TestPropertyBacklinksUseSharedSourceProjection(t *testing.T) {
 	a.openProperties()
 	tt.Frame()
 
-	if err := a.vault.index.UpdateText("Source.md", "link changed to [[another-note]]"); err != nil {
+	if err := a.vault.ApplyActiveDocument(filepath.Join(a.root, "Source.md"), "link changed to [[another-note]]"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.vault.links.Apply("Source.md"); err != nil {
-		t.Fatal(err)
-	}
+	a.vaultSnapshot = a.vault.Snapshot()
 	tt.Frame()
 	if got := a.documentBacklinkSources(); len(got) != 0 {
 		t.Fatalf("property projection retained stale links after target changed: %+v", got)
@@ -48,12 +46,10 @@ func TestPropertyBacklinksUseSharedSourceProjection(t *testing.T) {
 		t.Fatalf("empty backlinks state was not rendered after index update: %q", tt.Texts())
 	}
 
-	if err := a.vault.index.UpdateText("Source.md", "[[note]]"); err != nil {
+	if err := a.vault.ApplyActiveDocument(filepath.Join(a.root, "Source.md"), "[[note]]"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.vault.links.Apply("Source.md"); err != nil {
-		t.Fatal(err)
-	}
+	a.vaultSnapshot = a.vault.Snapshot()
 	tt.Frame()
 	if got := a.documentBacklinkSources(); len(got) != 1 || got[0].Count != 1 {
 		t.Fatalf("property projection did not reflect changed link count: %+v", got)

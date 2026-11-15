@@ -198,6 +198,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 	}
 
 	pointerActivated := false
+	rowDropHandled := false
 	hoveredID := ""
 	var hoveredBounds ui.Rect
 	var nativeOffer *transfer.Offer
@@ -243,15 +244,15 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 				}
 			})
 		})
-		if entry.CanDrag {
-			payload := drag.Make(entry.ID, cloneIDs(entry.DragIDs))
+		if entry.CanDrag && drag.Make != nil {
+			dragItems := cloneIDs(entry.DragIDs)
+			if len(dragItems) == 0 {
+				dragItems = []string{entry.ID}
+			}
+			payload := drag.Make(entry.ID, dragItems)
 			row.Drag(payload)
 			if row.Dragging() && !entry.DragActive {
-				ids := cloneIDs(entry.DragIDs)
-				if len(ids) == 0 {
-					ids = []string{entry.ID}
-				}
-				dispatchAction(dispatch, Action[T]{Kind: StartDrag, ID: entry.ID, ItemIDs: ids, Payload: payload})
+				dispatchAction(dispatch, Action[T]{Kind: StartDrag, ID: entry.ID, ItemIDs: dragItems, Payload: payload})
 			}
 		}
 		if entry.Previewable && row.Hovered() {
@@ -259,25 +260,31 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 		}
 		if entry.CanDrop {
 			if payload, ok := ui.Drop[T](row); ok {
+				rowDropHandled = true
 				dispatchAction(dispatch, Action[T]{Kind: DropEntries, ID: entry.ID, ItemIDs: dragIDs(drag, payload), Payload: payload})
 			}
 			if _, over := ui.DragOver[T](row); over {
+				rowDropHandled = true
 				row.Background(t.SurfaceHover)
 			}
 			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
 				if offer, over := ui.DataDragOver(row, opts); over {
+					rowDropHandled = true
 					nativeOffer = &offer
 					row.Background(t.SurfaceHover)
 				}
 				if drop, ok := ui.DropData(row, opts); ok {
+					rowDropHandled = true
 					dispatchAction(dispatch, Action[T]{Kind: DropNative, ID: entry.ID, Drop: drop})
 				}
 			}
 			if row.FileDragOver() {
+				rowDropHandled = true
 				row.Background(t.SurfaceHover)
 			}
 			if paths := row.DroppedFiles(); len(paths) > 0 {
+				rowDropHandled = true
 				dispatchAction(dispatch, Action[T]{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
 			}
 		}
@@ -301,7 +308,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 	})
 	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(scroll).Scrollbars(showScrollbar).Focusable()
 	attachContextMenu(list, "", model.RootContextActions, dispatch)
-	if model.RootCanDrop {
+	if model.RootCanDrop && !rowDropHandled {
 		if payload, ok := ui.Drop[T](list); ok {
 			dispatchAction(dispatch, Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
 		}

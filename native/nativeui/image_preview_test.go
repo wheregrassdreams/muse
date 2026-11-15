@@ -237,7 +237,7 @@ func TestImageDocumentBacklinksUseImageTarget(t *testing.T) {
 		t.Fatalf("click image backlinks control: %v", err)
 	}
 	tt.Frame()
-	if !a.vault.linksOpen {
+	if !a.vaultSnapshot.LinksOpen {
 		t.Fatal("image backlinks control did not open the backlinks view")
 	}
 }
