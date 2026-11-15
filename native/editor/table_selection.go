@@ -321,32 +321,28 @@ func (e *Editor) selectTableCellRegion(t *leaf, anchorRow, anchorCol, focusRow, 
 	if t == nil || t.tab == nil || len(t.tab.rows) == 0 || t.tab.cols() == 0 {
 		return false
 	}
-	anchorRow = max(0, min(anchorRow, len(t.tab.rows)-1))
-	focusRow = max(0, min(focusRow, len(t.tab.rows)-1))
-	anchorCol = max(0, min(anchorCol, t.tab.cols()-1))
-	focusCol = max(0, min(focusCol, t.tab.cols()-1))
+	region := (tablemodel.Grid{LineStart: t.lineStart, Rows: len(t.tab.rows), Cols: t.tab.cols()}).Region(
+		tablemodel.Cell{Row: anchorRow, Col: anchorCol},
+		tablemodel.Cell{Row: focusRow, Col: focusCol}, true,
+	)
+	if region == nil {
+		return false
+	}
 	e.clearTableSelectionSession()
 	// The region owns table presentation while the document endpoints retain
 	// any selected text outside the table. Clear incompatible linewise/text flags.
 	e.selectionInclusive = false
 	e.selectionLinewise = false
 	e.modal.sequence.Linewise = false
-	top, bottom := min(anchorRow, focusRow), max(anchorRow, focusRow)
-	left, right := min(anchorCol, focusCol), max(anchorCol, focusCol)
-	axis, first, last := tableCells, top, bottom
-	switch {
-	case top == 0 && left == 0 && bottom == len(t.tab.rows)-1 && right == t.tab.cols()-1:
-		axis, first, last = tableWhole, 0, len(t.tab.rows)-1
-	case left == 0 && right == t.tab.cols()-1:
-		axis, first, last = tableRows, top, bottom
-	case top == 0 && bottom == len(t.tab.rows)-1:
-		axis, first, last = tableColumns, left, right
+	e.tableSelection = &tableSelection{
+		lineStart: region.LineStart,
+		axis:      tableAxis(region.Axis),
+		anchorRow: region.Anchor.Row, anchorCol: region.Anchor.Col,
+		focusRow: region.Focus.Row, focusCol: region.Focus.Col,
+		cellRegion: region.CellRegion, first: region.First, last: region.Last,
+		anchor: region.LegacyAnchor, active: region.Active, activeRow: region.ActiveRow,
+		right: region.Right, textMode: e.modal.mode,
 	}
-	compatAnchor, compatActive := anchorCol, focusCol
-	if axis == tableRows || axis == tableWhole {
-		compatAnchor, compatActive = anchorRow, focusRow
-	}
-	e.tableSelection = &tableSelection{lineStart: t.lineStart, axis: axis, anchorRow: anchorRow, anchorCol: anchorCol, focusRow: focusRow, focusCol: focusCol, cellRegion: true, first: first, last: last, anchor: compatAnchor, active: compatActive, activeRow: focusRow, right: true, textMode: e.modal.mode}
 	e.tableBridge = nil
 	if !e.tableNavigating {
 		e.tableController.ResetNavigation()

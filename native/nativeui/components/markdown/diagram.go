@@ -46,7 +46,7 @@ func ParseDiagramThemed(code string, opts diagrams.Options) (Diagram, bool) {
 	if !ok {
 		return Diagram{}, false
 	}
-	return diagramFromModel(model), true
+	return DiagramFromModel(model), true
 }
 
 // ParseDiagram reads a Mermaid diagram, in the order the renderer tries
@@ -59,10 +59,13 @@ func ParseDiagram(code string) (Diagram, bool) {
 	if !ok {
 		return Diagram{}, false
 	}
-	return diagramFromModel(model), true
+	return DiagramFromModel(model), true
 }
 
-func diagramFromModel(model diagrams.Model) Diagram {
+// DiagramFromModel creates a MyGo drawing adapter for an already parsed,
+// backend-neutral diagram model. Layout dimensions remain owned by the model;
+// this adapter only translates it into native drawing operations.
+func DiagramFromModel(model diagrams.Model) Diagram {
 	switch model.Kind {
 	case diagrams.ModelSketch:
 		return DiagramFromResult(model.Sketch)

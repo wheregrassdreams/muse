@@ -447,7 +447,10 @@ func (e *Editor) paintDiagramToggle(p *ui.Painter, l *leaf, labelX, top float32)
 func (e *Editor) diagramBox(l *leaf, v *leafView, ox, oy float32) (ui.Rect, float32) {
 	pad := e.lk.size * codePadY
 	box := ui.Rect{X: ox + l.x, Y: oy + l.y + pad, W: l.w, H: max(l.h-2*pad, 1)}
-	return box, v.diagram.Width()
+	if v.diagramModel == nil {
+		return box, 0
+	}
+	return box, v.diagramModel.Width()
 }
 
 // paintDiagram draws a diagram in its leaf, clipped to the column and

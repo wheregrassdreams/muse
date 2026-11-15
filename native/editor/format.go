@@ -7,6 +7,8 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui/richtext"
+	"muse/editor/blocks/inline"
+	"muse/editor/blocks/paragraph"
 	syntax "muse/markdown/syntax"
 )
 
@@ -41,7 +43,21 @@ func (e *Editor) ToggleInline(kind syntax.IncrementalInlineKind, open, close str
 	a, z := e.selection()
 	if in, ok := e.inlineAround(kind, a, z); ok && e.phantom == nil {
 		// Unwrap: take the inline's markers away.
-		ol, cl := markerLens(e.src, in, open, close)
+		markerKind := inline.MarkerGeneric
+		switch in.Kind {
+		case syntax.IncrementalCode:
+			markerKind = inline.MarkerCode
+		case syntax.IncrementalEmphasis:
+			markerKind = inline.MarkerEmphasis
+		case syntax.IncrementalStrong:
+			markerKind = inline.MarkerStrong
+		case syntax.IncrementalStrikethrough:
+			markerKind = inline.MarkerStrikethrough
+		}
+		ol, cl, valid := inline.MarkerLengths(e.src, inline.Range{Start: in.Start, End: in.End}, markerKind, open, close)
+		if !valid {
+			return
+		}
 		e.begin(stepEdit)
 		e.replace(in.End-cl, in.End, "")
 		e.replace(in.Start, in.Start+ol, "")
@@ -65,62 +81,23 @@ func (e *Editor) wrapInline(open, close string) {
 		return
 	}
 	a, z := e.selection()
+	word := inline.Range{}
+	useWord := false
 	if a == z {
 		wa, wz := e.wordRangeAt(a)
 		if wa < wz && wa <= a && a <= wz && strings.TrimSpace(e.src[wa:wz]) != "" && isWordRune(firstRune(e.src[wa:wz])) {
-			a, z = wa, wz
-		} else {
-			e.begin(stepEdit)
-			e.replace(a, a, open+close)
-			e.commit(a+len(open), a+len(open))
-			return
+			word, useWord = inline.Range{Start: wa, End: wz}, true
 		}
 	}
-	// Spaces at the edges stay outside: "** bold**" is no emphasis.
-	for a < z && e.src[a] == ' ' {
-		a++
-	}
-	for z > a && e.src[z-1] == ' ' {
-		z--
+	plan, ok := inline.WrapSelection(e.src, inline.Range{Start: a, End: z}, word, useWord, open, close)
+	if !ok {
+		return
 	}
 	e.begin(stepEdit)
-	e.replace(z, z, close)
-	e.replace(a, a, open)
-	e.commit(a+len(open), z+len(open))
-}
-
-// markerLens returns the lengths of an inline's opening and closing
-// markers in the source.
-func markerLens(src string, in syntax.IncrementalInline, open, close string) (int, int) {
-	s := src[in.Start:in.End]
-	ol, cl := len(open), len(close)
-	if in.Kind == syntax.IncrementalCode {
-		ol = 0
-		for ol < len(s) && s[ol] == '`' {
-			ol++
-		}
-		cl = ol
+	for _, edit := range plan.Edits {
+		e.replace(edit.Start, edit.End, edit.Text)
 	}
-	if in.Kind == syntax.IncrementalEmphasis || in.Kind == syntax.IncrementalStrong || in.Kind == syntax.IncrementalStrikethrough {
-		c := s[0]
-		ol = 0
-		for ol < len(s) && s[ol] == c {
-			ol++
-		}
-		cl = 0
-		for cl < len(s) && s[len(s)-1-cl] == c {
-			cl++
-		}
-		want := 1
-		switch in.Kind {
-		case syntax.IncrementalStrong:
-			want = 2
-		case syntax.IncrementalStrikethrough:
-			want = min(ol, 2)
-		}
-		ol, cl = min(ol, want), min(cl, want)
-	}
-	return min(ol, len(s)), min(cl, len(s)-ol)
+	e.commit(plan.Selection.Start, plan.Selection.End)
 }
 
 func firstRune(s string) rune {
@@ -230,32 +207,34 @@ func (e *Editor) SetHeading(level int) {
 	if l.kind != kPara && l.kind != kHeading {
 		return
 	}
-	prefix := ""
-	if level > 0 {
-		prefix = strings.Repeat("#", level) + " "
-	}
-	caret := e.caret
-	e.begin(stepEdit)
+	input := paragraph.HeadingInput{Source: e.src, Caret: e.caret, Level: level}
 	switch {
 	case l.kind == kHeading && l.setext:
-		end := blockEnd(e.src, l)
-		e.replace(lineEndAt(e.src, l.end), end, "")
-		e.replace(l.start, l.start, prefix)
-		caret += len(prefix)
+		input.Shape = paragraph.SetextHeading
+		input.PrefixFrom = l.start
+		input.SetextFrom = lineEndAt(e.src, l.end)
+		input.SetextTo = blockEnd(e.src, l)
 	case l.kind == kHeading && !l.pending:
-		fs := l.syntaxStart
-		e.replace(fs, l.start, prefix)
-		caret += len(prefix) - (l.start - fs)
+		input.Shape = paragraph.ATXHeading
+		input.PrefixFrom = l.syntaxStart
+		input.PrefixTo = l.start
 	default:
 		// The line holding the caret becomes the heading.
 		ls := max(lineStartAt(e.src, e.caret), l.start)
 		if ls != l.start {
 			ls = lineStartAt(e.src, e.caret) + len(e.contPrefix(l))
 		}
-		e.replace(ls, ls, prefix)
-		caret += len(prefix)
+		input.InsertAt = ls
 	}
-	e.commit(caret, caret)
+	plan, ok := paragraph.PlanHeading(input)
+	if !ok || len(plan.Edits) == 0 {
+		return
+	}
+	e.begin(stepEdit)
+	for _, edit := range plan.Edits {
+		e.replace(edit.Start, edit.End, edit.Text)
+	}
+	e.commit(plan.Caret, plan.Caret)
 }
 
 // headingLevel returns the level of the heading at the caret, 0 for a

@@ -32,14 +32,18 @@ func TestParseDiagramThemedKeepsNeutralFallbackModelsRenderable(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			diagram, ok := ParseDiagramThemed(test.src, diagrams.Options{
+			model, ok := diagrams.ParseModel(test.src, diagrams.Options{
 				Today: time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC),
 			})
 			if !ok {
-				t.Fatal("supported fallback model did not produce a painter adapter")
+				t.Fatal("supported diagram model did not parse")
 			}
+			diagram := DiagramFromModel(model)
 			if diagram.Width() <= 0 || diagram.Height(diagram.Width()) <= 0 {
 				t.Fatalf("diagram dimensions = %gx%g", diagram.Width(), diagram.Height(diagram.Width()))
+			}
+			if model.Width() != diagram.Width() || model.Height(model.Width()) != diagram.Height(model.Width()) {
+				t.Fatalf("adapter dimensions %gx%g disagree with model %gx%g", diagram.Width(), diagram.Height(diagram.Width()), model.Width(), model.Height(model.Width()))
 			}
 		})
 	}

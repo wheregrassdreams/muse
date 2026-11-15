@@ -13,6 +13,7 @@ import (
 
 	"muse/editor/internal/textlayout"
 	"muse/markdown"
+	"muse/markdown/diagrams"
 	markdownui "muse/nativeui/components/markdown"
 	"muse/theme"
 	"muse/ui/scrollbar"
@@ -243,6 +244,7 @@ type leafView struct {
 	// diagram is a Mermaid diagram drawn instead of its code; diagX is how
 	// far it is scrolled sideways when it is wider than the column.
 	diagram       *markdownui.Diagram
+	diagramModel  *diagrams.Model
 	diagX         float32
 	diagIndicator scrollbar.Indicator
 	diagBarShown  bool
@@ -754,8 +756,11 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	infoLine := l.fenced && caretIn && b.reveal >= l.infoStartOffset() && b.reveal <= l.infoEndOffset()
 	fenceShown := open || infoLine
 	var mermaidDiagram *markdownui.Diagram
+	var mermaidModel *diagrams.Model
 	if !open && !caretIn && isMermaid(l) && !compactCode {
-		if d, ok := markdownui.ParseDiagramThemed(e.codeText(l), e.sketchOptions()); ok {
+		if model, ok := diagrams.ParseModel(e.codeText(l), e.sketchOptions()); ok {
+			mermaidModel = &model
+			d := markdownui.DiagramFromModel(model)
 			mermaidDiagram = &d
 		}
 	}
@@ -855,7 +860,8 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 	v.h = th + 2*padY
 	if mermaidDiagram != nil {
 		v.diagram = mermaidDiagram
-		v.h = mermaidDiagram.Height(width) + 2*padY
+		v.diagramModel = mermaidModel
+		v.h = mermaidModel.Height(width) + 2*padY
 	}
 	return v
 }
