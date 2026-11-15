@@ -68,6 +68,7 @@ type Snapshot struct {
 type Request struct {
 	Settings config.AssistantSettings
 	Messages []Message
+	Tools    []map[string]any
 }
 
 type StreamEvent struct{ Text, Thought, Phase string }
@@ -108,6 +109,7 @@ type ToolPolicy interface {
 	Enabled(config.AssistantSettings, string) bool
 	RequiresApproval(string) bool
 	Permission() Permission
+	Schemas(config.AssistantSettings) []map[string]any
 }
 
 type Capabilities struct {
@@ -198,7 +200,7 @@ func (s *Session) Send(prompt string) error {
 	s.busy, s.phase, s.lastError = true, "thinking", ""
 	s.requestID++
 	id := s.requestID
-	request := Request{Settings: s.settings, Messages: append([]Message(nil), s.messages...)}
+	request := s.requestLocked()
 	s.revision++
 	s.mu.Unlock()
 
@@ -207,7 +209,30 @@ func (s *Session) Send(prompt string) error {
 }
 
 func (s *Session) stream(id uint64, request Request) {
-	result := s.client.Stream(request, func(event StreamEvent) { s.applyEvent(id, event) })
+	var result StreamResult
+	for turn := 0; turn < 8; turn++ {
+		result = s.client.Stream(request, func(event StreamEvent) { s.applyEvent(id, event) })
+		if result.Err != nil || result.Aborted || len(result.Tools) == 0 {
+			break
+		}
+		for _, call := range result.Tools {
+			s.appendTool(id, ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: PartRunning})
+			outcome := s.ExecuteTool(context.Background(), call)
+			status := PartSucceeded
+			errorText := ""
+			if outcome.Err != nil {
+				status, errorText = PartFailed, outcome.Err.Error()
+			}
+			s.finishTool(id, call.ID, ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Result: outcome.Content, Error: errorText, Status: status})
+		}
+		s.mu.Lock()
+		if id != s.requestID || s.closed {
+			s.mu.Unlock()
+			return
+		}
+		request = s.requestLocked()
+		s.mu.Unlock()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id != s.requestID || s.closed {
@@ -216,6 +241,41 @@ func (s *Session) stream(id uint64, request Request) {
 	s.busy, s.phase = false, ""
 	if result.Err != nil && !result.Aborted {
 		s.lastError = result.Err.Error()
+	}
+	s.revision++
+}
+
+func (s *Session) requestLocked() Request {
+	request := Request{Settings: s.settings, Messages: append([]Message(nil), s.messages...)}
+	if s.policy != nil {
+		request.Tools = s.policy.Schemas(s.settings)
+	}
+	return request
+}
+
+func (s *Session) appendTool(id uint64, tool ToolPartState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != s.requestID || s.closed || len(s.messages) == 0 {
+		return
+	}
+	last := &s.messages[len(s.messages)-1]
+	last.Parts = append(last.Parts, Part{Kind: ToolPart, Tool: tool})
+	s.revision++
+}
+
+func (s *Session) finishTool(id uint64, toolID string, value ToolPartState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id != s.requestID || s.closed || len(s.messages) == 0 {
+		return
+	}
+	last := &s.messages[len(s.messages)-1]
+	for i := len(last.Parts) - 1; i >= 0; i-- {
+		if last.Parts[i].Kind == ToolPart && last.Parts[i].Tool.ID == toolID {
+			last.Parts[i].Tool = value
+			break
+		}
 	}
 	s.revision++
 }

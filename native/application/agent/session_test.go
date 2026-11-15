@@ -17,6 +17,20 @@ type fakeStream struct {
 	once   sync.Once
 }
 
+type testPolicy struct{ permission Permission }
+
+func (p testPolicy) Enabled(config.AssistantSettings, string) bool     { return true }
+func (p testPolicy) RequiresApproval(string) bool                      { return true }
+func (p testPolicy) Permission() Permission                            { return p.permission }
+func (p testPolicy) Schemas(config.AssistantSettings) []map[string]any { return nil }
+
+type testTools struct{ calls int }
+
+func (t *testTools) Execute(context.Context, ToolRequest) ToolResult {
+	t.calls++
+	return ToolResult{Content: "done"}
+}
+
 func (f *fakeStream) Stream(_ Request, onDelta func(StreamEvent)) StreamResult {
 	f.chunks <- onDelta
 	<-f.done
@@ -74,4 +88,29 @@ func TestSessionApprovalAndStopAreTypedAndCancelPendingWork(t *testing.T) {
 	if client.aborts != 1 || session.Snapshot().Busy {
 		t.Fatalf("stop state = %+v, aborts %d", session.Snapshot(), client.aborts)
 	}
+}
+
+func TestExecuteToolRoutesThroughPolicyApprovalAndExecutor(t *testing.T) {
+	client := &fakeStream{chunks: make(chan func(StreamEvent), 1), done: make(chan struct{})}
+	tools := &testTools{}
+	session := NewSession(config.AssistantSettings{Model: "m"}, client, Capabilities{Tools: tools, Policy: testPolicy{permission: AskBeforeChanges}})
+	if err := session.Send("edit"); err != nil {
+		t.Fatal(err)
+	}
+	<-client.chunks
+	result := make(chan ToolResult, 1)
+	go func() {
+		result <- session.ExecuteTool(context.Background(), ToolRequest{ID: "t1", Name: "write_document"})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for session.Snapshot().Phase != "waiting for approval" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if err := session.DecideApproval("t1", Approve); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-result; got.Err != nil || got.Content != "done" || tools.calls != 1 {
+		t.Fatalf("tool result=%+v calls=%d", got, tools.calls)
+	}
+	session.Stop()
 }
