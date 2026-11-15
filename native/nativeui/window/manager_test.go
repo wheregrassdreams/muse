@@ -50,6 +50,58 @@ func TestModalExclusivityEscapeAndFocusRestore(t *testing.T) {
 	}
 }
 
+func TestFocusedContentBlursExactlyOnceOnCloseAndCloseAll(t *testing.T) {
+	manager := NewManager(nil)
+	content := &testContent{}
+	handle, err := manager.Open(content, Placement{Host: "main", Layer: Overlay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Close(handle); err != nil {
+		t.Fatal(err)
+	}
+	_ = manager.Close(handle)
+	if content.blurred != 1 || content.closed != 1 {
+		t.Fatalf("close lifecycle blurred=%d closed=%d, want 1 each", content.blurred, content.closed)
+	}
+
+	closing := &testContent{}
+	_, err = manager.Open(closing, Placement{Host: "main", Layer: Overlay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.CloseAll()
+	if closing.blurred != 1 || closing.closed != 1 {
+		t.Fatalf("close-all lifecycle blurred=%d closed=%d, want 1 each", closing.blurred, closing.closed)
+	}
+}
+
+func TestPlaceIntoModalLayerMovesFocusAndEscapeRestoresPrevious(t *testing.T) {
+	manager := NewManager(nil)
+	main := &testContent{}
+	mainHandle, err := manager.Open(main, Placement{Host: "main", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := &testContent{}
+	handle, err := manager.Open(content, Placement{Host: "main", Layer: Overlay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Place(handle, Placement{Host: "main", Layer: ModalOverlay}); err != nil {
+		t.Fatal(err)
+	}
+	if content.focused != 1 || !manager.HasModal() {
+		t.Fatalf("modal placement focus=%d modal=%v", content.focused, manager.HasModal())
+	}
+	if !manager.HandleEscape() || main.focused != 2 || content.blurred != 1 {
+		t.Fatalf("escape focus restore: consumed modal=%v mainFocus=%d modalBlur=%d", manager.HasModal(), main.focused, content.blurred)
+	}
+	if !manager.Contains(mainHandle) {
+		t.Fatal("main pane was unexpectedly removed")
+	}
+}
+
 func TestPlacementRenderingAndControls(t *testing.T) {
 	manager := NewManager(nil)
 	first := &testContent{}

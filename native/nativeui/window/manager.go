@@ -94,6 +94,9 @@ func (m *Manager) Open(content Content, placement Placement) (Handle, error) {
 	m.entries[handle] = e
 	m.order = append(m.order, handle)
 	if placement.Layer == ModalOverlay {
+		if e.placement.Layer != ModalOverlay {
+			e.restore = m.focused
+		}
 		m.modal = handle
 	}
 	attach := func() {
@@ -128,6 +131,11 @@ func (m *Manager) Close(handle Handle) error {
 		m.focused = Handle{}
 	}
 	m.mutate(func() {
+		if wasFocused {
+			if lifecycle, ok := e.content.(FocusLifecycle); ok {
+				lifecycle.Blurred()
+			}
+		}
 		e.content.Close()
 		if wasFocused && m.focused.IsZero() {
 			if m.Contains(e.restore) {
@@ -186,6 +194,9 @@ func (m *Manager) Place(handle Handle, placement Placement) error {
 		m.modal = handle
 	}
 	e.placement = placement
+	if placement.Layer == ModalOverlay {
+		m.Focus(handle)
+	}
 	return nil
 }
 
@@ -243,6 +254,7 @@ func (m *Manager) CloseAll() {
 		return
 	}
 	closing := make([]*entry, 0, len(m.order))
+	focused := m.entries[m.focused]
 	for i := len(m.order) - 1; i >= 0; i-- {
 		handle := m.order[i]
 		if e := m.entries[handle]; e != nil && !e.closing {
@@ -254,6 +266,11 @@ func (m *Manager) CloseAll() {
 	m.order = nil
 	m.focused, m.modal = Handle{}, Handle{}
 	m.mutate(func() {
+		if focused != nil {
+			if lifecycle, ok := focused.content.(FocusLifecycle); ok {
+				lifecycle.Blurred()
+			}
+		}
 		for _, e := range closing {
 			e.content.Close()
 		}
