@@ -13,7 +13,7 @@ if rg -n '"muse/(mdoc|mdedit|vaultsearch|vaultindex|vaultfiles|vaultwatch|notest
   fail "legacy import paths remain"
 fi
 
-if rg -n '^package (mdoc|mdedit|vaultsearch|vaultindex|vaultfiles|vaultwatch|notestore|scrollui|appearance|services|textnav)$' native --glob '*.go'; then
+if rg -n '^package (mdoc|mdedit|vaultsearch|vaultindex|vaultwatch|notestore|scrollui|appearance|services|textnav)$' native --glob '*.go'; then
   fail "legacy package declarations remain"
 fi
 
@@ -102,6 +102,7 @@ for package in \
   native/platform/filesystem/documentstore \
   native/platform/filesystem/imagecache \
   native/platform/filesystem/naviconstore \
+  native/platform/filesystem/vaultfiles \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \
