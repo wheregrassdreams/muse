@@ -168,7 +168,7 @@ func TestHeadingMarkerAllowsLeftAndHome(t *testing.T) {
 func TestInlineMathMissingAndEscapedClosingDelimiter(t *testing.T) {
 	for _, src := range []string{"$xyz", `$xyz\$`} {
 		h := newHarness(t, src)
-		h.e.inlineMathStart, h.e.inlineMathEnd, h.e.inlineMathOK = 0, len(src), true
+		h.e.inlineMath.Begin(0, len(src))
 		h.e.caret, h.e.anchor = 2, 2
 		_, _, tex, ok := h.e.activeInlineMath()
 		if !ok || tex != src[1:] {
@@ -186,9 +186,10 @@ func TestInlineMathRejectsNonMathAndClearsOnSetSource(t *testing.T) {
 		}
 	}
 	h := newHarness(t, "$x$")
-	h.e.inlineMathOK, h.e.mathPreviewHidden = true, true
+	h.e.inlineMath.Begin(0, len(h.e.src))
+	h.e.inlineMath.SetPreviewHidden(true)
 	h.e.SetSource("plain")
-	if h.e.inlineMathOK || h.e.mathPreviewHidden {
+	if h.e.inlineMath.Active() || h.e.inlineMath.PreviewHidden() {
 		t.Fatal("SetSource retained session")
 	}
 }

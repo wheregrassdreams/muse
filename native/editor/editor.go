@@ -10,6 +10,8 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
+	inlineblock "muse/editor/blocks/inline"
+	paragraph "muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/internal/textlayout"
 	layoutindex "muse/editor/layout"
@@ -152,16 +154,14 @@ type Editor struct {
 	modal   modalState
 	// folded is presentation state keyed by a heading's source line start.
 	// A source edit clears it so offsets can never fold an unrelated section.
-	folded                         map[int]bool
-	foldRevision                   uint64
-	foldCacheRevision              uint64
-	foldSectionsCache              []foldSection
-	opts                           Options
-	inlineMathStart, inlineMathEnd int
-	inlineMathOK                   bool
-	mathPreviewHidden              bool
-	typedBreaks                    []int
-	preserveInsertedBreaks         bool
+	folded                 map[int]bool
+	foldRevision           uint64
+	foldCacheRevision      uint64
+	foldSectionsCache      []foldSection
+	opts                   Options
+	inlineMath             inlineblock.MathSession
+	typedBreaks            paragraph.Breaks
+	preserveInsertedBreaks bool
 
 	src    string
 	leaves []*leaf
@@ -576,13 +576,13 @@ func (e *Editor) SetSource(src string) {
 	e.arena[0].release()
 	e.arena[1].release()
 	e.clearTableVirtualEdit()
-	e.mathPreviewHidden = false
+	e.inlineMath.SetPreviewHidden(false)
 	e.clearVimImageRow()
 	e.clearTableSelectionSession()
-	e.inlineMathOK = false
+	e.inlineMath.Clear()
 	e.hoverLink = Range{}
 	e.foldHover = -1
-	e.typedBreaks = nil
+	e.typedBreaks.Clear()
 	e.resetFolds()
 	e.selectionInclusive = false
 	e.selectionLinewise = false
@@ -1123,9 +1123,8 @@ func (e *Editor) setCaret(off int, extend bool) {
 	if !extend && e.tableBridge == nil {
 		e.tableSelection = nil
 	}
-	if e.inlineMathOK && (off < e.inlineMathStart || off > e.inlineMathEnd) {
-		e.inlineMathOK = false
-		e.mathPreviewHidden = false
+	if e.inlineMath.Active() && !e.inlineMath.ContainsCaret(off) {
+		e.inlineMath.Clear()
 	}
 	off = max(0, min(off, len(e.src)))
 	if off != e.caret {

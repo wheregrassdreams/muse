@@ -51,7 +51,7 @@ func (e *Editor) begin(kind stepKind) {
 	if e.hist.open != nil {
 		return
 	}
-	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: append([]int(nil), e.typedBreaks...), at: time.Now()}
+	e.hist.open = &step{kind: kind, before: [2]int{e.anchor, e.caret}, phBefore: e.phantom, breaksBefore: e.typedBreaks.Snapshot(), at: time.Now()}
 	e.hist.open.blockBefore = e.blockHistoryState()
 	if e.tableSelection != nil || e.tableBridge != nil || e.tableDocumentRegion != nil {
 		state := e.tableSnapshot()
@@ -77,13 +77,7 @@ func (e *Editor) replace(from, to int, text string) {
 	if e.hist.open == nil {
 		e.begin(stepEdit)
 	}
-	if e.inlineMathOK {
-		if from >= e.inlineMathStart && to <= e.inlineMathEnd {
-			e.inlineMathEnd += len(text) - (to - from)
-		} else {
-			e.inlineMathOK = false
-		}
-	}
+	e.inlineMath.AdjustAfterEdit(from, to, len(text))
 	e.src = e.src[:from] + text + e.src[to:]
 	e.resetFolds()
 	e.moveTypedBreaks(from, to, text)
@@ -167,7 +161,7 @@ func (e *Editor) commit(anchor, caret int) {
 	}
 	s.blockAfter = e.blockHistoryState()
 	s.phAfter = e.phantom
-	s.breaksAfter = append([]int(nil), e.typedBreaks...)
+	s.breaksAfter = e.typedBreaks.Snapshot()
 	e.hist.redo = nil
 	if n := len(e.hist.undo); n > 0 && e.coalesces(&e.hist.undo[n-1], s) {
 		prev := &e.hist.undo[n-1]
@@ -230,7 +224,7 @@ func (e *Editor) Undo() bool {
 	if e.hist.open != nil {
 		e.commit(e.caret, e.caret)
 	}
-	e.inlineMathOK = false
+	e.inlineMath.Clear()
 	n := len(e.hist.undo)
 	if n == 0 {
 		return false
@@ -242,7 +236,7 @@ func (e *Editor) Undo() bool {
 		e.src = e.src[:c.at] + c.old + e.src[c.at+len(c.new):]
 	}
 	e.hist.redo = append(e.hist.redo, s)
-	e.typedBreaks = append([]int(nil), s.breaksBefore...)
+	e.typedBreaks.Restore(s.breaksBefore)
 	e.restore(s.before, s.phBefore)
 	if s.tableBefore != nil {
 		e.restoreTableSnapshot(*s.tableBefore)
@@ -257,7 +251,7 @@ func (e *Editor) Redo() bool {
 	if e.hist.open != nil {
 		e.commit(e.caret, e.caret)
 	}
-	e.inlineMathOK = false
+	e.inlineMath.Clear()
 	n := len(e.hist.redo)
 	if n == 0 {
 		return false
@@ -269,7 +263,7 @@ func (e *Editor) Redo() bool {
 	}
 	s.closedForCoalescing = true
 	e.hist.undo = append(e.hist.undo, s)
-	e.typedBreaks = append([]int(nil), s.breaksAfter...)
+	e.typedBreaks.Restore(s.breaksAfter)
 	e.restore(s.after, s.phAfter)
 	if s.tableAfter != nil {
 		e.restoreTableSnapshot(*s.tableAfter)

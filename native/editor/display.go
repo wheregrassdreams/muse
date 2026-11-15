@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/internal/parser"
 
 	"muse/markdown"
@@ -1202,20 +1203,20 @@ func (b *builder) rawRange(start, end int, st istyle) {
 
 // mathSource uses the same source styling for parsed and incomplete formulas.
 func (b *builder) mathSource(start, end int, st istyle) {
-	cs, ce := inlineMathContent(b.src[start:end])
+	content := inlineblock.MathContentBounds(b.src[start:end])
 	inner := st
 	inner.code = true
 	inner.codeJoined = true
 	boxStart := b.u16
-	b.codeMarker(start, start+cs, st)
-	tex := b.src[start+cs : start+ce]
+	b.codeMarker(start, start+content.Start, st)
+	tex := b.src[start+content.Start : start+content.End]
 	at := 0
 	for _, tok := range latexSourceTokens(tex) {
 		tokStart, tokEnd := max(0, tok.start), min(len(tex), tok.end)
 		if tokEnd <= tokStart || tokStart < at {
 			continue
 		}
-		b.textRun(start+cs+at, start+cs+tokStart, inner)
+		b.textRun(start+content.Start+at, start+content.Start+tokStart, inner)
 		tokenStyle := inner
 		if color := b.e.lk.code.TokenColor(tok.kind); color.A != 0 {
 			tokenStyle.color = color
@@ -1223,11 +1224,11 @@ func (b *builder) mathSource(start, end int, st istyle) {
 		ts := b.e.lk.code.Tokens[tok.kind]
 		tokenStyle.bold = ts.Bold
 		tokenStyle.italic = ts.Italic
-		b.textRun(start+cs+tokStart, start+cs+tokEnd, tokenStyle)
+		b.textRun(start+content.Start+tokStart, start+content.Start+tokEnd, tokenStyle)
 		at = tokEnd
 	}
-	b.textRun(start+cs+at, start+ce, inner)
-	b.codeMarker(start+ce, end, st)
+	b.textRun(start+content.Start+at, start+content.End, inner)
+	b.codeMarker(start+content.End, end, st)
 	b.codeBoxes = append(b.codeBoxes, inlineCodeBox{
 		range_: ui.TextInputRange{Start: boxStart, End: b.u16},
 		padY:   b.fontSize * 0.1,

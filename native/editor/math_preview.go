@@ -52,7 +52,7 @@ func (e *Editor) mathPreviewView(c *ui.Context, viewport ui.Rect) {
 		return
 	}
 	start, _, tex, ok := e.activeInlineMath()
-	if !ok || e.composing || e.mathPreviewHidden {
+	if !ok || e.composing || e.inlineMath.PreviewHidden() {
 		return
 	}
 	anchor, ok := e.mathPreviewAnchor(viewport, start)

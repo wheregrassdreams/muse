@@ -57,7 +57,7 @@ func TestInlineMathPreview(t *testing.T) {
 	}
 	h.shot("inline-math-preview-updated")
 	h.key(0, ui.KeyEscape)
-	if !h.e.mathPreviewHidden {
+	if !h.e.inlineMath.PreviewHidden() {
 		t.Fatal("Escape did not hide preview")
 	}
 	h.shot("inline-math-preview-hidden")
@@ -65,7 +65,7 @@ func TestInlineMathPreview(t *testing.T) {
 	h.frame()
 	h.e.setCaret(len("公式 $x"), false)
 	h.frame()
-	if _, _, _, ok := h.e.activeInlineMath(); !ok || h.e.mathPreviewHidden {
+	if _, _, _, ok := h.e.activeInlineMath(); !ok || h.e.inlineMath.PreviewHidden() {
 		t.Fatal("preview did not recover after reentry")
 	}
 	h.e.SetMarkedText(nil, "a", ui.TextInputRange{Start: 1, End: 1})
@@ -85,7 +85,7 @@ func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testin
 	h.focus()
 	h.caretAt(len(src) - 2)
 	start := strings.IndexByte(src, '$')
-	h.e.inlineMathStart, h.e.inlineMathEnd, h.e.inlineMathOK = start, len(src), true
+	h.e.inlineMath.Begin(start, len(src))
 	h.frame()
 
 	startRect, startOK := h.e.caretRect(start)

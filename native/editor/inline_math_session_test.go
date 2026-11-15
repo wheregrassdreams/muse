@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	inlineblock "muse/editor/blocks/inline"
 )
 
 func requireMathCodeStyle(t *testing.T, h *harness, start, end int) {
@@ -115,7 +116,8 @@ func TestInlineMathSessionSpeculativeView(t *testing.T) {
 	start, end, _, _ := h.e.activeInlineMath()
 	l = h.e.leaves[0]
 	h.e.viewWith(l, l.w, false, 0, 9)
-	if h.e.inlineMathStart != start || h.e.inlineMathEnd != end {
+	activeRange, _ := h.e.inlineMath.Range()
+	if activeRange.Start != start || activeRange.End != end {
 		t.Fatal("speculative view changed active session")
 	}
 }
@@ -223,7 +225,7 @@ func TestInlineMathSessionFocusLoss(t *testing.T) {
 	other.Focus()
 	h.frame()
 	h.frame()
-	if h.e.focused || h.e.inlineMathOK {
+	if h.e.focused || h.e.inlineMath.Active() {
 		t.Fatal("focus loss retained math session")
 	}
 	if strings.Contains(h.e.leaves[0].view.disp.text, "$x") {
@@ -236,13 +238,13 @@ func TestInlineMathSessionFocusLoss(t *testing.T) {
 func TestInlineMathSessionSwitchFormula(t *testing.T) {
 	h := newHarness(t, "a $x$ b $y$ c")
 	h.caretAt(3)
-	h.e.mathPreviewHidden = true
+	h.e.inlineMath.SetPreviewHidden(true)
 	// Mouse and selection operations may assign the caret directly.
 	h.e.anchor, h.e.caret = 9, 9
 	h.frame()
 	start, end, tex, ok := h.e.activeInlineMath()
-	if !ok || start != 8 || end != 11 || tex != "y" || h.e.mathPreviewHidden {
-		t.Fatalf("switched session=%d..%d %q ok=%v hidden=%v", start, end, tex, ok, h.e.mathPreviewHidden)
+	if !ok || start != 8 || end != 11 || tex != "y" || h.e.inlineMath.PreviewHidden() {
+		t.Fatalf("switched session=%d..%d %q ok=%v hidden=%v", start, end, tex, ok, h.e.inlineMath.PreviewHidden())
 	}
 	requireMathCodeStyle(t, h, 9, 10)
 	h.typ("+1")
@@ -266,8 +268,8 @@ func TestInlineMathSessionEditedDelimitersStayStyled(t *testing.T) {
 			if !ok {
 				t.Fatal("edited delimiter lost session")
 			}
-			cs, ce := inlineMathContent(h.e.src[start:end])
-			requireMathCodeStyle(t, h, start+cs, start+ce)
+			content := inlineblock.MathContentBounds(h.e.src[start:end])
+			requireMathCodeStyle(t, h, start+content.Start, start+content.End)
 			if edit == "escaped closer" && tex != `xyz\$` {
 				t.Fatalf("escaped closer omitted: %q", tex)
 			}

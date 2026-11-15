@@ -609,7 +609,7 @@ func (e *Editor) mergeLastStep() {
 	if n := len(e.hist.undo); n > 0 {
 		last := &e.hist.undo[n-1]
 		last.changes = append(last.changes, s.changes...)
-		last.breaksAfter = append([]int(nil), e.typedBreaks...)
+		last.breaksAfter = e.typedBreaks.Snapshot()
 		last.closedForCoalescing = true
 	}
 	e.rev++

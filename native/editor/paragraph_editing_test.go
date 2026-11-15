@@ -97,13 +97,13 @@ func TestTypedBoundarySurvivesCaretMoveAndUndo(t *testing.T) {
 	h.e.Undo()
 	h.frame()
 	h.want(src)
-	if len(h.e.typedBreaks) != 0 {
+	if h.e.typedBreaks.Len() != 0 {
 		t.Fatal("undo left source break anchors")
 	}
 	h.e.Redo()
 	h.frame()
 	h.want(src[:at] + "a" + src[at:])
-	if len(h.e.typedBreaks) == 0 || !strings.Contains(h.e.leafAt(h.e.caret).view.disp.text, "\n") {
+	if h.e.typedBreaks.Len() == 0 || !strings.Contains(h.e.leafAt(h.e.caret).view.disp.text, "\n") {
 		t.Fatal("redo lost typed line boundary")
 	}
 }
@@ -120,18 +120,18 @@ func TestTypedEnterAndBackspaceControlOnlyTheirOwnBreak(t *testing.T) {
 	h.caretAt(len("first\n"))
 	h.key(0, ui.KeyBackspace)
 	h.want("firstsecond")
-	if len(h.e.typedBreaks) != 0 {
+	if h.e.typedBreaks.Len() != 0 {
 		t.Fatal("deleting newline left an anchored break")
 	}
 	h.e.Undo()
 	h.frame()
 	h.want("first\nsecond")
-	if len(h.e.typedBreaks) != 1 {
+	if h.e.typedBreaks.Len() != 1 {
 		t.Fatal("undo did not restore typed break")
 	}
 	h.e.SetSource("imported\nwrapped")
 	h.frame()
-	if len(h.e.typedBreaks) != 0 || strings.Contains(h.e.leaves[0].view.disp.text, "\n") {
+	if h.e.typedBreaks.Len() != 0 || strings.Contains(h.e.leaves[0].view.disp.text, "\n") {
 		t.Fatal("loading document retained session break anchors")
 	}
 }

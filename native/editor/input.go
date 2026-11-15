@@ -35,7 +35,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		}
 		if e.modalKey(ev.Key, ev.Mods) {
 			if ev.Key == ui.KeyEscape {
-				e.mathPreviewHidden = true
+				e.inlineMath.SetPreviewHidden(true)
 			}
 			return true
 		}
@@ -323,8 +323,8 @@ func (e *Editor) key(key ui.Key, mods ui.Modifiers) bool {
 			e.invalidate()
 			return true
 		}
-		if _, _, _, ok := e.activeInlineMath(); ok && !e.mathPreviewHidden {
-			e.mathPreviewHidden = true
+		if _, _, _, ok := e.activeInlineMath(); ok && !e.inlineMath.PreviewHidden() {
+			e.inlineMath.SetPreviewHidden(true)
 			return true
 		}
 		if e.anchor != e.caret {
