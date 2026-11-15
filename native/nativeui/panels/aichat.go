@@ -16,50 +16,13 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/mdoc"
+	mdoc "muse/markdown"
 )
 
 func (a *App) aiView(c *ui.Context) {
-	t := c.Theme()
-	if !a.aiConfigured() {
-		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
-			ui.Icon(c, iconAI).Size(28, 28).TextColor(iconTint(t))
-			ui.Text(c, locales.AiSetupModelTitle()).FontSize(13).FontWeight(600)
-			ui.Text(c, locales.AiSetupModelDetail()).
-				FontSize(11.5).TextColor(t.TextMuted).Wrap().TextAlign(ui.Center)
-			ui.Button(c, locales.AiSetupModel()).OnClick(func() {
-				a.settingsOpen = true
-				a.settingsTab = 2
-			})
-		})
-		return
+	if a.assistant != nil {
+		a.assistant.render(c, a)
 	}
-
-	// 滚动区与输入区直接挂到面板列上（这里不再包一层固定列）：多包
-	// 一层 grow=0 的列会带上「最小高度=全部内容」的地板，内容一长就
-	// 把输入区挤出面板。
-	showScrollbar := a.aiIndicator.Visible(c.Now(), a.aiScroll.X, a.aiScroll.Y)
-	if showScrollbar {
-		c.After(a.aiIndicator.Remaining(c.Now()))
-	}
-	ui.Scroll(c).Grow(1).TrackScroll(&a.aiScroll).Scrollbars(showScrollbar).Children(func() {
-		ui.Column(c).FillWidth().Padding(10, 12, 12, 12).Gap(12).Children(func() {
-			if len(a.aiMessages) == 0 {
-				a.aiEmpty(c)
-				return
-			}
-			for mi := range a.aiMessages {
-				a.aiMessage(c, mi)
-			}
-			if a.aiBusy {
-				a.aiBusyRow(c)
-			}
-			if a.aiErr != "" {
-				a.aiErrorRow(c)
-			}
-		})
-	})
-	a.aiComposer(c)
 }
 
 // aiEmpty 是没有对话时的空态：说明 Agent 能做什么，并给出示例。

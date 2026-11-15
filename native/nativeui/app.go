@@ -379,6 +379,7 @@ type App struct {
 	// AI
 	ai          config.AssistantSettings
 	aiClient    *agent.AI
+	assistant   *assistantPanel
 	aiMessages  []chatMessage
 	aiInput     string
 	aiBusy      bool
@@ -480,6 +481,7 @@ func New() *App {
 		aiMessages:      loadAIChat(),
 		documents:       documentdialogs.New(),
 	}
+	a.assistant = newAssistantPanel(a)
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
 	s := loadEditorSettings()
 	if s.SmartTypography != nil {

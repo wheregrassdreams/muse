@@ -352,6 +352,19 @@ func (s *Session) Clear() error {
 	return nil
 }
 
+func (s *Session) TogglePart(messageIndex, partIndex int) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if messageIndex < 0 || messageIndex >= len(s.messages) || partIndex < 0 || partIndex >= len(s.messages[messageIndex].Parts) {
+		return
+	}
+	s.messages[messageIndex].Parts[partIndex].Expanded = !s.messages[messageIndex].Parts[partIndex].Expanded
+	s.revision++
+}
+
 func (s *Session) RequestApproval(ctx context.Context, request ToolRequest) (Decision, error) {
 	if s == nil || request.ID == "" {
 		return Reject, ErrNoApproval
