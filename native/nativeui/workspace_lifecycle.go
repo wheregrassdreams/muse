@@ -171,9 +171,18 @@ func (a *App) persistWorkspaceState() {
 	if a == nil {
 		return
 	}
-	state := workspace.State{Root: a.root, Path: a.path}
-	if a.ed != nil {
-		state.Offset = a.ed.SelectionRange().End
+	state := workspace.State{Version: 1, VaultPath: a.root}
+	if a.path != "" && a.ed != nil {
+		const tabID, paneID = "main", "main"
+		state.ActiveTab = tabID
+		state.Tabs = []workspace.Tab{{
+			ID:           tabID,
+			ActivePaneID: paneID,
+			Layout: workspace.Leaf(workspace.Pane{
+				ID:       paneID,
+				Document: workspace.Document{Path: a.path, CursorOffset: a.ed.SelectionRange().End},
+			}),
+		}}
 	}
 	if a.workspaceRestorer != nil {
 		_ = a.workspaceRestorer.Persist(state)
@@ -188,14 +197,14 @@ func (a *App) restoreWorkspaceState() {
 }
 
 func (a *App) applyRestoredWorkspace(state workspace.State) {
-	if state.Root != "" {
-		a.setWorkspace(state.Root)
+	if state.VaultPath != "" {
+		a.setWorkspace(state.VaultPath)
 	}
-	if state.Path != "" {
-		a.openPathNow(state.Path)
-		if filepath.Clean(a.path) == filepath.Clean(state.Path) && a.ed != nil {
-			a.ed.Select(state.Offset, state.Offset)
-			a.ed.ScrollToOffset(state.Offset)
+	if doc, ok := state.ActiveDocument(); ok {
+		a.openPathNow(doc.Path)
+		if filepath.Clean(a.path) == filepath.Clean(doc.Path) && a.ed != nil {
+			a.ed.Select(doc.CursorOffset, doc.CursorOffset)
+			a.ed.ScrollToOffset(doc.CursorOffset)
 		}
 	}
 }
