@@ -140,6 +140,36 @@ func TestFocusedPaneSurvivesOverlayAndRepairsAfterPaneContentCloses(t *testing.T
 	}
 }
 
+func TestRenderPaneDisplaysOnlyItsActiveContent(t *testing.T) {
+	manager := NewManager(nil)
+	first, second, otherPane := &testContent{}, &testContent{}, &testContent{}
+	firstHandle, err := manager.Open(first, Placement{Host: "main", Pane: "left", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.Open(second, Placement{Host: "main", Pane: "left", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manager.Open(otherPane, Placement{Host: "main", Pane: "right", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tester := ui.NewTester(func(c *ui.Context) { manager.RenderPane(c, "main", "left") }, 400, 300)
+	tester.Frame()
+	if first.rendered != 0 || second.rendered == 0 || otherPane.rendered != 0 {
+		t.Fatalf("initial pane render counts first=%d second=%d other=%d", first.rendered, second.rendered, otherPane.rendered)
+	}
+	secondRenders := second.rendered
+	if !manager.Focus(firstHandle) {
+		t.Fatal("could not activate first tab content")
+	}
+	tester.Frame()
+	if first.rendered == 0 || second.rendered != secondRenders || otherPane.rendered != 0 {
+		t.Fatalf("activated pane render counts first=%d second=%d other=%d", first.rendered, second.rendered, otherPane.rendered)
+	}
+}
+
 func TestPlacementRenderingAndControls(t *testing.T) {
 	manager := NewManager(nil)
 	first := &testContent{}

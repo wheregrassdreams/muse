@@ -59,6 +59,7 @@ func (m *Manager) Focus(Handle) bool
 func (m *Manager) FocusedPane(HostID) (PaneID, bool)
 func (m *Manager) Place(Handle, Placement) error
 func (m *Manager) Render(*ui.Context, HostID, Layer)
+func (m *Manager) RenderPane(*ui.Context, HostID, PaneID)
 func (m *Manager) HandleEscape() bool
 func (m *Manager) HasModal() bool
 func (m *Manager) CloseAll()
@@ -112,12 +113,13 @@ such as the active Markdown path and pane placement. It never stores
 Generic descriptor-based surface restoration is a later capability; this API
 does not add a generic factory registry.
 
-Tabs and split layout are not implemented by this surface manager. `PaneID`
-and `FocusedPane` provide the runtime placement and command-routing seam. The
-durable workspace model owns the split tree, tab order, and active document
-per pane. A future layout presenter should render each pane slot and ask the
-manager for that pane's active content; it must not make the manager aware of
-documents, editor sessions, or feature-specific state.
+The manager can retain several opaque contents per pane, activate one through
+`Focus(handle)`, and render only that active content through `RenderPane`. It
+does not own tab ordering/presentation or split geometry. The durable workspace
+model owns the split tree, tab order, and active document per pane. A future
+layout presenter maps that model to pane slots and calls `RenderPane` for each
+slot; it must not make the manager aware of documents, editor sessions, or
+feature-specific state.
 
 ## Dependency direction
 
