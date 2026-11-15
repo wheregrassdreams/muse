@@ -102,6 +102,44 @@ func TestPlaceIntoModalLayerMovesFocusAndEscapeRestoresPrevious(t *testing.T) {
 	}
 }
 
+func TestFocusedPaneSurvivesOverlayAndRepairsAfterPaneContentCloses(t *testing.T) {
+	manager := NewManager(nil)
+	first := &testContent{}
+	_, err := manager.Open(first, Placement{Host: "main", Pane: "editor", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := &testContent{}
+	secondHandle, err := manager.Open(second, Placement{Host: "main", Pane: "preview", Layer: PaneContent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pane, ok := manager.FocusedPane("main"); !ok || pane != "preview" {
+		t.Fatalf("focused pane = %q, %v; want preview", pane, ok)
+	}
+	modal := &testContent{}
+	_, err = manager.Open(modal, Placement{Host: "main", Layer: ModalOverlay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pane, ok := manager.FocusedPane("main"); !ok || pane != "preview" {
+		t.Fatalf("overlay changed focused pane context = %q, %v; want preview", pane, ok)
+	}
+	if !manager.HandleEscape() {
+		t.Fatal("modal Escape was not consumed")
+	}
+	if err := manager.Close(secondHandle); err != nil {
+		t.Fatal(err)
+	}
+	if pane, ok := manager.FocusedPane("main"); !ok || pane != "editor" {
+		t.Fatalf("focused pane after closing preview = %q, %v; want editor", pane, ok)
+	}
+	manager.CloseAll()
+	if pane, ok := manager.FocusedPane("main"); ok || pane != "" {
+		t.Fatalf("focused pane after CloseAll = %q, %v; want empty", pane, ok)
+	}
+}
+
 func TestPlacementRenderingAndControls(t *testing.T) {
 	manager := NewManager(nil)
 	first := &testContent{}

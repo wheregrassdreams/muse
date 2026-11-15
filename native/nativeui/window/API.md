@@ -56,6 +56,7 @@ func NewManager(fallbackFocus func()) *Manager
 func (m *Manager) Open(Content, Placement) (Handle, error)
 func (m *Manager) Close(Handle) error
 func (m *Manager) Focus(Handle) bool
+func (m *Manager) FocusedPane(HostID) (PaneID, bool)
 func (m *Manager) Place(Handle, Placement) error
 func (m *Manager) Render(*ui.Context, HostID, Layer)
 func (m *Manager) HandleEscape() bool
@@ -88,11 +89,15 @@ names while preserving this ownership and behavior.
 5. `Close` removes the surface from placement and focus order, invokes
    `Content.Close` exactly once, then restores focus if the closed surface was
    focused. `CloseAll` applies the same cleanup to process shutdown.
-6. Feature surfaces such as image preview, image document, Quick Open, and
+6. `FocusedPane(host)` returns the latest pane whose content received focus.
+   Focusing an overlay preserves that pane context; removing its last content
+   selects another remaining pane in the same host or returns no pane. This is
+   a generic routing context, not access to editor or document state.
+7. Feature surfaces such as image preview, image document, Quick Open, and
    Mermaid preview keep zoom, query, decoded bitmap, diagram model, and other
    feature state private. Editor preview callbacks ask a feature-owned opener
    to create content, then call generic `Manager.Open` and retain its handle.
-7. Opening or closing an editor image preview never edits the document source
+8. Opening or closing an editor image preview never edits the document source
    or changes the caret. Escape closes the modal and returns focus to the
    editor. Quick Open receives query input but delegates ranking to
    `search`/`application`; Mermaid preview receives a typed diagram model and
@@ -106,6 +111,13 @@ such as the active Markdown path and pane placement. It never stores
 `Content`, handles, widgets, bitmap data, query caches, or feature state.
 Generic descriptor-based surface restoration is a later capability; this API
 does not add a generic factory registry.
+
+Tabs and split layout are not implemented by this surface manager. `PaneID`
+and `FocusedPane` provide the runtime placement and command-routing seam. The
+durable workspace model owns the split tree, tab order, and active document
+per pane. A future layout presenter should render each pane slot and ask the
+manager for that pane's active content; it must not make the manager aware of
+documents, editor sessions, or feature-specific state.
 
 ## Dependency direction
 
