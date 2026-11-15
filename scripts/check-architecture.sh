@@ -21,6 +21,24 @@ if rg -n '^package nativeui$' native/nativeui/panels --glob '*.go'; then
   fail "nativeui/panels contains child packages that masquerade as the parent package"
 fi
 
+if rg -n '"muse/(nativeui|platform|cmd)/' \
+  native/document native/editor native/markdown native/search native/vault \
+  --glob '*.go' --glob '!**/*_test.go'; then
+  fail "domain modules import presentation, platform adapters, or executables"
+fi
+
+if rg -n '"muse/(nativeui|platform|cmd)/' native/application --glob '*.go' --glob '!**/*_test.go'; then
+  fail "application use cases import presentation, platform adapters, or executables"
+fi
+
+if rg -n '"muse/platform/' native/nativeui --glob '*.go' --glob '!**/*_test.go'; then
+  fail "nativeui imports platform adapters directly instead of receiving capabilities"
+fi
+
+if rg -n '"muse/editor/' native/markdown --glob '*.go' --glob '!**/*_test.go'; then
+  fail "markdown imports the editor module"
+fi
+
 for obsolete in native/mdoc native/mdedit native/vaultsearch native/vaultindex native/vaultfiles native/vaultwatch native/notestore native/scrollui native/appearance native/services native/application/services native/notedate native/frontmatter native/cachepath; do
   if [ -d "$obsolete" ] && find "$obsolete" -type f -name '*.go' -print -quit | grep -q .; then
     fail "obsolete implementation directory remains: $obsolete"
