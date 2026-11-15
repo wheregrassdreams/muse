@@ -40,7 +40,7 @@ type ViewModel struct {
 	BacklinkCount int
 }
 
-type State struct {
+type state struct {
 	path         string
 	bmp          *ui.Bitmap
 	open         bool
@@ -50,27 +50,27 @@ type State struct {
 	dragX, dragY float32
 }
 
-func (s *State) Open(path string, cache images.CacheStore) {
+func (s *state) Open(path string, cache images.CacheStore) {
 	if s == nil || path == "" {
 		return
 	}
-	*s = State{path: path, bmp: markdownui.LoadImageWithCacheStore(path, "", cache, nil), open: true, zoom: 1}
+	*s = state{path: path, bmp: markdownui.LoadImageWithCacheStore(path, "", cache, nil), open: true, zoom: 1}
 }
 
-func (s *State) Close() {
+func (s *state) Close() {
 	if s == nil {
 		return
 	}
-	*s = State{}
+	*s = state{}
 }
 
-func (s State) IsOpen() bool { return s.open }
+func (s state) IsOpen() bool { return s.open }
 
-func (s State) Path() string { return s.path }
+func (s state) Path() string { return s.path }
 
-func (s State) HasImage() bool { return s.bmp != nil }
+func (s state) HasImage() bool { return s.bmp != nil }
 
-func (s State) ViewModel(backlinkCount int) ViewModel {
+func (s state) ViewModel(backlinkCount int) ViewModel {
 	return ViewModel{
 		Path: s.path, Bitmap: s.bmp, Zoom: s.zoom, X: s.x, Y: s.y,
 		Dragging: s.dragging, DragX: s.dragX, DragY: s.dragY,
@@ -78,7 +78,7 @@ func (s State) ViewModel(backlinkCount int) ViewModel {
 	}
 }
 
-func (s *State) Apply(action Action) {
+func (s *state) Apply(action Action) {
 	if s == nil || !s.open {
 		return
 	}

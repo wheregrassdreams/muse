@@ -56,7 +56,7 @@ type ViewModel struct {
 	DragX, DragY float32
 }
 
-type State struct {
+type state struct {
 	source       string
 	label        string
 	asset        *markdownui.ImageAsset
@@ -70,11 +70,11 @@ type State struct {
 	open         bool
 }
 
-func (s *State) Open(source, label string, cache images.CacheStore, onMain func(func()), invalidate func()) {
+func (s *state) Open(source, label string, cache images.CacheStore, onMain func(func()), invalidate func()) {
 	if s == nil || source == "" {
 		return
 	}
-	*s = State{source: source, label: label, open: true, loading: true, zoom: 1}
+	*s = state{source: source, label: label, open: true, loading: true, zoom: 1}
 	s.asset = markdownui.LoadImageAssetWithCacheStore(source, "", cache, func() {
 		complete := func() {
 			if !s.open || s.source != source {
@@ -105,7 +105,7 @@ func (s *State) Open(source, label string, cache images.CacheStore, onMain func(
 	}
 }
 
-func (s *State) Close() {
+func (s *state) Close() {
 	if s == nil {
 		return
 	}
@@ -116,7 +116,7 @@ func (s *State) Close() {
 	s.dragging = false
 }
 
-func (s *State) Advance(now time.Time) time.Duration {
+func (s *state) Advance(now time.Time) time.Duration {
 	if s == nil || s.asset == nil {
 		return 0
 	}
@@ -125,7 +125,7 @@ func (s *State) Advance(now time.Time) time.Duration {
 	return next
 }
 
-func (s State) ViewModel() ViewModel {
+func (s state) ViewModel() ViewModel {
 	return ViewModel{
 		Open: s.open, Source: s.source, Label: s.label, Bitmap: s.bmp,
 		Loading: s.loading, Zoom: s.zoom, BaseZoom: s.baseZoom,
@@ -133,13 +133,13 @@ func (s State) ViewModel() ViewModel {
 	}
 }
 
-func (s State) IsOpen() bool { return s.open }
+func (s state) IsOpen() bool { return s.open }
 
-func (s State) Source() string { return s.source }
+func (s state) Source() string { return s.source }
 
-func (s State) HasAsset() bool { return s.asset != nil }
+func (s state) HasAsset() bool { return s.asset != nil }
 
-func (s *State) Apply(action Action) {
+func (s *state) Apply(action Action) {
 	if s == nil || !s.open {
 		return
 	}

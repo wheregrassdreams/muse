@@ -3,7 +3,7 @@ package imagepreview
 import "testing"
 
 func TestTypedActionsUpdatePreviewState(t *testing.T) {
-	state := State{open: true, zoom: 1, baseZoom: 0.5}
+	state := state{open: true, zoom: 1, baseZoom: 0.5}
 	state.Apply(Action{Kind: ZoomBy, Scale: 1.25})
 	state.Apply(Action{Kind: PanBy, DX: 12, DY: -8})
 	state.Apply(Action{Kind: BeginDrag, PointerX: 20, PointerY: 30})
@@ -23,7 +23,7 @@ func TestTypedActionsUpdatePreviewState(t *testing.T) {
 }
 
 func TestCloseClearsImageReferences(t *testing.T) {
-	state := State{source: "image.png", open: true, loading: true, zoom: 2}
+	state := state{source: "image.png", open: true, loading: true, zoom: 2}
 	state.Close()
 	vm := state.ViewModel()
 	if vm.Open || vm.Loading || vm.Source != "image.png" || state.asset != nil || state.bmp != nil {

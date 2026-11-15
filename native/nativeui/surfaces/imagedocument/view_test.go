@@ -3,7 +3,7 @@ package imagedocument
 import "testing"
 
 func TestActionsUpdateImageDocumentViewState(t *testing.T) {
-	state := State{path: "diagram.png", open: true, zoom: 1}
+	state := state{path: "diagram.png", open: true, zoom: 1}
 	state.Apply(Action{Kind: ZoomBy, Scale: 1.5})
 	state.Apply(Action{Kind: PanBy, DX: 20, DY: -10})
 	state.Apply(Action{Kind: BeginDrag, PointerX: 5, PointerY: 8})
@@ -23,7 +23,7 @@ func TestActionsUpdateImageDocumentViewState(t *testing.T) {
 }
 
 func TestCloseClearsImageDocument(t *testing.T) {
-	state := State{path: "diagram.png", open: true, zoom: 1}
+	state := state{path: "diagram.png", open: true, zoom: 1}
 	state.Close()
 	if state.IsOpen() || state.Path() != "" {
 		t.Fatalf("close left image document state: %+v", state)
