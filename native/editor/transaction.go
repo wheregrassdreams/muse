@@ -11,7 +11,7 @@ import (
 // transaction, so block commands do not need to mutate source or history
 // internals directly.
 func (e *Editor) ApplyTransaction(tx core.Transaction) error {
-	if err := tx.Validate(len(e.src)); err != nil {
+	if err := validateTransactionSource(e.src, tx); err != nil {
 		return err
 	}
 	if tx.Before.Anchor != e.anchor || tx.Before.Head != e.caret {

@@ -271,24 +271,11 @@ func (s *Session) applyTransaction(tx core.Transaction) (DispatchResult, error) 
 	if tx.Before != before {
 		return DispatchResult{}, fmt.Errorf("transaction selection is stale")
 	}
-	if err := tx.Validate(len(s.src)); err != nil {
+	if err := validateTransactionSource(s.src, tx); err != nil {
 		return DispatchResult{}, err
 	}
 	if len(tx.Edits) == 0 {
 		return DispatchResult{Revision: s.rev}, nil
-	}
-	resultLen := len(s.src)
-	for _, edit := range tx.Edits {
-		if !runeBoundary(s.src, edit.Range.Start) || !runeBoundary(s.src, edit.Range.End) {
-			return DispatchResult{}, fmt.Errorf("transaction range splits a UTF-8 rune")
-		}
-		if !utf8.ValidString(edit.Text) {
-			return DispatchResult{}, fmt.Errorf("transaction edit contains invalid UTF-8")
-		}
-		resultLen += len(edit.Text) - (edit.Range.End - edit.Range.Start)
-	}
-	if !runeBoundaryAfterEdits(s.src, tx.Edits, resultLen, tx.After.Anchor) || !runeBoundaryAfterEdits(s.src, tx.Edits, resultLen, tx.After.Head) {
-		return DispatchResult{}, fmt.Errorf("transaction selection splits a UTF-8 rune")
 	}
 	changeSet := step{before: [2]int{before.Anchor, before.Head}, after: [2]int{tx.After.Anchor, tx.After.Head}, kind: stepEdit}
 	for i := len(tx.Edits) - 1; i >= 0; i-- {
@@ -301,6 +288,30 @@ func (s *Session) applyTransaction(tx core.Transaction) (DispatchResult, error) 
 	s.setSelection(tx.After)
 	s.rev++
 	return DispatchResult{Changed: true, SelectionChanged: s.selectionLocked() != before, Revision: s.rev}, nil
+}
+
+// validateTransactionSource enforces the text-specific part of the shared
+// transaction contract. Both standalone Session and production Editor call
+// this before mutating source, so either entry point rejects malformed UTF-8
+// and byte ranges that split runes in the same way.
+func validateTransactionSource(source string, tx core.Transaction) error {
+	if err := tx.Validate(len(source)); err != nil {
+		return err
+	}
+	resultLen := len(source)
+	for _, edit := range tx.Edits {
+		if !runeBoundary(source, edit.Range.Start) || !runeBoundary(source, edit.Range.End) {
+			return fmt.Errorf("transaction range splits a UTF-8 rune")
+		}
+		if !utf8.ValidString(edit.Text) {
+			return fmt.Errorf("transaction edit contains invalid UTF-8")
+		}
+		resultLen += len(edit.Text) - (edit.Range.End - edit.Range.Start)
+	}
+	if !runeBoundaryAfterEdits(source, tx.Edits, resultLen, tx.After.Anchor) || !runeBoundaryAfterEdits(source, tx.Edits, resultLen, tx.After.Head) {
+		return fmt.Errorf("transaction selection splits a UTF-8 rune")
+	}
+	return nil
 }
 
 func (s *Session) applyHistory(redo bool) DispatchResult {

@@ -50,3 +50,44 @@ func TestApplyTransactionRejectsStaleSelection(t *testing.T) {
 		t.Fatalf("source changed after rejected transaction: got %q want %q", got, want)
 	}
 }
+
+func TestProductionApplyTransactionRejectsInvalidUTF8Atomically(t *testing.T) {
+	e := New("🙂x", Options{})
+	before := e.Source()
+	tests := []struct {
+		name string
+		tx   core.Transaction
+	}{
+		{
+			name: "range splits source rune",
+			tx: core.Transaction{
+				Before: core.Selection{}, After: core.Selection{},
+				Edits: []core.TextEdit{{Range: core.TextRange{Start: 1, End: 2}, Text: "x"}},
+			},
+		},
+		{
+			name: "replacement is invalid utf8",
+			tx: core.Transaction{
+				Before: core.Selection{}, After: core.Selection{},
+				Edits: []core.TextEdit{{Range: core.TextRange{Start: 0, End: 0}, Text: string([]byte{0xff})}},
+			},
+		},
+		{
+			name: "result selection splits inserted rune",
+			tx: core.Transaction{
+				Before: core.Selection{}, After: core.Selection{Anchor: 1, Head: 1},
+				Edits: []core.TextEdit{{Range: core.TextRange{Start: 0, End: 0}, Text: "🙂"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := e.ApplyTransaction(tt.tx); err == nil {
+				t.Fatal("expected transaction to be rejected")
+			}
+			if got := e.Source(); got != before {
+				t.Fatalf("rejected transaction changed source: %q", got)
+			}
+		})
+	}
+}
