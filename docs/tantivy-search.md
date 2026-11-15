@@ -1,6 +1,6 @@
 # Tantivy 搜索接入与资源基准
 
-`native/vaultsearch` 是持久化 Tantivy 索引边界。上层提供已解析的磁盘快照，不让搜索后端遍历笔记库或重读文件。`ID` 用于更新、删除；当前 UI 由工作区相对路径生成 ID，重命名按旧 ID 删除、新 ID 插入处理，尚未实现跨重命名的文档身份。`Revision` 用于识别未变化快照；未保存编辑通过 `Search` / `Literal` 的 overlay 参数覆盖磁盘版本，不写入持久索引。
+`native/search` 拥有 Tantivy 全文索引与查询契约；`native/platform/filesystem/vaultsearchstore` 负责为每个笔记库选择持久目录。上层提供已解析的磁盘快照，不让搜索后端遍历笔记库或重读文件。`ID` 用于更新、删除；当前 UI 由工作区相对路径生成 ID，重命名按旧 ID 删除、新 ID 插入处理，尚未实现跨重命名的文档身份。`Revision` 用于识别未变化快照；未保存编辑通过 `Search` / `Literal` 的 overlay 参数覆盖磁盘版本，不写入持久索引。
 
 接口为 `Open(dir)`、`Reconcile(ctx, docs)`、`Apply(ctx, upserts, deletes)`、`Search(ctx, query, limit, overlays...)`、`Literal(ctx, query, limit, overlays...)` 和 `Close()`。`Reconcile` 使索引与传入快照一致；增量事件使用 `Apply`。普通搜索返回相关文档，字面量搜索保留子串语义及 UTF-8 字节区间。关闭索引后可从同一目录重开。
 

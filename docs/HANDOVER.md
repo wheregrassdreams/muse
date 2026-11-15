@@ -1,7 +1,10 @@
-# 交接：Muse 的现状（2026-11-09）
+# 交接：Muse 的历史实现记录（2026-11-09）
 
 这份写给接手的人（或 agent）。读完应该能：不改坏东西地跑起来、知道每个决定背后的理由、
 知道下一步该做什么、以及哪些坑已经踩过了。
+
+> 当前目录布局、模块职责和依赖边界以 [architecture.md](architecture.md) 与源码为准。本文后续
+> 的实现细节记录于模块化重构之前，保留作行为背景；其中旧文件路径和待办项不代表当前状态。
 
 ---
 
@@ -157,7 +160,7 @@ MUSE_PERF=1 sh scripts/go.sh -C native test ./editor -run TestTypingFrameBudget 
 
 ---
 
-## 6. ★ `native/mdoc/texcanvas/`：vendored 的上游，带两个补丁
+## 6. ★ `native/markdown/math/texcanvas/`：vendored 的上游，带两个补丁
 
 `go-tex` 的 `tex/canvasr` 有两个 bug，我们把那个文件抄进来（MIT，保留版权）+ 改了两处：
 
@@ -168,7 +171,7 @@ MUSE_PERF=1 sh scripts/go.sh -C native test ./editor -run TestTypingFrameBudget 
 
 两处都已报上游：[#6](https://github.com/Luo-Studio/go-tex/issues/6)、
 [#7](https://github.com/Luo-Studio/go-tex/issues/7)。**上游修好后**：删掉整个
-`native/mdoc/texcanvas/`，`math_image.go` 改回 `render.PNGTo`，`docs/rendering.md` 里那段
+`native/markdown/math/texcanvas/`，数学渲染恢复为上游 API，`docs/rendering.md` 里那段
 说明也删掉。
 
 ---

@@ -1,15 +1,23 @@
-# 笔记库运行时：第一批实现
+# 笔记库运行时：模块职责与行为记录
 
 Markdown 文件是真源；索引是可重建投影，恢复记录不是替代文件格式。
 
+当前目录与依赖边界以 [architecture.md](architecture.md) 为准；本文入口已按当前模块更新，
+较早的实现路径仅用于描述行为背景。
+
 ## 模块与边界
 
-- `notestore`：SHA-256 版本校验、原子保存、恢复草稿及每文件最多 20 个保存前历史版本。配置目录 `recovery/` 下的目录/恢复记录使用私有权限。
-- `vaultwatch`：fsnotify 递归监听与独立当前文件监听；80ms 合并，事件队列有界，溢出通知重扫。
-- `vaultindex`：后台维护 Markdown 结构快照；文件、标题、别名、标签、块 ID、链接及反链。其线性查询 API 保留用于对照，产品全文入口由 `vaultsearch` 承担。
-- `vaultsearch`：实验接入 Anytype 的 Tantivy Go/Rust 绑定；磁盘持久缓存、中英文全文及字面量搜索、增量更新与恢复。构建与资源验收见 [tantivy-search.md](tantivy-search.md)。
-- `nativeui/document_runtime.go`：750ms 停止输入后触发草稿/自动保存、处理结果、提供恢复与冲突界面。
-- `nativeui/vault_runtime.go`：在 UI 帧中接收后台事件/索引结果。IO 和索引构建在 goroutine；后台不得直接修改 Editor/App。
+- `application/document`：保存、恢复、版本历史和冲突合并用例；`document` 声明数据仓储端口，
+  `platform/filesystem/documentstore` 提供具体存储。
+- `application/vault`：笔记库 Session、后台刷新/查询、关联笔记与文件操作；`vault/watch` 和
+  `vault/index` 承担监听与结构索引，`search` 承担全文查询，具体适配由 `app` 组合。
+- `application/workspace` 与 `workspace`：最近文档、工作区恢复用例，以及可持久化的 tab、pane、
+  分屏和光标快照；`platform/filesystem/workspacestore` 实现快照存储。
+- `nativeui`：将 Session 快照和结果呈现到界面；界面通过依赖注入调用用例，不负责文件存储或
+  索引实现。完整依赖方向见 [architecture.md](architecture.md)。
+
+全文索引实现于 `search`，持久索引目录适配于
+`platform/filesystem/vaultsearchstore`；搜索/重建的进程资源边界见 [tantivy-search.md](tantivy-search.md)。
 
 ## 用户入口
 
