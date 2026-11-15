@@ -20,16 +20,20 @@ func MissingImageMessage(src string) string {
 	return locales.DocumentMissingImageNamed(src)
 }
 
-// ResolveImageSource is the compatibility adapter for callers that do not
-// provide an indexed attachment lookup.
+// ResolveImageSource resolves a path relative to a document or vault root.
+// Vault-rooted resolution requires the LocalFiles capability for confinement.
 func ResolveImageSource(src, base, root string) string {
-	return ResolveImageSourceWithLookup(src, base, root, func(name string) string {
-		return images.FindAttachment(root, name)
-	})
+	return ResolveImageSourceWithLocalFilesAndLookup(src, base, root, nil, nil)
 }
 
 // ResolveImageSourceWithLookup adapts the native UI's vault lookup callback to
 // the Markdown feature's renderer-neutral source resolver.
 func ResolveImageSourceWithLookup(src, base, root string, lookup func(name string) string) string {
-	return images.ResolveSource(src, images.SourceOptions{BaseDir: base, Root: root, Lookup: lookup})
+	return ResolveImageSourceWithLocalFilesAndLookup(src, base, root, nil, lookup)
+}
+
+// ResolveImageSourceWithLocalFilesAndLookup resolves a source using the
+// platform-provided file capability and an optional catalog attachment lookup.
+func ResolveImageSourceWithLocalFilesAndLookup(src, base, root string, files images.LocalFiles, lookup func(name string) string) string {
+	return images.ResolveSource(src, images.SourceOptions{BaseDir: base, Root: root, Lookup: lookup, LocalFiles: files})
 }

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"muse/platform/filesystem/imagefiles"
 )
 
 func TestImageAssetAdaptsFeatureFrameToBitmap(t *testing.T) {
@@ -22,7 +24,8 @@ func TestImageAssetAdaptsFeatureFrameToBitmap(t *testing.T) {
 	}
 
 	loaded := make(chan struct{}, 1)
-	asset := LoadImageAsset(path, "", func() { loaded <- struct{}{} })
+	files := imagefiles.New()
+	asset := LoadImageAssetWithLocalFiles(path, "", files, nil, nil, func() { loaded <- struct{}{} })
 	select {
 	case <-loaded:
 	case <-time.After(5 * time.Second):
@@ -44,7 +47,7 @@ func TestImageAssetAdaptsFeatureFrameToBitmap(t *testing.T) {
 	if w, h := bitmap.Size(); w != 24 || h != 12 {
 		t.Fatalf("bitmap size=(%d,%d), want (24,12)", w, h)
 	}
-	if got := LoadImageAsset(path, "", nil); got != asset {
+	if got := LoadImageAssetWithLocalFiles(path, "", files, nil, nil, nil); got != asset {
 		t.Fatal("same feature Asset did not reuse its live UI adapter")
 	}
 }

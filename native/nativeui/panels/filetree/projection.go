@@ -30,6 +30,7 @@ type DragProjection struct {
 	OperationID       string
 	ImagePath         string
 	ImageCacheStore   images.CacheStore
+	LocalFiles        images.LocalFiles
 	OnImageLoad       func()
 }
 
@@ -89,7 +90,7 @@ func RenderDragProjection(c *ui.Context, model DragProjection) {
 }
 
 func renderDragImage(c *ui.Context, model DragProjection, t *ui.Theme) {
-	asset := markdownui.LoadImageAssetWithCacheStore(model.ImagePath, "", model.ImageCacheStore, model.OnImageLoad)
+	asset := markdownui.LoadImageAssetWithLocalFiles(model.ImagePath, "", model.LocalFiles, model.ImageCacheStore, nil, model.OnImageLoad)
 	if asset == nil {
 		return
 	}

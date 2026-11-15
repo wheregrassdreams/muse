@@ -11,6 +11,7 @@ import (
 type Content struct {
 	state      state
 	cache      images.CacheStore
+	localFiles images.LocalFiles
 	source     string
 	label      string
 	onMain     func(func())
@@ -27,12 +28,19 @@ func NewContent(source, label string, cache images.CacheStore, onMain func(func(
 
 func (s *Content) Bind(controls window.Controls) { s.controls = controls }
 
+// SetLocalFiles injects the platform file adapter before the first render.
+func (s *Content) SetLocalFiles(files images.LocalFiles) {
+	if s != nil && !s.state.open {
+		s.localFiles = files
+	}
+}
+
 func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
 		return
 	}
 	if s.state.asset == nil && !s.state.open {
-		s.state.Open(s.source, s.label, s.cache, s.onMain, s.invalidate)
+		s.state.Open(s.source, s.label, s.cache, s.localFiles, s.onMain, s.invalidate)
 	}
 	if next := s.state.Advance(c.Now()); next > 0 {
 		c.After(next)

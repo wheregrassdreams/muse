@@ -83,7 +83,13 @@ func LoadImageAssetWithSize(src, baseDir string, onSize, onLoad func()) *ImageAs
 // LoadImageAssetWithSizeAndCacheStore combines intrinsic-size and completion
 // callbacks with an optional application supplied remote cache store.
 func LoadImageAssetWithSizeAndCacheStore(src, baseDir string, store images.CacheStore, onSize, onLoad func()) *ImageAsset {
-	asset := images.Load(src, images.LoadOptions{Source: images.SourceOptions{BaseDir: baseDir}, Store: store}, onSize, onLoad)
+	return LoadImageAssetWithLocalFiles(src, baseDir, nil, store, onSize, onLoad)
+}
+
+// LoadImageAssetWithLocalFiles loads through the supplied consumer-owned local
+// file capability while keeping remote byte caching and decode in markdown/images.
+func LoadImageAssetWithLocalFiles(src, baseDir string, files images.LocalFiles, store images.CacheStore, onSize, onLoad func()) *ImageAsset {
+	asset := images.Load(src, images.LoadOptions{Source: images.SourceOptions{BaseDir: baseDir, LocalFiles: files}, Store: store}, onSize, onLoad)
 	return wrapImageAsset(asset)
 }
 

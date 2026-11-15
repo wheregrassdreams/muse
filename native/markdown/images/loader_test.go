@@ -43,7 +43,8 @@ func TestLoaderSharesFileAssetAndInvalidatesChangedFile(t *testing.T) {
 	sizes := make(chan image.Point, 2)
 	returned := make(chan struct{})
 	var a *Asset
-	a = l.Load(path, LoadOptions{}, func() {
+	options := LoadOptions{Source: SourceOptions{LocalFiles: testLocalFiles{}}}
+	a = l.Load(path, options, func() {
 		<-returned
 		p, ok := a.IntrinsicSize()
 		if !ok {
@@ -66,13 +67,13 @@ func TestLoaderSharesFileAssetAndInvalidatesChangedFile(t *testing.T) {
 	if _, ok := a.CurrentFrame().(*image.RGBA); !ok {
 		t.Fatalf("static frame type %T, want *image.RGBA for zero-copy UI adaptation", a.CurrentFrame())
 	}
-	if got := l.Load(path, LoadOptions{}, nil, nil); got != a {
+	if got := l.Load(path, options, nil, nil); got != a {
 		t.Fatal("same file source did not reuse its Asset")
 	}
 	if err := os.WriteFile(path, pngFixture(t, 60, 30), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	b := l.Load(path, LoadOptions{}, nil, func() { loaded <- struct{}{} })
+	b := l.Load(path, options, nil, func() { loaded <- struct{}{} })
 	if b == a {
 		t.Fatal("changed file reused stale Asset")
 	}

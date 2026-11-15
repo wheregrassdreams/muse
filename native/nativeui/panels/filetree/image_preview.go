@@ -15,6 +15,7 @@ type ImagePreview struct {
 	Path       string
 	Anchor     ui.Rect
 	CacheStore images.CacheStore
+	LocalFiles images.LocalFiles
 	OnLoad     func()
 }
 
@@ -25,7 +26,7 @@ func RenderImagePreview(c *ui.Context, preview ImagePreview) bool {
 	if preview.Path == "" {
 		return false
 	}
-	asset := markdownui.LoadImageAssetWithCacheStore(preview.Path, "", preview.CacheStore, preview.OnLoad)
+	asset := markdownui.LoadImageAssetWithLocalFiles(preview.Path, "", preview.LocalFiles, preview.CacheStore, nil, preview.OnLoad)
 	if asset == nil {
 		return false
 	}

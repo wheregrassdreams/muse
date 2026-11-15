@@ -1,7 +1,7 @@
 package images
 
 import (
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,7 +52,7 @@ func (l *Loader) Load(src string, options LoadOptions, onSize, onLoad func()) *A
 	}
 	src = strings.TrimSpace(src)
 	if src == "" {
-		return &Asset{loaded: true, failed: true}
+		return failedAsset(fs.ErrInvalid)
 	}
 	var key AssetKey
 	var identity SourceIdentity
@@ -75,18 +75,24 @@ func (l *Loader) Load(src string, options LoadOptions, onSize, onLoad func()) *A
 			key.Value = strings.Clone(src)
 		}
 	default:
+		if options.Source.LocalFiles == nil {
+			return failedAsset(ErrLocalFilesRequired)
+		}
 		path = ResolveSource(src, options.Source)
 		if path == "" {
-			return &Asset{loaded: true, failed: true}
+			return failedAsset(fs.ErrNotExist)
 		}
 		absPath, err := filepath.Abs(path)
 		if err != nil {
-			return &Asset{loaded: true, failed: true}
+			return failedAsset(err)
 		}
 		path = absPath
-		st, err := os.Stat(path)
+		st, err := options.Source.LocalFiles.Stat(path)
 		if err != nil || !st.Mode().IsRegular() {
-			return &Asset{loaded: true, failed: true}
+			if err == nil {
+				err = fs.ErrInvalid
+			}
+			return failedAsset(err)
 		}
 		mod, size = st.ModTime(), st.Size()
 		key = AssetKey{Kind: AssetFile, Value: path}
@@ -114,7 +120,7 @@ func (l *Loader) Load(src string, options LoadOptions, onSize, onLoad func()) *A
 	if key.Kind == AssetRemote || key.Kind == AssetData {
 		loadPath = src
 	}
-	LoadSourceBytes(loadPath, SourceOptions{}, options.Store, func(data []byte, err error) {
+	LoadSourceBytes(loadPath, SourceOptions{LocalFiles: options.Source.LocalFiles}, options.Store, func(data []byte, err error) {
 		if err != nil {
 			a.fail(err)
 			return
@@ -127,6 +133,8 @@ func (l *Loader) Load(src string, options LoadOptions, onSize, onLoad func()) *A
 	})
 	return a
 }
+
+func failedAsset(err error) *Asset { return &Asset{loaded: true, failed: true, err: err} }
 
 func nonNilWaiters(fn func()) []func() {
 	if fn == nil {

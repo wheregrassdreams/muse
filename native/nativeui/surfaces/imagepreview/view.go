@@ -68,12 +68,12 @@ type state struct {
 	open         bool
 }
 
-func (s *state) Open(source, label string, cache images.CacheStore, onMain func(func()), invalidate func()) {
+func (s *state) Open(source, label string, cache images.CacheStore, files images.LocalFiles, onMain func(func()), invalidate func()) {
 	if s == nil || source == "" {
 		return
 	}
 	*s = state{source: source, label: label, open: true, loading: true, zoom: 1}
-	s.asset = markdownui.LoadImageAssetWithCacheStore(source, "", cache, func() {
+	s.asset = markdownui.LoadImageAssetWithLocalFiles(source, "", files, cache, nil, func() {
 		complete := func() {
 			if !s.open || s.source != source {
 				return

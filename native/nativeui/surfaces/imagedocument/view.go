@@ -50,11 +50,11 @@ type state struct {
 	dragX, dragY float32
 }
 
-func (s *state) Open(path string, cache images.CacheStore) {
+func (s *state) Open(path string, cache images.CacheStore, files images.LocalFiles) {
 	if s == nil || path == "" {
 		return
 	}
-	*s = state{path: path, bmp: markdownui.LoadImageWithCacheStore(path, "", cache, nil), open: true, zoom: 1}
+	*s = state{path: path, bmp: markdownui.LoadImageWithLocalFiles(path, "", files, cache, nil), open: true, zoom: 1}
 }
 
 func (s *state) Close() {

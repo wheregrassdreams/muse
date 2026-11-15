@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"muse/platform/filesystem/imagefiles"
 )
 
 // View draws a document with the ui package alone; the headless Tester
@@ -94,10 +95,20 @@ func TestRenderBareAttachmentFallsBackToVaultAssetRoot(t *testing.T) {
 	src := "![Bare attachment](landscape.webp)\n"
 	doc := Parse(src)
 	done := make(chan struct{}, 1)
+	localFiles := imagefiles.New()
 	tt := ui.NewTester(func(c *ui.Context) {
 		View(c, doc, Options{
-			BaseDir:   base,
-			AssetRoot: root,
+			BaseDir:    base,
+			AssetRoot:  root,
+			LocalFiles: localFiles,
+			ResolveImage: func(src, base, root string) string {
+				return ResolveImageSourceWithLocalFilesAndLookup(src, base, root, localFiles, func(name string) string {
+					if name == "landscape.webp" {
+						return filepath.Join(root, "Attachments", name)
+					}
+					return ""
+				})
+			},
 			OnAsync: func() {
 				select {
 				case done <- struct{}{}:
@@ -116,7 +127,9 @@ func TestRenderBareAttachmentFallsBackToVaultAssetRoot(t *testing.T) {
 	if want := MissingImageMessage("landscape.webp"); tt.HasText(want) {
 		t.Fatalf("bare vault attachment rendered as missing: %q", tt.Texts())
 	}
-	if got, want := ResolveImageSource("landscape.webp", base, root), filepath.Join(root, "Attachments", "landscape.webp"); got != want {
+	if got, want := ResolveImageSourceWithLocalFilesAndLookup("landscape.webp", base, root, localFiles, func(name string) string {
+		return filepath.Join(root, "Attachments", name)
+	}), filepath.Join(root, "Attachments", "landscape.webp"); got != want {
 		t.Fatalf("bare vault attachment resolved to %q, want %q", got, want)
 	}
 }

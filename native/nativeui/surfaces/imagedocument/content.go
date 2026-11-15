@@ -7,6 +7,7 @@ import (
 )
 
 type SurfaceOptions struct {
+	LocalFiles    images.LocalFiles
 	Header        func(*ui.Context)
 	HeaderHeight  func(*ui.Context) float32
 	BacklinkCount func() int
@@ -26,7 +27,7 @@ type Content struct {
 
 func NewContent(path string, cache images.CacheStore, options SurfaceOptions) (*Content, bool) {
 	content := &Content{options: options}
-	content.state.Open(path, cache)
+	content.state.Open(path, cache, options.LocalFiles)
 	return content, content.state.HasImage()
 }
 

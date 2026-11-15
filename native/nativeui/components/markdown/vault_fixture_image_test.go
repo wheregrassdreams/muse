@@ -5,7 +5,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"muse/platform/filesystem/imagefiles"
+	"muse/platform/filesystem/vaultfilessource"
+	vaultfiles "muse/vault/files"
 )
+
+func fixtureImageCatalog(t *testing.T, root string) *vaultfiles.Catalog {
+	t.Helper()
+	source, err := vaultfilessource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := vaultfiles.New(source)
+	if err := catalog.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	return catalog
+}
 
 func TestVaultFixtureImagesResolveAndDecode(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", "..", "testdata", "vault-fixture"))
@@ -13,6 +30,8 @@ func TestVaultFixtureImagesResolveAndDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := filepath.Join(root, "Projects", "Atlas")
+	localFiles := imagefiles.New()
+	catalog := fixtureImageCatalog(t, root)
 	cases := []struct {
 		name, src, wantPath string
 		minWidth, minHeight int
@@ -24,11 +43,11 @@ func TestVaultFixtureImagesResolveAndDecode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolved := ResolveImageSource(tc.src, base, root)
+			resolved := ResolveImageSourceWithLocalFilesAndLookup(tc.src, base, root, localFiles, catalog.FindImage)
 			if resolved != tc.wantPath {
 				t.Fatalf("ResolveImageSource(%q) = %q, want %q", tc.src, resolved, tc.wantPath)
 			}
-			bmp := LoadImage(resolved, "", nil)
+			bmp := LoadImageWithLocalFiles(resolved, "", localFiles, nil, nil)
 			if bmp == nil {
 				t.Fatalf("image did not decode: %s", resolved)
 			}
@@ -61,14 +80,14 @@ func TestResolveImageSourceWithSharedLookup(t *testing.T) {
 		}
 		return ""
 	}
-	if got := ResolveImageSourceWithLookup("shared.png", base, root, lookup); got != image {
+	if got := ResolveImageSourceWithLocalFilesAndLookup("shared.png", base, root, imagefiles.New(), lookup); got != image {
 		t.Fatalf("resolved = %q, want %q", got, image)
 	}
 	if calls != 1 {
 		t.Fatalf("lookup calls = %d, want 1", calls)
 	}
 	remote := "https://example.test/image.png"
-	if got := ResolveImageSourceWithLookup(remote, base, root, lookup); got != remote {
+	if got := ResolveImageSourceWithLocalFilesAndLookup(remote, base, root, imagefiles.New(), lookup); got != remote {
 		t.Fatalf("remote = %q", got)
 	}
 	if calls != 1 {
@@ -78,7 +97,7 @@ func TestResolveImageSourceWithSharedLookup(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveImageSourceWithLookup("outside.png", base, root, func(string) string { return outside }); got == outside {
+	if got := ResolveImageSourceWithLocalFilesAndLookup("outside.png", base, root, imagefiles.New(), func(string) string { return outside }); got == outside {
 		t.Fatalf("outside resolver escaped root: %q", got)
 	}
 }
@@ -90,8 +109,10 @@ func TestVaultFixtureBareDuplicateAttachmentHasStableResolution(t *testing.T) {
 	}
 	base := filepath.Join(root, "Journal")
 	want := filepath.Join(root, "Assets", "diagram.png")
+	localFiles := imagefiles.New()
+	catalog := fixtureImageCatalog(t, root)
 	for attempt := 0; attempt < 3; attempt++ {
-		if got := ResolveImageSource("diagram.png", base, root); got != want {
+		if got := ResolveImageSourceWithLocalFilesAndLookup("diagram.png", base, root, localFiles, catalog.FindImage); got != want {
 			t.Fatalf("duplicate bare attachment resolution = %q, want deterministic %q", got, want)
 		}
 	}
@@ -108,12 +129,13 @@ func TestImageResolutionCannotEscapeVaultRoot(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("not an image"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := ResolveImageSource("../../outside.png", base, root); got != "" {
+	localFiles := imagefiles.New()
+	if got := ResolveImageSourceWithLocalFilesAndLookup("../../outside.png", base, root, localFiles, nil); got != "" {
 		t.Fatalf("outside relative path resolved to %q", got)
 	}
 	link := filepath.Join(root, "linked-outside.png")
 	if err := os.Symlink(outside, link); err == nil {
-		if got := ResolveImageSource("linked-outside.png", root, root); got != "" {
+		if got := ResolveImageSourceWithLocalFilesAndLookup("linked-outside.png", root, root, localFiles, nil); got != "" {
 			t.Fatalf("symlink to outside file resolved to %q", got)
 		}
 	}
@@ -141,12 +163,14 @@ func TestImageResolutionKeepsMissingFallbackUnderTmpSymlinkRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := ResolveImageSource("fallback.jpg", base, root)
+	localFiles := imagefiles.New()
+	catalog := fixtureImageCatalog(t, root)
+	got := ResolveImageSourceWithLocalFilesAndLookup("fallback.jpg", base, root, localFiles, catalog.FindImage)
 	want := filepath.Join(attachments, "fallback.jpg")
 	if got != want {
 		t.Fatalf("missing local image did not fall back to vault attachment: got %q, want %q", got, want)
 	}
-	if LoadImage(got, "", nil) == nil {
+	if LoadImageWithLocalFiles(got, "", localFiles, nil, nil) == nil {
 		t.Fatal("resolved JPEG fallback did not decode")
 	}
 }
@@ -161,15 +185,17 @@ func TestVaultFixtureGalleryRendersKnownAndMissingAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := Parse(string(source))
+	localFiles := imagefiles.New()
+	catalog := fixtureImageCatalog(t, root)
 	images := 0
 	for _, block := range doc.Blocks {
 		if block.Kind != Image {
 			continue
 		}
 		images++
-		resolved := ResolveImageSource(block.Src, root, root)
+		resolved := ResolveImageSourceWithLocalFilesAndLookup(block.Src, root, root, localFiles, catalog.FindImage)
 		if strings.Contains(block.Src, "not-present") {
-			if LoadImage(resolved, "", nil) != nil {
+			if LoadImageWithLocalFiles(resolved, "", localFiles, nil, nil) != nil {
 				t.Errorf("missing fixture image unexpectedly loaded: %s", block.Src)
 			}
 			if got := MissingImageMessage(block.Src); !strings.Contains(got, block.Src) {
@@ -177,7 +203,7 @@ func TestVaultFixtureGalleryRendersKnownAndMissingAssets(t *testing.T) {
 			}
 			continue
 		}
-		if LoadImage(resolved, "", nil) == nil {
+		if LoadImageWithLocalFiles(resolved, "", localFiles, nil, nil) == nil {
 			t.Errorf("gallery image %q failed to render from %q", block.Src, resolved)
 		}
 	}

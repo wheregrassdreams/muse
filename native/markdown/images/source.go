@@ -1,21 +1,32 @@
 package images
 
 import (
+	"errors"
 	"io/fs"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 )
+
+// LocalFiles is the filesystem capability consumed by image path resolution
+// and loading. The platform adapter supplies the concrete implementation.
+type LocalFiles interface {
+	Stat(path string) (fs.FileInfo, error)
+	ReadFile(path string) ([]byte, error)
+	EvalSymlinks(path string) (string, error)
+}
+
+// ErrLocalFilesRequired is returned when a local image operation has no
+// filesystem capability. Remote and data URL sources do not require one.
+var ErrLocalFilesRequired = errors.New("markdown/images: local file capability is required")
 
 // SourceOptions describes the filesystem boundary used to resolve a Markdown
 // image reference. Lookup is consulted only for a bare attachment name.
 type SourceOptions struct {
-	BaseDir string
-	Root    string
-	Lookup  func(name string) string
+	BaseDir    string
+	Root       string
+	Lookup     func(name string) string
+	LocalFiles LocalFiles
 }
 
 // ResolveSource resolves a Markdown image reference without decoding it. A
@@ -29,20 +40,22 @@ func ResolveSource(src string, options SourceOptions) string {
 	if abs, err := filepath.Abs(local); err == nil {
 		local = abs
 	}
-	if options.Root != "" && !pathWithinRoot(local, options.Root) {
-		return ""
+	if options.Root != "" {
+		if options.LocalFiles == nil || !pathWithinRoot(local, options.Root, options.LocalFiles) {
+			return ""
+		}
 	}
-	if st, err := os.Stat(local); err == nil && !st.IsDir() {
+	if st, err := stat(options.LocalFiles, local); err == nil && st != nil && !st.IsDir() {
 		return local
 	}
 	if options.Root == "" {
 		return local
 	}
 	rel := resolvePath(src, options.Root)
-	if !pathWithinRoot(rel, options.Root) {
+	if !pathWithinRoot(rel, options.Root, options.LocalFiles) {
 		return ""
 	}
-	if st, err := os.Stat(rel); err == nil && !st.IsDir() {
+	if st, err := stat(options.LocalFiles, rel); err == nil && st != nil && !st.IsDir() {
 		return rel
 	}
 	if strings.ContainsAny(src, "/\\") || options.Lookup == nil {
@@ -52,8 +65,11 @@ func ResolveSource(src string, options SourceOptions) string {
 		if abs, err := filepath.Abs(p); err == nil {
 			p = abs
 		}
-		if pathWithinRoot(p, options.Root) {
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		if pathWithinRoot(p, options.Root, options.LocalFiles) {
+			if options.LocalFiles == nil {
+				return p
+			}
+			if st, err := stat(options.LocalFiles, p); err == nil && st != nil && !st.IsDir() {
 				return p
 			}
 		}
@@ -78,12 +94,16 @@ func LoadSourceBytes(src string, options SourceOptions, store CacheStore, comple
 		SubmitDecode(func() { data, err := dataURLBytes(src); complete(data, err) })
 		return
 	}
-	path := ResolveSource(src, options)
-	if path == "" {
-		SubmitDecode(func() { complete(nil, os.ErrNotExist) })
+	if options.LocalFiles == nil {
+		SubmitDecode(func() { complete(nil, ErrLocalFilesRequired) })
 		return
 	}
-	SubmitDecode(func() { data, err := os.ReadFile(path); complete(data, err) })
+	path := ResolveSource(src, options)
+	if path == "" {
+		SubmitDecode(func() { complete(nil, fs.ErrNotExist) })
+		return
+	}
+	SubmitDecode(func() { data, err := options.LocalFiles.ReadFile(path); complete(data, err) })
 }
 
 // ReadLocalSource synchronously resolves and reads a local source for APIs
@@ -91,13 +111,23 @@ func LoadSourceBytes(src string, options SourceOptions, store CacheStore, comple
 // asynchronous document loading should use Loader.Load instead.
 func ReadLocalSource(src string, options SourceOptions) ([]byte, error) {
 	if strings.TrimSpace(src) == "" || isRemote(src) || strings.HasPrefix(src, "data:") {
-		return nil, os.ErrInvalid
+		return nil, fs.ErrInvalid
+	}
+	if options.LocalFiles == nil {
+		return nil, ErrLocalFilesRequired
 	}
 	path := ResolveSource(src, options)
 	if path == "" {
-		return nil, os.ErrNotExist
+		return nil, fs.ErrNotExist
 	}
-	return os.ReadFile(path)
+	return options.LocalFiles.ReadFile(path)
+}
+
+func stat(files LocalFiles, path string) (fs.FileInfo, error) {
+	if files == nil {
+		return nil, ErrLocalFilesRequired
+	}
+	return files.Stat(path)
 }
 
 func resolvePath(src, base string) string {
@@ -118,51 +148,7 @@ func isRemote(src string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(src)), "http://") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(src)), "https://")
 }
 
-type attachmentPaths struct {
-	at    time.Time
-	names map[string]string
-}
-
-var attachmentIndexes sync.Map
-
-// FindAttachment is a bounded-time path catalog fallback for callers without
-// a maintained vault attachment index. It stores paths only, never pixels.
-func FindAttachment(root, name string) string {
-	name = strings.ToLower(filepath.Base(name))
-	var idx attachmentPaths
-	if old, ok := attachmentIndexes.Load(root); ok {
-		idx = old.(attachmentPaths)
-	}
-	if idx.names == nil || time.Since(idx.at) > 10*time.Second {
-		idx = attachmentPaths{at: time.Now(), names: map[string]string{}}
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if path != root && strings.HasPrefix(d.Name(), ".") {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			switch strings.ToLower(filepath.Ext(d.Name())) {
-			case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".heic", ".heif":
-			default:
-				return nil
-			}
-			key := strings.ToLower(d.Name())
-			old := idx.names[key]
-			if old == "" || len(path) < len(old) || len(path) == len(old) && path < old {
-				idx.names[key] = path
-			}
-			return nil
-		})
-		attachmentIndexes.Store(root, idx)
-	}
-	return idx.names[name]
-}
-
-func pathWithinRoot(path, root string) bool {
+func pathWithinRoot(path, root string, files LocalFiles) bool {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return false
@@ -174,12 +160,38 @@ func pathWithinRoot(path, root string) bool {
 	if !pathUnder(absRoot, absPath) {
 		return false
 	}
-	resolvedRoot, rootErr := filepath.EvalSymlinks(absRoot)
-	resolvedPath, pathErr := filepath.EvalSymlinks(absPath)
-	if rootErr == nil && pathErr == nil {
-		return pathUnder(resolvedRoot, resolvedPath)
+	if files == nil {
+		return false
 	}
-	return true
+	resolvedRoot, err := files.EvalSymlinks(absRoot)
+	if err != nil {
+		return false
+	}
+	resolvedPath, err := evalPathWithMissingSuffix(files, absPath)
+	return err == nil && pathUnder(resolvedRoot, resolvedPath)
+}
+
+func evalPathWithMissingSuffix(files LocalFiles, path string) (string, error) {
+	current := path
+	var suffix []string
+	for {
+		resolved, err := files.EvalSymlinks(current)
+		if err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, suffix[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
 }
 
 func pathUnder(root, path string) bool {

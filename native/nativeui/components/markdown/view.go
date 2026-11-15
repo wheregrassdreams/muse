@@ -52,6 +52,8 @@ type Options struct {
 	// ImageCacheStore is supplied by application composition. Markdown owns
 	// cache keys and validation; the store owns concrete persistence.
 	ImageCacheStore images.CacheStore
+	// LocalFiles is the platform adapter for local image source reads.
+	LocalFiles images.LocalFiles
 	// ResolveImage overrides path resolution when the application maintains a
 	// shared vault file catalog. Nil uses the standalone resolver.
 	ResolveImage func(src, base, root string) string
@@ -434,11 +436,11 @@ func renderImage(c *ui.Context, b mdrender.Block, s rstyle) {
 	if s.o.ResolveImage != nil {
 		path = s.o.ResolveImage(b.Src, s.o.BaseDir, s.o.AssetRoot)
 	} else {
-		path = ResolveImageSource(b.Src, s.o.BaseDir, s.o.AssetRoot)
+		path = ResolveImageSourceWithLocalFilesAndLookup(b.Src, s.o.BaseDir, s.o.AssetRoot, s.o.LocalFiles, nil)
 	}
 	var asset *ImageAsset
 	if path != "" {
-		asset = LoadImageAssetWithCacheStore(path, "", s.o.ImageCacheStore, s.o.OnAsync)
+		asset = LoadImageAssetWithLocalFiles(path, "", s.o.LocalFiles, s.o.ImageCacheStore, nil, s.o.OnAsync)
 	}
 	if asset == nil {
 		imagePlaceholder(c, b.Src, b.Src, t, s.o.OnImagePreview)
@@ -534,8 +536,8 @@ func remoteBitmapWithCacheStore(src string, store images.CacheStore, done func()
 	return nil
 }
 
-func loadBitmap(path string) *ui.Bitmap {
-	data, err := images.ReadLocalSource(path, images.SourceOptions{})
+func loadBitmap(path string, files images.LocalFiles) *ui.Bitmap {
+	data, err := images.ReadLocalSource(path, images.SourceOptions{LocalFiles: files})
 	if err != nil {
 		return nil
 	}
@@ -608,6 +610,12 @@ func LoadImage(src, baseDir string, onLoad func()) *ui.Bitmap {
 // LoadImageWithCacheStore is LoadImage with an application supplied store
 // for remote image source bytes.
 func LoadImageWithCacheStore(src, baseDir string, store images.CacheStore, onLoad func()) *ui.Bitmap {
+	return LoadImageWithLocalFiles(src, baseDir, nil, store, onLoad)
+}
+
+// LoadImageWithLocalFiles loads a document image using the supplied local file
+// capability and optional remote byte cache.
+func LoadImageWithLocalFiles(src, baseDir string, files images.LocalFiles, store images.CacheStore, onLoad func()) *ui.Bitmap {
 	src = strings.TrimSpace(src)
 	switch {
 	case src == "":
@@ -617,11 +625,11 @@ func LoadImageWithCacheStore(src, baseDir string, store images.CacheStore, onLoa
 	case strings.HasPrefix(src, "data:"):
 		return dataBitmap(src)
 	}
-	path := images.ResolveSource(src, images.SourceOptions{BaseDir: baseDir})
+	path := images.ResolveSource(src, images.SourceOptions{BaseDir: baseDir, LocalFiles: files})
 	if path == "" {
 		return nil
 	}
-	return loadBitmap(path)
+	return loadBitmap(path, files)
 }
 
 // dataBitmap decodes a base64 data: URL, as pasted images are kept.

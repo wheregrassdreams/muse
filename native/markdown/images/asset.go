@@ -19,6 +19,7 @@ type Asset struct {
 	frame                    int
 	next                     time.Time
 	loaded, failed           bool
+	err                      error
 	version                  uint64
 	intrinsic                image.Point
 	intrinsicSet             bool
@@ -45,6 +46,16 @@ func (a *Asset) Failed() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.failed
+}
+
+// Failure returns the source or decode error after loading has failed.
+func (a *Asset) Failure() error {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.err
 }
 
 // IntrinsicSize returns dimensions published before pixel decode when known.
@@ -231,6 +242,7 @@ func (a *Asset) finish(decoded Decoded, err error) {
 	}
 	a.loaded = true
 	a.failed = err != nil || len(a.frames) == 0 && a.animator == nil
+	a.err = err
 	waiters := a.loadWaiters
 	a.loadWaiters = nil
 	a.sizeWaiters = nil

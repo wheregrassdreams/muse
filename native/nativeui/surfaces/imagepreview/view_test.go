@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"muse/platform/filesystem/imagefiles"
 )
 
 func TestTypedActionsUpdatePreviewState(t *testing.T) {
@@ -50,7 +52,7 @@ func TestContentCloseIsIdempotent(t *testing.T) {
 func TestOpenMissingLocalImageStopsLoading(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.png")
 	var state state
-	state.Open(path, "missing.png", nil, nil, nil)
+	state.Open(path, "missing.png", nil, imagefiles.New(), nil, nil)
 	if state.asset == nil || !state.asset.Failed() {
 		t.Fatal("missing local image was not reported as failed by the asset")
 	}
@@ -67,7 +69,7 @@ func TestOpenDecodeFailureStopsLoading(t *testing.T) {
 
 	mainQueue := make(chan func(), 1)
 	var state state
-	state.Open(path, "invalid.png", nil, func(complete func()) { mainQueue <- complete }, nil)
+	state.Open(path, "invalid.png", nil, imagefiles.New(), func(complete func()) { mainQueue <- complete }, nil)
 
 	select {
 	case complete := <-mainQueue:
