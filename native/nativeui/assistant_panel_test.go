@@ -42,7 +42,9 @@ func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 	app.path = filepath.Join(app.root, "note.md")
 	app.loadDoc("# Title\n\nbody\n")
 	port := &assistantWorkspaceStub{root: app.root, path: app.path, source: app.source}
-	app.newAgentWorkspace = func(string, func() (string, string)) (applicationagent.WorkspacePort, error) { return port, nil }
+	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
+		return port, nil
+	}
 	operations := appAssistantOperations{app: app}
 
 	out := (applicationagent.Executor{Operations: operations}).Execute(context.Background(), applicationagent.ToolRequest{
@@ -92,7 +94,9 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	app.path = filepath.Join(app.root, "note.md")
 	app.loadDoc("before\n")
 	port := &assistantWorkspaceStub{root: app.root, path: app.path, source: app.source}
-	app.newAgentWorkspace = func(string, func() (string, string)) (applicationagent.WorkspacePort, error) { return port, nil }
+	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
+		return port, nil
+	}
 	presenter := &assistantPanel{settings: config.AssistantSettings{Tools: config.AssistantTools{Edit: true}}, permission: applicationagent.AllowChanges}
 	session := applicationagent.NewSession(presenter.settings, &assistantToolClient{}, applicationagent.Capabilities{
 		Tools:  applicationagent.Executor{Operations: appAssistantOperations{app: app}},

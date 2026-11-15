@@ -6,14 +6,17 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"muse/application/agent"
+	applicationvault "muse/application/vault"
 	"muse/config"
 	"muse/document"
 	"muse/locales"
 	mdoc "muse/markdown"
 	"muse/nativeui/components/doctypes"
+	markdownui "muse/nativeui/components/markdown"
 	agentpanel "muse/nativeui/panels/agent"
 )
 
@@ -55,7 +58,8 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		Icon: iconAI, ShowScrollbar: app.aiIndicator.Visible(c.Now(), p.scroll.X, p.scroll.Y),
 		Suggestions: []string{locales.AiSuggestionSummarize(), locales.AiSuggestionFormalize(), locales.AiSuggestionTitles()},
 		RenderMarkdown: func(c *ui.Context, source string, width float32) {
-			mdoc.BlocksView(c, mdoc.Parse(source).Blocks, mdoc.Options{BodyFontSize: 12.5, SoftBreaksAsSpaces: true, ContentWidth: width, BaseDir: app.docDir(), AssetRoot: app.root, OnImagePreview: app.openImagePreview, Padding: 0, IndentStep: 14})
+			doc := mdoc.Parse(source)
+			markdownui.BlocksView(c, doc.Blocks, markdownui.Options{BodyFontSize: 12.5, SoftBreaksAsSpaces: true, ContentWidth: width, BaseDir: app.docDir(), AssetRoot: app.root, OnImagePreview: app.openImagePreview, Padding: 0, IndentStep: 14})
 		}}
 	if strings.TrimSpace(app.ai.BaseURL) == "" || strings.TrimSpace(app.ai.Model) == "" {
 		model.SetupTitle, model.SetupDetail, model.SetupButton = locales.AiSetupModelTitle(), locales.AiSetupModelDetail(), locales.AiSetupModel()
@@ -154,11 +158,25 @@ func (p *assistantPanel) applyEffect(app *App, part agent.Part) {
 		}
 	case agent.InsertDocumentEffect:
 		if effect.Position == "start" {
-			app.insertTextAtStart(effect.Text)
+			app.insertAIContentAtStart(effect.Text)
 		} else {
 			app.insertAIContent(effect.Text)
 		}
 	}
+}
+
+func (a *App) insertAIContentAtStart(text string) {
+	if a == nil || a.ed == nil {
+		return
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	a.ed.PrependBlock(text)
+	a.docChanged()
+	a.notice(locales.DocumentInserted())
+	a.invalidate()
 }
 
 type appAssistantOperations struct{ app *App }
@@ -230,8 +248,7 @@ func (w *appAssistantWorkspace) MoveDocument(root, source, target string) (strin
 	}
 	w.app.onMain(func() {
 		previousPath := w.app.path
-		w.app.dropTreeCache(filepath.Dir(source))
-		w.app.dropTreeCache(filepath.Dir(target))
+		w.app.clearTreeCache()
 		w.app.remapTreePaths([]applicationvault.FileMove{moved})
 		if previousPath != w.app.path {
 			w.app.documentLoaded(w.app.diskSource())
@@ -261,7 +278,7 @@ func (w *appAssistantWorkspace) TrashDocuments(root string, paths []string) erro
 	}
 	w.app.onMain(func() {
 		for _, path := range trashed {
-			w.app.dropTreeCache(filepath.Dir(path))
+			w.app.clearTreeCache()
 			if filepath.Clean(path) == filepath.Clean(w.app.path) {
 				w.app.resetDoc()
 			}
@@ -280,7 +297,7 @@ func (w *appAssistantWorkspace) CreateFolder(path string) error {
 		return err
 	}
 	w.app.onMain(func() {
-		w.app.dropTreeCache(filepath.Dir(path))
+		w.app.clearTreeCache()
 		w.app.invalidate()
 	})
 	w.refresh(path)
