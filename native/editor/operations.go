@@ -74,8 +74,15 @@ type EditorOperation struct {
 	Fold       FoldOperation
 }
 
-// ApplyOperation executes a keymap-neutral editor intent.
+// ApplyOperation executes a keymap-neutral editor intent through the shared
+// session contract used by both keymaps and native UI adapters.
 func (e *Editor) ApplyOperation(op EditorOperation) bool {
+	return e.Session.ApplyOperation(op)
+}
+
+// applyOperation owns the editor-specific effects of a semantic operation.
+// Source, selection and undo state remain canonical in Session.
+func (e *Editor) applyOperation(op EditorOperation) bool {
 	count := max(1, op.Count)
 	switch op.Kind {
 	case OperationBeginCharacterFind:

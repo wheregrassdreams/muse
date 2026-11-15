@@ -44,3 +44,17 @@ func TestSessionDispatchUsesProductionEditorIncrementalPath(t *testing.T) {
 		t.Fatalf("session undo result=%+v source=%q err=%v", result, e.Source(), err)
 	}
 }
+
+func TestSessionOperationDispatchUsesProductionEditor(t *testing.T) {
+	e := New("one two", Options{})
+	e.Select(0, 0)
+	if handled := e.Session.ApplyOperation(EditorOperation{Kind: OperationMoveHorizontal, Direction: 1}); !handled {
+		t.Fatal("production session did not dispatch editor operation")
+	}
+	if got := e.Session.Selection().Head; got != 1 {
+		t.Fatalf("session selection after operation = %d, want 1", got)
+	}
+	if handled := NewSession("one two").ApplyOperation(EditorOperation{Kind: OperationMoveHorizontal, Direction: 1}); handled {
+		t.Fatal("source-only session reported an editor operation as handled")
+	}
+}

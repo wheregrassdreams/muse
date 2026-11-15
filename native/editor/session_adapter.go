@@ -33,6 +33,7 @@ func (e *Editor) bindSessionAdapters() {
 		e.selectionLinewise = selection.Linewise
 		return nil
 	}
+	e.Session.applyOperationFn = e.applyOperation
 	e.Session.replaceSourceFn = e.SetSource
 	e.Session.sourceFn = e.sessionSource
 	e.Session.revisionFn = e.sessionRevision

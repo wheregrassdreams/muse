@@ -3,6 +3,8 @@ package editor
 import (
 	"sync"
 	"testing"
+
+	"muse/editor/internal/core"
 )
 
 func TestSessionDispatchUpdatesNeutralFrameAndHistory(t *testing.T) {
@@ -165,6 +167,16 @@ func TestSessionTransactionRejectsInvalidEditEncodingAndBoundaries(t *testing.T)
 				t.Fatalf("rejected transaction changed source to %q", got)
 			}
 		})
+	}
+}
+
+func TestRuneBoundaryAfterEditsIgnoresEditsAfterSelection(t *testing.T) {
+	source := "🙂-tail-more"
+	edits := []core.TextEdit{
+		{Range: core.TextRange{Start: 5, End: len(source)}},
+	}
+	if !runeBoundaryAfterEdits(source, edits, 5, 0) {
+		t.Fatal("valid boundary before a later deletion was rejected")
 	}
 }
 

@@ -99,6 +99,7 @@ type Session struct {
 	dispatchInputFn    func(InputEvent) (DispatchResult, error)
 	applyTransactionFn func(core.Transaction) (DispatchResult, error)
 	setSelectionFn     func(Selection) error
+	applyOperationFn   func(EditorOperation) bool
 	replaceSourceFn    func(string)
 	sourceFn           func() string
 	revisionFn         func() uint64
@@ -175,6 +176,17 @@ func (s *Session) setSelection(selection Selection) {
 	s.anchor, s.caret = selection.Anchor, selection.Head
 	s.selectionInclusive, s.selectionLinewise = selection.Inclusive, selection.Linewise
 	s.frame.Selection = selection
+}
+
+// ApplyOperation dispatches a keymap-neutral editor operation through the
+// owning editor session. Operations such as Vim find/fold/put depend on the
+// editor's block and modal state, so standalone source-only sessions report
+// them as unhandled.
+func (s *Session) ApplyOperation(operation EditorOperation) bool {
+	if s.applyOperationFn == nil {
+		return false
+	}
+	return s.applyOperationFn(operation)
 }
 
 // Dispatch applies one backend-neutral input intent and records a normal
@@ -384,8 +396,13 @@ func runeBoundaryAfterEdits(source string, edits []core.TextEdit, resultLen, at 
 	delta := 0
 	for _, edit := range edits {
 		start := edit.Range.Start + delta
+		if at < start {
+			// This edit is after the requested boundary, so it cannot affect
+			// the source coordinate that boundary maps back to.
+			break
+		}
 		end := start + len(edit.Text)
-		if at >= start && at <= end {
+		if at <= end {
 			if at == start || at == end {
 				return true
 			}
@@ -420,5 +437,5 @@ func nextRuneEnd(source string, at int) int {
 }
 
 func runeBoundary(source string, at int) bool {
-	return at == len(source) || utf8.RuneStart(source[at])
+	return at >= 0 && at <= len(source) && (at == len(source) || utf8.RuneStart(source[at]))
 }
