@@ -86,9 +86,12 @@ type ResultKind uint8
 
 const (
 	SessionReady ResultKind = iota
+	QueryStarted
 	QueryCompleted
 	FilesRefreshed
 	ActiveDocumentApplied
+	LinksRefreshed
+	SessionClosed
 )
 
 // Result carries the query token even for non-query updates. Consumers must
