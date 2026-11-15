@@ -4,8 +4,8 @@
 //	go run ./cmd/muse-native
 package main
 
-import "muse/nativeui"
+import "muse/app"
 
 func main() {
-	nativeui.Run()
+	app.Run()
 }

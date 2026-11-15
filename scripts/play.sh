@@ -38,7 +38,7 @@ reset() {
 }
 
 build() {
-  sh scripts/go.sh build -C native -o .mygo/play/Muse .
+  sh scripts/go.sh build -C native -o .mygo/play/Muse ./cmd/muse-native
   identity="$(mygo_sign_identity)"
   if [ -n "$identity" ] && command -v codesign >/dev/null 2>&1; then
     codesign --force --sign "$identity" --timestamp=none "$out/Muse"
@@ -79,7 +79,7 @@ launch() {
 sources() {
   find native/app native/application native/agent native/config native/document native/editor native/events \
     native/locales native/markdown native/nativeui native/platform native/search native/theme native/ui \
-    native/vault native/workspace native/cmd native/app/main.go "$fixture" \
+    native/vault native/workspace native/cmd "$fixture" \
     -newer "$1" \( -name '*.go' -o -name '*.md' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' -o -name '*.webp' \) -print -quit 2>/dev/null
 }
 

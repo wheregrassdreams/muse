@@ -1,15 +1,15 @@
-# Muse · MyGo 原生外壳
+# Muse · MyGo 原生应用
 
-Muse 完全由 MyGo `ui` 绘制：窗口、56px 图标栏、上下文栏、AI 面板与设置在 `nativeui/`，所见即所得的 Markdown 编辑器在 `mdedit/`；不加载 WebView，也不需要前端构建。
+Muse 完全由 MyGo `ui` 绘制：窗口与面板在 `nativeui/`，所见即所得的 Markdown 编辑器在 `editor/`；不加载 WebView，也不需要前端构建。
 
 ## 运行
 
 ```bash
 # 仓库根目录
-go run -C native .
+go run -C native ./cmd/muse-native
 
 # 或
-go build -C native -o Muse .
+go build -C native -o Muse ./cmd/muse-native
 ```
 
 原生 UI 测试：
@@ -22,13 +22,21 @@ go test -C native ./...
 
 ```
 native/
-├── main.go            原生入口，只调用 nativeui.Run
-├── nativeui/          窗口、图标栏、上下文栏、AI
-├── mdedit/            所见即所得编辑器：解析、排版、绘制、光标、输入法、撤销
-├── mdoc/              Markdown 模型、渲染、代码高亮、go-latex 公式
-├── doc/               文件类型注册表
-├── services/          原生 AI HTTP 客户端与遗留服务
-└── cmd/muse-native/   显式原生入口命令
+├── cmd/muse-native/   仅负责调用 app.Run 的原生入口
+├── app/               组合根：装配模块、适配器与生命周期
+├── application/       文档、笔记库和工作区用例
+├── document/          笔记模型、版本语义与持久化端口
+├── editor/            所见即所得编辑器与编辑事务
+├── markdown/          Markdown 模型和渲染
+├── vault/             文件、索引、链接和监听子系统
+├── search/            查询、过滤、排序和全文索引
+├── workspace/         会话状态和仓库契约
+├── platform/          文件系统和操作系统适配器
+├── agent/             AI 客户端与工具工作流
+├── nativeui/          原生窗口和 UI 组合
+├── config/            持久化配置
+├── theme/             运行时调色板
+└── ui/                可复用 UI 基础组件
 ```
 
 ## AI 配置

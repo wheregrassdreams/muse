@@ -89,7 +89,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p out
-          go build -C native -o "../out/${{ matrix.output }}" .
+          go build -C native -o "../out/${{ matrix.output }}" ./cmd/muse-native
 
       # TCC 授权（文件与文件夹、屏幕录制、辅助功能）绑定在 App 的代码签名上。
       # ad-hoc 签名每次发版 cdhash 都会变，用户更新后旧授权匹配不上，只能重新
