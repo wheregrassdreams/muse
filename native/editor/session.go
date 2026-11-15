@@ -47,6 +47,8 @@ type InputEvent struct {
 	Extend    bool
 	Anchor    int
 	Head      int
+	Inclusive bool
+	Linewise  bool
 }
 
 // DispatchResult describes state changes caused by one semantic input.
@@ -177,7 +179,7 @@ func (s *Session) Dispatch(event InputEvent) (DispatchResult, error) {
 		s.frame.Selection = selection
 		return DispatchResult{SelectionChanged: selection != before, Revision: s.revision}, nil
 	case InputSetSelection:
-		selection := core.Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Extend}
+		selection := core.Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Inclusive, Linewise: event.Linewise}
 		if selection.Anchor < 0 || selection.Anchor > len(s.source) || selection.Head < 0 || selection.Head > len(s.source) {
 			return DispatchResult{}, fmt.Errorf("selection is outside source length %d", len(s.source))
 		}
@@ -230,6 +232,19 @@ func (s *Session) applyLocked(tx core.Transaction, record bool) error {
 	if tx.Before != s.selection {
 		return fmt.Errorf("transaction selection is stale")
 	}
+	resultLen := len(s.source)
+	for _, edit := range tx.Edits {
+		if !runeBoundary(s.source, edit.Range.Start) || !runeBoundary(s.source, edit.Range.End) {
+			return fmt.Errorf("transaction range splits a UTF-8 rune")
+		}
+		if !utf8.ValidString(edit.Text) {
+			return fmt.Errorf("transaction edit contains invalid UTF-8")
+		}
+		resultLen += len(edit.Text) - (edit.Range.End - edit.Range.Start)
+	}
+	if !runeBoundaryAfterEdits(s.source, tx.Edits, resultLen, tx.After.Anchor) || !runeBoundaryAfterEdits(s.source, tx.Edits, resultLen, tx.After.Head) {
+		return fmt.Errorf("transaction selection splits a UTF-8 rune")
+	}
 	undo := inverseTransaction(s.source, tx)
 	for i := len(tx.Edits) - 1; i >= 0; i-- {
 		edit := tx.Edits[i]
@@ -243,6 +258,29 @@ func (s *Session) applyLocked(tx core.Transaction, record bool) error {
 	}
 	s.rebuildFrameLocked()
 	return nil
+}
+
+func runeBoundaryAfterEdits(source string, edits []core.TextEdit, resultLen, at int) bool {
+	if at < 0 || at > resultLen {
+		return false
+	}
+	if at == resultLen {
+		return true
+	}
+	delta := 0
+	for _, edit := range edits {
+		start := edit.Range.Start + delta
+		end := start + len(edit.Text)
+		if at >= start && at <= end {
+			if at == start || at == end {
+				return true
+			}
+			return runeBoundary(edit.Text, at-start)
+		}
+		delta += len(edit.Text) - (edit.Range.End - edit.Range.Start)
+	}
+	sourceAt := at - delta
+	return runeBoundary(source, sourceAt)
 }
 
 func (s *Session) applyHistoryLocked(redo bool) (DispatchResult, error) {

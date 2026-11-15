@@ -48,6 +48,9 @@ func View(c *ui.Context, session *editor.Session, opts Options) ui.Element {
 				case ui.KeyZ:
 					if ev.Mods&ui.Super != 0 || ev.Mods&ui.Ctrl != 0 {
 						event.Kind = editor.InputUndo
+						if ev.Mods&ui.Shift != 0 {
+							event.Kind = editor.InputRedo
+						}
 					} else {
 						return false
 					}

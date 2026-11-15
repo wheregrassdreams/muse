@@ -87,3 +87,89 @@ func TestSessionRejectsInvalidUTF8Input(t *testing.T) {
 		t.Fatalf("invalid input changed source to %q", got)
 	}
 }
+
+func TestSessionTransactionRejectsInvalidEditEncodingAndBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		tx   Transaction
+	}{
+		{
+			name: "range splits source rune",
+			src:  "你",
+			tx: Transaction{
+				Before: Selection{}, After: Selection{},
+				Edits: []TextEdit{{Range: TextRange{Start: 1, End: 3}, Text: "x"}},
+			},
+		},
+		{
+			name: "replacement is invalid UTF8",
+			src:  "a",
+			tx: Transaction{
+				Before: Selection{}, After: Selection{},
+				Edits: []TextEdit{{Range: TextRange{Start: 0, End: 1}, Text: string([]byte{0xff})}},
+			},
+		},
+		{
+			name: "result selection splits inserted rune",
+			src:  "a",
+			tx: Transaction{
+				Before: Selection{}, After: Selection{Anchor: 1, Head: 1},
+				Edits: []TextEdit{{Range: TextRange{Start: 0, End: 1}, Text: "你"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewSession(tt.src)
+			if _, err := s.ApplyTransaction(tt.tx); err == nil {
+				t.Fatal("expected transaction validation error")
+			}
+			if got := s.Source(); got != tt.src {
+				t.Fatalf("rejected transaction changed source to %q", got)
+			}
+		})
+	}
+}
+
+func TestSessionTransactionAllowsValidMultiEditResultBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		tx   Transaction
+		want string
+	}{
+		{
+			name: "adjacent multibyte replacements",
+			src:  "ab",
+			tx: Transaction{
+				Before: Selection{}, After: Selection{Anchor: 3, Head: 3},
+				Edits: []TextEdit{
+					{Range: TextRange{Start: 0, End: 1}, Text: "你"},
+					{Range: TextRange{Start: 1, End: 2}, Text: "好"},
+				},
+			},
+			want: "你好",
+		},
+		{
+			name: "deletion at EOF",
+			src:  "你a",
+			tx: Transaction{
+				Before: Selection{}, After: Selection{Anchor: 3, Head: 3},
+				Edits: []TextEdit{{Range: TextRange{Start: 3, End: 4}}},
+			},
+			want: "你",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewSession(tt.src)
+			if _, err := s.ApplyTransaction(tt.tx); err != nil {
+				t.Fatalf("ApplyTransaction: %v", err)
+			}
+			if got := s.Source(); got != tt.want {
+				t.Fatalf("source = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
