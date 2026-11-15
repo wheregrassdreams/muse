@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	vaultindex "muse/vault/index"
 	"muse/vault/links"
 )
@@ -14,8 +15,12 @@ func fixtureLinkIndex(t *testing.T) (*vaultindex.Index, *links.Index, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed := vaultindex.New()
-	if err := parsed.Rebuild(root); err != nil {
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := vaultindex.New(source)
+	if err := parsed.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	graph := links.New()

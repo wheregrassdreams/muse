@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	vaultindex "muse/vault/index"
 	"muse/vault/links"
 )
@@ -107,8 +108,12 @@ func TestParsedMarkdownImageLinksFeedResourceBacklinks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "Notes", "Source.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	parsed := vaultindex.New()
-	if err := parsed.Rebuild(root); err != nil {
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := vaultindex.New(source)
+	if err := parsed.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
 	graph := links.New()
