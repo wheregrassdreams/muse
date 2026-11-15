@@ -7,6 +7,7 @@ import (
 	"muse/editor"
 	editorinput "muse/editor/input"
 	markdownui "muse/nativeui/components/markdown"
+	"muse/nativeui/window"
 )
 
 // Options configure the Markdown presentation hosted by this editor surface.
@@ -14,7 +15,40 @@ type Options struct {
 	Label    string
 	Markdown markdownui.Options
 	OnChange func()
+	OnClose  func()
 }
+
+// Surface hosts one editor session as generic pane content. Its session owns
+// document state; the component owns the toolkit view and input translation.
+type Surface struct {
+	session *editor.Session
+	opts    Options
+	closed  bool
+}
+
+// NewSurface adapts a session to the window content lifecycle.
+func NewSurface(session *editor.Session, opts Options) *Surface {
+	return &Surface{session: session, opts: opts}
+}
+
+func (s *Surface) Render(c *ui.Context) {
+	if s == nil || s.closed {
+		return
+	}
+	View(c, s.session, s.opts)
+}
+
+func (s *Surface) Close() {
+	if s == nil || s.closed {
+		return
+	}
+	s.closed = true
+	if s.opts.OnClose != nil {
+		s.opts.OnClose()
+	}
+}
+
+var _ window.Content = (*Surface)(nil)
 
 // View renders the current session frame and translates MyGo input callbacks
 // into backend-neutral editor intents. The frame is refreshed after each

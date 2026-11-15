@@ -6,7 +6,23 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/editor"
+	"muse/nativeui/window"
 )
+
+func TestSurfaceImplementsPaneContentLifecycle(t *testing.T) {
+	session := editor.NewSession("# title")
+	closed := 0
+	surface := NewSurface(session, Options{OnClose: func() { closed++ }})
+	var content window.Content = surface
+	tester := ui.NewTester(func(c *ui.Context) { content.Render(c) }, 640, 480)
+	tester.Frame()
+	content.Close()
+	content.Close()
+	tester.Frame()
+	if closed != 1 {
+		t.Fatalf("OnClose calls = %d, want 1", closed)
+	}
+}
 
 func TestViewInputEditsSessionAndRendersUpdatedMarkdown(t *testing.T) {
 	session := editor.NewSession("# title\n")
