@@ -18,3 +18,16 @@ func TestToolPolicyGroupsAndApproval(t *testing.T) {
 		}
 	}
 }
+
+func TestToolSchemasRespectCapabilitySettings(t *testing.T) {
+	got := ToolSchemas(config.AssistantSettings{Tools: config.AssistantTools{Browse: true}})
+	if len(got) != 7 {
+		t.Fatalf("schemas=%d want browse-only 7", len(got))
+	}
+	for _, schema := range got {
+		name := schema["function"].(map[string]any)["name"].(string)
+		if GroupForTool(name) != BrowseTools {
+			t.Fatalf("disabled tool advertised: %s", name)
+		}
+	}
+}

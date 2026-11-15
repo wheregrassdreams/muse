@@ -22,7 +22,7 @@ type assistantPanel struct {
 	draft      string
 	scroll     ui.ScrollState
 	permission agent.Permission
-	schemas    []map[string]any
+	settings   config.AssistantSettings
 }
 
 func newAssistantPanel(app *App) *assistantPanel {
@@ -32,7 +32,7 @@ func newAssistantPanel(app *App) *assistantPanel {
 		client = agent.NewProviderClient(app.aiClient)
 	}
 	panel.permission = agent.AskBeforeChanges
-	panel.schemas = agentToolSchemas(app.toolGroupEnabled)
+	panel.settings = app.ai
 	panel.session = agent.NewSession(app.ai, client, agent.Capabilities{Tools: agent.Executor{Operations: appAssistantOperations{app}}, Policy: appAgentPolicy{panel: panel}})
 	return panel
 }
@@ -191,5 +191,5 @@ func (p appAgentPolicy) Schemas(_ config.AssistantSettings) []map[string]any {
 	if p.panel == nil {
 		return nil
 	}
-	return p.panel.schemas
+	return agent.ToolSchemas(p.panel.settings)
 }
