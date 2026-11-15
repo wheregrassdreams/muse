@@ -22,10 +22,6 @@ func (a *App) saveAITools() {
 	a.invalidate()
 }
 
-func (a *App) aiConfigured() bool {
-	return strings.TrimSpace(a.ai.BaseURL) != "" && strings.TrimSpace(a.ai.Model) != ""
-}
-
 func (a *App) aiSettings(c *ui.Context) {
 	settingsGroup(c, locales.AssistantGroup(), func() {
 		settingsRowToggleAction(c, locales.AiAssistant(), locales.AiAssistantDetail(), &a.aiEnabled, func() {
@@ -206,66 +202,6 @@ func (a *App) setAIService(magpie bool) {
 	a.ai.Model = ""
 	a.aiModels = nil
 	a.aiModelsErr = ""
-	a.invalidate()
-}
-
-func aiChatPath() string {
-	if dir := os.Getenv("MUSE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "chat.json")
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = os.TempDir()
-	}
-	return filepath.Join(dir, "Muse", "chat.json")
-}
-
-func loadAIChat() []chatMessage {
-	data, err := os.ReadFile(aiChatPath())
-	if err != nil {
-		return nil
-	}
-	var msgs []chatMessage
-	if json.Unmarshal(data, &msgs) != nil {
-		return nil
-	}
-	if len(msgs) > 100 {
-		msgs = msgs[len(msgs)-100:]
-	}
-	normalizeChatParts(msgs)
-	// 上次会话中断时留下的「待确认」调用不会再有决定：标记为失败。
-	for i := range msgs {
-		for j := range msgs[i].Parts {
-			p := &msgs[i].Parts[j]
-			if p.Tool != nil && p.Tool.State == toolApproval {
-				p.Tool.State = toolFailed
-				p.Tool.Err = toolErrorJSON(locales.AiConversationInterrupted())
-			}
-		}
-	}
-	return msgs
-}
-
-func saveAIChat(msgs []chatMessage) error {
-	path := aiChatPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	if len(msgs) > 100 {
-		msgs = msgs[len(msgs)-100:]
-	}
-	data, err := json.MarshalIndent(msgs, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func (a *App) clearAIChat() {
-	a.aiMessages = nil
-	a.aiErr = ""
-	a.aiScroll.Y = 0
-	_ = saveAIChat(a.aiMessages)
 	a.invalidate()
 }
 

@@ -108,6 +108,31 @@ func (w *Workspace) ReadDir(path string) ([]os.DirEntry, error) {
 	return os.ReadDir(resolved)
 }
 
+// Exists reports whether a workspace path exists without following a final
+// symlink. Callers still resolve the path first, so parent symlinks cannot
+// escape the workspace.
+func (w *Workspace) Exists(path string) (bool, error) {
+	resolved, err := w.ResolveWithinRoot(path)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Lstat(resolved)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// CreateFolder creates a workspace directory after resolving its existing
+// ancestor and verifying that the resulting path remains within the root.
+func (w *Workspace) CreateFolder(path string) error {
+	resolved, err := w.ResolveWithinRoot(path)
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(resolved, 0o755)
+}
+
 func within(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))

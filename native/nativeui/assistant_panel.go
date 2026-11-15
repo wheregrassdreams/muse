@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"muse/application/agent"
 	"muse/config"
+	"muse/document"
 	"muse/locales"
 	mdoc "muse/markdown"
+	"muse/nativeui/components/doctypes"
 	agentpanel "muse/nativeui/panels/agent"
 )
 
@@ -23,6 +26,7 @@ type assistantPanel struct {
 	scroll     ui.ScrollState
 	permission agent.Permission
 	settings   config.AssistantSettings
+	effects    map[string]struct{}
 }
 
 func newAssistantPanel(app *App) *assistantPanel {
@@ -33,6 +37,7 @@ func newAssistantPanel(app *App) *assistantPanel {
 	}
 	panel.permission = agent.AskBeforeChanges
 	panel.settings = app.ai
+	panel.effects = make(map[string]struct{})
 	panel.session = agent.NewSession(app.ai, client, agent.Capabilities{Tools: agent.Executor{Operations: appAssistantOperations{app}}, Policy: appAgentPolicy{panel: panel}})
 	return panel
 }
@@ -40,6 +45,10 @@ func newAssistantPanel(app *App) *assistantPanel {
 func (p *assistantPanel) render(c *ui.Context, app *App) {
 	if p == nil || p.session == nil {
 		return
+	}
+	if p.settings != app.ai {
+		p.settings = app.ai
+		p.session.SetSettings(app.ai)
 	}
 	snapshot := p.session.Snapshot()
 	model := agentpanel.ViewModel{Draft: p.draft, Busy: snapshot.Busy, Phase: snapshot.Phase, Error: snapshot.Error, Scroll: &p.scroll,
@@ -58,6 +67,7 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		}
 		out := agentpanel.Message{Role: role, Text: message.Content}
 		for _, part := range message.Parts {
+			p.applyEffect(app, part)
 			kind := agentpanel.TextPart
 			if part.Kind == agent.ThoughtPart {
 				kind = agentpanel.ThoughtPart
@@ -88,7 +98,10 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		case agentpanel.Stop:
 			p.session.Stop()
 		case agentpanel.ClearConversation:
-			_ = p.session.Clear()
+			if p.session.Clear() == nil {
+				p.effects = make(map[string]struct{})
+				p.scroll.Y = 0
+			}
 		case agentpanel.OpenSettings:
 			app.settingsOpen = true
 			app.settingsTab = 2
@@ -110,69 +123,260 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 	}
 }
 
+func (a *App) aiView(c *ui.Context) {
+	if a.assistant != nil {
+		a.assistant.render(c, a)
+	}
+}
+
+func (p *assistantPanel) applyEffect(app *App, part agent.Part) {
+	if app == nil || part.Kind != agent.ToolPart || part.Tool.Status != agent.PartSucceeded || part.Tool.Result == "" {
+		return
+	}
+	var effect agent.ToolEffect
+	if json.Unmarshal([]byte(part.Tool.Result), &effect) != nil || effect.Kind == "" {
+		return
+	}
+	key := part.Tool.ID
+	if key == "" {
+		key = part.Tool.Name + "\x00" + part.Tool.Arguments
+	}
+	if _, done := p.effects[key]; done {
+		return
+	}
+	p.effects[key] = struct{}{}
+	switch effect.Kind {
+	case agent.OpenDocumentEffect:
+		if doctypes.IsImagePath(effect.Path) {
+			app.openImageDocument(effect.Path, true)
+		} else {
+			app.requestOpen(effect.Path)
+		}
+	case agent.InsertDocumentEffect:
+		if effect.Position == "start" {
+			app.insertTextAtStart(effect.Text)
+		} else {
+			app.insertAIContent(effect.Text)
+		}
+	}
+}
+
 type appAssistantOperations struct{ app *App }
 
-func (o appAssistantOperations) call(ctx context.Context, name string, input agent.ToolInput) (any, error) {
+func (o appAssistantOperations) operations() (agent.WorkspaceOperations, error) {
 	if o.app == nil {
-		return nil, agent.ErrUnavailable
+		return agent.WorkspaceOperations{}, agent.ErrUnavailable
 	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	var root, path, source string
+	o.app.onMain(func() {
+		root, path, source = o.app.root, o.app.path, o.app.source
+	})
+	if root == "" {
+		return agent.WorkspaceOperations{}, errors.New("workspace is unavailable")
 	}
-	data, err := json.Marshal(input)
+	if o.app.newAgentWorkspace == nil {
+		return agent.WorkspaceOperations{}, errors.New("assistant workspace adapter is not configured")
+	}
+	workspace, err := o.app.newAgentWorkspace(root, func() (string, string) { return path, source })
+	if err != nil {
+		return agent.WorkspaceOperations{}, err
+	}
+	directory, _ := workspace.(agent.WorkspaceDirectoryPort)
+	port := &appAssistantWorkspace{app: o.app, WorkspacePort: workspace, Directory: directory, root: root}
+	return agent.WorkspaceOperations{Read: agent.WorkspaceReadTools{Workspace: port}, Write: agent.WorkspaceWriteTools{Workspace: port}}, nil
+}
+
+type appAssistantWorkspace struct {
+	app *App
+	agent.WorkspacePort
+	Directory agent.WorkspaceDirectoryPort
+	root      string
+}
+
+func (w *appAssistantWorkspace) DestinationRevision(path string) (string, error) {
+	if w.app.documentSession == nil {
+		return "", errors.New("document repository is not configured")
+	}
+	revision, err := w.app.documentSession.DestinationRevision(path, "", "")
+	return string(revision), err
+}
+
+func (w *appAssistantWorkspace) SaveDocument(path, content, expected string) error {
+	if w.app.documentSession == nil {
+		return errors.New("document repository is not configured")
+	}
+	return w.app.writeDocument(path, content, document.Revision(expected))
+}
+
+func (w *appAssistantWorkspace) ApplyCurrentDocument(content string) error {
+	var err error
+	w.app.onMain(func() {
+		if w.app.path == "" && w.app.source == "" {
+			err = errors.New("current document is empty")
+			return
+		}
+		w.app.editDoc(content)
+	})
+	return err
+}
+
+func (w *appAssistantWorkspace) MoveDocument(root, source, target string) (string, error) {
+	if w.app.fileOperations == nil {
+		return "", errors.New("vault file operations are not configured")
+	}
+	moved, err := w.app.fileOperations.MoveTo(root, source, target)
+	if err != nil {
+		return "", err
+	}
+	w.app.onMain(func() {
+		previousPath := w.app.path
+		w.app.dropTreeCache(filepath.Dir(source))
+		w.app.dropTreeCache(filepath.Dir(target))
+		w.app.remapTreePaths([]applicationvault.FileMove{moved})
+		if previousPath != w.app.path {
+			w.app.documentLoaded(w.app.diskSource())
+		}
+		w.app.addRecent(target, false)
+		w.app.invalidate()
+	})
+	w.refresh(source, target)
+	return moved.Target, nil
+}
+
+func (w *appAssistantWorkspace) TrashDocuments(root string, paths []string) error {
+	if w.app.fileOperations == nil {
+		return errors.New("vault file operations are not configured")
+	}
+	var current string
+	var dirty bool
+	w.app.onMain(func() { current, dirty = w.app.path, w.app.dirty })
+	for _, path := range paths {
+		if filepath.Clean(path) == filepath.Clean(current) && dirty {
+			return errors.New("cannot delete the current document while it has unsaved changes")
+		}
+	}
+	trashed, err := w.app.fileOperations.Trash(root, paths)
+	if err != nil {
+		return err
+	}
+	w.app.onMain(func() {
+		for _, path := range trashed {
+			w.app.dropTreeCache(filepath.Dir(path))
+			if filepath.Clean(path) == filepath.Clean(w.app.path) {
+				w.app.resetDoc()
+			}
+		}
+		w.app.invalidate()
+	})
+	w.refresh(trashed...)
+	return nil
+}
+
+func (w *appAssistantWorkspace) CreateFolder(path string) error {
+	if w.Directory == nil {
+		return errors.New("workspace directory operations are unavailable")
+	}
+	if err := w.Directory.CreateFolder(path); err != nil {
+		return err
+	}
+	w.app.onMain(func() {
+		w.app.dropTreeCache(filepath.Dir(path))
+		w.app.invalidate()
+	})
+	w.refresh(path)
+	return nil
+}
+
+func (w *appAssistantWorkspace) Exists(path string) (bool, error) {
+	if w.Directory == nil {
+		return false, errors.New("workspace directory operations are unavailable")
+	}
+	return w.Directory.Exists(path)
+}
+
+func (w *appAssistantWorkspace) refresh(paths ...string) {
+	var vault *applicationvault.Session
+	w.app.onMain(func() { vault = w.app.vault })
+	if vault != nil {
+		_ = vault.Refresh(paths...)
+	}
+}
+
+func (o appAssistantOperations) delegate(ctx context.Context, input agent.ToolInput, invoke func(agent.WorkspaceOperations, context.Context, agent.ToolInput) (any, error)) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	operations, err := o.operations()
 	if err != nil {
 		return nil, err
 	}
-	out := o.app.execTool(name, string(data))
-	if !out.OK {
-		return nil, errors.New(out.Content)
-	}
-	var result any
-	if err := json.Unmarshal([]byte(out.Content), &result); err != nil {
-		return out.Content, nil
-	}
-	return result, nil
+	return invoke(operations, ctx, input)
 }
+
 func (o appAssistantOperations) ListDocuments(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "list_documents", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.ListDocuments(c, i)
+	})
 }
 func (o appAssistantOperations) ReadDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "read_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.ReadDocument(c, i)
+	})
 }
 func (o appAssistantOperations) SearchDocuments(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "search_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.SearchDocuments(c, i)
+	})
 }
 func (o appAssistantOperations) ReadOutline(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "read_outline", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.ReadOutline(c, i)
+	})
 }
 func (o appAssistantOperations) WorkspaceTree(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "workspace_tree", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.WorkspaceTree(c, i)
+	})
 }
 func (o appAssistantOperations) DocumentStats(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "document_stats", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.DocumentStats(c, i)
+	})
 }
 func (o appAssistantOperations) OpenDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "open_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.OpenDocument(c, i)
+	})
 }
 func (o appAssistantOperations) EditDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "edit_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.EditDocument(c, i)
+	})
 }
 func (o appAssistantOperations) InsertIntoDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "insert_into_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.InsertIntoDocument(c, i)
+	})
 }
 func (o appAssistantOperations) WriteDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "write_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.WriteDocument(c, i)
+	})
 }
 func (o appAssistantOperations) RenameDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "rename_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.RenameDocument(c, i)
+	})
 }
 func (o appAssistantOperations) DeleteDocument(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "delete_document", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.DeleteDocument(c, i)
+	})
 }
 func (o appAssistantOperations) CreateFolder(c context.Context, i agent.ToolInput) (any, error) {
-	return o.call(c, "create_folder", i)
+	return o.delegate(c, i, func(op agent.WorkspaceOperations, c context.Context, i agent.ToolInput) (any, error) {
+		return op.CreateFolder(c, i)
+	})
 }
 
 type appAgentPolicy struct{ panel *assistantPanel }
@@ -193,3 +397,6 @@ func (p appAgentPolicy) Schemas(_ config.AssistantSettings) []map[string]any {
 	}
 	return agent.ToolSchemas(p.panel.settings)
 }
+
+var _ agent.Operations = appAssistantOperations{}
+var _ agent.WorkspaceMutationPort = (*appAssistantWorkspace)(nil)

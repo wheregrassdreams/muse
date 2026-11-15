@@ -261,11 +261,17 @@ func (s WorkspaceReadTools) DocumentStats(ctx context.Context, in ToolInput) (an
 // values for the presenter to execute after the application call completes.
 type WorkspaceMutationPort interface {
 	WorkspacePort
+	WorkspaceDirectoryPort
 	DestinationRevision(path string) (string, error)
 	SaveDocument(path, content, expectedRevision string) error
 	ApplyCurrentDocument(content string) error
 	MoveDocument(root, source, target string) (string, error)
 	TrashDocuments(root string, paths []string) error
+}
+
+// WorkspaceDirectoryPort holds filesystem mutations needed for directory
+// management tools. It stays separate from the read-only path adapter.
+type WorkspaceDirectoryPort interface {
 	CreateFolder(path string) error
 	Exists(path string) (bool, error)
 }
@@ -463,10 +469,6 @@ func (s WorkspaceWriteTools) DeleteDocument(ctx context.Context, in ToolInput) (
 	path, err := s.resolve(in.Path)
 	if err != nil {
 		return nil, err
-	}
-	current, _ := s.Workspace.CurrentDocument()
-	if filepath.Clean(path) == filepath.Clean(current) {
-		return nil, errors.New("cannot delete the current document through this operation")
 	}
 	if err := s.Workspace.TrashDocuments(s.Workspace.Root(), []string{path}); err != nil {
 		return nil, err
