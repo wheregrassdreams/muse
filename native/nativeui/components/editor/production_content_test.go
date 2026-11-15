@@ -35,3 +35,23 @@ func TestProductionContentHostsVirtualizedEditorAndClosesOnce(t *testing.T) {
 		t.Fatalf("OnClose calls = %d, want 1", closed)
 	}
 }
+
+func TestProductionContentTranslatesVimInputThroughSession(t *testing.T) {
+	value := tappeditor.New("abc", tappeditor.Options{})
+	value.SetKeymap("vim")
+	content := NewProductionContent(value, nil)
+	tester := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { content.Render(c) })
+	}, 1000, 700)
+	tester.Frame()
+	value.Focus()
+	tester.Frame()
+	tester.Type("l")
+	tester.Type("i")
+	tester.Type("X")
+	tester.KeyDown(ui.KeyEscape)
+	tester.Frame()
+	if got, want := value.Session.Source(), "aXbc"; got != want {
+		t.Fatalf("source after Vim input = %q, want %q", got, want)
+	}
+}

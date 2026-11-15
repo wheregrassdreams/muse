@@ -29,7 +29,23 @@ func (c *ProductionContent) Render(ctx *ui.Context) {
 	if c == nil || c.closed || c.editor == nil {
 		return
 	}
-	c.editor.View(ctx)
+	c.editor.ViewWithInput(ctx, c.handleInput)
+}
+
+// handleInput owns the MyGo-to-editor input translation for the production
+// host. Pointer/IME/drop events still delegate to the old adapter until
+// their typed editor operations are migrated.
+func (c *ProductionContent) handleInput(ev ui.InputEvent) bool {
+	switch ev.Kind {
+	case ui.InputKeyDown:
+		key, ok := keyEventFromUI(ev)
+		return ok && c.editor.DispatchKey(key)
+	case ui.InputText:
+		result, err := c.editor.Session.Dispatch(editor.InputEvent{Kind: editor.InputInsertText, Text: ev.Text})
+		return err == nil && result.Handled
+	default:
+		return c.editor.HandleNativeInput(ev)
+	}
 }
 
 func (c *ProductionContent) Close() {

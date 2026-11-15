@@ -121,6 +121,22 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	return false
 }
 
+// DispatchKey sends a backend-neutral key through the editor's keymap and
+// requests a frame when the command changes its state. Native adapters should
+// translate toolkit keys into editor/input.KeyEvent before calling it.
+func (e *Editor) DispatchKey(event editorinput.KeyEvent) bool {
+	defer e.invalidate()
+	return e.Session.DispatchKey(event)
+}
+
+// HandleNativeInput handles the presentation events not yet represented by
+// editor/input intents (pointer gestures, IME composition, and drag/drop).
+// It is a temporary adapter seam and must disappear as those operations gain
+// backend-neutral contracts.
+func (e *Editor) HandleNativeInput(event ui.InputEvent) bool {
+	return e.input(event)
+}
+
 // keyEventFromUI is the legacy widget bridge. The component adapter uses the
 // same neutral key values when it dispatches directly through Session.
 func keyEventFromUI(key ui.Key, mods ui.Modifiers) editorinput.KeyEvent {
