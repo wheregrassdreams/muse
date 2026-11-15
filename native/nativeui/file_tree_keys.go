@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"muse/nativeui/interactions"
 )
 
 type treeClipboardItem struct{ path string }
@@ -25,29 +26,29 @@ func (a *App) ensurePanelActions() {
 	if a.panelActions != nil {
 		return
 	}
-	dispatcher, _ := NewActionDispatcher(
-		PanelAction{ID: ActionFocusPanel, Run: func(ctx ActionContext) error {
-			panel, _ := ctx.Values["panel"].(PanelID)
+	dispatcher, _ := interactions.NewActionDispatcher(
+		interactions.PanelAction{ID: interactions.ActionFocusPanel, Run: func(ctx interactions.ActionContext) error {
+			panel, _ := ctx.Values["panel"].(interactions.PanelID)
 			if panel == "" {
-				panel = PanelIDFiles
+				panel = interactions.PanelIDFiles
 			}
 			a.focusPanel(panel)
 			return nil
 		}},
-		PanelAction{ID: ActionFocusEditor, Run: func(ActionContext) error {
-			a.focusPanel(PanelIDEditor)
+		interactions.PanelAction{ID: interactions.ActionFocusEditor, Run: func(interactions.ActionContext) error {
+			a.focusPanel(interactions.PanelIDEditor)
 			return nil
 		}},
-		PanelAction{ID: ActionFocusDirection, Run: func(ctx ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionFocusDirection, Run: func(ctx interactions.ActionContext) error {
 			direction, _ := ctx.Values["direction"].(int)
 			a.focusPanelDirection(direction)
 			return nil
 		}},
-		PanelAction{ID: ActionFocusNextPanel, Run: func(ActionContext) error { a.cycleFocusPanel(false); return nil }},
-		PanelAction{ID: ActionFocusPreviousPanel, Run: func(ActionContext) error { a.cycleFocusPanel(true); return nil }},
-		PanelAction{ID: ActionNavigate, Run: func(ctx ActionContext) error { return a.navigateTree(ctx, false) }},
-		PanelAction{ID: ActionSelectRange, Run: func(ctx ActionContext) error { return a.navigateTree(ctx, true) }},
-		PanelAction{ID: ActionOpen, Run: func(ctx ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionFocusNextPanel, Run: func(interactions.ActionContext) error { a.cycleFocusPanel(false); return nil }},
+		interactions.PanelAction{ID: interactions.ActionFocusPreviousPanel, Run: func(interactions.ActionContext) error { a.cycleFocusPanel(true); return nil }},
+		interactions.PanelAction{ID: interactions.ActionNavigate, Run: func(ctx interactions.ActionContext) error { return a.navigateTree(ctx, false) }},
+		interactions.PanelAction{ID: interactions.ActionSelectRange, Run: func(ctx interactions.ActionContext) error { return a.navigateTree(ctx, true) }},
+		interactions.PanelAction{ID: interactions.ActionOpen, Run: func(ctx interactions.ActionContext) error {
 			path := actionPath(ctx, a.treeFocusPath)
 			if path == "" {
 				return nil
@@ -62,10 +63,10 @@ func (a *App) ensurePanelActions() {
 			}
 			return nil
 		}},
-		PanelAction{ID: ActionToggleExpanded, Run: func(ctx ActionContext) error { return a.toggleTreeHorizontal(ctx) }},
-		PanelAction{ID: ActionCloseNode, Run: func(ActionContext) error { return a.closeTreeNode() }},
-		PanelAction{ID: ActionCollapseAll, Run: func(ActionContext) error { a.collapseAll(); return nil }},
-		PanelAction{ID: ActionSelectAll, Run: func(ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionToggleExpanded, Run: func(ctx interactions.ActionContext) error { return a.toggleTreeHorizontal(ctx) }},
+		interactions.PanelAction{ID: interactions.ActionCloseNode, Run: func(interactions.ActionContext) error { return a.closeTreeNode() }},
+		interactions.PanelAction{ID: interactions.ActionCollapseAll, Run: func(interactions.ActionContext) error { a.collapseAll(); return nil }},
+		interactions.PanelAction{ID: interactions.ActionSelectAll, Run: func(interactions.ActionContext) error {
 			if a.treeSelection == nil {
 				a.treeSelection = make(map[string]bool)
 			}
@@ -81,20 +82,20 @@ func (a *App) ensurePanelActions() {
 			a.invalidate()
 			return nil
 		}},
-		PanelAction{ID: ActionToggleSelection, Run: func(ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionToggleSelection, Run: func(interactions.ActionContext) error {
 			a.toggleTreeSelection(a.treeFocusPath)
 			return nil
 		}},
-		PanelAction{ID: ActionInvertSelection, Run: func(ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionInvertSelection, Run: func(interactions.ActionContext) error {
 			a.invertTreeSelection()
 			return nil
 		}},
-		PanelAction{ID: ActionRename, CanRun: func(ctx ActionContext) bool {
+		interactions.PanelAction{ID: interactions.ActionRename, CanRun: func(ctx interactions.ActionContext) bool {
 			if path, ok := ctx.Values["path"].(string); ok && path != "" {
 				return true
 			}
 			return len(a.selectedTreePaths(a.treeFocusPath)) == 1
-		}, Run: func(ctx ActionContext) error {
+		}, Run: func(ctx interactions.ActionContext) error {
 			path := actionPath(ctx, "")
 			if path == "" {
 				paths := a.selectedTreePaths(a.treeFocusPath)
@@ -108,16 +109,16 @@ func (a *App) ensurePanelActions() {
 			a.renamePath, a.renameValue, a.renameOpen = path, filepath.Base(path), true
 			return nil
 		}},
-		PanelAction{ID: ActionCopy, Run: func(ActionContext) error { a.captureTreeClipboard(false); return nil }},
-		PanelAction{ID: ActionCut, Run: func(ActionContext) error { a.captureTreeClipboard(true); return nil }},
-		PanelAction{ID: ActionPaste, CanRun: func(ActionContext) bool { return len(a.treeClipboard) > 0 }, Run: func(ActionContext) error { return a.pasteTreeClipboard() }},
-		PanelAction{ID: ActionTrash, Run: func(ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionCopy, Run: func(interactions.ActionContext) error { a.captureTreeClipboard(false); return nil }},
+		interactions.PanelAction{ID: interactions.ActionCut, Run: func(interactions.ActionContext) error { a.captureTreeClipboard(true); return nil }},
+		interactions.PanelAction{ID: interactions.ActionPaste, CanRun: func(interactions.ActionContext) bool { return len(a.treeClipboard) > 0 }, Run: func(interactions.ActionContext) error { return a.pasteTreeClipboard() }},
+		interactions.PanelAction{ID: interactions.ActionTrash, Run: func(interactions.ActionContext) error {
 			a.trashTreeItems(a.treeActionPaths())
 			return nil
 		}},
-		PanelAction{ID: ActionCreateFile, Run: func(ActionContext) error { a.newFileIn(a.treeActionTarget()); return nil }},
-		PanelAction{ID: ActionCreateFolder, Run: func(ActionContext) error { a.newFolderIn(a.treeActionTarget()); return nil }},
-		PanelAction{ID: ActionCopyPath, Run: func(ctx ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionCreateFile, Run: func(interactions.ActionContext) error { a.newFileIn(a.treeActionTarget()); return nil }},
+		interactions.PanelAction{ID: interactions.ActionCreateFolder, Run: func(interactions.ActionContext) error { a.newFolderIn(a.treeActionTarget()); return nil }},
+		interactions.PanelAction{ID: interactions.ActionCopyPath, Run: func(ctx interactions.ActionContext) error {
 			if path := actionPath(ctx, a.treeFocusPath); path != "" {
 				relative, ok := ctx.Values["relative"].(bool)
 				if !ok {
@@ -127,15 +128,15 @@ func (a *App) ensurePanelActions() {
 			}
 			return nil
 		}},
-		PanelAction{ID: ActionRevealInFinder, Run: func(ctx ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionRevealInFinder, Run: func(ctx interactions.ActionContext) error {
 			if path := actionPath(ctx, a.treeFocusPath); path != "" {
 				mygo.Shell.ShowItemInFolder(path)
 			}
 			return nil
 		}},
-		PanelAction{ID: ActionRefreshPanel, Run: func(ActionContext) error { a.clearTreeCache(); a.invalidate(); return nil }},
-		PanelAction{ID: ActionCancel, Run: func(ActionContext) error { a.focusPanel(PanelIDEditor); return nil }},
-		PanelAction{ID: ActionShowHelp, Run: func(ActionContext) error {
+		interactions.PanelAction{ID: interactions.ActionRefreshPanel, Run: func(interactions.ActionContext) error { a.clearTreeCache(); a.invalidate(); return nil }},
+		interactions.PanelAction{ID: interactions.ActionCancel, Run: func(interactions.ActionContext) error { a.focusPanel(interactions.PanelIDEditor); return nil }},
+		interactions.PanelAction{ID: interactions.ActionShowHelp, Run: func(interactions.ActionContext) error {
 			a.notice(locales.FilesTreeKeyHelp())
 			return nil
 		}},
@@ -143,26 +144,26 @@ func (a *App) ensurePanelActions() {
 	a.panelActions = dispatcher
 }
 
-func actionPath(ctx ActionContext, fallback string) string {
+func actionPath(ctx interactions.ActionContext, fallback string) string {
 	if path, ok := ctx.Values["path"].(string); ok && path != "" {
 		return path
 	}
 	return fallback
 }
 
-func (a *App) dispatchPanelAction(id ActionID, values map[string]any) bool {
+func (a *App) dispatchPanelAction(id interactions.ActionID, values map[string]any) bool {
 	a.ensurePanelActions()
 	a.cancelPanelSequences()
 	a.cancelTreeSequences()
 	a.lastPanelAction = id
-	target := FocusTargetEditor
-	panel := PanelIDEditor
-	if a.focusedPanel == PanelIDFiles {
-		target, panel = FocusTargetTree, PanelIDFiles
+	target := interactions.FocusTargetEditor
+	panel := interactions.PanelIDEditor
+	if a.focusedPanel == interactions.PanelIDFiles {
+		target, panel = interactions.FocusTargetTree, interactions.PanelIDFiles
 	}
-	ctx := ActionContext{Panel: panel, Focus: FocusState{Target: target, HasSelection: len(a.selectedTreePaths(a.treeFocusPath)) > 0, SelectionSize: len(a.selectedTreePaths(a.treeFocusPath))}, Values: values}
+	ctx := interactions.ActionContext{Panel: panel, Focus: interactions.FocusState{Target: target, HasSelection: len(a.selectedTreePaths(a.treeFocusPath)) > 0, SelectionSize: len(a.selectedTreePaths(a.treeFocusPath))}, Values: values}
 	if err := a.panelActions.Dispatch(id, ctx); err != nil {
-		if !errors.Is(err, ErrActionDisabled) {
+		if !errors.Is(err, interactions.ErrActionDisabled) {
 			a.notice(err.Error())
 		}
 		return false
@@ -171,9 +172,9 @@ func (a *App) dispatchPanelAction(id ActionID, values map[string]any) bool {
 	return true
 }
 
-func (a *App) dispatchTreeAction(path string, id ActionID, values map[string]any) bool {
+func (a *App) dispatchTreeAction(path string, id interactions.ActionID, values map[string]any) bool {
 	if path != "" {
-		a.focusedPanel = PanelIDFiles
+		a.focusedPanel = interactions.PanelIDFiles
 		a.treeFocusPath = path
 		if values == nil {
 			values = make(map[string]any)
@@ -186,7 +187,7 @@ func (a *App) dispatchTreeAction(path string, id ActionID, values map[string]any
 func (a *App) anyModalOwnsKeyboardShortcut() bool { return a.anyModalOwnsKeyboard() }
 
 type TreeBinding struct {
-	Action  ActionID
+	Action  interactions.ActionID
 	Values  map[string]any
 	Handled bool
 }
@@ -194,49 +195,49 @@ type TreeBinding struct {
 // StandardTreeBindings maps desktop file-browser shortcuts to semantic actions.
 type StandardTreeBindings struct{}
 
-func (StandardTreeBindings) Sequences() []KeyBinding {
-	return []KeyBinding{{Sequence: []KeyStroke{{Key: "E", Mods: uint32(ui.Cmd | ui.Shift)}}, ActionID: ActionFocusPanel, Values: map[string]any{"panel": PanelIDFiles}}}
+func (StandardTreeBindings) Sequences() []interactions.KeyBinding {
+	return []interactions.KeyBinding{{Sequence: []interactions.KeyStroke{{Key: "E", Mods: uint32(ui.Cmd | ui.Shift)}}, ActionID: interactions.ActionFocusPanel, Values: map[string]any{"panel": interactions.PanelIDFiles}}}
 }
 
 func (StandardTreeBindings) Resolve(mods ui.Modifiers, key ui.Key) TreeBinding {
 	if mods == ui.Cmd {
 		switch key {
 		case ui.KeyA:
-			return TreeBinding{Action: ActionSelectAll, Handled: true}
+			return TreeBinding{Action: interactions.ActionSelectAll, Handled: true}
 		case ui.KeyC:
-			return TreeBinding{Action: ActionCopy, Handled: true}
+			return TreeBinding{Action: interactions.ActionCopy, Handled: true}
 		case ui.KeyX:
-			return TreeBinding{Action: ActionCut, Handled: true}
+			return TreeBinding{Action: interactions.ActionCut, Handled: true}
 		case ui.KeyV:
-			return TreeBinding{Action: ActionPaste, Handled: true}
+			return TreeBinding{Action: interactions.ActionPaste, Handled: true}
 		}
 	}
 	if mods == 0 {
 		switch key {
 		case ui.KeyEscape:
-			return TreeBinding{Action: ActionFocusEditor, Handled: true}
+			return TreeBinding{Action: interactions.ActionFocusEditor, Handled: true}
 		case ui.KeyF2:
-			return TreeBinding{Action: ActionRename, Handled: true}
+			return TreeBinding{Action: interactions.ActionRename, Handled: true}
 		case ui.KeyDelete, ui.KeyBackspace:
-			return TreeBinding{Action: ActionTrash, Handled: true}
+			return TreeBinding{Action: interactions.ActionTrash, Handled: true}
 		case ui.KeyDown:
-			return TreeBinding{Action: ActionNavigate, Values: map[string]any{"delta": 1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionNavigate, Values: map[string]any{"delta": 1}, Handled: true}
 		case ui.KeyUp:
-			return TreeBinding{Action: ActionNavigate, Values: map[string]any{"delta": -1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionNavigate, Values: map[string]any{"delta": -1}, Handled: true}
 		case ui.KeyLeft:
-			return TreeBinding{Action: ActionToggleExpanded, Values: map[string]any{"direction": -1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionToggleExpanded, Values: map[string]any{"direction": -1}, Handled: true}
 		case ui.KeyRight:
-			return TreeBinding{Action: ActionToggleExpanded, Values: map[string]any{"direction": 1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionToggleExpanded, Values: map[string]any{"direction": 1}, Handled: true}
 		case ui.KeyEnter:
-			return TreeBinding{Action: ActionOpen, Handled: true}
+			return TreeBinding{Action: interactions.ActionOpen, Handled: true}
 		}
 	}
 	if mods == ui.Shift {
 		switch key {
 		case ui.KeyDown:
-			return TreeBinding{Action: ActionSelectRange, Values: map[string]any{"delta": 1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionSelectRange, Values: map[string]any{"delta": 1}, Handled: true}
 		case ui.KeyUp:
-			return TreeBinding{Action: ActionSelectRange, Values: map[string]any{"delta": -1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionSelectRange, Values: map[string]any{"delta": -1}, Handled: true}
 		}
 	}
 	return TreeBinding{}
@@ -246,41 +247,41 @@ func (StandardTreeBindings) Resolve(mods ui.Modifiers, key ui.Key) TreeBinding {
 // and keeps Vim sequence state in the mapping layer, not in action handlers.
 type VimTreeBindings struct{}
 
-func (VimTreeBindings) Sequences() []KeyBinding {
-	return []KeyBinding{{Sequence: []KeyStroke{{Key: "G"}, {Key: "G"}}, ActionID: ActionNavigate, Values: map[string]any{"index": 0}}}
+func (VimTreeBindings) Sequences() []interactions.KeyBinding {
+	return []interactions.KeyBinding{{Sequence: []interactions.KeyStroke{{Key: "G"}, {Key: "G"}}, ActionID: interactions.ActionNavigate, Values: map[string]any{"index": 0}}}
 }
 
-func (VimTreeBindings) PanelSequences() []KeyBinding {
-	return []KeyBinding{
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "H"}}, ActionID: ActionFocusDirection, Values: map[string]any{"direction": -1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "Left"}}, ActionID: ActionFocusDirection, Values: map[string]any{"direction": -1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "L"}}, ActionID: ActionFocusDirection, Values: map[string]any{"direction": 1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "Right"}}, ActionID: ActionFocusDirection, Values: map[string]any{"direction": 1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "W"}}, ActionID: ActionFocusNextPanel},
-		{Sequence: []KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "W", Mods: uint32(ui.Shift)}}, ActionID: ActionFocusPreviousPanel},
+func (VimTreeBindings) PanelSequences() []interactions.KeyBinding {
+	return []interactions.KeyBinding{
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "H"}}, ActionID: interactions.ActionFocusDirection, Values: map[string]any{"direction": -1}},
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "Left"}}, ActionID: interactions.ActionFocusDirection, Values: map[string]any{"direction": -1}},
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "L"}}, ActionID: interactions.ActionFocusDirection, Values: map[string]any{"direction": 1}},
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "Right"}}, ActionID: interactions.ActionFocusDirection, Values: map[string]any{"direction": 1}},
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "W"}}, ActionID: interactions.ActionFocusNextPanel},
+		{Sequence: []interactions.KeyStroke{{Key: "W", Mods: uint32(ui.Ctrl)}, {Key: "W", Mods: uint32(ui.Shift)}}, ActionID: interactions.ActionFocusPreviousPanel},
 	}
 }
 
 func (VimTreeBindings) Resolve(mods ui.Modifiers, key ui.Key) TreeBinding {
 	if mods == ui.Ctrl|ui.Shift && key == ui.KeyI {
-		return TreeBinding{Action: ActionInvertSelection, Handled: true}
+		return TreeBinding{Action: interactions.ActionInvertSelection, Handled: true}
 	}
 	if mods == ui.Shift {
 		switch key {
 		case ui.KeySlash:
-			return TreeBinding{Action: ActionShowHelp, Handled: true}
+			return TreeBinding{Action: interactions.ActionShowHelp, Handled: true}
 		case ui.KeyG:
-			return TreeBinding{Action: ActionNavigate, Values: map[string]any{"index": -1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionNavigate, Values: map[string]any{"index": -1}, Handled: true}
 		case ui.KeyA:
-			return TreeBinding{Action: ActionCreateFolder, Handled: true}
+			return TreeBinding{Action: interactions.ActionCreateFolder, Handled: true}
 		case ui.KeyJ:
-			return TreeBinding{Action: ActionSelectRange, Values: map[string]any{"delta": 1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionSelectRange, Values: map[string]any{"delta": 1}, Handled: true}
 		case ui.KeyK:
-			return TreeBinding{Action: ActionSelectRange, Values: map[string]any{"delta": -1}, Handled: true}
+			return TreeBinding{Action: interactions.ActionSelectRange, Values: map[string]any{"delta": -1}, Handled: true}
 		case ui.KeyC:
-			return TreeBinding{Action: ActionCloseNode, Handled: true}
+			return TreeBinding{Action: interactions.ActionCloseNode, Handled: true}
 		case ui.KeyY:
-			return TreeBinding{Action: ActionCopyPath, Values: map[string]any{"relative": true}, Handled: true}
+			return TreeBinding{Action: interactions.ActionCopyPath, Values: map[string]any{"relative": true}, Handled: true}
 		}
 	}
 	if mods != 0 {
@@ -288,29 +289,29 @@ func (VimTreeBindings) Resolve(mods ui.Modifiers, key ui.Key) TreeBinding {
 	}
 	switch key {
 	case ui.KeyJ:
-		return TreeBinding{Action: ActionNavigate, Values: map[string]any{"delta": 1}, Handled: true}
+		return TreeBinding{Action: interactions.ActionNavigate, Values: map[string]any{"delta": 1}, Handled: true}
 	case ui.KeyK:
-		return TreeBinding{Action: ActionNavigate, Values: map[string]any{"delta": -1}, Handled: true}
+		return TreeBinding{Action: interactions.ActionNavigate, Values: map[string]any{"delta": -1}, Handled: true}
 	case ui.KeyH:
-		return TreeBinding{Action: ActionToggleExpanded, Values: map[string]any{"direction": -1}, Handled: true}
+		return TreeBinding{Action: interactions.ActionToggleExpanded, Values: map[string]any{"direction": -1}, Handled: true}
 	case ui.KeyL:
-		return TreeBinding{Action: ActionToggleExpanded, Values: map[string]any{"direction": 1}, Handled: true}
+		return TreeBinding{Action: interactions.ActionToggleExpanded, Values: map[string]any{"direction": 1}, Handled: true}
 	case ui.KeyR:
-		return TreeBinding{Action: ActionRename, Handled: true}
+		return TreeBinding{Action: interactions.ActionRename, Handled: true}
 	case ui.KeyY:
-		return TreeBinding{Action: ActionCopy, Handled: true}
+		return TreeBinding{Action: interactions.ActionCopy, Handled: true}
 	case ui.KeyX:
-		return TreeBinding{Action: ActionCut, Handled: true}
+		return TreeBinding{Action: interactions.ActionCut, Handled: true}
 	case ui.KeyP:
-		return TreeBinding{Action: ActionPaste, Handled: true}
+		return TreeBinding{Action: interactions.ActionPaste, Handled: true}
 	case ui.KeyD:
-		return TreeBinding{Action: ActionTrash, Handled: true}
+		return TreeBinding{Action: interactions.ActionTrash, Handled: true}
 	case ui.KeyA:
-		return TreeBinding{Action: ActionCreateFile, Handled: true}
+		return TreeBinding{Action: interactions.ActionCreateFile, Handled: true}
 	case ui.KeyZ:
-		return TreeBinding{Action: ActionCollapseAll, Handled: true}
+		return TreeBinding{Action: interactions.ActionCollapseAll, Handled: true}
 	case ui.KeyTab:
-		return TreeBinding{Action: ActionToggleSelection, Handled: true}
+		return TreeBinding{Action: interactions.ActionToggleSelection, Handled: true}
 	}
 	return TreeBinding{}
 }
@@ -458,7 +459,7 @@ func (a *App) handleTreeKey(mods ui.Modifiers, key ui.Key) bool {
 	a.cancelChangedTreeKeymap()
 	if a.ed != nil && a.ed.Keymap() == "vim" {
 		if strokeName := keyStrokeName(key); strokeName != "" {
-			if a.feedKeySequence(a.treeKeySequences, KeyStroke{Key: strokeName, Mods: uint32(mods)}) {
+			if a.feedKeySequence(a.treeKeySequences, interactions.KeyStroke{Key: strokeName, Mods: uint32(mods)}) {
 				return true
 			}
 		}
@@ -480,18 +481,18 @@ func (a *App) handleTreeKey(mods ui.Modifiers, key ui.Key) bool {
 
 func (a *App) ensureKeySequenceMatcher() {
 	if a.treeKeySequences == nil {
-		matcher, _ := NewKeySequenceMatcher(800*time.Millisecond, nil, VimTreeBindings{}.Sequences()...)
+		matcher, _ := interactions.NewKeySequenceMatcher(800*time.Millisecond, nil, VimTreeBindings{}.Sequences()...)
 		a.treeKeySequences = matcher
 	}
 	if a.panelKeySequences == nil {
 		bindings := append(StandardTreeBindings{}.Sequences(), VimTreeBindings{}.PanelSequences()...)
-		matcher, _ := NewKeySequenceMatcher(800*time.Millisecond, nil, bindings...)
+		matcher, _ := interactions.NewKeySequenceMatcher(800*time.Millisecond, nil, bindings...)
 		a.panelKeySequences = matcher
 	}
 	a.cancelChangedTreeKeymap()
 }
 
-func (a *App) feedKeySequence(matcher *KeySequenceMatcher, stroke KeyStroke) bool {
+func (a *App) feedKeySequence(matcher *interactions.KeySequenceMatcher, stroke interactions.KeyStroke) bool {
 	for tries := 0; tries < 2; tries++ {
 		result := matcher.Match(stroke)
 		if result.ActionID != "" {
@@ -559,17 +560,19 @@ func uiKeyForName(name string) (ui.Key, bool) {
 	return 0, false
 }
 
-func focusablePanelOrder() []PanelID { return []PanelID{PanelIDFiles, PanelIDEditor} }
+func focusablePanelOrder() []interactions.PanelID {
+	return []interactions.PanelID{interactions.PanelIDFiles, interactions.PanelIDEditor}
+}
 
-func (a *App) focusPanel(panel PanelID) bool {
+func (a *App) focusPanel(panel interactions.PanelID) bool {
 	switch panel {
-	case PanelIDFiles:
+	case interactions.PanelIDFiles:
 		a.showPanel(panelFiles)
-		a.setFocusedPanel(PanelIDFiles)
+		a.setFocusedPanel(interactions.PanelIDFiles)
 		a.ensureTreeFocus()
 		a.treeFocusRequested = true
-	case PanelIDEditor:
-		a.setFocusedPanel(PanelIDEditor)
+	case interactions.PanelIDEditor:
+		a.setFocusedPanel(interactions.PanelIDEditor)
 		a.treeFocusRequested = false
 		a.treeFocusHandle.CancelFocus()
 		a.ed.Focus()
@@ -582,7 +585,7 @@ func (a *App) focusPanel(panel PanelID) bool {
 // setFocusedPanel is the transition hook for toolkit focus as well as routed
 // focus actions. Pointer clicks can move focus without passing through
 // focusPanel, so any panel transition must also discard pending sequences.
-func (a *App) setFocusedPanel(panel PanelID) {
+func (a *App) setFocusedPanel(panel interactions.PanelID) {
 	if panel == "" || a.focusedPanel == panel {
 		return
 	}
@@ -592,36 +595,26 @@ func (a *App) setFocusedPanel(panel PanelID) {
 }
 
 func (a *App) focusPanelDirection(direction int) {
-	order := focusablePanelOrder()
-	index := 0
-	for i, panel := range order {
-		if panel == a.focusedPanel {
-			index = i
-			break
-		}
-	}
-	target := index + direction
-	if target < 0 || target >= len(order) {
+	router, err := interactions.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
+	if err != nil {
 		return
 	}
-	a.focusPanel(order[target])
+	target, moved := router.Move(direction)
+	if !moved {
+		return
+	}
+	a.focusPanel(target)
 }
 
 func (a *App) cycleFocusPanel(reverse bool) {
-	order := focusablePanelOrder()
-	index := 0
-	for i, id := range order {
-		if id == a.focusedPanel {
-			index = i
-			break
-		}
+	router, err := interactions.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
+	if err != nil {
+		return
 	}
-	step := 1
-	if reverse {
-		step = -1
+	target, moved := router.Cycle(reverse)
+	if moved {
+		a.focusPanel(target)
 	}
-	next := (index + step + len(order)) % len(order)
-	a.focusPanel(order[next])
 }
 
 func (a *App) ensureTreeFocus() {
@@ -641,7 +634,7 @@ func (a *App) ensureTreeFocus() {
 	a.treeFocusPath = rows[0].path
 }
 
-func (a *App) navigateTree(ctx ActionContext, extend bool) error {
+func (a *App) navigateTree(ctx interactions.ActionContext, extend bool) error {
 	rows := a.fileRows()
 	if len(rows) == 0 {
 		a.treeFocusPath = ""
@@ -684,7 +677,7 @@ func (a *App) navigateTree(ctx ActionContext, extend bool) error {
 	return nil
 }
 
-func (a *App) toggleTreeHorizontal(ctx ActionContext) error {
+func (a *App) toggleTreeHorizontal(ctx interactions.ActionContext) error {
 	a.ensureTreeFocus()
 	path := a.treeFocusPath
 	if path == "" {

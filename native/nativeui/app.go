@@ -34,6 +34,7 @@ import (
 	"muse/locales"
 	"muse/mdedit"
 	"muse/mdoc"
+	"muse/nativeui/interactions"
 	"muse/navicons"
 	"muse/scrollui"
 	"muse/services"
@@ -295,18 +296,18 @@ type App struct {
 	searchScroll            ui.ScrollState
 	searchIndicator         scrollui.Indicator
 	selectedPath            string
-	focusedPanel            PanelID
+	focusedPanel            interactions.PanelID
 	treeFocusPath           string
 	treeFocusHandle         ui.Handle
 	treeFocusRequested      bool
 	treeClipboard           []treeClipboardItem
 	treeClipboardCut        bool
-	treeKeySequences        *KeySequenceMatcher
-	panelKeySequences       *KeySequenceMatcher
+	treeKeySequences        *interactions.KeySequenceMatcher
+	panelKeySequences       *interactions.KeySequenceMatcher
 	treeSequenceKeymap      string
 	treeHelpOpen            bool
-	panelActions            *ActionDispatcher
-	lastPanelAction         ActionID
+	panelActions            *interactions.ActionDispatcher
+	lastPanelAction         interactions.ActionID
 	propertiesOpen          bool
 	propertyScroll          ui.ScrollState
 	propertyIndicator       scrollui.Indicator
@@ -427,7 +428,7 @@ func New() *App {
 		themeMode:       themeSystem,
 		accentID:        "red",
 		panel:           panelFiles,
-		focusedPanel:    PanelIDEditor,
+		focusedPanel:    interactions.PanelIDEditor,
 		panelOpen:       true,
 		flat:            true,
 		headerFade:      true,
