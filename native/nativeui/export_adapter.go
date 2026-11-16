@@ -11,32 +11,35 @@ import (
 	"github.com/egoist/mygo/i18n"
 	documentapp "muse/application/document"
 	"muse/locales"
+	"muse/nativeui/components/documentdialogs"
 )
 
-type noteExportFormat uint8
+// The menu choice belongs to the document dialog presentation. The adapter
+// translates it to the application use case's export format at the boundary.
+type noteExportFormat = documentdialogs.ExportFormat
 
 const (
-	noteExportMarkdown noteExportFormat = iota
-	noteExportHTML
-	noteExportPDF
+	noteExportMarkdown = documentdialogs.ExportMarkdown
+	noteExportHTML     = documentdialogs.ExportHTML
+	noteExportPDF      = documentdialogs.ExportPDF
 )
 
-func (f noteExportFormat) extension() string {
+func applicationExportFormat(f noteExportFormat) documentapp.ExportFormat {
 	switch f {
-	case noteExportHTML:
-		return "html"
-	case noteExportPDF:
-		return "pdf"
+	case documentdialogs.ExportHTML:
+		return documentapp.ExportHTML
+	case documentdialogs.ExportPDF:
+		return documentapp.ExportPDF
 	default:
-		return "md"
+		return documentapp.ExportMarkdown
 	}
 }
 
-func (f noteExportFormat) label() string {
+func exportFormatLabel(f noteExportFormat) string {
 	switch f {
-	case noteExportHTML:
+	case documentdialogs.ExportHTML:
 		return locales.DocumentExportHTML()
-	case noteExportPDF:
+	case documentdialogs.ExportPDF:
 		return locales.DocumentExportPDF()
 	default:
 		return locales.DocumentExportMarkdown()
@@ -52,8 +55,8 @@ func (a *App) exportDocument(format noteExportFormat) {
 	if baseName == locales.DocumentUntitled() {
 		baseName = "Untitled"
 	}
-	fileName := baseName + "." + format.extension()
-	label := format.label()
+	fileName := baseName + "." + applicationExportFormat(format).Extension()
+	label := exportFormatLabel(format)
 
 	a.startBusy()
 	go func() {
@@ -61,28 +64,21 @@ func (a *App) exportDocument(format noteExportFormat) {
 			Parent:      a.win,
 			Title:       label,
 			DefaultPath: fileName,
-			Filters:     []mygo.FileFilter{{Name: label, Extensions: []string{format.extension()}}},
+			Filters:     []mygo.FileFilter{{Name: label, Extensions: []string{applicationExportFormat(format).Extension()}}},
 		})
 		if err != nil || path == "" {
 			a.finish(nil)
 			return
 		}
 		if filepath.Ext(path) == "" {
-			path += "." + format.extension()
+			path += "." + applicationExportFormat(format).Extension()
 		}
 
 		baseURL := documentapp.FileBaseURL(sourcePath)
-		appFormat := documentapp.ExportMarkdown
-		switch format {
-		case noteExportHTML:
-			appFormat = documentapp.ExportHTML
-		case noteExportPDF:
-			appFormat = documentapp.ExportPDF
-		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		data, err := documentapp.PrepareExport(ctx, documentapp.ExportRequest{
-			Format: appFormat, Title: name, Source: source, BaseURL: baseURL, Language: i18n.Locale(),
+			Format: applicationExportFormat(format), Title: name, Source: source, BaseURL: baseURL, Language: i18n.Locale(),
 		}, mygoPDFRenderer{})
 		if err == nil {
 			if a.documentExportWriter == nil {
