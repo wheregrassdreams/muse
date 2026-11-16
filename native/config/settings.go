@@ -3,8 +3,6 @@ package config
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 )
 
 // ThemeMode is the user's persisted theme selection.
@@ -72,22 +70,56 @@ func DefaultAssistantTools() AssistantTools {
 
 func (s AssistantSettings) UsesMagpie() bool { return s.Provider == AssistantProviderMagpie }
 
-func AssistantSettingsPath() string {
-	return filepath.Join(filepath.Dir(PreferencesPath()), "ai.json")
+func DefaultPreferences() Preferences { return Preferences{Theme: ThemeSystem} }
+
+func DefaultEditorSettings() EditorSettings { return EditorSettings{Keymap: "default"} }
+
+func DefaultAssistantSettings() AssistantSettings {
+	return AssistantSettings{Tools: DefaultAssistantTools()}
 }
 
-func LoadAssistantSettings() (AssistantSettings, error) {
-	var settings AssistantSettings
-	data, err := os.ReadFile(AssistantSettingsPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			settings.Tools = DefaultAssistantTools()
-			return settings, nil
-		}
-		return settings, err
+func NormalizePreferences(p Preferences) Preferences {
+	if p.Theme != ThemeLight && p.Theme != ThemeDark && p.Theme != ThemeSystem {
+		p.Theme = ThemeSystem
 	}
+	return p
+}
+
+func NormalizeEditorSettings(settings EditorSettings) EditorSettings {
+	if settings.Keymap != "vim" && settings.Keymap != "helix" {
+		settings.Keymap = "default"
+	}
+	return settings
+}
+
+func DecodePreferences(data []byte) (Preferences, error) {
+	p := DefaultPreferences()
+	if err := json.Unmarshal(data, &p); err != nil {
+		return DefaultPreferences(), err
+	}
+	return NormalizePreferences(p), nil
+}
+
+func EncodePreferences(p Preferences) ([]byte, error) {
+	return json.MarshalIndent(NormalizePreferences(p), "", "  ")
+}
+
+func DecodeEditorSettings(data []byte) (EditorSettings, error) {
+	var settings EditorSettings
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return AssistantSettings{Tools: DefaultAssistantTools()}, err
+		return EditorSettings{}, err
+	}
+	return NormalizeEditorSettings(settings), nil
+}
+
+func EncodeEditorSettings(settings EditorSettings) ([]byte, error) {
+	return json.MarshalIndent(NormalizeEditorSettings(settings), "", "  ")
+}
+
+func DecodeAssistantSettings(data []byte) (AssistantSettings, error) {
+	var settings AssistantSettings
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return DefaultAssistantSettings(), err
 	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -100,84 +132,6 @@ func LoadAssistantSettings() (AssistantSettings, error) {
 	return settings, nil
 }
 
-func SaveAssistantSettings(settings AssistantSettings) error {
-	return writeJSON(AssistantSettingsPath(), settings)
-}
-
-// PreferencesPath resolves the application settings path using the standard
-// per-user configuration directory, with MUSE_CONFIG_DIR for development.
-func PreferencesPath() string {
-	if dir := os.Getenv("MUSE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "settings.json")
-	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = os.TempDir()
-	}
-	return filepath.Join(dir, "Muse", "settings.json")
-}
-
-// EditorSettingsPath places editor options beside the application settings.
-func EditorSettingsPath() string {
-	return filepath.Join(filepath.Dir(PreferencesPath()), "editor.json")
-}
-
-func LoadPreferences() (Preferences, error) {
-	p := Preferences{Theme: ThemeSystem}
-	data, err := os.ReadFile(PreferencesPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return p, nil
-		}
-		return p, err
-	}
-	if err := json.Unmarshal(data, &p); err != nil {
-		return Preferences{Theme: ThemeSystem}, err
-	}
-	if p.Theme != ThemeLight && p.Theme != ThemeDark && p.Theme != ThemeSystem {
-		p.Theme = ThemeSystem
-	}
-	return p, nil
-}
-
-func SavePreferences(p Preferences) error {
-	if p.Theme != ThemeLight && p.Theme != ThemeDark && p.Theme != ThemeSystem {
-		p.Theme = ThemeSystem
-	}
-	return writeJSON(PreferencesPath(), p)
-}
-
-func LoadEditorSettings() (EditorSettings, error) {
-	var settings EditorSettings
-	data, err := os.ReadFile(EditorSettingsPath())
-	if err != nil && !os.IsNotExist(err) {
-		return settings, err
-	}
-	if err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return EditorSettings{}, err
-		}
-	}
-	if settings.Keymap != "vim" && settings.Keymap != "helix" {
-		settings.Keymap = "default"
-	}
-	return settings, nil
-}
-
-func SaveEditorSettings(settings EditorSettings) error {
-	if settings.Keymap != "vim" && settings.Keymap != "helix" {
-		settings.Keymap = "default"
-	}
-	return writeJSON(EditorSettingsPath(), settings)
-}
-
-func writeJSON(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
+func EncodeAssistantSettings(settings AssistantSettings) ([]byte, error) {
+	return json.MarshalIndent(settings, "", "  ")
 }

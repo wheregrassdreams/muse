@@ -2,8 +2,7 @@ package config
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"path"
 )
 
 // FieldDisplayPreference persists per-note view choices for a metadata field.
@@ -19,60 +18,35 @@ type DocumentPropertyPreferences struct {
 	Fields map[string]FieldDisplayPreference `json:"fields,omitempty"`
 }
 
-type documentPropertyFile map[string]DocumentPropertyPreferences
+type DocumentPropertyFile map[string]DocumentPropertyPreferences
 
-func documentPropertyKey(notePath string) string {
+func DocumentPropertyKey(notePath string) string {
 	if notePath == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Clean(notePath))
+	return path.Clean(notePath)
 }
 
-func documentPropertyPreferencesPath() string {
-	return filepath.Join(filepath.Dir(PreferencesPath()), "document-properties.json")
-}
-
-// LoadDocumentPropertyPreferences returns an empty preference set when no
-// saved state exists. JSON errors are reported to let callers surface them.
-func LoadDocumentPropertyPreferences(notePath string) (DocumentPropertyPreferences, error) {
-	notePath = documentPropertyKey(notePath)
-	var all documentPropertyFile
-	data, err := os.ReadFile(documentPropertyPreferencesPath())
-	if os.IsNotExist(err) {
-		return DocumentPropertyPreferences{}, nil
-	}
-	if err != nil {
-		return DocumentPropertyPreferences{}, err
-	}
+func DecodeDocumentPropertyFile(data []byte) (DocumentPropertyFile, error) {
+	var all DocumentPropertyFile
 	if err := json.Unmarshal(data, &all); err != nil {
-		return DocumentPropertyPreferences{}, err
+		return nil, err
 	}
-	return all[notePath], nil
+	return all, nil
 }
 
-// SaveDocumentPropertyPreferences persists view preferences outside Markdown.
-func SaveDocumentPropertyPreferences(notePath string, preferences DocumentPropertyPreferences) error {
-	notePath = documentPropertyKey(notePath)
-	filename := documentPropertyPreferencesPath()
-	var all documentPropertyFile
-	data, err := os.ReadFile(filename)
-	if err == nil {
-		if err := json.Unmarshal(data, &all); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
+func EncodeDocumentPropertyFile(all DocumentPropertyFile) ([]byte, error) {
+	return json.MarshalIndent(all, "", "  ")
+}
+
+func DocumentPreferences(all DocumentPropertyFile, notePath string) DocumentPropertyPreferences {
+	return all[DocumentPropertyKey(notePath)]
+}
+
+func SetDocumentPreferences(all DocumentPropertyFile, notePath string, preferences DocumentPropertyPreferences) DocumentPropertyFile {
 	if all == nil {
-		all = documentPropertyFile{}
+		all = DocumentPropertyFile{}
 	}
-	all[notePath] = preferences
-	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
-		return err
-	}
-	encoded, err := json.MarshalIndent(all, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, encoded, 0o600)
+	all[DocumentPropertyKey(notePath)] = preferences
+	return all
 }
