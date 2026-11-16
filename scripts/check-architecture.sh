@@ -21,6 +21,33 @@ if rg -n '^package nativeui$' native/nativeui --glob '*.go' | rg -v '^native/nat
   fail "nativeui child directories contain files that masquerade as the parent package"
 fi
 
+if rg -n '^package nativeui$' native/platform --glob '*.go'; then
+  fail "platform adapters declare the presentation package instead of their adapter package"
+fi
+
+# The editor's nested directories are actual package boundaries, not filing
+# locations that share the parent package. Host-coupled integration tests stay
+# in components/editor; feature behavior belongs to these child packages.
+for package in \
+  native/nativeui/components/editor/inputadapter \
+  native/nativeui/components/editor/ime \
+  native/nativeui/components/editor/blocks/inline \
+  native/nativeui/components/editor/blocks/paragraph \
+  native/nativeui/components/editor/blocks/table \
+  native/nativeui/components/editor/blocks/media \
+  native/nativeui/components/editor/render \
+  native/nativeui/components/editor/navigationrail \
+  native/nativeui/components/editor/feedback \
+  native/nativeui/components/editor/scroll \
+  native/nativeui/components/editor/textlayout; do
+  if rg -n '^package editor$' "$package" --glob '*.go'; then
+    fail "editor host package files remain inside child package: $package"
+  fi
+  if [ ! -d "$package" ] || ! find "$package" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print -quit | grep -q .; then
+    fail "editor child package has no production implementation: $package"
+  fi
+done
+
 if rg -n 'ProductionContent|documentSession|^[[:space:]]*ed[[:space:]]+\*editorui\.Editor' \
   native/nativeui/app.go native/nativeui/components/editor --glob '*.go'; then
   fail "temporary production-editor bridge or duplicate App editor owner remains"
@@ -42,6 +69,10 @@ fi
 
 if rg -n '"muse/(nativeui|platform|cmd)/' native/application --glob '*.go' --glob '!**/*_test.go'; then
   fail "application use cases import presentation, platform adapters, or executables"
+fi
+
+if rg -n '"(os|path/filepath)"' native/config --glob '*.go' --glob '!**/*_test.go'; then
+  fail "config schema and JSON value policy perform concrete filesystem I/O"
 fi
 
 if rg -n '"muse/platform/' native/nativeui --glob '*.go' --glob '!**/*_test.go'; then
@@ -70,6 +101,7 @@ for package in \
   native/app \
   native/cmd/muse-native \
   native/application/document \
+  native/application/config \
   native/application/vault \
   native/application/workspace \
   native/events \
@@ -134,6 +166,7 @@ for package in \
   native/nativeui/panels/agent \
   native/nativeui/panels/settings \
   native/platform/filesystem/documentstore \
+  native/platform/filesystem/configstore \
   native/platform/filesystem/agentworkspace \
   native/platform/filesystem/exportstore \
   native/platform/filesystem/imagecache \
