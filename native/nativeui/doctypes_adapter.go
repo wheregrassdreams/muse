@@ -19,7 +19,7 @@ func isImageFile(path string) bool {
 	return doctypes.IsImagePath(path)
 }
 
-func isVisibleWorkspaceFile(path string) bool { return isEditableFile(path) || isImageFile(path) }
+func isVisibleWorkspaceFile(path string) bool { return doctypes.IsVisibleWorkspacePath(path) }
 
 func isEditableFile(path string) bool {
 	return doctypes.IsEditablePath(path)
