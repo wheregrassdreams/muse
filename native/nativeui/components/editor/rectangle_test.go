@@ -146,7 +146,7 @@ func TestBlockPAndPUseDistinctGeometricColumns(t *testing.T) {
 	for _, tc := range []struct{ key, want string }{{"P", "Z中文\nZ中文"}, {"p", "中Z文\n中Z文"}} {
 		h := newHarness(t, "中文\n中文")
 		h.e.SetKeymap("vim")
-		h.e.modal.registerBlock = []string{"Z", "Z"}
+		h.e.vimController().SetBlockRegister([]string{"Z", "Z"})
 		h.e.Select(0, 0)
 		sendVim(h, tc.key)
 		if got := h.e.Source(); got != tc.want {
@@ -167,13 +167,13 @@ func TestBlockRangeRevealAndViewCacheUseActualRangeRevision(t *testing.T) {
 	}
 	e.layoutIfNeeded()
 	u := e.units()[0]
-	first := e.unitView(u, e.caret)
+	first := e.unitView(u, e.Caret())
 	e.block.revision++
 	e.block.ranges = []Range{{Start: 12, End: 13}}
 	e.leavesLaid = false
 	e.layoutIfNeeded()
 	u = e.units()[0]
-	second := e.unitView(u, e.caret)
+	second := e.unitView(u, e.Caret())
 	if first == second {
 		t.Fatal("block range revision reused an inline source view")
 	}

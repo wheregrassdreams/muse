@@ -24,8 +24,8 @@ func TestAnObjectIsOneCharacter(t *testing.T) {
 	for _, key := range []ui.Key{ui.KeyRight, ui.KeyLeft, ui.KeyUp, ui.KeyDown, ui.KeyEnd, ui.KeyHome} {
 		h.caretAt(from - 1)
 		h.key(0, key)
-		if inside(h.e.caret) {
-			t.Fatalf("%v took the caret to %d, inside the object %d..%d", key, h.e.caret, from, to)
+		if inside(h.e.Caret()) {
+			t.Fatalf("%v took the caret to %d, inside the object %d..%d", key, h.e.Caret(), from, to)
 		}
 	}
 	// An offset the display has no place for still draws a caret, at the
@@ -36,19 +36,19 @@ func TestAnObjectIsOneCharacter(t *testing.T) {
 	// Left and right cross it in one press, and never open it.
 	h.caretAt(from - 1)
 	h.key(0, ui.KeyRight)
-	if h.e.caret != from {
-		t.Fatalf("right = %d, want the object's start %d", h.e.caret, from)
+	if h.e.Caret() != from {
+		t.Fatalf("right = %d, want the object's start %d", h.e.Caret(), from)
 	}
 	h.key(0, ui.KeyRight)
-	if h.e.caret != to {
-		t.Fatalf("right = %d, want the object's end %d", h.e.caret, to)
+	if h.e.Caret() != to {
+		t.Fatalf("right = %d, want the object's end %d", h.e.Caret(), to)
 	}
 	if h.shows("![") {
 		t.Fatal("crossing the object opened its source")
 	}
 	h.key(0, ui.KeyLeft)
-	if h.e.caret != from {
-		t.Fatalf("left = %d, want the object's start %d", h.e.caret, from)
+	if h.e.Caret() != from {
+		t.Fatalf("left = %d, want the object's start %d", h.e.Caret(), from)
 	}
 
 	// Backspace and Delete take it whole, one step each.
@@ -82,8 +82,8 @@ func TestAnObjectIsOneCharacter(t *testing.T) {
 	}
 	h.tt.ClickAt(h.e.colX+22, l.y+10)
 	h.frame()
-	if h.e.anchor != from || h.e.caret != to {
-		t.Fatalf("the click selected %d..%d, want %d..%d", h.e.anchor, h.e.caret, from, to)
+	if h.e.Session.Selection().Anchor != from || h.e.Caret() != to {
+		t.Fatalf("the click selected %d..%d, want %d..%d", h.e.Session.Selection().Anchor, h.e.Caret(), from, to)
 	}
 	if !h.shows("![") {
 		t.Fatal("the selection did not open the object's source")
@@ -108,8 +108,8 @@ func TestABlockImageIsOneCharacter(t *testing.T) {
 	l := h.e.leaves[0]
 	h.tt.ClickAt(h.e.colX+20, l.y+l.h/2)
 	h.frame()
-	if h.e.anchor != 0 || h.e.caret != len(h.e.Source()) {
-		t.Fatalf("the click selected %d..%d, want the whole picture", h.e.anchor, h.e.caret)
+	if h.e.Session.Selection().Anchor != 0 || h.e.Caret() != len(h.e.Source()) {
+		t.Fatalf("the click selected %d..%d, want the whole picture", h.e.Session.Selection().Anchor, h.e.Caret())
 	}
 	h.key(0, ui.KeyBackspace)
 	if got := h.e.Source(); strings.TrimSpace(got) != "" {
@@ -125,12 +125,12 @@ func TestInlineFormulaOpensAtBoundary(t *testing.T) {
 	}
 	h.caretAt(3)
 	h.key(0, ui.KeyRight)
-	if h.e.caret != 4 {
-		t.Fatalf("right = %d, want the formula's start 4", h.e.caret)
+	if h.e.Caret() != 4 {
+		t.Fatalf("right = %d, want the formula's start 4", h.e.Caret())
 	}
 	h.key(0, ui.KeyRight)
-	if h.e.caret != 5 {
-		t.Fatalf("right = %d, want source offset 5", h.e.caret)
+	if h.e.Caret() != 5 {
+		t.Fatalf("right = %d, want source offset 5", h.e.Caret())
 	}
 	if !h.shows("$") {
 		t.Fatal("entering formula did not open source")
@@ -156,12 +156,12 @@ func TestHeadingMarkerAllowsLeftAndHome(t *testing.T) {
 	h := newHarness(t, "## Title")
 	h.caretAt(3)
 	h.key(0, ui.KeyLeft)
-	if h.e.caret != 2 {
-		t.Fatalf("left=%d", h.e.caret)
+	if h.e.Caret() != 2 {
+		t.Fatalf("left=%d", h.e.Caret())
 	}
 	h.key(0, ui.KeyHome)
-	if h.e.caret != 0 {
-		t.Fatalf("home=%d", h.e.caret)
+	if h.e.Caret() != 0 {
+		t.Fatalf("home=%d", h.e.Caret())
 	}
 }
 
@@ -169,7 +169,7 @@ func TestInlineMathMissingAndEscapedClosingDelimiter(t *testing.T) {
 	for _, src := range []string{"$xyz", `$xyz\$`} {
 		h := newHarness(t, src)
 		h.e.inlineMath.Begin(0, len(src))
-		h.e.caret, h.e.anchor = 2, 2
+		h.e.setSessionSelection(2, 2)
 		_, _, tex, ok := h.e.activeInlineMath()
 		if !ok || tex != src[1:] {
 			t.Fatalf("%q -> %q ok=%v", src, tex, ok)
@@ -186,7 +186,7 @@ func TestInlineMathRejectsNonMathAndClearsOnSetSource(t *testing.T) {
 		}
 	}
 	h := newHarness(t, "$x$")
-	h.e.inlineMath.Begin(0, len(h.e.src))
+	h.e.inlineMath.Begin(0, len(h.e.Source()))
 	h.e.inlineMath.SetPreviewHidden(true)
 	h.e.SetSource("plain")
 	if h.e.inlineMath.Active() || h.e.inlineMath.PreviewHidden() {
@@ -205,10 +205,10 @@ func TestHeadingMarkerMouseClick(t *testing.T) {
 	}
 	h.tt.ClickAt(r.X, r.Y+r.H/2-h.e.scroll.Y)
 	h.frame()
-	if h.e.caret < start || h.e.caret >= start+2 {
-		t.Fatalf("click on # placed caret at %d, want marker range %d..%d", h.e.caret, start, start+2)
+	if h.e.Caret() < start || h.e.Caret() >= start+2 {
+		t.Fatalf("click on # placed caret at %d, want marker range %d..%d", h.e.Caret(), start, start+2)
 	}
-	if h.e.anchor != h.e.caret {
+	if h.e.Session.Selection().Anchor != h.e.Caret() {
 		t.Fatal("click selected instead of placing caret")
 	}
 }

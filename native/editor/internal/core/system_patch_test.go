@@ -1,18 +1,54 @@
-package editor
+package core
 
-import "testing"
+import (
+	"testing"
 
-func TestReplaceSystemAllFoldsIntoPriorUndoStep(t *testing.T) {
-	h := newHarness(t, "---\nupdated_at: ''\n---\nbody")
-	h.e.ReplaceAll("---\nupdated_at: ''\n---\nchanged body")
-	if len(h.e.hist.undo) != 1 {
-		t.Fatalf("user edit history = %d, want 1", len(h.e.hist.undo))
+	"muse/editor/input"
+)
+
+func TestSystemPatchFoldsIntoPreviousUserEdit(t *testing.T) {
+	initial := "---\nupdated_at: ''\n---\nbody"
+	session := NewSession(initial)
+	if err := session.SetSelection(Selection{Anchor: len(initial), Head: len(initial)}); err != nil {
+		t.Fatal(err)
 	}
-	h.e.ReplaceSystemAll("---\nupdated_at: '2026-11-13T04:00:00Z'\n---\nchanged body")
-	if len(h.e.hist.undo) != 1 {
-		t.Fatalf("metadata created another undo step: %d", len(h.e.hist.undo))
+	if _, err := session.Dispatch(input.Event{Kind: input.InsertText, Text: " changed"}); err != nil {
+		t.Fatal(err)
 	}
-	if !h.e.Undo() || h.e.Source() != "---\nupdated_at: ''\n---\nbody" {
-		t.Fatalf("Undo did not restore pre-edit source: %q", h.e.Source())
+	patch, ok := session.PlanSystemPatch("---\nupdated_at: 'now'\n---\nbody changed")
+	if !ok {
+		t.Fatal("system patch was not planned")
+	}
+	if _, err := session.ApplySystemPatch(patch, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !session.CanUndo() {
+		t.Fatal("user edit should remain undoable")
+	}
+	if _, err := session.Undo(); err != nil {
+		t.Fatal(err)
+	}
+	if got := session.Source(); got != initial {
+		t.Fatalf("undo source = %q, want %q", got, initial)
+	}
+	if session.CanUndo() {
+		t.Fatal("system patch became a separate undo step")
+	}
+}
+
+func TestSystemPatchWithoutUserHistoryBecomesBaseline(t *testing.T) {
+	session := NewSession("abc")
+	patch, ok := session.PlanSystemPatch("aXbc")
+	if !ok {
+		t.Fatal("system patch was not planned")
+	}
+	if _, err := session.ApplySystemPatch(patch, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := session.Source(); got != "aXbc" {
+		t.Fatalf("source = %q, want %q", got, "aXbc")
+	}
+	if session.CanUndo() {
+		t.Fatal("system-only patch created user-visible undo history")
 	}
 }

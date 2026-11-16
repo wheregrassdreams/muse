@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	editormodel "muse/editor"
+	inlineui "muse/nativeui/components/editor/blocks/inline"
 )
 
 const embeddedNoteMarkdown = "# Embedded Heading\n\nA **bold** body paragraph with [a link](https://example.com).\n"
@@ -167,12 +170,12 @@ func TestWikiNoteEmbedResolvesNestedLinksFromEmbeddedPath(t *testing.T) {
 	opts.ResolveWikiEmbed = func(_, _ string) (string, string, bool) {
 		return "Projects/Target.md", "Nested [[Reference]]", true
 	}
-	opts.ResolveWikiLink = func(currentPath, target string) LinkTargetState {
+	opts.ResolveWikiLink = func(currentPath, target string) inlineui.LinkTargetState {
 		resolvedPath, resolvedTarget = currentPath, target
 		if currentPath == "/vault/Projects/Target.md" && target == "Reference" {
-			return LinkTargetValid
+			return inlineui.LinkTargetValid
 		}
-		return LinkTargetInvalid
+		return inlineui.LinkTargetInvalid
 	}
 	h.e.SetOptions(opts)
 	h.frame()
@@ -183,7 +186,7 @@ func TestWikiNoteEmbedResolvesNestedLinksFromEmbeddedPath(t *testing.T) {
 	if resolvedPath != "/vault/Projects/Target.md" || resolvedTarget != "Reference" {
 		t.Fatalf("nested link resolver context=(%q,%q)", resolvedPath, resolvedTarget)
 	}
-	if got := linkStyleAt(t, embed.embed, strings.Index(embed.embed.src, "Reference")); got.DottedUnderline {
+	if got := linkStyleAt(t, embed.embed, strings.Index(embed.embed.Source(), "Reference")); got.DottedUnderline {
 		t.Fatalf("nested wiki link was resolved against the host path: %+v", got)
 	}
 }
@@ -247,11 +250,11 @@ func TestWikiNoteEmbedScreenshot(t *testing.T) {
 	opts.ResolveWikiEmbed = func(_, _ string) (string, string, bool) {
 		return "Target.md", "# Embedded Heading\n\nA **bold** body with [[Nested target]].\n", true
 	}
-	opts.ResolveWikiLink = func(currentPath, target string) LinkTargetState {
+	opts.ResolveWikiLink = func(currentPath, target string) inlineui.LinkTargetState {
 		if currentPath == "/vault/Target.md" && target == "Nested target" {
-			return LinkTargetValid
+			return inlineui.LinkTargetValid
 		}
-		return LinkTargetUnknown
+		return inlineui.LinkTargetUnknown
 	}
 	h.e.SetOptions(opts)
 	h.frame()

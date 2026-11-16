@@ -24,20 +24,20 @@ var strictBase64 = base64.StdEncoding.Strict()
 // plain alt and a large Base64 data URL. The cached inline tokens retain a
 // slice of the source, so sync drops them when the source revision changes.
 func (e *Editor) viewInlines(l *leaf) []syntax.IncrementalInline {
-	if l == nil || l.id < 0 || e.p.doc == nil {
+	if l == nil || l.id < 0 || e.p.Parser() == nil {
 		return nil
 	}
-	if len(e.p.imageInlines) > 0 && e.p.imageInlines[0].Start == l.start && e.p.imageInlines[0].End <= l.end {
-		return e.p.imageInlines
+	if len(e.p.ImageInlines()) > 0 && e.p.ImageInlines()[0].Start == l.start && e.p.ImageInlines()[0].End <= l.end {
+		return e.p.ImageInlines()
 	}
-	if cached := &e.largeDataImageCache; cached.valid && cached.rev == e.rev && cached.leafID == l.id {
+	if cached := &e.largeDataImageCache; cached.valid && cached.rev == e.Session.Revision() && cached.leafID == l.id {
 		return cached.inlines
 	}
-	if ins, ok := largeDataImageInlines(e.src, l); ok {
-		e.largeDataImageCache = largeDataImageInlineCache{rev: e.rev, leafID: l.id, inlines: ins, valid: true}
+	if ins, ok := largeDataImageInlines(e.Source(), l); ok {
+		e.largeDataImageCache = largeDataImageInlineCache{rev: e.Session.Revision(), leafID: l.id, inlines: ins, valid: true}
 		return ins
 	}
-	return e.p.doc.Inlines(l.id)
+	return e.p.Parser().Inlines(l.id)
 }
 
 // largeDataImageInlines recognizes the deliberately narrow case of a

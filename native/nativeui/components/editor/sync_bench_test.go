@@ -57,7 +57,7 @@ func BenchmarkSyncAfterEdit(b *testing.B) {
 	e.replace(mid, mid, "x")
 	e.parsed = 0
 	e.sync()
-	e.hist.open = nil
+	e.commit(e.Caret(), e.Caret())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -71,7 +71,7 @@ func BenchmarkSyncAfterEdit(b *testing.B) {
 		}
 		e.parsed = 0
 		e.sync()
-		e.hist.open = nil
+		e.commit(e.Caret(), e.Caret())
 	}
 }
 
@@ -92,7 +92,7 @@ func BenchmarkTypingFrame(b *testing.B) {
 	tt.Frame()
 	tt.Frame()
 	mid := benchmarkProse(b, src)
-	e.anchor, e.caret = mid, mid
+	e.setSessionSelection(mid, mid)
 	e.wantReveal = true
 	tt.Frame()
 	b.ReportAllocs()
@@ -104,7 +104,7 @@ func BenchmarkTypingFrame(b *testing.B) {
 		} else {
 			e.replace(mid, mid+1, "")
 		}
-		e.commit(e.caret, e.caret)
+		e.commit(e.Caret(), e.Caret())
 		tt.Frame()
 	}
 }
@@ -121,7 +121,7 @@ func BenchmarkLayoutAfterEdit(b *testing.B) {
 	e.replace(mid, mid, "x")
 	e.parsed = 0
 	e.layoutIfNeeded()
-	e.hist.open = nil
+	e.commit(e.Caret(), e.Caret())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -133,6 +133,6 @@ func BenchmarkLayoutAfterEdit(b *testing.B) {
 		}
 		e.parsed = 0
 		e.layoutIfNeeded()
-		e.hist.open = nil
+		e.commit(e.Caret(), e.Caret())
 	}
 }

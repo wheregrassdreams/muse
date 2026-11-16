@@ -99,9 +99,7 @@ func TestSetSourceReleasesDocumentScopedState(t *testing.T) {
 	e.wikiEmbeds = map[string]*wikiEmbedCache{"old": {editor: New("embedded", Options{})}}
 	e.virtualIndex.Capture([]float32{1}, 1)
 
-	e.u16ix = u16Index{
-		bytes: []int{1}, units: []int{1}, midB: []int{1}, midU: []int{1}, nb: []int{1}, nu: []int{1},
-	}
+	e.imeClient.RebuildIndex("old source", e.Session.Revision())
 
 	// Reopening identical content is still a new document lifetime: no leaf,
 	// view, or cache from the previous Editor state should be carried over.
@@ -126,7 +124,7 @@ func TestSetSourceReleasesDocumentScopedState(t *testing.T) {
 	if e.virtualIndex.Len() != 0 {
 		t.Fatal("SetSource retained large-document layout indexes")
 	}
-	if e.u16ix.bytes != nil || e.u16ix.units != nil || e.u16ix.midB != nil || e.u16ix.midU != nil || e.u16ix.nb != nil || e.u16ix.nu != nil {
+	if !e.imeClient.IndexEmpty() {
 		t.Fatal("SetSource retained UTF-16 index buffers")
 	}
 	if e.arena[e.arenaCur].n == 0 || len(e.arena[e.arenaCur].chunks) != 1 || len(e.arena[1-e.arenaCur].chunks) != 0 {

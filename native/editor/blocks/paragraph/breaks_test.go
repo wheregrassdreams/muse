@@ -34,6 +34,24 @@ func TestShouldTrackBlankInput(t *testing.T) {
 	}
 }
 
+func TestPlanBlankInputReturnsViewLocalBreakAnchors(t *testing.T) {
+	source := "before\n\nafter"
+	plan := PlanBlankInput(BlankInput{
+		Enabled: true, CollapseSoftBreaks: true, CollapsedSelection: true,
+		BlankSourceLine: true, Source: source, Caret: len("before\n"), Text: "x",
+	})
+	if !plan.BeginHistory || len(plan.RememberBreaks) != 2 || plan.RememberBreaks[0] != len("before") || plan.RememberBreaks[1] != len("before\n") {
+		t.Fatalf("PlanBlankInput() = %+v", plan)
+	}
+	phantom := PlanBlankInput(BlankInput{
+		Enabled: true, CollapseSoftBreaks: true, CollapsedSelection: true,
+		PhantomParagraph: true, Text: "x",
+	})
+	if !phantom.BeginHistory || len(phantom.RememberBreaks) != 0 {
+		t.Fatalf("phantom PlanBlankInput() = %+v", phantom)
+	}
+}
+
 func TestBreakProjection(t *testing.T) {
 	for _, tc := range []struct {
 		name string

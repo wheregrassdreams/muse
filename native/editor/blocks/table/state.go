@@ -6,7 +6,7 @@ package table
 import (
 	"strings"
 
-	"muse/editor/internal/core"
+	"muse/editor"
 )
 
 // Host is the narrow bridge from table commands to the editor document. Views
@@ -14,8 +14,8 @@ import (
 type Host interface {
 	TableView(lineStart int) (DocumentView, bool)
 	DocumentSource() string
-	TextSelection() core.Selection
-	Apply(core.Transaction) error
+	TextSelection() editor.Selection
+	Apply(editor.Transaction) error
 }
 
 type Axis uint8
@@ -49,7 +49,7 @@ type DocumentView struct {
 	Source             string
 	Prefix             string
 	ContinuationPrefix string
-	Rows               [][]core.TextRange
+	Rows               [][]editor.TextRange
 	Lines              []LineView
 	Alignments         []Alignment
 }
@@ -57,8 +57,88 @@ type DocumentView struct {
 // LineView contains a table source line and parser-computed unescaped pipe
 // offsets, allowing commands to preserve whitespace and escaped delimiters.
 type LineView struct {
-	Range core.TextRange
+	Range editor.TextRange
 	Pipes []int
+}
+
+// BoundaryAffinity selects which adjacent cell owns a caret at a shared
+// source boundary.
+type BoundaryAffinity uint8
+
+const (
+	PreferNextCell BoundaryAffinity = iota
+	PreferPreviousCell
+)
+
+// CellAtSourceOffset maps a source caret to a parser-projected cell. Cell
+// ranges are half-open; affinity only affects a caret exactly at a cell end.
+func CellAtSourceOffset(view DocumentView, offset int, affinity BoundaryAffinity) (Cell, bool) {
+	if offset < view.LineStart || offset > view.End ||
+		(affinity != PreferNextCell && affinity != PreferPreviousCell) {
+		return Cell{}, false
+	}
+	var previous Cell
+	previousEnd := -1
+	for rowIndex, row := range view.Rows {
+		for colIndex, cell := range row {
+			if cell.Start < view.LineStart || cell.End < cell.Start || cell.End > view.End {
+				return Cell{}, false
+			}
+			if offset == cell.Start && affinity == PreferPreviousCell && previousEnd == offset {
+				return previous, true
+			}
+			if offset >= cell.Start && offset < cell.End {
+				return Cell{Row: rowIndex, Col: colIndex}, true
+			}
+			if cell.End == offset {
+				previous = Cell{Row: rowIndex, Col: colIndex}
+				previousEnd = cell.End
+			}
+		}
+	}
+	if affinity == PreferPreviousCell && previousEnd == offset {
+		return previous, true
+	}
+	for lineIndex, line := range view.Lines {
+		if offset < line.Range.Start || offset > line.Range.End {
+			continue
+		}
+		row := 0
+		if lineIndex >= 2 {
+			row = min(lineIndex-1, len(view.Rows)-1)
+		}
+		if row < 0 || row >= len(view.Rows) || len(view.Rows[row]) == 0 {
+			return Cell{}, false
+		}
+		if lineIndex == 1 {
+			// The Markdown alignment separator belongs to the header boundary.
+			return Cell{Row: 0, Col: 0}, true
+		}
+		cells := view.Rows[row]
+		column := 0
+		for col := 0; col+1 < len(cells); col++ {
+			boundary := cells[col].End + (cells[col+1].Start-cells[col].End)/2
+			for _, pipe := range line.Pipes {
+				if pipe >= cells[col].End && pipe <= cells[col+1].Start {
+					boundary = pipe
+					break
+				}
+			}
+			if offset > boundary || offset == boundary && affinity == PreferNextCell {
+				column = col + 1
+				continue
+			}
+			break
+		}
+		return Cell{Row: row, Col: column}, true
+	}
+	if offset == view.End && len(view.Rows) > 0 {
+		row := len(view.Rows) - 1
+		if width := len(view.Rows[row]); width > 0 {
+			return Cell{Row: row, Col: width - 1}, true
+		}
+	}
+	return Cell{}, false
 }
 
 // Matrix is a rectangular copy of cell text for clipboard and paste logic.
@@ -96,7 +176,13 @@ func CopyRegion(view DocumentView, region Selection) (Matrix, bool) {
 	if left >= width || right >= width {
 		return Matrix{}, false
 	}
-	matrix := Matrix{Cells: make([][]string, bottom-top+1)}
+	matrix := Matrix{
+		Cells:      make([][]string, bottom-top+1),
+		Alignments: make([]Alignment, right-left+1),
+	}
+	for col := left; col <= right && col < len(view.Alignments); col++ {
+		matrix.Alignments[col-left] = view.Alignments[col]
+	}
 	for row := top; row <= bottom; row++ {
 		matrix.Cells[row-top] = make([]string, right-left+1)
 		for col := left; col <= right && col < len(view.Rows[row]); col++ {
@@ -183,8 +269,32 @@ type Selection struct {
 	Active       int
 	ActiveRow    int
 	Right        bool
-	FromText     bool
-	TextMode     string
+	Origin       SelectionOrigin
+}
+
+// SelectionOrigin records the semantic interaction that created a table
+// selection without importing or persisting a particular keymap's mode.
+type SelectionOrigin uint8
+
+const (
+	SelectionOriginTable SelectionOrigin = iota
+	SelectionOriginText
+	SelectionOriginVisualText
+)
+
+// Clamp projects a structural selection onto the current table grid and
+// recomputes its semantic axis and inclusive range while retaining its input
+// origin metadata.
+func (s Selection) Clamp(grid Grid) (Selection, bool) {
+	if !s.CellRegion || s.LineStart != grid.LineStart {
+		return Selection{}, false
+	}
+	selection := grid.Region(s.Anchor, s.Focus, s.Right)
+	if selection == nil {
+		return Selection{}, false
+	}
+	selection.Origin = s.Origin
+	return *selection, true
 }
 
 type ContentBridge struct {
@@ -193,21 +303,102 @@ type ContentBridge struct {
 	Row             int
 	Col             int
 	Direction       int
-	Resume          string
 	Index           int
 	SelectionAnchor int
-	FromText        bool
-	TextMode        string
+	Origin          SelectionOrigin
+}
+
+// VirtualEdge identifies the side of a cell at which a structural edit has
+// temporarily placed the caret. It is source-independent session state; the
+// host resolves it to a concrete source offset through a DocumentView.
+type VirtualEdge uint8
+
+const (
+	VirtualBeforeCell VirtualEdge = iota + 1
+	VirtualAfterCell
+)
+
+// VirtualEdit is a temporary table caret position used when a command moves
+// past the source-backed edge of a row or column. It contains only stable
+// table coordinates and can be copied into an editor history snapshot.
+type VirtualEdit struct {
+	LineStart  int
+	Cell       Cell
+	Edge       VirtualEdge
+	Axis       Axis
+	PostDelete bool
+}
+
+// Clamp constrains the virtual position to the current table grid. It returns
+// false when the grid is empty or the edge is not a valid virtual edge.
+func (v VirtualEdit) Clamp(grid Grid) (VirtualEdit, bool) {
+	if grid.Rows <= 0 || grid.Cols <= 0 ||
+		(v.Edge != VirtualBeforeCell && v.Edge != VirtualAfterCell) {
+		return VirtualEdit{}, false
+	}
+	v.LineStart = grid.LineStart
+	v.Cell.Row = clamp(v.Cell.Row, 0, grid.Rows-1)
+	v.Cell.Col = clamp(v.Cell.Col, 0, grid.Cols-1)
+	return v, true
+}
+
+// ValidateVirtualEdit confirms that the stored source anchor still resolves
+// to the same concrete cell in a fresh parser projection. It never guesses a
+// replacement table or clamps a stale row/column to a different cell.
+func ValidateVirtualEdit(view DocumentView, virtual VirtualEdit) (VirtualEdit, bool) {
+	if virtual.LineStart != view.LineStart || virtual.Cell.Row < 0 || virtual.Cell.Row >= len(view.Rows) ||
+		virtual.Cell.Col < 0 || virtual.Cell.Col >= len(view.Rows[virtual.Cell.Row]) {
+		return VirtualEdit{}, false
+	}
+	if virtual.Edge != VirtualBeforeCell && virtual.Edge != VirtualAfterCell {
+		return VirtualEdit{}, false
+	}
+	if virtual.Axis != Rows && virtual.Axis != Columns && virtual.Axis != Whole && virtual.Axis != Cells {
+		return VirtualEdit{}, false
+	}
+	return virtual, true
+}
+
+// VisualMode is a table-local extension of editor visual selection.
+type VisualMode uint8
+
+const (
+	VisualModeNone VisualMode = iota
+	VisualModeLine
+	VisualModeColumn
+)
+
+// VisualSelection stores table coordinates for a visual selection without
+// retaining renderer geometry or a mutable parser leaf.
+type VisualSelection struct {
+	Mode   VisualMode
+	Anchor Cell
+	Focus  Cell
+}
+
+// Clamp constrains both endpoints to the current grid and rejects an empty
+// grid or an unsupported mode.
+func (v VisualSelection) Clamp(grid Grid) (VisualSelection, bool) {
+	if grid.Rows <= 0 || grid.Cols <= 0 || v.Mode < VisualModeLine || v.Mode > VisualModeColumn {
+		return VisualSelection{}, false
+	}
+	v.Anchor.Row = clamp(v.Anchor.Row, 0, grid.Rows-1)
+	v.Anchor.Col = clamp(v.Anchor.Col, 0, grid.Cols-1)
+	v.Focus.Row = clamp(v.Focus.Row, 0, grid.Rows-1)
+	v.Focus.Col = clamp(v.Focus.Col, 0, grid.Cols-1)
+	return v, true
 }
 
 // Snapshot captures table-specific selection alongside the editor's text
 // selection. It is the single value stored by editor undo/redo for table state.
 type Snapshot struct {
 	Mode           string
-	TextSelection  core.Selection
+	TextSelection  editor.Selection
 	Selection      *Selection
 	DocumentRegion *Selection
 	Bridge         *ContentBridge
+	VirtualEdit    *VirtualEdit
+	Visual         *VisualSelection
 }
 
 type navigationStep struct {
@@ -235,11 +426,11 @@ func (c *Controller) ClearRegion(host Host, region Selection) (bool, error) {
 	}
 	top, left := min(region.Anchor.Row, region.Focus.Row), min(region.Anchor.Col, region.Focus.Col)
 	bottom, right := max(region.Anchor.Row, region.Focus.Row), max(region.Anchor.Col, region.Focus.Col)
-	var edits []core.TextEdit
+	var edits []editor.TextEdit
 	for row := top; row <= bottom; row++ {
 		for col := left; col <= right && col < len(view.Rows[row]); col++ {
 			r := view.Rows[row][col]
-			edits = append(edits, core.TextEdit{Range: r, Text: ""})
+			edits = append(edits, editor.TextEdit{Range: r, Text: ""})
 		}
 	}
 	if len(edits) == 0 {
@@ -247,9 +438,9 @@ func (c *Controller) ClearRegion(host Host, region Selection) (bool, error) {
 	}
 	caret := edits[0].Range.Start
 	selection := host.TextSelection()
-	err := host.Apply(core.Transaction{
+	err := host.Apply(editor.Transaction{
 		Edits: edits, Before: selection,
-		After: core.Selection{Anchor: caret, Head: caret},
+		After: editor.Selection{Anchor: caret, Head: caret},
 	})
 	return err == nil, err
 }
@@ -312,10 +503,10 @@ func (c *Controller) ReplaceRegion(host Host, region Selection, matrix Matrix) (
 	}
 	text := serialize(values, alignments, view.Prefix, view.ContinuationPrefix)
 	selection := host.TextSelection()
-	err := host.Apply(core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
+	err := host.Apply(editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
 		Before: selection,
-		After:  core.Selection{Anchor: view.LineStart, Head: view.LineStart},
+		After:  editor.Selection{Anchor: view.LineStart, Head: view.LineStart},
 	})
 	return err == nil, err
 }
@@ -328,7 +519,7 @@ func (c *Controller) AddColumnRight(host Host, lineStart int) (bool, error) {
 		return false, nil
 	}
 	selection := host.TextSelection()
-	edits := make([]core.TextEdit, 0, len(view.Lines))
+	edits := make([]editor.TextEdit, 0, len(view.Lines))
 	for index, line := range view.Lines {
 		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
 			continue
@@ -341,12 +532,12 @@ func (c *Controller) AddColumnRight(host Host, lineStart int) (bool, error) {
 		if lastPipe+1 < line.Range.End && strings.TrimSpace(view.Source[lastPipe+1:line.Range.End]) != "" {
 			text = " |" + text
 		}
-		edits = append(edits, core.TextEdit{Range: core.TextRange{Start: line.Range.End, End: line.Range.End}, Text: text})
+		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: line.Range.End, End: line.Range.End}, Text: text})
 	}
 	if len(edits) == 0 {
 		return false, nil
 	}
-	tx := core.Transaction{Edits: edits, Before: selection}
+	tx := editor.Transaction{Edits: edits, Before: selection}
 	tx.After = mapSelection(tx, selection)
 	err := host.Apply(tx)
 	return err == nil, err
@@ -367,13 +558,140 @@ func (c *Controller) AddRowBelow(host Host, lineStart int) (bool, error) {
 	}
 	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: view.End, End: view.End}, Text: text}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.End, End: view.End}, Text: text}},
 		Before: selection,
 	}
 	tx.After = mapSelection(tx, selection)
 	err := host.Apply(tx)
 	return err == nil, err
+}
+
+// InsertRowAfter inserts a blank row after a displayed row and returns the
+// caret offset in the inserted row. Row zero is the header; inserting after
+// it places the new row below the delimiter.
+func (c *Controller) InsertRowAfter(host Host, lineStart, row, column int) (bool, int, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 || row < 0 || row >= len(view.Rows) {
+		return false, 0, nil
+	}
+	columns := 0
+	for _, cells := range view.Rows {
+		columns = max(columns, len(cells))
+	}
+	if columns == 0 {
+		return false, 0, nil
+	}
+	lineIndex := row + 1
+	if lineIndex >= len(view.Lines) {
+		return false, 0, nil
+	}
+	at := view.Lines[lineIndex].Range.End
+	if row == 0 {
+		at = view.Lines[1].Range.End
+	}
+	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
+	column = clamp(column, 0, columns-1)
+	caret := at + 1 + len(view.ContinuationPrefix) + 2 + column*4
+	selection := host.TextSelection()
+	err := host.Apply(editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: at, End: at}, Text: text}},
+		Before: selection,
+		After:  editor.Selection{Anchor: caret, Head: caret},
+	})
+	return err == nil, caret, err
+}
+
+// InsertColumnBefore inserts a blank column before the displayed column,
+// using parser-projected pipe offsets so escaped pipes remain untouched.
+func (c *Controller) InsertColumnBefore(host Host, lineStart, column int) (bool, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || column < 0 {
+		return false, nil
+	}
+	columns := 0
+	for _, row := range view.Rows {
+		columns = max(columns, len(row))
+	}
+	if columns == 0 || column > columns {
+		return false, nil
+	}
+	edits := make([]editor.TextEdit, 0, len(view.Lines))
+	for lineIndex, line := range view.Lines {
+		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
+			continue
+		}
+		at := line.Range.End
+		if column < len(line.Pipes)-1 {
+			at = line.Pipes[column] + 1
+		} else {
+			at = line.Pipes[len(line.Pipes)-1] + 1
+		}
+		text := "   |"
+		if lineIndex == 1 {
+			text = " --- |"
+		}
+		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: at, End: at}, Text: text})
+	}
+	if len(edits) == 0 {
+		return false, nil
+	}
+	selection := host.TextSelection()
+	tx := editor.Transaction{Edits: edits, Before: selection}
+	tx.After = mapSelection(tx, selection)
+	err := host.Apply(tx)
+	return err == nil, err
+}
+
+// AlignColumn replaces one delimiter cell with the requested semantic
+// alignment and returns the source edit mapping for host-owned selection
+// state that is not part of the document selection.
+func (c *Controller) AlignColumn(host Host, lineStart, column int, alignment Alignment) (bool, EditMapping, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || column < 0 || len(view.Lines[1].Pipes) <= column+1 {
+		return false, EditMapping{}, nil
+	}
+	spec := " --- "
+	switch alignment {
+	case AlignmentNone:
+		spec = " --- "
+	case AlignmentLeft:
+		spec = " :-- "
+	case AlignmentCenter:
+		spec = " :-: "
+	case AlignmentRight:
+		spec = " --: "
+	default:
+		return false, EditMapping{}, nil
+	}
+	from, to := view.Lines[1].Pipes[column]+1, view.Lines[1].Pipes[column+1]
+	if from < view.Lines[1].Range.Start || to < from || to > view.Lines[1].Range.End || to > len(view.Source) {
+		return false, EditMapping{}, nil
+	}
+	if view.Source[from:to] == spec {
+		return false, EditMapping{}, nil
+	}
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}},
+		Before: selection,
+		After:  mapSelection(editor.Transaction{Edits: []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}}}, selection),
+	}
+	err := host.Apply(tx)
+	return err == nil, EditMapping{From: from, To: to, Inserted: len(spec)}, err
+}
+
+// EditMapping describes one replacement in source coordinates.
+type EditMapping struct{ From, To, Inserted int }
+
+func (m EditMapping) Offset(offset int) int {
+	if offset >= m.To {
+		return offset + m.Inserted - (m.To - m.From)
+	}
+	if offset > m.From {
+		return m.From + m.Inserted
+	}
+	return offset
 }
 
 // Reorder moves a contiguous row or column selection to an original-grid gap
@@ -432,8 +750,8 @@ func (c *Controller) Reorder(host Host, lineStart int, axis Axis, first, last, g
 	}
 	text := serialize(rows, alignments, view.Prefix, view.ContinuationPrefix)
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
 		Before: selection,
 	}
 	tx.After = mapSelection(tx, selection)
@@ -475,10 +793,10 @@ func (c *Controller) DeleteRows(host Host, lineStart, first, last int, whole, ch
 		replacement = "\n"
 	}
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: a, End: z}, Text: replacement}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: a, End: z}, Text: replacement}},
 		Before: selection,
-		After:  core.Selection{Anchor: a, Head: a},
+		After:  editor.Selection{Anchor: a, Head: a},
 	}
 	if change {
 		tx.After.Anchor++
@@ -486,6 +804,13 @@ func (c *Controller) DeleteRows(host Host, lineStart, first, last int, whole, ch
 	}
 	err := host.Apply(tx)
 	return err == nil, a, err
+}
+
+// DeleteTable removes the complete table block and returns its source
+// insertion point. Prefix and continuation text are part of the projected
+// line ranges supplied by the host.
+func (c *Controller) DeleteTable(host Host, lineStart int) (bool, int, error) {
+	return c.DeleteRows(host, lineStart, 0, 0, true, false)
 }
 
 // DeleteColumns deletes or clears an inclusive column range. It retains each
@@ -566,10 +891,10 @@ func (c *Controller) DeleteColumns(host Host, lineStart, first, last int, change
 	}
 	start, end := view.Lines[0].Range.Start, view.Lines[len(view.Lines)-1].Range.End
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: start, End: end}, Text: b.String()}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: start, End: end}, Text: b.String()}},
 		Before: selection,
-		After:  core.Selection{Anchor: start, Head: start},
+		After:  editor.Selection{Anchor: start, Head: start},
 	}
 	err := host.Apply(tx)
 	return err == nil, start, err
@@ -582,23 +907,23 @@ func (c *Controller) TypeColumnSelection(host Host, lineStart, first, last int, 
 	if !ok || first < 0 || last < first {
 		return false, 0, nil
 	}
-	var edits []core.TextEdit
+	var edits []editor.TextEdit
 	for _, row := range view.Rows {
 		for col := first; col <= last && col < len(row); col++ {
 			value := ""
 			if col == first {
 				value = text
 			}
-			edits = append(edits, core.TextEdit{Range: row[col], Text: value})
+			edits = append(edits, editor.TextEdit{Range: row[col], Text: value})
 		}
 	}
 	if len(edits) == 0 {
 		return false, 0, nil
 	}
 	caret := edits[0].Range.Start + len(text)
-	transaction := core.Transaction{
+	transaction := editor.Transaction{
 		Edits: edits, Before: host.TextSelection(),
-		After: core.Selection{Anchor: caret, Head: caret},
+		After: editor.Selection{Anchor: caret, Head: caret},
 	}
 	err := host.Apply(transaction)
 	return err == nil, caret, err
@@ -610,20 +935,20 @@ func (c *Controller) TypeBlock(host Host, lineStart, column int, text string) (b
 	if !ok || column < 0 {
 		return false, 0, nil
 	}
-	var edits []core.TextEdit
+	var edits []editor.TextEdit
 	for _, row := range view.Rows {
 		if column < len(row) {
 			at := row[column].End
-			edits = append(edits, core.TextEdit{Range: core.TextRange{Start: at, End: at}, Text: text})
+			edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: at, End: at}, Text: text})
 		}
 	}
 	if len(edits) == 0 {
 		return false, 0, nil
 	}
 	caret := edits[0].Range.Start + len(text)
-	transaction := core.Transaction{
+	transaction := editor.Transaction{
 		Edits: edits, Before: host.TextSelection(),
-		After: core.Selection{Anchor: caret, Head: caret},
+		After: editor.Selection{Anchor: caret, Head: caret},
 	}
 	err := host.Apply(transaction)
 	return err == nil, caret, err
@@ -636,7 +961,7 @@ func (c *Controller) BackspaceBlock(host Host, lineStart, column int, remove str
 	if !ok || column < 0 || remove == "" {
 		return false, nil
 	}
-	var edits []core.TextEdit
+	var edits []editor.TextEdit
 	for _, row := range view.Rows {
 		if column >= len(row) {
 			continue
@@ -644,14 +969,14 @@ func (c *Controller) BackspaceBlock(host Host, lineStart, column int, remove str
 		end := row[column].End
 		start := end - len(remove)
 		if start >= row[column].Start && end <= len(view.Source) && view.Source[start:end] == remove {
-			edits = append(edits, core.TextEdit{Range: core.TextRange{Start: start, End: end}})
+			edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: start, End: end}})
 		}
 	}
 	if len(edits) == 0 {
 		return false, nil
 	}
 	selection := host.TextSelection()
-	transaction := core.Transaction{Edits: edits, Before: selection}
+	transaction := editor.Transaction{Edits: edits, Before: selection}
 	transaction.After = mapSelection(transaction, selection)
 	err := host.Apply(transaction)
 	return err == nil, err
@@ -710,10 +1035,10 @@ func (c *Controller) PasteRows(host Host, lineStart, row int, before bool, rows 
 		text = "\n" + b.String()
 	}
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: at, End: at}, Text: text}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: at, End: at}, Text: text}},
 		Before: selection,
-		After:  core.Selection{Anchor: at + len(text), Head: at + len(text)},
+		After:  editor.Selection{Anchor: at + len(text), Head: at + len(text)},
 	}
 	err := host.Apply(tx)
 	return err == nil, insertedRow, err
@@ -844,10 +1169,10 @@ func (c *Controller) PasteColumns(host Host, lineStart, row, column int, matrix 
 	}
 	start, end := view.Lines[0].Range.Start, view.Lines[len(view.Lines)-1].Range.End
 	selection := host.TextSelection()
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: start, End: end}, Text: b.String()}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: start, End: end}, Text: b.String()}},
 		Before: selection,
-		After:  core.Selection{Anchor: start, Head: start},
+		After:  editor.Selection{Anchor: start, Head: start},
 	}
 	err := host.Apply(tx)
 	return err == nil, column, err
@@ -870,16 +1195,16 @@ func (c *Controller) PasteBlock(host Host, at int, fragment string) (bool, error
 	}
 	selection := host.TextSelection()
 	caret := at + len(fragment)
-	tx := core.Transaction{
-		Edits:  []core.TextEdit{{Range: core.TextRange{Start: at, End: at}, Text: fragment}},
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: at, End: at}, Text: fragment}},
 		Before: selection,
-		After:  core.Selection{Anchor: caret, Head: caret},
+		After:  editor.Selection{Anchor: caret, Head: caret},
 	}
 	err := host.Apply(tx)
 	return err == nil, err
 }
 
-func mapSelection(transaction core.Transaction, selection core.Selection) core.Selection {
+func mapSelection(transaction editor.Transaction, selection editor.Selection) editor.Selection {
 	mapOffset := func(offset int) int {
 		original := offset
 		deltaTotal := 0
@@ -961,7 +1286,9 @@ func (c *Controller) Record(before, after Snapshot, rowDelta, colDelta int) {
 		return
 	}
 	if before.Selection == nil && before.DocumentRegion == nil && before.Bridge == nil &&
+		before.VirtualEdit == nil && before.Visual == nil &&
 		after.Selection == nil && after.DocumentRegion == nil && after.Bridge == nil &&
+		after.VirtualEdit == nil && after.Visual == nil &&
 		len(c.navigation) == 0 {
 		return
 	}
@@ -983,6 +1310,14 @@ func Clone(s Snapshot) Snapshot {
 		v := *s.Bridge
 		s.Bridge = &v
 	}
+	if s.VirtualEdit != nil {
+		v := *s.VirtualEdit
+		s.VirtualEdit = &v
+	}
+	if s.Visual != nil {
+		v := *s.Visual
+		s.Visual = &v
+	}
 	return s
 }
 
@@ -990,7 +1325,9 @@ func Equal(a, b Snapshot) bool {
 	return a.Mode == b.Mode && a.TextSelection == b.TextSelection &&
 		equalSelection(a.Selection, b.Selection) &&
 		equalSelection(a.DocumentRegion, b.DocumentRegion) &&
-		equalBridge(a.Bridge, b.Bridge)
+		equalBridge(a.Bridge, b.Bridge) &&
+		equalVirtualEdit(a.VirtualEdit, b.VirtualEdit) &&
+		equalVisual(a.Visual, b.Visual)
 }
 
 func equalSelection(a, b *Selection) bool {
@@ -1001,6 +1338,20 @@ func equalSelection(a, b *Selection) bool {
 }
 
 func equalBridge(a, b *ContentBridge) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalVirtualEdit(a, b *VirtualEdit) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func equalVisual(a, b *VisualSelection) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

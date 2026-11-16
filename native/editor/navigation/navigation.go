@@ -1,4 +1,4 @@
-// Package textnav provides UI-independent text tokens and target queries.
+// Package navigation provides UI-independent text movement and target queries.
 // All offsets are half-open UTF-8 byte ranges into the original string.
 package navigation
 
@@ -36,6 +36,76 @@ type Range struct{ Start, End int }
 
 // Span is one word range returned by a segmentation provider.
 type Span = Range
+
+// GraphemeBoundaries returns every extended-grapheme boundary in UTF-8 byte
+// coordinates, including 0 and len(source). The returned slice is detached.
+func GraphemeBoundaries(source string) []int {
+	var seg segmenter.Segmenter
+	_ = seg.InitWithBytes([]byte(source))
+	edges := []int{0}
+	it := seg.GraphemeIterator()
+	for it.Next() {
+		g := it.Grapheme()
+		end := g.OffsetInBytes + g.LengthInBytes
+		if end > edges[len(edges)-1] {
+			edges = append(edges, end)
+		}
+	}
+	if edges[len(edges)-1] != len(source) {
+		edges = append(edges, len(source))
+	}
+	return edges
+}
+
+// IsRuneBoundary reports whether offset is a UTF-8 rune boundary in source.
+func IsRuneBoundary(source string, offset int) bool {
+	return offset >= 0 && offset <= len(source) && (offset == len(source) || utf8.RuneStart(source[offset]))
+}
+
+// IsWordRune reports whether r belongs to the editor's ordinary word class.
+func IsWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
+
+// NextGraphemeBoundary returns the first grapheme boundary strictly after
+// offset, clamped to the source length.
+func NextGraphemeBoundary(source string, offset int) int {
+	offset = min(max(offset, 0), len(source))
+	edges := GraphemeBoundaries(source)
+	i := sort.Search(len(edges), func(i int) bool { return edges[i] > offset })
+	if i == len(edges) {
+		return len(source)
+	}
+	return edges[i]
+}
+
+// PreviousGraphemeBoundary returns the last grapheme boundary at or before
+// offset, clamped to the source start.
+func PreviousGraphemeBoundary(source string, offset int) int {
+	offset = min(max(offset, 0), len(source))
+	edges := GraphemeBoundaries(source)
+	i := sort.Search(len(edges), func(i int) bool { return edges[i] >= offset })
+	if i == 0 {
+		return 0
+	}
+	return edges[i-1]
+}
+
+// SnapGraphemeBoundary snaps an arbitrary UTF-8 byte offset to the previous
+// boundary for negative direction, or the next boundary otherwise.
+func SnapGraphemeBoundary(source string, offset, direction int) int {
+	offset = min(max(offset, 0), len(source))
+	edges := GraphemeBoundaries(source)
+	i := sort.Search(len(edges), func(i int) bool { return edges[i] >= offset })
+	if i < len(edges) && edges[i] == offset {
+		return offset
+	}
+	if i == 0 {
+		return 0
+	}
+	if i == len(edges) || direction >= 0 {
+		return edges[min(i, len(edges)-1)]
+	}
+	return edges[i-1]
+}
 
 // Provider may be replaced by applications with user dictionaries or another
 // language model. It receives each contiguous linguistic run; returning no
@@ -397,7 +467,7 @@ func classifyRun(s string) Kind {
 	return KindWord
 }
 
-func isWordCluster(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
+func isWordCluster(r rune) bool { return IsWordRune(r) }
 
 type lazyGSEProvider struct {
 	once     sync.Once

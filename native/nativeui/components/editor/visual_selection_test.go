@@ -44,8 +44,8 @@ func TestVimVisualDollarExcludesLineBreak(t *testing.T) {
 
 func TestInclusiveSelectionCachesSourceGraphemesPerRevision(t *testing.T) {
 	e := New(strings.Repeat("word 👩‍💻 e\u0301 ", 1200), Options{})
-	e.selectionInclusive = true
-	e.anchor, e.caret = 2, 2
+	e.setSessionInclusive(true)
+	e.setSessionSelection(2, 2)
 	for range 100 {
 		e.selection()
 	}
@@ -55,7 +55,7 @@ func TestInclusiveSelectionCachesSourceGraphemesPerRevision(t *testing.T) {
 	e.begin(stepEdit)
 	e.replace(0, 0, "x")
 	e.commit(3, 3)
-	e.selectionInclusive = true
+	e.setSessionInclusive(true)
 	e.selection()
 	if e.graphemeBuilds != 2 {
 		t.Fatalf("source revision did not rebuild grapheme index once: builds=%d", e.graphemeBuilds)

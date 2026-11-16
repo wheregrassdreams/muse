@@ -7,19 +7,20 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	tappeditor "muse/editor"
+	editormodel "muse/editor"
 	texmath "muse/markdown/math"
+	media "muse/nativeui/components/editor/blocks/media"
+	"muse/nativeui/components/editor/navigationrail"
 	"muse/nativeui/window"
 )
 
-func TestProductionContentHostsVirtualizedEditorAndClosesOnce(t *testing.T) {
-	value := tappeditor.New("hello", tappeditor.Options{})
-	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len(value.Source()), Head: len(value.Source())}); err != nil {
+func TestProductionEditorContentHostsVirtualizedEditorAndClosesOnce(t *testing.T) {
+	closed := 0
+	value := New("hello", Options{OnClose: func() { closed++ }})
+	if err := value.Session.SetSelection(editormodel.Selection{Anchor: len(value.Source()), Head: len(value.Source())}); err != nil {
 		t.Fatal(err)
 	}
-	closed := 0
-	content := NewProductionContent(value, func() { closed++ })
-	var pane window.Content = content
+	var pane window.Content = value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { pane.Render(c) })
 	}, 1000, 700)
@@ -39,10 +40,10 @@ func TestProductionContentHostsVirtualizedEditorAndClosesOnce(t *testing.T) {
 	}
 }
 
-func TestProductionContentTranslatesVimInputThroughSession(t *testing.T) {
-	value := tappeditor.New("abc", tappeditor.Options{})
+func TestProductionEditorContentTranslatesVimInputThroughSession(t *testing.T) {
+	value := New("abc", Options{})
 	value.SetKeymap("vim")
-	content := NewProductionContent(value, nil)
+	content := value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { content.Render(c) })
 	}, 1000, 700)
@@ -59,13 +60,13 @@ func TestProductionContentTranslatesVimInputThroughSession(t *testing.T) {
 	}
 }
 
-func TestProductionContentPaintsNeutralDiagramModel(t *testing.T) {
+func TestProductionEditorContentPaintsNeutralDiagramModel(t *testing.T) {
 	source := "```mermaid\ngraph LR\nA[one] --> B[two]\n```\n\nend"
-	value := tappeditor.New(source, tappeditor.Options{})
-	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len(source), Head: len(source)}); err != nil {
+	value := New(source, Options{})
+	if err := value.Session.SetSelection(editormodel.Selection{Anchor: len(source), Head: len(source)}); err != nil {
 		t.Fatal(err)
 	}
-	content := NewProductionContent(value, nil)
+	content := value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { content.Render(c) })
 	}, 1000, 700)
@@ -76,20 +77,20 @@ func TestProductionContentPaintsNeutralDiagramModel(t *testing.T) {
 	}
 }
 
-func TestProductionContentRendersNeutralMathRaster(t *testing.T) {
+func TestProductionEditorContentRendersNeutralMathRaster(t *testing.T) {
 	source := "$$\n\\sum_{k=1}^{7} k^2\n$$\n\nend"
 	if _, ok := texmath.TypesetCached("\\sum_{k=1}^{7} k^2", 19.2, true); !ok {
 		t.Fatal("math fixture did not typeset")
 	}
-	value := tappeditor.New(source, tappeditor.Options{})
-	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len(source), Head: len(source)}); err != nil {
+	value := New(source, Options{})
+	if err := value.Session.SetSelection(editormodel.Selection{Anchor: len(source), Head: len(source)}); err != nil {
 		t.Fatal(err)
 	}
-	content := NewProductionContent(value, nil)
+	content := value
 	drawn := 0
 	value.SetMathRenderer(func(p *ui.Painter, r ui.Rect, raster *texmath.Raster, dark bool, font string) {
 		drawn++
-		drawMathRaster(p, r, raster, dark, font)
+		media.DrawMathRaster(p, r, raster, dark, font)
 	})
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { content.Render(c) })
@@ -101,14 +102,14 @@ func TestProductionContentRendersNeutralMathRaster(t *testing.T) {
 	}
 }
 
-func TestProductionContentPaintsInlineMathPreviewFromNeutralFrame(t *testing.T) {
+func TestProductionEditorContentPaintsInlineMathPreviewFromNeutralFrame(t *testing.T) {
 	const source = "当 $A=\\frac{1}{2}$ 时\n\n> 函数要求 domain 中的每一个元素都映射到 codomain。\n> 第二行引用文字。\n"
 	theme := ui.DarkTheme()
-	value := tappeditor.New(source, tappeditor.Options{FontSize: 16})
-	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: len("当 $A"), Head: len("当 $A")}); err != nil {
+	value := New(source, Options{FontSize: 16})
+	if err := value.Session.SetSelection(editormodel.Selection{Anchor: len("当 $A"), Head: len("当 $A")}); err != nil {
 		t.Fatal(err)
 	}
-	content := NewProductionContent(value, nil)
+	content := value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Themed(c, theme).Fill().Background(theme.Background).Children(func() { content.Render(c) })
 	}, 1000, 700)
@@ -121,7 +122,7 @@ func TestProductionContentPaintsInlineMathPreviewFromNeutralFrame(t *testing.T) 
 	}
 	viewport := ui.Rect{X: frame.Viewport.X, Y: frame.Viewport.Y, W: frame.Viewport.W, H: frame.Viewport.H}
 	anchor := ui.Rect{X: frame.Anchor.X, Y: frame.Anchor.Y, W: frame.Anchor.W, H: frame.Anchor.H}
-	card, ok := mathPreviewBounds(viewport, anchor, frame.Width+24, frame.Height+24)
+	card, ok := media.MathPreviewBounds(viewport, anchor, frame.Width+24, frame.Height+24)
 	if !ok {
 		t.Fatal("production inline math card is outside the visible viewport")
 	}
@@ -155,7 +156,7 @@ func TestMathPreviewBounds(t *testing.T) {
 		{"scrolled out", ui.Rect{X: 120, Y: 10, W: 2, H: 20}, 200, 60, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r, ok := mathPreviewBounds(view, tc.anchor, tc.w, tc.h)
+			r, ok := media.MathPreviewBounds(view, tc.anchor, tc.w, tc.h)
 			if ok != tc.visible {
 				t.Fatalf("visible=%v", ok)
 			}
@@ -181,31 +182,31 @@ func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 		}
 	}
 	text := source.String()
-	value := tappeditor.New(text, tappeditor.Options{})
-	if err := value.Session.SetSelection(tappeditor.Selection{Anchor: 0, Head: 0}); err != nil {
+	value := New(text, Options{})
+	if err := value.Session.SetSelection(editormodel.Selection{Anchor: 0, Head: 0}); err != nil {
 		t.Fatal(err)
 	}
-	content := NewProductionContent(value, nil)
+	content := value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { content.Render(c) })
 	}, 900, 420)
 	tester.Frame()
-	if content.rail.rect.W == 0 || content.rail.rect.H == 0 {
+	if content.rail.Rect.W == 0 || content.rail.Rect.H == 0 {
 		t.Fatal("heading rail was not rendered for a scrollable document")
 	}
-	if content.rail.active != 0 {
-		t.Fatalf("initial rail selection = %d, want first heading", content.rail.active)
+	if content.rail.Active != 0 {
+		t.Fatalf("initial rail selection = %d, want first heading", content.rail.Active)
 	}
 	var pitch float32
-	ys := headingRailPositions(nil, 8, content.rail.rect.H, &pitch)
+	ys := navigationrail.Positions(nil, 8, content.rail.Rect.H, &pitch)
 	point := 3
-	x := content.rail.rect.X + content.rail.rect.W/2
-	y := content.rail.rect.Y + ys[point]
+	x := content.rail.Rect.X + content.rail.Rect.W/2
+	y := content.rail.Rect.Y + ys[point]
 	caretBefore := value.Caret()
 	tester.Move(x, y)
 	tester.Frame()
-	if content.rail.hover != point {
-		t.Fatalf("hovered heading index = %d, want %d", content.rail.hover, point)
+	if content.rail.Hover != point {
+		t.Fatalf("hovered heading index = %d, want %d", content.rail.Hover, point)
 	}
 	preview := value.HeadingRailPreview(point)
 	if preview.Title != "Heading 3" || !strings.Contains(preview.Excerpt, "Paragraph 3.0") {
@@ -222,17 +223,17 @@ func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 	if got := value.Caret(); got != wantCaret {
 		t.Fatalf("rail click caret = %d, want heading offset %d", got, wantCaret)
 	}
-	if content.rail.active != point {
-		t.Fatalf("rail active heading after jump = %d, want %d", content.rail.active, point)
+	if content.rail.Active != point {
+		t.Fatalf("rail active heading after jump = %d, want %d", content.rail.Active, point)
 	}
 
-	narrow := tappeditor.New(text, tappeditor.Options{})
-	narrowContent := NewProductionContent(narrow, nil)
+	narrow := New(text, Options{})
+	narrowContent := narrow
 	narrowTester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { narrowContent.Render(c) })
 	}, 48, 180)
 	narrowTester.Frame()
-	if narrowContent.rail.rect.W != 0 {
-		t.Fatalf("narrow window still shows heading rail: %+v", narrowContent.rail.rect)
+	if narrowContent.rail.Rect.W != 0 {
+		t.Fatalf("narrow window still shows heading rail: %+v", narrowContent.rail.Rect)
 	}
 }

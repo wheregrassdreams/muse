@@ -31,9 +31,9 @@ func TestPolishAcceptancePlaygroundSelection(t *testing.T) {
 	src := playgroundParagraph(t, "这是一段普通正文")
 	h := newHarness(t, src+"\n\nend")
 	for _, reverse := range []bool{false, true} {
-		h.e.anchor, h.e.caret = 0, len(src)
+		h.e.setSessionSelection(0, len(src))
 		if reverse {
-			h.e.anchor, h.e.caret = h.e.caret, h.e.anchor
+			h.e.setSessionSelection(h.e.Caret(), h.e.Session.Selection().Anchor)
 		}
 		h.frame()
 		for _, syntax := range []string{"**粗体**", "*斜体*", "~~删除线~~", "`行内代码`", "[链接](https://example.com)", "[[双链|带标签]]", "$a^2+b^2=c^2$"} {
@@ -68,15 +68,15 @@ func TestPolishAcceptancePlaygroundGeometry(t *testing.T) {
 	// A horizontal move after the first vertical move must establish a new X.
 	h.e.ReplaceText(nil, "h")
 	h.frame()
-	want, ok := h.e.caretRect(h.e.caret)
+	want, ok := h.e.caretRect(h.e.Caret())
 	if !ok {
 		t.Fatal("missing origin caret")
 	}
 	for i := 0; i < 3; i++ {
-		before, _ := h.e.caretRect(h.e.caret)
+		before, _ := h.e.caretRect(h.e.Caret())
 		h.e.ReplaceText(nil, "j")
 		h.frame()
-		got, _ := h.e.caretRect(h.e.caret)
+		got, _ := h.e.caretRect(h.e.Caret())
 		if got.Y <= before.Y || math.Abs(float64(got.X-want.X)) > 12 {
 			t.Fatalf("j %d is not geometric: before=%+v got=%+v targetX=%f", i+1, before, got, want.X)
 		}
@@ -95,8 +95,8 @@ func TestPolishAcceptanceExpandedTaskClickEditsSource(t *testing.T) {
 	}
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, Clicks: 1, X: r.X + 0.5, Y: r.Y + r.H/2})
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerUp, Button: 0, X: r.X + 0.5, Y: r.Y + r.H/2})
-	if h.e.Source() != src || h.e.caret != 2 {
-		t.Fatalf("clicking task source toggled checkbox or moved endpoint: caret=%d source=%q", h.e.caret, h.e.Source())
+	if h.e.Source() != src || h.e.Caret() != 2 {
+		t.Fatalf("clicking task source toggled checkbox or moved endpoint: caret=%d source=%q", h.e.Caret(), h.e.Source())
 	}
 	h.shot("acceptance-expanded-task-source")
 }
@@ -258,7 +258,7 @@ func TestPolishAcceptanceFoldWithVirtualLayout(t *testing.T) {
 	}
 	h.e.ScrollToOffset(strings.Index(src, "正文"))
 	h.frame()
-	if h.e.isFoldedHeading(top) || h.e.isFoldedSourceOffset(h.e.caret) {
+	if h.e.isFoldedHeading(top) || h.e.isFoldedSourceOffset(h.e.Caret()) {
 		t.Fatal("explicit navigation retained hidden focus in virtual document")
 	}
 }

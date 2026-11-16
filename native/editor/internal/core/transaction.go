@@ -1,5 +1,5 @@
-// Package core contains backend-neutral value contracts shared by the editor
-// facade and block editing subsystems. It owns no mutable editor state.
+// Package core owns the backend-neutral document buffer, selection, transaction,
+// history, and system-patch primitives used by an editor session.
 package core
 
 import "fmt"

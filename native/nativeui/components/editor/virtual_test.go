@@ -24,7 +24,7 @@ func paragraphLeaf(t *testing.T, e *Editor, n int) *leaf {
 	t.Helper()
 	want := fmt.Sprintf("Paragraph %d:", n)
 	for _, l := range e.leaves {
-		if l.kind == kPara && strings.HasPrefix(e.src[l.start:], want) {
+		if l.kind == kPara && strings.HasPrefix(e.Source()[l.start:], want) {
 			return l
 		}
 	}
@@ -277,7 +277,7 @@ func TestVirtualLayoutTyping(t *testing.T) {
 	}
 	// The parse after the edit builds new leaves: the leaf the test held is
 	// the one of the source before.
-	l := h.e.leafAt(h.e.caret)
+	l := h.e.leafAt(h.e.Caret())
 	if l == nil || l.view == nil {
 		t.Fatal("the caret's leaf is not shaped after typing")
 	}

@@ -16,7 +16,7 @@ import (
 )
 
 func TestFullSyntaxFixture(t *testing.T) {
-	path := filepath.Join("..", "testdata", "all-syntax.md")
+	path := filepath.Join("..", "..", "..", "testdata", "all-syntax.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)

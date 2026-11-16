@@ -34,7 +34,7 @@ func TestStationaryPressDuringScrollDoesNotStartEdgeAutoscroll(t *testing.T) {
 			if got := h.e.scroll.Y; math.Abs(float64(got-before)) > .01 {
 				t.Fatalf("stationary press started phantom autoscroll: before=%v after=%v pointerY=%v", before, got, h.e.pointerY)
 			}
-			caret := h.e.caret
+			caret := h.e.Caret()
 			// The touchpad's residual deltas keep arriving under a stationary
 			// held mouse. Only those deltas may move the document.
 			for _, tail := range []float32{160, 80, 40, 20, 10} {
@@ -53,8 +53,8 @@ func TestStationaryPressDuringScrollDoesNotStartEdgeAutoscroll(t *testing.T) {
 				h.tt.Advance(32 * time.Millisecond)
 				h.frame()
 			}
-			if h.e.scroll.Y != settled || h.e.caret != caret || h.e.anchor != caret {
-				t.Fatalf("holding after scroll settled moved page or selection: scroll=%v want=%v anchor=%d caret=%d wantCaret=%d", h.e.scroll.Y, settled, h.e.anchor, h.e.caret, caret)
+			if h.e.scroll.Y != settled || h.e.Caret() != caret || h.e.Session.Selection().Anchor != caret {
+				t.Fatalf("holding after scroll settled moved page or selection: scroll=%v want=%v anchor=%d caret=%d wantCaret=%d", h.e.scroll.Y, settled, h.e.Session.Selection().Anchor, h.e.Caret(), caret)
 			}
 			h.tt.Release(x, y)
 			h.frame()
@@ -73,15 +73,15 @@ func TestRealSelectionDragStillAutoscrollsOutsideViewport(t *testing.T) {
 			x := h.e.colX + 100
 			h.tt.Press(x, 350)
 			h.frame()
-			anchor, before := h.e.anchor, h.e.scroll.Y
+			anchor, before := h.e.Session.Selection().Anchor, h.e.scroll.Y
 			h.tt.Move(x, edge)
 			h.frame()
 			for range 4 {
 				h.tt.Advance(16 * time.Millisecond)
 				h.frame()
 			}
-			if (down && h.e.scroll.Y <= before) || (!down && h.e.scroll.Y >= before) || h.e.anchor != anchor || h.e.caret == anchor {
-				t.Fatalf("real edge drag no longer scrolls and extends selection: scroll=%v before=%v anchor=%d caret=%d", h.e.scroll.Y, before, h.e.anchor, h.e.caret)
+			if (down && h.e.scroll.Y <= before) || (!down && h.e.scroll.Y >= before) || h.e.Session.Selection().Anchor != anchor || h.e.Caret() == anchor {
+				t.Fatalf("real edge drag no longer scrolls and extends selection: scroll=%v before=%v anchor=%d caret=%d", h.e.scroll.Y, before, h.e.Session.Selection().Anchor, h.e.Caret())
 			}
 			h.tt.Release(x, edge)
 			h.frame()
@@ -114,13 +114,13 @@ func TestPressDuringWheelGlideDoesNotFeedSelectionAutoscroll(t *testing.T) {
 			}
 			h.tt.Press(x, y)
 			h.frame()
-			caret := h.e.caret
+			caret := h.e.Caret()
 			for range 30 {
 				h.tt.Advance(16 * time.Millisecond)
 				h.frame()
 				travel = (h.e.scroll.Y - start) / delta
-				if travel < 0 || travel > 1.01 || h.e.caret != caret || h.e.anchor != caret {
-					t.Fatalf("held mouse fed wheel glide into selection autoscroll: fraction=%v anchor=%d caret=%d wantCaret=%d", travel, h.e.anchor, h.e.caret, caret)
+				if travel < 0 || travel > 1.01 || h.e.Caret() != caret || h.e.Session.Selection().Anchor != caret {
+					t.Fatalf("held mouse fed wheel glide into selection autoscroll: fraction=%v anchor=%d caret=%d wantCaret=%d", travel, h.e.Session.Selection().Anchor, h.e.Caret(), caret)
 				}
 			}
 			h.tt.Release(x, y)

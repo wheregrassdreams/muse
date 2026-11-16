@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"muse/nativeui/interactions/dragpayload"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -9,7 +10,7 @@ import (
 func TestDropVaultItemInsertsWikiLinkAtCaret(t *testing.T) {
 	h := newHarness(t, "before after")
 	h.e.setCaret(len("before "), false)
-	h.e.dropVaultItem(VaultItemDrag{Path: "/vault/Notes/Target.md", Name: "Target.md"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Path: "/vault/Notes/Target.md", Name: "Target.md"})
 	if got, want := h.e.Source(), "before [[Target]]after"; got != want {
 		t.Fatalf("source after vault item drop = %q, want %q", got, want)
 	}
@@ -20,7 +21,7 @@ func TestDropVaultItemInsertsWikiLinkAtCaret(t *testing.T) {
 
 func TestDropVaultItemFallsBackToPathAndEscapesWikiSyntax(t *testing.T) {
 	h := newHarness(t, "")
-	h.e.dropVaultItem(VaultItemDrag{Path: "/vault/A | B].md"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Path: "/vault/A | B].md"})
 	if got, want := h.e.Source(), "[[A \\| B\\]]]"; got != want {
 		t.Fatalf("source after vault item fallback = %q, want %q", got, want)
 	}
@@ -30,7 +31,7 @@ func TestDropVaultImageUsesVaultRelativeEmbedPath(t *testing.T) {
 	h := newHarness(t, "before after")
 	h.e.opts.AssetRoot = "/vault"
 	h.e.setCaret(len("before "), false)
-	h.e.dropVaultItem(VaultItemDrag{Path: "/vault/Attachments/Diagrams/flow chart.webp", Name: "flow chart.webp"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Path: "/vault/Attachments/Diagrams/flow chart.webp", Name: "flow chart.webp"})
 	if got, want := h.e.Source(), "before ![[Attachments/Diagrams/flow chart.webp]]after"; got != want {
 		t.Fatalf("image drop = %q, want %q", got, want)
 	}
@@ -40,7 +41,7 @@ func TestDropNonMarkdownFileUsesDocumentRelativeMarkdownLink(t *testing.T) {
 	h := newHarness(t, "")
 	h.e.opts.AssetRoot = "/vault"
 	h.e.opts.BaseDir = "/vault/Notes/Current"
-	h.e.dropVaultItem(VaultItemDrag{Path: "/vault/Attachments/Reference Guide.pdf", Name: "Reference Guide.pdf"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Path: "/vault/Attachments/Reference Guide.pdf", Name: "Reference Guide.pdf"})
 	if got, want := h.e.Source(), "[Reference Guide.pdf](<../../Attachments/Reference Guide.pdf>)"; got != want {
 		t.Fatalf("non-Markdown file drop = %q, want %q", got, want)
 	}
@@ -49,7 +50,7 @@ func TestDropNonMarkdownFileUsesDocumentRelativeMarkdownLink(t *testing.T) {
 func TestDropMarkdownFileUsesVaultRelativeWikiTarget(t *testing.T) {
 	h := newHarness(t, "")
 	h.e.opts.AssetRoot = "/vault"
-	h.e.dropVaultItem(VaultItemDrag{Path: "/vault/Projects/Atlas/Overview.md", Name: "Overview.md"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Path: "/vault/Projects/Atlas/Overview.md", Name: "Overview.md"})
 	if got, want := h.e.Source(), "[[Projects/Atlas/Overview]]"; got != want {
 		t.Fatalf("Markdown file drop = %q, want %q", got, want)
 	}
@@ -86,7 +87,7 @@ func TestVaultItemDropIndicatorTracksAndClearsHitBoundary(t *testing.T) {
 		t.Fatal("showing the drop indicator mutated the source")
 	}
 	h.e.setCaret(seen, false)
-	h.e.dropVaultItem(VaultItemDrag{Name: "Target.md"})
+	h.e.dropVaultItem(dragpayload.VaultItem{Name: "Target.md"})
 	if got, want := h.e.Source(), "first line[[Target]]\nsecond line"; got != want {
 		t.Fatalf("drop inserted at a different boundary: %q, want %q", got, want)
 	}

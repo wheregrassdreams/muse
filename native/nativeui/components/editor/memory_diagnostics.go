@@ -1,10 +1,8 @@
 package editor
 
-import editormodel "muse/editor"
-
-// MemoryDiagnostics is a point-in-time estimate of image memory retained by
+// MemorySnapshot is a point-in-time estimate of image memory retained by
 // the editor. Pixel bytes exclude allocator overhead and GPU copies.
-type MemoryDiagnostics struct {
+type MemorySnapshot struct {
 	SourceBytes          int
 	Leaves               int
 	VirtualLayout        bool
@@ -15,14 +13,14 @@ type MemoryDiagnostics struct {
 	ImagePixelBytes      int64
 }
 
-// MemorySnapshot combines editor layout counts with UI-owned decoded image
-// handle accounting. The component never exposes the mutable bitmaps themselves.
-func MemorySnapshot(e *editormodel.Editor) MemoryDiagnostics {
+// CollectMemorySnapshot combines editor layout counts with UI-owned decoded
+// image handle accounting. The component never exposes mutable bitmaps.
+func CollectMemorySnapshot(e *Editor) MemorySnapshot {
 	if e == nil {
-		return MemoryDiagnostics{}
+		return MemorySnapshot{}
 	}
 	layout := e.LayoutMemorySnapshot()
-	out := MemoryDiagnostics{
+	out := MemorySnapshot{
 		SourceBytes:          layout.SourceBytes,
 		Leaves:               layout.Leaves,
 		VirtualLayout:        layout.VirtualLayout,
@@ -37,4 +35,13 @@ func MemorySnapshot(e *editormodel.Editor) MemoryDiagnostics {
 		out.ImagePixelBytes += asset.ApproxPixelBytes()
 	}
 	return out
+}
+
+// MemorySnapshot reports retained editor and image memory through the UI
+// component contract, without exposing mutable bitmap handles.
+func (e *Editor) MemorySnapshot() MemorySnapshot {
+	if e == nil {
+		return MemorySnapshot{}
+	}
+	return CollectMemorySnapshot(e)
 }

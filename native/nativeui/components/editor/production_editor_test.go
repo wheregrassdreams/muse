@@ -70,7 +70,7 @@ func (h *harness) frame() { h.tt.Frame() }
 // caretAt puts the caret at off, as a click would.
 func (h *harness) caretAt(off int) {
 	h.e.dropPhantom()
-	h.e.anchor, h.e.caret = off, off
+	h.e.setSessionSelection(off, off)
 	h.e.wantReveal = true
 	h.frame()
 }
@@ -79,12 +79,21 @@ func (h *harness) caretAt(off int) {
 func (h *harness) typ(s string) {
 	h.tt.Type(s)
 	h.frame()
+	h.assertNoOpenEditBatch("type")
 }
 
 // key presses a key.
 func (h *harness) key(mods ui.Modifiers, k ui.Key) {
 	h.tt.Key(mods, k)
 	h.frame()
+	h.assertNoOpenEditBatch("key")
+}
+
+func (h *harness) assertNoOpenEditBatch(action string) {
+	h.t.Helper()
+	if h.e.editBatch != nil {
+		h.t.Fatalf("%s left an editor transaction open across input events", action)
+	}
 }
 
 // want checks the source.
@@ -186,8 +195,8 @@ func TestEnterSplitsParagraph(t *testing.T) {
 	h.caretAt(5)
 	h.key(0, ui.KeyEnter)
 	h.want("hello\nworld")
-	if !strings.HasPrefix(h.e.Source()[h.e.caret:], "world") {
-		t.Fatalf("caret at %d", h.e.caret)
+	if !strings.HasPrefix(h.e.Source()[h.e.Caret():], "world") {
+		t.Fatalf("caret at %d", h.e.Caret())
 	}
 }
 
@@ -201,7 +210,7 @@ func TestEnterAtTheEndOpensALine(t *testing.T) {
 	if h.e.phantom != nil {
 		t.Fatal("Enter at the end left a phantom paragraph")
 	}
-	if l := h.e.leafAt(h.e.caret); l == nil || l.kind != kBlank {
+	if l := h.e.leafAt(h.e.Caret()); l == nil || l.kind != kBlank {
 		t.Fatalf("the caret is not on the line Enter opened: %+v", l)
 	}
 	h.typ("x")
@@ -221,13 +230,13 @@ func TestRepeatedEnterKeepsBlankLines(t *testing.T) {
 	// The text comes back first, then each line Enter opened.
 	h.key(ui.Cmd, ui.KeyZ)
 	h.want("one\n\n\n\n\ntwo\n")
-	if h.e.caret != 6 {
-		t.Fatalf("undo of the text: caret %d", h.e.caret)
+	if h.e.Caret() != 6 {
+		t.Fatalf("undo of the text: caret %d", h.e.Caret())
 	}
 	h.key(ui.Cmd, ui.KeyZ)
 	h.want("one\n\n\n\ntwo\n")
-	if h.e.caret != 5 {
-		t.Fatalf("undo of a line Enter opened: caret %d", h.e.caret)
+	if h.e.Caret() != 5 {
+		t.Fatalf("undo of a line Enter opened: caret %d", h.e.Caret())
 	}
 }
 
@@ -311,7 +320,7 @@ func TestArrowsWalkThroughMarkers(t *testing.T) {
 	var seen []int
 	for i := 0; i < 7; i++ {
 		h.key(0, ui.KeyRight)
-		seen = append(seen, h.e.caret)
+		seen = append(seen, h.e.Caret())
 	}
 	want := []int{1, 2, 3, 4, 5, 6, 7}
 	for i := range want {
@@ -327,32 +336,32 @@ func TestArrowsCrossBlocks(t *testing.T) {
 	h := newHarness(t, "# One\n\ntwo")
 	h.caretAt(5)
 	h.key(0, ui.KeyRight)
-	if h.e.caret != 6 {
-		t.Fatalf("caret = %d, want the blank line at 6", h.e.caret)
+	if h.e.Caret() != 6 {
+		t.Fatalf("caret = %d, want the blank line at 6", h.e.Caret())
 	}
 	h.key(0, ui.KeyRight)
-	if h.e.caret != 7 {
-		t.Fatalf("caret = %d, want 7", h.e.caret)
+	if h.e.Caret() != 7 {
+		t.Fatalf("caret = %d, want 7", h.e.Caret())
 	}
 	h.key(0, ui.KeyLeft)
-	if h.e.caret != 6 {
-		t.Fatalf("caret = %d, want the blank line at 6", h.e.caret)
+	if h.e.Caret() != 6 {
+		t.Fatalf("caret = %d, want the blank line at 6", h.e.Caret())
 	}
 	h.key(0, ui.KeyLeft)
-	if h.e.caret != 5 {
-		t.Fatalf("caret = %d, want 5", h.e.caret)
+	if h.e.Caret() != 5 {
+		t.Fatalf("caret = %d, want 5", h.e.Caret())
 	}
 	h.key(0, ui.KeyDown)
-	if h.e.caret != 6 {
-		t.Fatalf("down: caret = %d, want the blank line at 6", h.e.caret)
+	if h.e.Caret() != 6 {
+		t.Fatalf("down: caret = %d, want the blank line at 6", h.e.Caret())
 	}
 	h.key(0, ui.KeyDown)
-	if h.e.caret < 7 {
-		t.Fatalf("down: caret = %d", h.e.caret)
+	if h.e.Caret() < 7 {
+		t.Fatalf("down: caret = %d", h.e.Caret())
 	}
 	h.key(0, ui.KeyUp)
-	if h.e.caret != 6 {
-		t.Fatalf("up: caret = %d, want the blank line at 6", h.e.caret)
+	if h.e.Caret() != 6 {
+		t.Fatalf("up: caret = %d, want the blank line at 6", h.e.Caret())
 	}
 }
 

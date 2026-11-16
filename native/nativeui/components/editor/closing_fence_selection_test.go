@@ -15,14 +15,14 @@ func TestVisualLineSelectionPaintsClosingFence(t *testing.T) {
 	closeStart := strings.LastIndex(src, "```")
 	closeEnd := closeStart + len("```")
 	h.e.sourceOK, h.e.sourceAt = true, code.lineStart
-	h.e.anchor, h.e.caret = 0, closeStart+2
-	h.e.selectionLinewise = true
-	h.e.selectionInclusive = true
+	h.e.setSessionSelection(0, closeStart+2)
+	h.e.setSessionLinewise(true)
+	h.e.setSessionInclusive(true)
 	h.e.wantReveal = true
 	h.e.invalidate()
 	h.frame()
 
-	v := h.e.unitView(code, h.e.caret)
+	v := h.e.unitView(code, h.e.Caret())
 	closeDisplay, ok := v.disp.srcToDisp(closeStart - code.lineStart)
 	if !ok {
 		t.Fatal("closing fence has no source-backed display position")
@@ -36,11 +36,11 @@ func TestVisualLineSelectionPaintsClosingFence(t *testing.T) {
 	baseline := newHarness(t, src)
 	baselineCode := baseline.e.leaves[0]
 	baseline.e.sourceOK, baseline.e.sourceAt = true, baselineCode.lineStart
-	baseline.e.anchor, baseline.e.caret = len(src), len(src)
+	baseline.e.setSessionSelection(len(src), len(src))
 	baseline.e.wantReveal = true
 	baseline.e.invalidate()
 	baseline.frame()
-	baselineView := baseline.e.unitView(baselineCode, baseline.e.caret)
+	baselineView := baseline.e.unitView(baselineCode, baseline.e.Caret())
 	// Probe the top of the first selected glyph cell, above the glyph ink.
 	// The selected frame must differ from the otherwise identical code panel.
 	r := rects[0]

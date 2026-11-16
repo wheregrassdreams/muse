@@ -125,7 +125,7 @@ func TestEmphasisBesideCJKPunctuation(t *testing.T) {
 func TestCJKEmphasisLeavesTheParserSourceAlone(t *testing.T) {
 	src := "## **注意：**事项\n\n```\n**注意：**中文\n```\n\n`**注意：**中文` ![**图：**说明](x.png)\n"
 	e := shownEditor(t, src)
-	if got := e.p.doc.Source(); got != src {
+	if got := e.p.Parser().Source(); got != src {
 		t.Fatalf("parser source = %q, want original source %q", got, src)
 	}
 	if got := e.Headings(); len(got) != 1 || got[0].Text != "注意：事项" {
@@ -209,7 +209,7 @@ func TestTabIndentedCodeInContainers(t *testing.T) {
 				code = l
 			}
 		}
-		if code == nil || len(code.codeLines()) != 1 || code.codeLines()[0].text != c.line || e.src[code.codeLines()[0].off:code.codeLines()[0].off+len(c.line)] != c.line {
+		if code == nil || len(code.codeLines()) != 1 || code.codeLines()[0].text != c.line || e.Source()[code.codeLines()[0].off:code.codeLines()[0].off+len(c.line)] != c.line {
 			t.Errorf("%q: code = %+v", c.src, code)
 		}
 	}
@@ -315,8 +315,8 @@ func TestParserSourceFollowsEdits(t *testing.T) {
 			h.e.Replace(at, at, pieces[rng.IntN(len(pieces))])
 		}
 		h.e.sync()
-		if want := parserText(maskFrontMatter(h.e.src, h.e.p.fm)); h.e.p.doc.Source() != want {
-			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.src, h.e.p.doc.Source(), want)
+		if want := parserText(maskFrontMatter(h.e.Source(), h.e.p.FrontmatterEnd())); h.e.p.Parser().Source() != want {
+			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.Source(), h.e.p.Parser().Source(), want)
 		}
 	}
 }

@@ -5,20 +5,32 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	editormodel "muse/editor"
+	"muse/editor/input/vim"
+	"muse/nativeui/components/editor/feedback"
 )
 
 func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 	for _, keymap := range []string{"vim", "helix", "default"} {
-		e := &Editor{Session: &Session{caret: 4, anchor: 4}, opts: Options{SmoothCursor: true}, modal: modalState{keymap: keymap, mode: "Normal"}, smoothCursorNavigation: true}
+		session := editormodel.NewSession("0123456789")
+		_ = session.SetSelection(editormodel.Selection{Anchor: 4, Head: 4})
+		controller := vim.New()
+		controller.SetKeymap(keymap)
+		e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller, smoothCursorNavigation: true}
 		e.beginSmoothCursorMove(4, 8, false)
 		want := keymap == "vim" || keymap == "helix"
-		if e.smoothCursorActive != want {
-			t.Errorf("keymap %q active=%v, want %v", keymap, e.smoothCursorActive, want)
+		if e.feedbackState.Cursor.Active != want {
+			t.Errorf("keymap %q active=%v, want %v", keymap, e.feedbackState.Cursor.Active, want)
 		}
 	}
-	e := &Editor{Session: &Session{caret: 4, anchor: 4}, opts: Options{SmoothCursor: true}, modal: modalState{keymap: "vim", mode: "Insert"}}
+	session := editormodel.NewSession("0123456789")
+	_ = session.SetSelection(editormodel.Selection{Anchor: 4, Head: 4})
+	controller := vim.New()
+	controller.SetKeymap("vim")
+	controller.SetMode(vim.ModeInsert)
+	e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller}
 	e.beginSmoothCursorMove(4, 8, false)
-	if e.smoothCursorActive {
+	if e.feedbackState.Cursor.Active {
 		t.Fatal("insert-mode movement should not animate")
 	}
 }
@@ -27,16 +39,16 @@ func TestSmoothCursorExcludesDirectCaretChangesAndTextEdits(t *testing.T) {
 	e := New("alpha beta", Options{SmoothCursor: true})
 	e.SetKeymap("vim")
 	e.setCaret(0, false)
-	if e.smoothCursorActive {
+	if e.feedbackState.Cursor.Active {
 		t.Fatal("direct caret changes such as pointer placement must not animate")
 	}
 	e.modalText("l")
-	if !e.smoothCursorActive {
+	if !e.feedbackState.Cursor.Active {
 		t.Fatal("modal navigation should animate")
 	}
-	e.smoothCursorActive = false
+	e.feedbackState.CancelCursor()
 	e.modalText("x")
-	if e.smoothCursorActive {
+	if e.feedbackState.Cursor.Active {
 		t.Fatal("text edits must not animate caret relocation")
 	}
 }
@@ -44,15 +56,15 @@ func TestSmoothCursorExcludesDirectCaretChangesAndTextEdits(t *testing.T) {
 func TestSmoothCursorAnimationClearsWhenDisabledOrKeymapLeavesModal(t *testing.T) {
 	e := New("alpha", Options{SmoothCursor: true})
 	e.SetKeymap("vim")
-	e.smoothCursorActive = true
+	e.feedbackState.BeginCursor(1, 2, time.Now())
 	e.SetOptions(Options{})
-	if e.smoothCursorActive {
+	if e.feedbackState.Cursor.Active {
 		t.Fatal("disabling smooth cursor should discard an in-flight animation")
 	}
 	e.SetOptions(Options{SmoothCursor: true})
-	e.smoothCursorActive = true
+	e.feedbackState.BeginCursor(1, 2, time.Now())
 	e.SetKeymap("default")
-	if e.smoothCursorActive {
+	if e.feedbackState.Cursor.Active {
 		t.Fatal("leaving modal keymaps should discard an in-flight animation")
 	}
 }
@@ -67,22 +79,26 @@ func TestSmoothCursorOverlayPassesPointerInputToEditor(t *testing.T) {
 	h.e.setCaret(0, false)
 	h.tt.ClickAt(120, 160)
 	h.frame()
-	if h.e.caret == 0 {
+	if h.e.Caret() == 0 {
 		t.Fatal("caret overlay intercepted pointer placement")
 	}
 }
 
 func TestSmoothCursorRectInterpolation(t *testing.T) {
-	e := &Editor{opts: Options{SmoothCursor: true}, smoothCursorActive: true, smoothCursorStart: time.Unix(1, 0)}
+	state := feedback.State{}
 	from := ui.Rect{X: 0, Y: 0, W: 2, H: 10}
 	to := ui.Rect{X: 20, Y: 10, W: 4, H: 20}
-	got, active := e.smoothCursorRects(time.Unix(1, 0).Add(smoothCursorDuration/2), from, to)
-	if !active || got.X != 10 || got.Y != 5 || got.W != 3 || got.H != 15 {
-		t.Fatalf("midpoint rect=%+v active=%v", got, active)
+	state.BeginCursor(0, 1, time.Unix(1, 0))
+	state.SetCursorRects(feedback.Rect{X: from.X, Y: from.Y, W: from.W, H: from.H}, feedback.Rect{X: to.X, Y: to.Y, W: to.W, H: to.H})
+	got, active := state.CursorRects(time.Unix(1, 0).Add(feedback.SmoothCursorDuration / 2))
+	gotUI := ui.Rect{X: got.X, Y: got.Y, W: got.W, H: got.H}
+	if !active || gotUI.X != 10 || gotUI.Y != 5 || gotUI.W != 3 || gotUI.H != 15 {
+		t.Fatalf("midpoint rect=%+v active=%v", gotUI, active)
 	}
-	got, active = e.smoothCursorRects(time.Unix(1, 0).Add(smoothCursorDuration), from, to)
-	if active || got != to {
-		t.Fatalf("finished rect=%+v active=%v", got, active)
+	got, active = state.CursorRects(time.Unix(1, 0).Add(feedback.SmoothCursorDuration))
+	gotUI = ui.Rect{X: got.X, Y: got.Y, W: got.W, H: got.H}
+	if active || gotUI != to {
+		t.Fatalf("finished rect=%+v active=%v", gotUI, active)
 	}
 }
 
@@ -90,17 +106,19 @@ func TestSmoothCursorRequestsAnimationFramesOnlyWhileActive(t *testing.T) {
 	for _, tc := range []struct {
 		enabled, active, want bool
 	}{{false, true, false}, {true, false, false}, {true, true, true}} {
-		if got := smoothCursorNeedsFrames(tc.enabled, tc.active); got != tc.want {
-			t.Errorf("smoothCursorNeedsFrames(%v,%v)=%v want %v", tc.enabled, tc.active, got, tc.want)
+		if got := feedback.SmoothCursorNeedsFrames(tc.enabled, tc.active); got != tc.want {
+			t.Errorf("SmoothCursorNeedsFrames(%v,%v)=%v want %v", tc.enabled, tc.active, got, tc.want)
 		}
 	}
 }
 
 func TestSmoothBlockCaretInterpolatesUntransformedGeometry(t *testing.T) {
-	e := &Editor{opts: Options{SmoothCursor: true}, smoothCursorActive: true, smoothCursorStart: time.Unix(1, 0)}
+	state := feedback.State{}
 	from := ui.Rect{X: 2, Y: 4, W: 5, H: 12}
 	to := ui.Rect{X: 12, Y: 14, W: 9, H: 20}
-	got, active := e.smoothCursorRects(time.Unix(1, 0).Add(smoothCursorDuration/2), from, to)
+	state.BeginCursor(0, 1, time.Unix(1, 0))
+	state.SetCursorRects(feedback.Rect{X: from.X, Y: from.Y, W: from.W, H: from.H}, feedback.Rect{X: to.X, Y: to.Y, W: to.W, H: to.H})
+	got, active := state.CursorRects(time.Unix(1, 0).Add(feedback.SmoothCursorDuration / 2))
 	if !active || got.X != 7 || got.Y != 9 || got.W != 7 || got.H != 16 {
 		t.Fatalf("block caret interpolation should preserve raw caret geometry: %+v active=%v", got, active)
 	}
@@ -108,20 +126,26 @@ func TestSmoothBlockCaretInterpolatesUntransformedGeometry(t *testing.T) {
 
 func TestSmoothCursorNavigationRebasesFromCurrentVisualPosition(t *testing.T) {
 	start := time.Unix(10, 0)
+	session := editormodel.NewSession("0123456789")
+	_ = session.SetSelection(editormodel.Selection{Anchor: 5, Head: 5})
+	controller := vim.New()
+	controller.SetKeymap("vim")
 	e := &Editor{
-		Session:            &Session{anchor: 5},
-		opts:               Options{SmoothCursor: true},
-		modal:              modalState{keymap: "vim", mode: "Normal"},
-		smoothCursorActive: true, smoothCursorNavigation: true,
-		smoothCursorStart:      start,
-		smoothCursorFromRect:   ui.Rect{X: 0, Y: 0, W: 2, H: 10},
-		smoothCursorToRect:     ui.Rect{X: 20, Y: 10, W: 4, H: 20},
-		smoothCursorRectsValid: true,
+		Session:                session,
+		opts:                   Options{SmoothCursor: true},
+		vimState:               controller,
+		smoothCursorNavigation: true,
+		feedbackState: feedback.State{Cursor: feedback.CursorTransition{
+			From: 4, To: 5, Started: start, Active: true,
+			FromRect: feedback.Rect{X: 0, Y: 0, W: 2, H: 10}, ToRect: feedback.Rect{X: 20, Y: 10, W: 4, H: 20},
+			FromRectSet: true, RectsSet: true,
+		}},
 	}
-	now := start.Add(smoothCursorDuration / 2)
+	now := start.Add(feedback.SmoothCursorDuration / 2)
 	e.beginSmoothCursorMoveAt(5, 6, false, now)
-	want := ui.Rect{X: 10, Y: 5, W: 3, H: 15}
-	if !e.smoothCursorFromSet || e.smoothCursorFromRect != want || e.smoothCursorStart != now {
-		t.Fatalf("rebased animation from=%+v set=%v start=%v", e.smoothCursorFromRect, e.smoothCursorFromSet, e.smoothCursorStart)
+	want := feedback.Rect{X: 10, Y: 5, W: 3, H: 15}
+	transition := e.feedbackState.Cursor
+	if !transition.FromRectSet || transition.FromRect != want || transition.Started != now {
+		t.Fatalf("rebased animation from=%+v set=%v start=%v", transition.FromRect, transition.FromRectSet, transition.Started)
 	}
 }

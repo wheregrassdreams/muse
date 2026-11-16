@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"muse/editor/layout"
 	"muse/locales"
 	"path/filepath"
 	"strings"
@@ -8,8 +9,13 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
+	inlineblock "muse/editor/blocks/inline"
+	tablemodel "muse/editor/blocks/table"
 	editorinput "muse/editor/input"
+	"muse/editor/input/vim"
 	syntax "muse/markdown/syntax"
+	tableui "muse/nativeui/components/editor/blocks/table"
+	"muse/nativeui/components/editor/inputadapter"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.
@@ -22,21 +28,24 @@ type tableCellDragState struct {
 // input takes the editor's input as it comes: keys, text typed, the edit
 // commands of the menus, and the pointer.
 func (e *Editor) input(ev ui.InputEvent) bool {
-	defer e.invalidate()
+	defer func() {
+		e.finishInputTransaction()
+		e.invalidate()
+	}()
 	switch ev.Kind {
 	case ui.InputKeyDown:
-		return e.Session.DispatchKey(keyEventFromUI(ev.Key, ev.Mods))
+		key, ok := inputadapter.KeyEvent(ev)
+		return ok && e.DispatchKey(key)
 	case ui.InputText:
-		result, err := e.Session.Dispatch(InputEvent{Kind: InputInsertText, Text: ev.Text})
+		result, err := e.Session.Dispatch(editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text})
 		return err == nil && result.Handled
 	case ui.InputCompose:
 		if !e.ModalAcceptsText() {
 			return true
 		}
-		e.compose = ev.Text
 		n := ui.UTF16Len(ev.Text)
 		c := min(ui.UTF16Len(string([]rune(ev.Text)[:min(ev.Caret, len([]rune(ev.Text)))])), n)
-		e.composeSel = ui.TextInputRange{Start: c, End: c}
+		e.setComposition(ev.Text, ui.TextInputRange{Start: c, End: c})
 		return true
 	case ui.InputCommand:
 		if !e.ModalAcceptsText() {
@@ -112,7 +121,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 			e.tableCellDrag = nil
 			if e.frozen {
 				e.frozen = false
-				e.caret = e.normalize(e.caret, 1)
+				e.setSessionHead(e.normalize(e.Caret(), 1))
 			}
 			return true
 		}
@@ -125,8 +134,22 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 // requests a frame when the command changes its state. Native adapters should
 // translate toolkit keys into editor/input.KeyEvent before calling it.
 func (e *Editor) DispatchKey(event editorinput.KeyEvent) bool {
-	defer e.invalidate()
+	defer func() {
+		e.finishInputTransaction()
+		e.invalidate()
+	}()
 	return e.Session.DispatchKey(event)
+}
+
+// finishInputTransaction closes a Session-owned edit batch at the boundary of
+// one native input event. A command may apply several source edits internally,
+// but an unfinished batch must never escape to the next event and retain the
+// Session's transaction lock.
+func (e *Editor) finishInputTransaction() {
+	if e.editBatch != nil {
+		selection := e.Session.Selection()
+		e.commit(selection.Anchor, selection.Head)
+	}
 }
 
 // HandleNativeInput handles the presentation events not yet represented by
@@ -135,136 +158,6 @@ func (e *Editor) DispatchKey(event editorinput.KeyEvent) bool {
 // backend-neutral contracts.
 func (e *Editor) HandleNativeInput(event ui.InputEvent) bool {
 	return e.input(event)
-}
-
-// keyEventFromUI is the legacy widget bridge. The component adapter uses the
-// same neutral key values when it dispatches directly through Session.
-func keyEventFromUI(key ui.Key, mods ui.Modifiers) editorinput.KeyEvent {
-	var normalized editorinput.Key
-	switch key {
-	case ui.Key0:
-		normalized = editorinput.Key0
-	case ui.Key1:
-		normalized = editorinput.Key1
-	case ui.Key2:
-		normalized = editorinput.Key2
-	case ui.Key3:
-		normalized = editorinput.Key3
-	case ui.Key4:
-		normalized = editorinput.Key4
-	case ui.Key5:
-		normalized = editorinput.Key5
-	case ui.Key6:
-		normalized = editorinput.Key6
-	case ui.Key7:
-		normalized = editorinput.Key7
-	case ui.Key8:
-		normalized = editorinput.Key8
-	case ui.Key9:
-		normalized = editorinput.Key9
-	case ui.KeyA:
-		normalized = editorinput.KeyA
-	case ui.KeyB:
-		normalized = editorinput.KeyB
-	case ui.KeyC:
-		normalized = editorinput.KeyC
-	case ui.KeyD:
-		normalized = editorinput.KeyD
-	case ui.KeyE:
-		normalized = editorinput.KeyE
-	case ui.KeyF:
-		normalized = editorinput.KeyF
-	case ui.KeyG:
-		normalized = editorinput.KeyG
-	case ui.KeyH:
-		normalized = editorinput.KeyH
-	case ui.KeyI:
-		normalized = editorinput.KeyI
-	case ui.KeyJ:
-		normalized = editorinput.KeyJ
-	case ui.KeyK:
-		normalized = editorinput.KeyK
-	case ui.KeyL:
-		normalized = editorinput.KeyL
-	case ui.KeyM:
-		normalized = editorinput.KeyM
-	case ui.KeyN:
-		normalized = editorinput.KeyN
-	case ui.KeyO:
-		normalized = editorinput.KeyO
-	case ui.KeyP:
-		normalized = editorinput.KeyP
-	case ui.KeyQ:
-		normalized = editorinput.KeyQ
-	case ui.KeyR:
-		normalized = editorinput.KeyR
-	case ui.KeyS:
-		normalized = editorinput.KeyS
-	case ui.KeyT:
-		normalized = editorinput.KeyT
-	case ui.KeyU:
-		normalized = editorinput.KeyU
-	case ui.KeyV:
-		normalized = editorinput.KeyV
-	case ui.KeyW:
-		normalized = editorinput.KeyW
-	case ui.KeyX:
-		normalized = editorinput.KeyX
-	case ui.KeyY:
-		normalized = editorinput.KeyY
-	case ui.KeyZ:
-		normalized = editorinput.KeyZ
-	case ui.KeyBackquote:
-		normalized = editorinput.KeyBackquote
-	case ui.KeyBracketLeft:
-		normalized = editorinput.KeyBracketLeft
-	case ui.KeyBracketRight:
-		normalized = editorinput.KeyBracketRight
-	case ui.KeyBackspace:
-		normalized = editorinput.KeyBackspace
-	case ui.KeyDelete:
-		normalized = editorinput.KeyDelete
-	case ui.KeyDown:
-		normalized = editorinput.KeyDown
-	case ui.KeyEnd:
-		normalized = editorinput.KeyEnd
-	case ui.KeyEnter:
-		normalized = editorinput.KeyEnter
-	case ui.KeyEqual:
-		normalized = editorinput.KeyEqual
-	case ui.KeyEscape:
-		normalized = editorinput.KeyEscape
-	case ui.KeyHome:
-		normalized = editorinput.KeyHome
-	case ui.KeyLeft:
-		normalized = editorinput.KeyLeft
-	case ui.KeyMinus:
-		normalized = editorinput.KeyMinus
-	case ui.KeyPageDown:
-		normalized = editorinput.KeyPageDown
-	case ui.KeyPageUp:
-		normalized = editorinput.KeyPageUp
-	case ui.KeyRight:
-		normalized = editorinput.KeyRight
-	case ui.KeyTab:
-		normalized = editorinput.KeyTab
-	case ui.KeyUp:
-		normalized = editorinput.KeyUp
-	}
-	var modifiers editorinput.Modifiers
-	if mods&ui.Shift != 0 {
-		modifiers |= editorinput.ModShift
-	}
-	if mods&ui.Ctrl != 0 {
-		modifiers |= editorinput.ModCtrl
-	}
-	if mods&ui.Alt != 0 {
-		modifiers |= editorinput.ModAlt
-	}
-	if mods&ui.Cmd != 0 {
-		modifiers |= editorinput.ModCommand
-	}
-	return editorinput.KeyEvent{Key: normalized, Modifiers: modifiers}
 }
 
 // command runs an edit command of the menus.
@@ -307,9 +200,9 @@ func (e *Editor) SelectAll() {
 	e.clearTableSelectionSession()
 	e.tableHandleDrag = nil
 	e.dropPhantom()
-	e.anchor, e.caret = 0, len(e.src)
-	e.selectionInclusive = false
-	e.selectionLinewise = false
+	e.setSessionSelection(0, len(e.Source()))
+	e.setSessionInclusive(false)
+	e.setSessionLinewise(false)
 	e.wantReveal = false
 	e.invalidate()
 }
@@ -337,17 +230,17 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 		}
 		switch {
 		case isMac && m == editorinput.ModCommand:
-			s, z := e.lineEdges(e.caret)
+			s, z := e.lineEdges(e.Caret())
 			if dir < 0 {
 				e.setCaret(s, shift)
 			} else {
 				e.setCaret(z, shift)
 			}
 		case word:
-			e.setCaret(e.step(e.caret, dir, true), shift)
+			e.setCaret(e.step(e.Caret(), dir, true), shift)
 		case m != 0:
 			return false
-		case e.anchor != e.caret && !shift:
+		case e.Session.Selection().Anchor != e.Caret() && !shift:
 			a, z := e.selection()
 			if dir < 0 {
 				e.setCaret(a, false)
@@ -355,10 +248,10 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 				e.setCaret(z, false)
 			}
 		default:
-			if e.anchor == e.caret {
+			if e.Session.Selection().Anchor == e.Caret() {
 				e.nativeHorizontal(dir, shift)
 			} else {
-				e.setCaret(e.step(e.caret, dir, false), shift)
+				e.setCaret(e.step(e.Caret(), dir, false), shift)
 			}
 		}
 		e.hasGoal = false
@@ -394,7 +287,7 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 			}
 			return true
 		}
-		s, z := e.lineEdges(e.caret)
+		s, z := e.lineEdges(e.Caret())
 		if key == editorinput.KeyHome {
 			e.setCaret(s, shift)
 			e.upstream = false
@@ -409,9 +302,9 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 		return true
 	case editorinput.KeyBackspace:
 		if isMac && m == editorinput.ModCommand {
-			s, _ := e.lineEdges(e.caret)
-			if s < e.caret {
-				e.anchor = s
+			s, _ := e.lineEdges(e.Caret())
+			if s < e.Caret() {
+				e.setSessionAnchor(s)
 				e.deleteSelection()
 			}
 			return true
@@ -423,8 +316,8 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 		return true
 	case editorinput.KeyEnter:
 		if m == editorinput.ModCommand {
-			if t, r, c := e.cellPos(e.caret); t != nil {
-				e.insertRow(t, r, c)
+			if t, r, c := e.cellPos(e.Caret()); t != nil {
+				_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: r, Focus: tablemodel.Cell{Col: c}})
 				return true
 			}
 			return false
@@ -450,8 +343,8 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 			e.inlineMath.SetPreviewHidden(true)
 			return true
 		}
-		if e.anchor != e.caret {
-			e.anchor = e.caret
+		if e.Session.Selection().Anchor != e.Caret() {
+			e.setSessionAnchor(e.Caret())
 			return true
 		}
 		return false
@@ -506,7 +399,7 @@ func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
 	case key == editorinput.KeyK && !shift:
 		e.InsertLink()
 	case key == editorinput.KeyD && !shift:
-		a, z := e.wordRangeAt(e.caret)
+		a, z := e.wordRangeAt(e.Caret())
 		e.Select(a, z)
 	case key >= editorinput.Key0 && key <= editorinput.Key6 && !shift:
 		e.SetHeading(int(key - editorinput.Key0))
@@ -525,8 +418,8 @@ func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
 	case key == editorinput.KeyM && shift:
 		e.InsertMathBlock()
 	case key == editorinput.KeyEnter && !shift:
-		if t, r, c := e.cellPos(e.caret); t != nil {
-			e.insertRow(t, r, c)
+		if t, r, c := e.cellPos(e.Caret()); t != nil {
+			_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: r, Focus: tablemodel.Cell{Col: c}})
 		} else {
 			return false
 		}
@@ -538,7 +431,7 @@ func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
 
 // page moves the caret a view's height up or down.
 func (e *Editor) page(down bool, extend bool) {
-	r, ok := e.caretRect(e.caret)
+	r, ok := e.caretRect(e.Caret())
 	if !ok {
 		return
 	}
@@ -569,7 +462,9 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	if ev.Button != 0 {
 		return false
 	}
-	e.modal.vimTextVisualActive = false
+	if e.Keymap() == "vim" {
+		e.vimController().SetTextVisualActive(false)
+	}
 	e.layoutIfNeeded()
 	x, y := ev.X, ev.Y
 	e.pointerX, e.pointerY = x, y
@@ -640,12 +535,12 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		e.invalidate()
 		return true
 	}
-	e.selectionInclusive = false
-	e.selectionLinewise = false
+	e.setSessionInclusive(false)
+	e.setSessionLinewise(false)
 	off := e.hitTest(x, y)
 	if ev.Clicks <= 1 && ev.Mods&(ui.Shift|ui.Cmd|ui.Ctrl|ui.Alt) == 0 {
 		if target, ok := e.footnoteTargetAt(off); ok {
-			e.NavigateToOffset(target, PageJumpNearest)
+			e.NavigateToOffset(target, layout.PageJumpNearest)
 			return true
 		}
 	}
@@ -669,11 +564,11 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 			return true
 		}
 	}
-	if e.Keymap() == "vim" && e.modal.mode != "Insert" && ev.Mods&ui.Shift == 0 {
+	if e.Keymap() == "vim" && e.vimController().Mode() != vim.ModeInsert && ev.Mods&ui.Shift == 0 {
 		// A fresh pointer press leaves an old visual selection and starts from
 		// Vim Normal. A drag will enter Visual below, using the same inclusive
 		// anchor/head model as the v command.
-		e.modal.mode = "Normal"
+		e.modalSetMode(vim.ModeNormal)
 		if ev.Clicks <= 1 {
 			if _, _, object := e.objectAt(off); !object {
 				off = e.vimPointerOffset(off, x, y)
@@ -691,9 +586,9 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	// A comment's lines are blank in the parse, and the comment shows once
 	// the caret is in it: a click there puts the caret in the comment
 	// itself, not on a blank line beside it.
-	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && len(e.p.comments) > 0 {
+	if ev.Clicks <= 1 && ev.Mods&ui.Shift == 0 && len(e.p.Comments()) > 0 {
 		if at, ok := e.gapPhantomAt(y); ok {
-			if _, in := commentAt(e.p.comments, at); in {
+			if _, in := commentAt(e.p.Comments(), at); in {
 				e.setCaret(at, false)
 				return true
 			}
@@ -719,50 +614,50 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 	case ev.Clicks >= 3:
 		a, z := e.blockRangeAt(off)
 		e.dropPhantom()
-		e.anchor, e.caret = a, z
+		e.setSessionSelection(a, z)
 		e.dragUnit, e.dragFrom = 2, [2]int{a, z}
 	case ev.Clicks == 2:
 		a, z := e.wordRangeAt(off)
 		e.dropPhantom()
-		e.anchor, e.caret = a, z
+		e.setSessionSelection(a, z)
 		e.dragUnit, e.dragFrom = 1, [2]int{a, z}
 	default:
 		extend := ev.Mods&ui.Shift != 0
 		if a, z, ok := e.objectAt(off); ok && !extend {
 			if e.isInlineMathRange(a, z) {
-				e.anchor, e.caret = a+1, a+1
+				e.setSessionSelection(a+1, a+1)
 				break
 			}
 			// An object is one unit: a click takes it whole, and the
 			// selection is what opens its source (docs/editor-model.md).
 			// Typing or Backspace then replace it, as they would a letter.
 			e.dropPhantom()
-			e.anchor, e.caret = a, z
+			e.setSessionSelection(a, z)
 			e.dragUnit, e.dragFrom = 0, [2]int{a, z}
 			break
 		}
 		e.setCaretAtPoint(off, y, extend)
-		e.dragUnit, e.dragFrom = 0, [2]int{e.anchor, e.anchor}
+		e.dragUnit, e.dragFrom = 0, [2]int{e.Session.Selection().Anchor, e.Session.Selection().Anchor}
 	}
-	e.frozen, e.frozenAt = true, e.caret
+	e.frozen, e.frozenAt = true, e.Caret()
 	e.blinkStart = time.Now()
 	return true
 }
 
 func (e *Editor) footnoteTargetAt(off int) (int, bool) {
 	u := e.unitAt(off)
-	if u == nil || u.id < 0 || e.p.doc == nil {
+	if u == nil || u.id < 0 || e.p.Parser() == nil {
 		return 0, false
 	}
-	for _, in := range e.p.doc.Inlines(u.id) {
+	for _, in := range e.p.Parser().Inlines(u.id) {
 		if in.Kind != syntax.IncrementalFootnoteRef || off < in.Start || off > in.End {
 			continue
 		}
-		block, ok := e.p.doc.Footnote(in.Text)
+		block, ok := e.p.Parser().Footnote(in.Text)
 		if !ok {
 			return 0, false
 		}
-		return e.p.doc.Block(block).Start, true
+		return e.p.Parser().Block(block).Start, true
 	}
 	return 0, false
 }
@@ -814,18 +709,24 @@ func (e *Editor) dragTo(x, y float32) {
 	off := e.hitTest(x, y)
 	if capture := e.tableCellDrag; capture != nil {
 		if t := e.tableByLineStart(capture.lineStart); t != nil {
-			row, col, inside := tableCellIndexAt(t, x, y)
+			row, col, hit := e.tableCellAtPoint(x, y)
+			inside := hit == t
 			if inside {
 				if row != capture.anchorRow || col != capture.anchorCol {
 					capture.crossed = true
 				}
 				if capture.crossed {
-					if e.Keymap() == "vim" && (e.modal.mode == "Normal" || e.modal.mode == "Visual") {
-						e.modal.mode = "Visual"
-						e.selectionInclusive = false
-						e.selectionLinewise = false
+					mode := e.vimController().Mode()
+					if e.Keymap() == "vim" && (mode == vim.ModeNormal || mode == vim.ModeVisual) {
+						e.modalSetMode(vim.ModeVisual)
+						e.setSessionInclusive(false)
+						e.setSessionLinewise(false)
 					}
-					e.selectTableCellRegion(t, capture.anchorRow, capture.anchorCol, row, col)
+					_, _ = e.tableUI().Dispatch(tableui.Action{
+						Kind: tableui.SelectCell, LineStart: t.lineStart,
+						Anchor: tablemodel.Cell{Row: capture.anchorRow, Col: capture.anchorCol},
+						Focus:  tablemodel.Cell{Row: row, Col: col},
+					})
 					return
 				}
 			} else if capture.crossed {
@@ -837,11 +738,12 @@ func (e *Editor) dragTo(x, y float32) {
 			}
 		}
 	}
-	if e.Keymap() == "vim" && (e.modal.mode == "Normal" || e.modal.mode == "Visual") && e.dragUnit == 0 {
+	mode := e.vimController().Mode()
+	if e.Keymap() == "vim" && (mode == vim.ModeNormal || mode == vim.ModeVisual) && e.dragUnit == 0 {
 		off = e.vimPointerOffset(off, x, y)
-		e.modal.mode = "Visual"
-		e.selectionInclusive = true
-		e.selectionLinewise = false
+		e.modalSetMode(vim.ModeVisual)
+		e.setSessionInclusive(true)
+		e.setSessionLinewise(false)
 	}
 	// Pointer motion owns its own anchor/head, rather than retaining a
 	// structural focus created by an earlier keyboard selection.
@@ -854,23 +756,22 @@ func (e *Editor) dragTo(x, y float32) {
 		a, z = e.blockRangeAt(off)
 	}
 	if a < e.dragFrom[0] {
-		e.anchor, e.caret = e.dragFrom[1], a
+		e.setSessionSelection(e.dragFrom[1], a)
 	} else {
-		e.anchor, e.caret = e.dragFrom[0], max(z, e.dragFrom[1])
+		e.setSessionSelection(e.dragFrom[0], max(z, e.dragFrom[1]))
 		if e.dragUnit == 0 {
-			e.caret = off
+			e.setSessionHead(off)
 		}
 	}
 	e.structuralSelectionForRange()
 }
 
 func (e *Editor) tableCellAtPoint(x, y float32) (row, col int, table *leaf) {
-	for _, candidate := range e.leaves {
-		if candidate.kind != kTable || candidate.tab == nil || candidate.geom == nil {
-			continue
-		}
-		if row, col, ok := tableCellIndexAt(candidate, x, y); ok {
-			return row, col, candidate
+	for _, frameTable := range e.tableUI().Frame().Tables {
+		if cell, ok := tableui.CellAtPoint(frameTable, x, y); ok {
+			if table := e.tableByLineStart(frameTable.LineStart); table != nil {
+				return cell.Row, cell.Col, table
+			}
 		}
 	}
 	return 0, 0, nil
@@ -1172,7 +1073,7 @@ func (e *Editor) codeLabelAt(x, y float32) *leaf {
 			continue
 		}
 		if y >= l.y && y <= l.y+e.lk.size*1.4 && x >= l.x+l.w-e.lk.size*6 && x <= l.x+l.w {
-			if l.language() != "" || e.leafAt(e.caret) == l {
+			if l.language() != "" || e.leafAt(e.Caret()) == l {
 				return l
 			}
 		}
@@ -1188,19 +1089,19 @@ func (e *Editor) linkAt(off int) string {
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return ""
 	}
-	for _, in := range e.p.doc.Inlines(u.id) {
+	for _, in := range e.p.Parser().Inlines(u.id) {
 		switch in.Kind {
 		case syntax.IncrementalLink, syntax.IncrementalImage:
 			if in.Start <= off && off <= in.End {
 				return in.Dest
 			}
 		case syntax.IncrementalText:
-			for _, w := range wikiLinks(e.src, in.Start, in.End) {
-				if w.from <= off && off <= w.to {
-					if w.embed {
+			for _, w := range inlineblock.ParseWikiLinks(e.Source(), in.Start, in.End) {
+				if w.From <= off && off <= w.To {
+					if w.Embed {
 						return ""
 					}
-					return "wiki:" + w.target
+					return "wiki:" + w.Target
 				}
 			}
 		}
@@ -1213,14 +1114,14 @@ func (e *Editor) linkRangeAt(off int) (Range, bool) {
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return Range{}, false
 	}
-	for _, in := range e.p.doc.Inlines(u.id) {
+	for _, in := range e.p.Parser().Inlines(u.id) {
 		if in.Kind == syntax.IncrementalLink && in.Start <= off && off <= in.End {
 			return Range{Start: in.Start, End: in.End}, true
 		}
 		if in.Kind == syntax.IncrementalText {
-			for _, w := range wikiLinks(e.src, in.Start, in.End) {
-				if !w.embed && w.from <= off && off <= w.to {
-					return Range{Start: w.from, End: w.to}, true
+			for _, w := range inlineblock.ParseWikiLinks(e.Source(), in.Start, in.End) {
+				if !w.Embed && w.From <= off && off <= w.To {
+					return Range{Start: w.From, End: w.To}, true
 				}
 			}
 		}
@@ -1294,7 +1195,7 @@ func (e *Editor) menu(m *ui.Menu) {
 		e.Paste(true)
 	}
 	m.Separator()
-	if url := e.linkAt(e.caret); url != "" {
+	if url := e.linkAt(e.Caret()); url != "" {
 		if m.Item(locales.CommonOpenLinkAction()).Chosen() && e.opts.OnLink != nil {
 			e.opts.OnLink(url)
 		}
@@ -1307,23 +1208,36 @@ func (e *Editor) menu(m *ui.Menu) {
 		}
 		m.Separator()
 	}
-	if t, _, _ := e.cellPos(e.caret); t != nil {
+	if t, row, col := e.cellPos(e.Caret()); t != nil {
 		m.Submenu(locales.EditorTableMenu(), func(m *ui.Menu) {
-			for _, it := range []struct{ label, cmd string }{
-				{locales.EditorInsertRowAbove(), "rowAbove"}, {locales.EditorInsertRowBelow(), "rowBelow"}, {locales.EditorDeleteRow(), "deleteRow"},
-				{"", ""},
-				{locales.EditorInsertColumnLeft(), "colLeft"}, {locales.EditorInsertColumnRight(), "colRight"}, {locales.EditorDeleteColumn(), "deleteCol"},
-				{"", ""},
-				{locales.EditorAlignLeft(), "alignLeft"}, {locales.EditorAlignCenter(), "alignCenter"}, {locales.EditorAlignRight(), "alignRight"},
-				{"", ""},
-				{locales.EditorDeleteTable(), "deleteTable"},
+			for _, it := range []struct {
+				label  string
+				action tableui.Action
+				sep    bool
+			}{
+				{label: locales.EditorInsertRowAbove(), action: tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: max(row-1, 0), Focus: tablemodel.Cell{Col: col}}},
+				{label: locales.EditorInsertRowBelow(), action: tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: row, Focus: tablemodel.Cell{Col: col}}},
+				{label: locales.EditorDeleteRow(), action: tableui.Action{Kind: tableui.DeleteRows, LineStart: t.lineStart, First: row, Last: row}, sep: false},
+				{sep: true},
+				{label: locales.EditorInsertColumnLeft(), action: tableui.Action{Kind: tableui.InsertColumnBefore, LineStart: t.lineStart, First: col}},
+				{label: locales.EditorInsertColumnRight(), action: tableui.Action{Kind: tableui.InsertColumnBefore, LineStart: t.lineStart, First: col + 1}},
+				{label: locales.EditorDeleteColumn(), action: tableui.Action{Kind: tableui.DeleteColumns, LineStart: t.lineStart, First: col, Last: col}},
+				{sep: true},
+				{label: locales.EditorAlignLeft(), action: tableui.Action{Kind: tableui.AlignColumn, LineStart: t.lineStart, Focus: tablemodel.Cell{Row: row, Col: col}, Alignment: tablemodel.AlignmentLeft}},
+				{label: locales.EditorAlignCenter(), action: tableui.Action{Kind: tableui.AlignColumn, LineStart: t.lineStart, Focus: tablemodel.Cell{Row: row, Col: col}, Alignment: tablemodel.AlignmentCenter}},
+				{label: locales.EditorAlignRight(), action: tableui.Action{Kind: tableui.AlignColumn, LineStart: t.lineStart, Focus: tablemodel.Cell{Row: row, Col: col}, Alignment: tablemodel.AlignmentRight}},
+				{sep: true},
+				{label: locales.EditorDeleteTable(), action: tableui.Action{Kind: tableui.DeleteTable, LineStart: t.lineStart}},
 			} {
-				if it.label == "" {
+				if it.sep {
 					m.Separator()
 					continue
 				}
 				if m.Item(it.label).Chosen() {
-					e.TableCommand(it.cmd)
+					if it.action.Kind == tableui.DeleteRows && row == 0 || it.action.Kind == tableui.DeleteColumns && t.tab.cols() <= 1 {
+						continue
+					}
+					_, _ = e.tableUI().Dispatch(it.action)
 				}
 			}
 		})

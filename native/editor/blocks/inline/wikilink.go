@@ -1,88 +1,69 @@
-package editor
+package inline
 
 import "strings"
 
-// Wiki links, as Obsidian writes them: [[target]], [[target|label]],
-// [[target#heading]] and the embeds ![[target]]. The parser reads none of
-// them — they arrive as plain Text — so the editor pairs the brackets
-// itself and draws the label where the source has the whole construct, the
-// way highlight.go pairs ==.
-//
-// The source stays what it is: only the view hides the brackets, and the
-// caret at the construct shows them again, so the link can be edited like
-// any other text.
-
-// wikiLink is one [[…]]: the source range from the `[[` (or the `!` of an
-// embed) to the closing `]]`, the target it opens, and the range of the
-// text drawn in its place.
-type wikiLink struct {
-	from, to           int
-	labelFrom, labelTo int
-	target             string
-	embed              bool
+// WikiLink is a parsed source projection of a Muse wiki link or embed.
+// Offsets are half-open UTF-8 byte ranges into the original source.
+type WikiLink struct {
+	From, To           int
+	LabelFrom, LabelTo int
+	Target             string
+	Embed              bool
 }
 
-// wikiLinks returns the wiki links in src[from:to], in order.
-//
-// `[[` opens one and the next `]]` closes it; a link never crosses a line
-// and an empty target is not a link, so `[[]]` and a half-typed `[[note`
-// stay as written. `[[a|b]]` shows b and opens a; the pipes of a table's
-// row are the table's, so a target with a `\|` keeps the escaped pipe.
-func wikiLinks(src string, from, to int) []wikiLink {
-	var out []wikiLink
+// ParseWikiLinks finds Muse wiki-link syntax in a source range. This is a
+// Muse inline extension, not a second Markdown parser; callers should pass
+// the smallest parser-owned text range that can contain these constructs.
+func ParseWikiLinks(source string, from, to int) []WikiLink {
+	if from < 0 || to < from || to > len(source) {
+		return nil
+	}
+	var out []WikiLink
 	for p := from; p+1 < to; {
-		i := strings.Index(src[p:to], "[[")
+		i := strings.Index(source[p:to], "[[")
 		if i < 0 {
 			return out
 		}
 		i += p
-		if i > from && src[i-1] == '\\' {
+		if i > from && source[i-1] == '\\' {
 			p = i + 2
 			continue
 		}
-		j := strings.Index(src[i+2:to], "]]")
+		j := strings.Index(source[i+2:to], "]]")
 		if j < 0 {
 			return out
 		}
 		j += i + 2
-		inner := src[i+2 : j]
+		inner := source[i+2 : j]
 		if strings.ContainsAny(inner, "\n\r") || strings.TrimSpace(inner) == "" {
 			p = i + 2
 			continue
 		}
-		start := i
-		embed := i > from && src[i-1] == '!'
+		start, embed := i, i > from && source[i-1] == '!'
 		if embed {
-			start = i - 1
+			start--
 		}
-		ls, le := i+2, j
-		target := inner
+		labelFrom, labelTo, target := i+2, j, inner
 		if k := strings.IndexByte(inner, '|'); k >= 0 {
 			target = inner[:k]
-			ls = i + 2 + k + 1
+			labelFrom = i + 3 + k
 		}
-		out = append(out, wikiLink{
-			from:      start,
-			to:        j + 2,
-			labelFrom: ls,
-			labelTo:   le,
-			target:    strings.TrimSpace(strings.ReplaceAll(target, `\|`, "|")),
-			embed:     embed,
+		out = append(out, WikiLink{
+			From: start, To: j + 2, LabelFrom: labelFrom, LabelTo: labelTo,
+			Target: strings.TrimSpace(strings.ReplaceAll(target, `\|`, "|")), Embed: embed,
 		})
 		p = j + 2
 	}
 	return out
 }
 
-// wiki links of src starting or ending at off, as linkAt finds them.
-func wikiAt(src string, from, to, off int) (string, bool) {
-	for _, w := range wikiLinks(src, from, to) {
-		if w.from <= off && off <= w.to {
-			target := strings.TrimSpace(w.target)
-			if target == "" {
-				return "", false
-			}
-			return target, true
+// WikiLinkAt resolves the target of a wiki link whose source range contains
+// offset. It returns false for an empty target.
+func WikiLinkAt(source string, from, to, offset int) (string, bool) {
+	for _, link := range ParseWikiLinks(source, from, to) {
+		if link.From <= offset && offset <= link.To {
+			target := strings.TrimSpace(link.Target)
+			return target, target != ""
 		}
 	}
 	return "", false

@@ -3,22 +3,23 @@ package editor
 import (
 	"testing"
 	"time"
+
+	"muse/nativeui/components/editor/feedback"
 )
 
 func TestSearchMatchPulseIsBriefAndOptIn(t *testing.T) {
 	start := time.Unix(10, 0)
 	e := New("alpha beta", Options{SearchMatchPulse: true})
-	e.searchPulseStart = start
-	e.searchPulseActive = true
-	if got, active := e.searchMatchPulse(start.Add(searchMatchPulseDuration / 2)); !active || got < 0.99 {
+	e.feedbackState.StartSearchPulse(start)
+	if got, active := e.searchMatchPulse(start.Add(feedback.SearchMatchPulseDuration / 2)); !active || got < 0.99 {
 		t.Fatalf("peak pulse=%v active=%v", got, active)
 	}
-	if got, active := e.searchMatchPulse(start.Add(searchMatchPulseDuration)); active || got != 0 {
+	if got, active := e.searchMatchPulse(start.Add(feedback.SearchMatchPulseDuration)); active || got != 0 {
 		t.Fatalf("finished pulse=%v active=%v", got, active)
 	}
 
 	e.SetOptions(Options{})
-	e.searchPulseActive = true
+	e.feedbackState.StartSearchPulse(start)
 	if got, active := e.searchMatchPulse(start.Add(time.Millisecond)); active || got != 0 {
 		t.Fatalf("disabled pulse=%v active=%v", got, active)
 	}
@@ -27,16 +28,16 @@ func TestSearchMatchPulseIsBriefAndOptIn(t *testing.T) {
 func TestSearchMatchPulseStartsWhenCurrentHitChanges(t *testing.T) {
 	e := New("alpha alpha", Options{SearchMatchPulse: true})
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 0)
-	if !e.searchPulseActive {
+	if !e.feedbackState.Search.Active {
 		t.Fatal("choosing a current search match did not start the pulse")
 	}
-	start := e.searchPulseStart
+	start := e.feedbackState.Search.Started
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 0)
-	if !e.searchPulseStart.Equal(start) {
+	if !e.feedbackState.Search.Started.Equal(start) {
 		t.Fatal("repainting the same current hit restarted the pulse")
 	}
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 1)
-	if !e.searchPulseStart.After(start) {
+	if !e.feedbackState.Search.Started.After(start) {
 		t.Fatal("selecting a different current hit did not restart the pulse")
 	}
 }
@@ -47,7 +48,7 @@ func TestSearchMatchPulseScreenshot(t *testing.T) {
 	opts.SearchMatchPulse = true
 	h.e.SetOptions(opts)
 	h.e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 1)
-	h.tt.Advance(searchMatchPulseDuration / 2)
+	h.tt.Advance(feedback.SearchMatchPulseDuration / 2)
 	h.shot("search-match-pulse")
 }
 
@@ -56,17 +57,17 @@ func TestVimYankFlashIsOptInAndVimOnly(t *testing.T) {
 	e.SetKeymap("vim")
 	e.Select(0, 0)
 	modalKeys(e, "yy")
-	if !e.vimYankActive || len(e.vimYankRanges) != 1 {
-		t.Fatalf("Vim yy did not flash its yanked range: active=%v ranges=%v", e.vimYankActive, e.vimYankRanges)
+	if !e.feedbackState.Yank.Active || len(e.feedbackState.Yank.Ranges) != 1 {
+		t.Fatalf("Vim yy did not flash its yanked range: active=%v ranges=%v", e.feedbackState.Yank.Active, e.feedbackState.Yank.Ranges)
 	}
-	if got := e.src[e.vimYankRanges[0].Start:e.vimYankRanges[0].End]; got != "alpha beta" {
+	if got := e.Source()[e.feedbackState.Yank.Ranges[0].Start:e.feedbackState.Yank.Ranges[0].End]; got != "alpha beta" {
 		t.Fatalf("flashed range=%q", got)
 	}
 
 	e.SetKeymap("helix")
 	e.Select(0, 0)
 	modalKeys(e, "vly")
-	if e.vimYankActive {
+	if e.feedbackState.Yank.Active {
 		t.Fatal("Vim yank flash leaked into Helix mode")
 	}
 
@@ -74,7 +75,7 @@ func TestVimYankFlashIsOptInAndVimOnly(t *testing.T) {
 	e.SetOptions(Options{})
 	e.Select(0, 0)
 	modalKeys(e, "yy")
-	if e.vimYankActive {
+	if e.feedbackState.Yank.Active {
 		t.Fatal("disabled Vim yank flash was active")
 	}
 }
@@ -84,12 +85,12 @@ func TestVimYankFlashTracksVisualYankRange(t *testing.T) {
 	e.SetKeymap("vim")
 	e.Select(0, 0)
 	modalKeys(e, "vly")
-	if !e.vimYankActive || len(e.vimYankRanges) != 1 {
-		t.Fatalf("Visual yank did not flash its range: active=%v ranges=%v", e.vimYankActive, e.vimYankRanges)
+	if !e.feedbackState.Yank.Active || len(e.feedbackState.Yank.Ranges) != 1 {
+		t.Fatalf("Visual yank did not flash its range: active=%v ranges=%v", e.feedbackState.Yank.Active, e.feedbackState.Yank.Ranges)
 	}
-	r := e.vimYankRanges[0]
-	if got := e.src[r.Start:r.End]; got != e.modal.register {
-		t.Fatalf("flashed Visual range=%q, yanked register=%q", got, e.modal.register)
+	r := e.feedbackState.Yank.Ranges[0]
+	if got, register := e.Source()[r.Start:r.End], e.vimController().View().Register; got != register {
+		t.Fatalf("flashed Visual range=%q, yanked register=%q", got, register)
 	}
 }
 
@@ -101,6 +102,6 @@ func TestVimYankFlashScreenshot(t *testing.T) {
 	h.e.SetKeymap("vim")
 	h.caretAt(0)
 	modalKeys(h.e, "yy")
-	h.tt.Advance(vimYankFlashDuration / 5)
+	h.tt.Advance(feedback.VimYankFlashDuration / 5)
 	h.shot("vim-yank-flash")
 }

@@ -26,7 +26,7 @@ func TestLargeDataImageSourceStaysAtomicWhenCaretRevealsImage(t *testing.T) {
 		t.Fatal("large data image was not parsed as an image")
 	}
 	e.focused = true
-	e.caret = len(sourcePrefix) + 1
+	e.setSessionHead(len(sourcePrefix) + 1)
 	v := e.view(e.leaves[0], 720, false, syntax.IncrementalAlignNone)
 	if !v.disp.hasObjects {
 		t.Fatal("large data image lost its object presentation")
@@ -52,7 +52,7 @@ func TestLargeDataImageFirstStopSkipsBuildingTheInitialView(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := New(tc.src, Options{})
-			if got := e.caret; got != 0 {
+			if got := e.Caret(); got != 0 {
 				t.Fatalf("initial caret = %d, want source start", got)
 			}
 			if len(e.leaves) == 0 || e.leaves[0].kind != kPara || e.leaves[0].view != nil {
@@ -84,8 +84,8 @@ func TestLargeDataImageInlineFastPathPreservesSourceAndAlt(t *testing.T) {
 	if !e.pictureBlock(e.leaves[0]) {
 		t.Fatal("cached large image projection was not recognized as a standalone picture")
 	}
-	if len(e.p.imageInlines) != len(ins) || !e.p.maskIsSource {
-		t.Fatalf("source initialization did not retain the precomputed image tokens and source mask: tokens=%d identity=%v", len(e.p.imageInlines), e.p.maskIsSource)
+	if len(e.p.ImageInlines()) != len(ins) || !e.p.IsIdentityMask() {
+		t.Fatalf("source initialization did not retain the precomputed image tokens and source mask: tokens=%d identity=%v", len(e.p.ImageInlines()), e.p.IsIdentityMask())
 	}
 }
 

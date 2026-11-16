@@ -1,5 +1,7 @@
 package editor
 
+import "muse/markdown/images"
+
 // LayoutMemorySnapshot reports editor-owned source and layout state without
 // exposing MyGo types or the renderer's decoded assets.
 type LayoutMemorySnapshot struct {
@@ -22,12 +24,12 @@ func (e *Editor) LayoutMemorySnapshot() LayoutMemorySnapshot {
 		return LayoutMemorySnapshot{}
 	}
 	snapshot := LayoutMemorySnapshot{
-		SourceBytes:   len(e.src),
+		SourceBytes:   len(e.Source()),
 		Leaves:        len(e.leaves),
 		VirtualLayout: e.virtualLayout(),
 	}
 	for _, leaf := range e.leaves {
-		if leafMayContainImage(e.src, leaf) {
+		if leafMayContainImage(e.Source(), leaf) {
 			snapshot.ImageCandidateLeaves++
 		}
 		if leaf.view != nil && leaf.view.hasImageAsset() {
@@ -73,9 +75,7 @@ func (e *Editor) ImageMemoryHandles() []ImageMemoryHandle {
 	for _, view := range e.views {
 		addView(view)
 	}
-	for _, asset := range e.dataImageAssets {
-		add(asset)
-	}
+	e.dataImageAssets.Range(func(asset *images.Asset) { add(asset) })
 	assets := make([]ImageMemoryHandle, 0, len(seen))
 	for asset := range seen {
 		assets = append(assets, asset)

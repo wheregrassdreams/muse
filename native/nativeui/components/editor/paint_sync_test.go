@@ -85,14 +85,14 @@ func TestAppEditWaitsForPaint(t *testing.T) {
 		t.Fatalf("source after app edit = %q, want %q", got, after)
 	}
 	for _, l := range e.leaves {
-		if l.id >= e.p.doc.Len() {
-			t.Fatalf("leaf id %d is outside current parser (%d blocks)", l.id, e.p.doc.Len())
+		if l.id >= e.p.Parser().Len() {
+			t.Fatalf("leaf id %d is outside current parser (%d blocks)", l.id, e.p.Parser().Len())
 		}
 		if l.kind == kPara {
 			e.pictureBlock(l)
 		}
 	}
-	if picture.id < e.p.doc.Len() {
-		t.Fatalf("old picture leaf id %d should be outside the replacement parser (%d blocks)", picture.id, e.p.doc.Len())
+	if picture.id < e.p.Parser().Len() {
+		t.Fatalf("old picture leaf id %d should be outside the replacement parser (%d blocks)", picture.id, e.p.Parser().Len())
 	}
 }

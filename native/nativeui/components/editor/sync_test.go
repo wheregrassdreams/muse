@@ -5,8 +5,20 @@ import (
 	"strings"
 	"testing"
 
+	"muse/editor/source"
 	syntax "muse/markdown/syntax"
 )
+
+func fullParserMask(text string) string {
+	projection := source.New(exts, source.ParserText)
+	fm := source.FrontmatterEnd(text)
+	var images []syntax.IncrementalInline
+	if fm == 0 {
+		images, _ = largeDataImageOnlySource(text)
+	}
+	projection.Set(text, fm, images)
+	return projection.MaskedSource()
+}
 
 // docShape is the parse of a document as text, for comparing an editor
 // that edited its way to a source with one that parsed the source whole.
@@ -92,17 +104,17 @@ func TestIncrementalSyncMatchesFreshParse(t *testing.T) {
 		if e.pending != nil || e.pendingMulti {
 			t.Fatalf("step %d: the edit was not given to the parser", i)
 		}
-		if e.p.src != e.Source() {
+		if e.p.Source() != e.Source() {
 			t.Fatalf("step %d: parser source is stale", i)
 		}
-		if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
-			t.Fatalf("step %d: mask = %q, want %q", i, e.p.maskedSource(), want)
+		if want := fullParserMask(e.Source()); e.p.MaskedSource() != want {
+			t.Fatalf("step %d: mask = %q, want %q", i, e.p.MaskedSource(), want)
 		}
-		if e.p.doc.Source() != e.p.maskedSource() {
-			t.Fatalf("step %d: parser source = %q, mask = %q", i, e.p.doc.Source(), e.p.maskedSource())
+		if e.p.Parser().Source() != e.p.MaskedSource() {
+			t.Fatalf("step %d: parser source = %q, mask = %q", i, e.p.Parser().Source(), e.p.MaskedSource())
 		}
 		fresh := New(e.Source(), Options{})
-		if got, want := docShape(e.p.doc), docShape(fresh.p.doc); got != want {
+		if got, want := docShape(e.p.Parser()), docShape(fresh.p.Parser()); got != want {
 			t.Fatalf("step %d: parse differs after %q:\n%s\nwant:\n%s", i, st.find, got, want)
 		}
 		if got, want := fmt.Sprint(e.Headings()), fmt.Sprint(fresh.Headings()); got != want {
@@ -122,20 +134,20 @@ func TestSyncAfterUndoKeepsMask(t *testing.T) {
 	e.Replace(0, 0, "X")
 	e.begin(stepEdit)
 	e.replace(2, 3, "Y")
-	e.hist.open = nil
+	e.commit(e.Caret(), e.Caret())
 	e.Undo()
-	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
-		t.Fatalf("after undo: mask = %q, want %q", e.p.maskedSource(), want)
+	if want := fullParserMask(e.Source()); e.p.MaskedSource() != want {
+		t.Fatalf("after undo: mask = %q, want %q", e.p.MaskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != e.p.maskedSource() {
-		t.Fatalf("after undo: parser source = %q, mask = %q", got, e.p.maskedSource())
+	if got := e.p.Parser().Source(); got != e.p.MaskedSource() {
+		t.Fatalf("after undo: parser source = %q, mask = %q", got, e.p.MaskedSource())
 	}
 	e.Redo()
-	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
-		t.Fatalf("after redo: mask = %q, want %q", e.p.maskedSource(), want)
+	if want := fullParserMask(e.Source()); e.p.MaskedSource() != want {
+		t.Fatalf("after redo: mask = %q, want %q", e.p.MaskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != e.p.maskedSource() {
-		t.Fatalf("after redo: parser source = %q, mask = %q", got, e.p.maskedSource())
+	if got := e.p.Parser().Source(); got != e.p.MaskedSource() {
+		t.Fatalf("after redo: parser source = %q, mask = %q", got, e.p.MaskedSource())
 	}
 }
 
@@ -184,15 +196,15 @@ func TestSyncRebuildsMaskAfterSeveralEdits(t *testing.T) {
 	e := New("abc def\n", Options{})
 	e.begin(stepEdit)
 	e.replace(0, 0, "[")
-	e.replace(len(e.src), len(e.src), "]")
+	e.replace(len(e.Source()), len(e.Source()), "]")
 	if !e.pendingMulti {
 		t.Fatal("two ranges were not marked for a full reparse")
 	}
 	e.commit(1, 1)
-	if want := string(testFullMask(e.Source())); e.p.maskedSource() != want {
-		t.Fatalf("mask = %q, want %q", e.p.maskedSource(), want)
+	if want := fullParserMask(e.Source()); e.p.MaskedSource() != want {
+		t.Fatalf("mask = %q, want %q", e.p.MaskedSource(), want)
 	}
-	if got := e.p.doc.Source(); got != e.p.maskedSource() {
-		t.Fatalf("parser source = %q, mask = %q", got, e.p.maskedSource())
+	if got := e.p.Parser().Source(); got != e.p.MaskedSource() {
+		t.Fatalf("parser source = %q, mask = %q", got, e.p.MaskedSource())
 	}
 }

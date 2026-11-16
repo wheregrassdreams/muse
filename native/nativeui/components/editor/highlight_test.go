@@ -33,17 +33,17 @@ func TestHighlightRevealsItsMarksAtTheCaret(t *testing.T) {
 
 func TestToggleHighlightWrapsAndUnwraps(t *testing.T) {
 	h := newHarness(t, "one two three")
-	h.e.anchor, h.e.caret = 4, 7
+	h.e.setSessionSelection(4, 7)
 	h.frame()
 	h.key(ui.Cmd|ui.Shift, ui.KeyH)
 	h.want("one ==two== three")
-	if h.e.anchor != 6 || h.e.caret != 9 {
-		t.Fatalf("selection %d..%d, want 6..9", h.e.anchor, h.e.caret)
+	if h.e.Session.Selection().Anchor != 6 || h.e.Caret() != 9 {
+		t.Fatalf("selection %d..%d, want 6..9", h.e.Session.Selection().Anchor, h.e.Caret())
 	}
 	h.key(ui.Cmd|ui.Shift, ui.KeyH)
 	h.want("one two three")
-	if h.e.anchor != 4 || h.e.caret != 7 {
-		t.Fatalf("selection %d..%d, want 4..7", h.e.anchor, h.e.caret)
+	if h.e.Session.Selection().Anchor != 4 || h.e.Caret() != 7 {
+		t.Fatalf("selection %d..%d, want 4..7", h.e.Session.Selection().Anchor, h.e.Caret())
 	}
 
 	// A caret in a word marks the word.
@@ -55,7 +55,7 @@ func TestToggleHighlightWrapsAndUnwraps(t *testing.T) {
 
 func TestHighlightIsNotInThePlainText(t *testing.T) {
 	e := shownEditor(t, "前 ==重点== 后\n")
-	if got := e.plainText(e.p.doc.Inlines(e.leaves[0].id)); got != "前 重点 后" {
+	if got := e.plainText(e.p.Parser().Inlines(e.leaves[0].id)); got != "前 重点 后" {
 		t.Fatalf("plain text %q", got)
 	}
 }

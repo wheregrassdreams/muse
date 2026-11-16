@@ -1,5 +1,7 @@
 package input
 
+import "muse/editor/blocks/paragraph"
+
 // OperationKind names editor semantics independently of any keymap or UI
 // toolkit. Adapters translate physical events into these intents.
 type OperationKind string
@@ -30,32 +32,6 @@ const (
 	CaretLineBottom
 )
 
-// PageJumpAlignment describes how a semantic navigation target should land in
-// the viewport, independently of the command that initiated it.
-type PageJumpAlignment uint8
-
-const (
-	PageJumpNearest PageJumpAlignment = iota
-	PageJumpTopMargin
-	PageJumpCenter
-	PageJumpTop
-	PageJumpBottom
-)
-
-type FoldOperation uint8
-
-const (
-	FoldToggle FoldOperation = iota + 1
-	FoldClose
-	FoldOpen
-	FoldToggleRecursive
-	FoldCloseRecursive
-	FoldOpenRecursive
-	FoldReveal
-	FoldCloseAll
-	FoldOpenAll
-)
-
 // Operation is a keymap-neutral editor intent. Fields unused by Kind are
 // ignored. It contains no input-device or presentation types.
 type Operation struct {
@@ -69,5 +45,5 @@ type Operation struct {
 	Extend     bool
 	Before     bool
 	Placement  CaretLinePlacement
-	Fold       FoldOperation
+	Fold       paragraph.FoldOperation
 }

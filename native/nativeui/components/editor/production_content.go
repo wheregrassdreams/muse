@@ -3,8 +3,11 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 
-	"muse/editor"
+	editorinput "muse/editor/input"
 	"muse/markdown/diagrams"
+	media "muse/nativeui/components/editor/blocks/media"
+	"muse/nativeui/components/editor/inputadapter"
+	"muse/nativeui/components/editor/navigationrail"
 	markdownui "muse/nativeui/components/markdown"
 	"muse/nativeui/window"
 )
@@ -17,107 +20,83 @@ type diagramPainterCacheEntry struct {
 	used    uint64
 }
 
-// ProductionContent is a temporary migration bridge from the production
-// editor's existing virtualized view to the generic pane lifecycle. It keeps
-// existing behavior while toolkit input/render responsibilities move into
-// this component; it is not the final editor boundary because Editor.View
-// still owns MyGo work.
-type ProductionContent struct {
-	editor   *editor.Editor
-	onClose  func()
-	closed   bool
-	diagrams []diagramPainterCacheEntry
-	clock    uint64
-	rail     headingRailState
-}
-
-// NewProductionContent hosts the existing production editor as pane content.
-// This bridge should be removed when the migrated Session-backed component
-// owns the production rendering and input path.
-func NewProductionContent(value *editor.Editor, onClose func()) *ProductionContent {
-	content := &ProductionContent{editor: value, onClose: onClose, rail: headingRailState{hover: -1}}
-	if value != nil {
-		value.SetDiagramRenderer(content.drawDiagram)
-		value.SetMathRenderer(drawMathRaster)
-	}
-	return content
-}
-
-func (c *ProductionContent) Render(ctx *ui.Context) {
-	if c == nil || c.closed || c.editor == nil {
+// Render makes the production editor a generic pane content surface. The
+// Editor remains the sole owner of its virtualized render and input state.
+func (e *Editor) Render(ctx *ui.Context) {
+	if e == nil || e.closed {
 		return
 	}
-	c.editor.ViewWithInput(ctx, c.handleInput)
-	viewport := c.editor.ViewportBounds()
+	e.ViewWithInput(ctx, e.handleInput)
+	viewport := e.ViewportBounds()
 	bounds := ui.Rect{X: viewport.X, Y: viewport.Y, W: viewport.W, H: viewport.H}
-	frame := c.editor.HeadingRailSnapshot(editor.HeadingRailViewport{Width: viewport.W, Height: viewport.H})
-	c.drawHeadingRail(ctx, bounds, frame, c.editor.HeadingRailPreview, func(offset int) { c.editor.JumpToHeading(offset) })
-	if frame, ok := c.editor.InlineMathPreview(); ok {
-		drawInlineMathPreview(ctx, frame)
+	frame := e.HeadingRailSnapshot(navigationrail.ViewportSize{Width: viewport.W, Height: viewport.H})
+	e.rail.Draw(ctx, bounds, frame, e.HeadingRailPreview, func(offset int) { e.JumpToHeading(offset) })
+	if frame, ok := e.InlineMathPreview(); ok {
+		media.DrawInlineMathPreview(ctx, frame)
 	}
 }
 
 // handleInput owns the MyGo-to-editor input translation for the production
 // host. Pointer/IME/drop events still delegate to the old adapter until
 // their typed editor operations are migrated.
-func (c *ProductionContent) handleInput(ev ui.InputEvent) bool {
+func (e *Editor) handleInput(ev ui.InputEvent) bool {
 	switch ev.Kind {
 	case ui.InputKeyDown:
-		key, ok := keyEventFromUI(ev)
-		return ok && c.editor.DispatchKey(key)
+		key, ok := inputadapter.KeyEvent(ev)
+		return ok && e.DispatchKey(key)
 	case ui.InputText:
-		result, err := c.editor.Session.Dispatch(editor.InputEvent{Kind: editor.InputInsertText, Text: ev.Text})
+		result, err := e.Session.Dispatch(editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text})
 		return err == nil && result.Handled
 	default:
-		return c.editor.HandleNativeInput(ev)
+		return e.HandleNativeInput(ev)
 	}
 }
 
-func (c *ProductionContent) drawDiagram(p *ui.Painter, rect ui.Rect, theme *ui.Theme, model *diagrams.Model) {
+// diagramVisual returns the bounded cached painter for a neutral diagram
+// model. The UI renderer borrows this capability for the current frame.
+func (e *Editor) diagramVisual(model *diagrams.Model) markdownui.Diagram {
 	if model == nil {
-		return
+		return markdownui.Diagram{}
 	}
-	c.clock++
-	for i := range c.diagrams {
-		entry := &c.diagrams[i]
+	e.diagramClock++
+	for i := range e.diagrams {
+		entry := &e.diagrams[i]
 		if entry.model == model {
-			entry.used = c.clock
-			entry.painter.Draw(p, rect, theme)
-			return
+			entry.used = e.diagramClock
+			return entry.painter
 		}
 	}
 	painter := markdownui.DiagramFromModel(*model)
-	if len(c.diagrams) < diagramPainterCacheLimit {
-		c.diagrams = append(c.diagrams, diagramPainterCacheEntry{model: model, painter: painter, used: c.clock})
-		painter.Draw(p, rect, theme)
-		return
+	if len(e.diagrams) < diagramPainterCacheLimit {
+		e.diagrams = append(e.diagrams, diagramPainterCacheEntry{model: model, painter: painter, used: e.diagramClock})
+		return painter
 	}
 	lru := 0
-	for i := range c.diagrams {
-		if c.diagrams[i].used < c.diagrams[lru].used {
+	for i := range e.diagrams {
+		if e.diagrams[i].used < e.diagrams[lru].used {
 			lru = i
 		}
 	}
-	c.diagrams[lru] = diagramPainterCacheEntry{model: model, painter: painter, used: c.clock}
-	painter.Draw(p, rect, theme)
+	e.diagrams[lru] = diagramPainterCacheEntry{model: model, painter: painter, used: e.diagramClock}
+	return painter
 }
 
-func (c *ProductionContent) Close() {
-	if c == nil || c.closed {
+func (e *Editor) Close() {
+	if e == nil || e.closed {
 		return
 	}
-	c.closed = true
-	if c.editor != nil {
-		c.editor.SetDiagramRenderer(nil)
-		c.editor.SetMathRenderer(nil)
+	e.closed = true
+	if e.Session != nil {
+		e.Session.DetachPresentation()
 	}
-	c.diagrams = nil
-	c.rail.ys = nil
-	c.rail.scales = nil
-	c.rail.rect = ui.Rect{}
-	if c.onClose != nil {
-		c.onClose()
+	e.SetMathRenderer(nil)
+	e.diagrams = nil
+	e.rail.Ys = nil
+	e.rail.Scales = nil
+	e.rail.Rect = ui.Rect{}
+	if e.opts.OnClose != nil {
+		e.opts.OnClose()
 	}
 }
 
-var _ window.Content = (*ProductionContent)(nil)
+var _ window.Content = (*Editor)(nil)

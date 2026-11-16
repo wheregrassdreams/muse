@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
+	"muse/editor/input/vim"
 )
 
 const rectangleClipboardFormat transfer.Format = "application/x-muse-rectangle+json"
@@ -31,7 +32,7 @@ func decodeRectangleClipboard(data []byte) ([]string, bool) {
 func (e *Editor) copyBlockRows() []string {
 	var rows []string
 	for _, r := range e.SelectionRanges() {
-		rows = append(rows, e.src[r.Start:r.End])
+		rows = append(rows, e.Source()[r.Start:r.End])
 	}
 	return rows
 }
@@ -51,7 +52,7 @@ func (e *Editor) pasteRectangle(rows []string) {
 		e.pasteBlockRegister(rows, true, 1)
 		return
 	}
-	focus, ok := e.caretRect(e.caret)
+	focus, ok := e.caretRect(e.Caret())
 	if !ok {
 		return
 	}
@@ -92,7 +93,7 @@ func (e *Editor) pasteRectangle(rows []string) {
 				r = Range{Start: at, End: at}
 			} else {
 				if extra.Len() == 0 {
-					if len(e.src) > 0 && !strings.HasSuffix(e.src, "\n") {
+					if len(e.Source()) > 0 && !strings.HasSuffix(e.Source(), "\n") {
 						extra.WriteByte('\n')
 					}
 				} else {
@@ -112,7 +113,7 @@ func (e *Editor) pasteRectangle(rows []string) {
 	}
 	e.begin(stepEdit)
 	if extra.Len() > 0 {
-		e.replace(len(e.src), len(e.src), extra.String())
+		e.replace(len(e.Source()), len(e.Source()), extra.String())
 	}
 	for i := len(ops) - 1; i >= 0; i-- {
 		r := ops[i]
@@ -155,8 +156,8 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	e.block = nil
 	e.blockInput = nil
 	if s == nil {
-		if e.modal.mode == "BlockVisual" && e.tableSelection == nil && e.tableBridge == nil {
-			e.modal.mode = "Normal"
+		if e.vimController().Mode() == vim.ModeBlockVisual && e.tableSelection == nil && e.tableBridge == nil {
+			e.modalSetMode(vim.ModeNormal)
 		}
 		return
 	}
@@ -164,8 +165,8 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	b.ranges = append([]Range(nil), s.selection.ranges...)
 	e.block = &b
 	e.blockAnchorOffset = s.anchorOffset
-	e.modal.mode = "BlockVisual"
-	e.modal.sequence.Linewise = false
+	e.modalSetMode(vim.ModeBlockVisual)
+	e.vimController().SetLinewise(false)
 	e.invalidate()
 }
 
@@ -179,12 +180,12 @@ type blockVisualRow struct {
 }
 
 func (e *Editor) startBlockSelection() {
-	r, ok := e.caretRect(e.caret)
+	r, ok := e.caretRect(e.Caret())
 	if !ok {
 		r = ui.Rect{X: e.lk.size, Y: 0, H: e.lk.size * e.lk.lh}
 	}
 	e.block = &blockSelection{x0: r.X, y0: r.Y + r.H/2, revision: 1}
-	e.blockAnchorOffset = e.caret
+	e.blockAnchorOffset = e.Caret()
 	e.refreshBlockRanges()
 }
 
@@ -195,7 +196,7 @@ func (e *Editor) blockRows() []blockVisualRow {
 		if e.foldHidden(u) || u.kind == kTable || u.table != nil {
 			continue
 		}
-		v := e.unitView(u, e.caret)
+		v := e.unitView(u, e.Caret())
 		if v == nil || v.layout == nil {
 			rows = append(rows, blockVisualRow{leaf: u, y: u.y + u.h/2, emptyAt: u.start})
 			continue
@@ -219,7 +220,7 @@ func (e *Editor) refreshBlockRanges() {
 	if e.block == nil {
 		return
 	}
-	focus, ok := e.caretRect(e.caret)
+	focus, ok := e.caretRect(e.Caret())
 	if !ok {
 		e.block.ranges = nil
 		return
@@ -321,7 +322,7 @@ func (e *Editor) blockChangedVertical(x float32) {
 func (e *Editor) editRanges(ranges []Range, insert string) int {
 	ranges = normalizeRanges(ranges)
 	if len(ranges) == 0 {
-		return e.caret
+		return e.Caret()
 	}
 	e.begin(stepEdit)
 	for i := len(ranges) - 1; i >= 0; i-- {
@@ -336,7 +337,7 @@ func (e *Editor) editRanges(ranges []Range, insert string) int {
 func (e *Editor) deleteBlock() int {
 	ranges := e.blockRanges()
 	if len(ranges) == 0 {
-		return e.caret
+		return e.Caret()
 	}
 	e.begin(stepEdit)
 	for i := len(ranges) - 1; i >= 0; i-- {
@@ -373,7 +374,7 @@ func (e *Editor) typeBlockInput(text string) {
 		b.points[i] = at + shift + len(text)
 	}
 	if len(b.points) > 0 {
-		e.anchor, e.caret = b.points[len(b.points)-1], b.points[len(b.points)-1]
+		e.setSessionSelection(b.points[len(b.points)-1], b.points[len(b.points)-1])
 	}
 	e.sync()
 	e.changed()
@@ -384,8 +385,8 @@ func (e *Editor) finishBlockInput() {
 	if e.blockInput == nil {
 		return
 	}
-	if e.hist.open != nil {
-		e.commit(e.caret, e.caret)
+	if e.editBatch != nil {
+		e.commit(e.Caret(), e.Caret())
 	}
 	e.blockInput = nil
 }
@@ -425,7 +426,7 @@ func (e *Editor) editBlockInputDelete(backward bool) {
 		b.points[i] = p - shift
 	}
 	if len(b.points) > 0 {
-		e.anchor, e.caret = b.points[len(b.points)-1], b.points[len(b.points)-1]
+		e.setSessionSelection(b.points[len(b.points)-1], b.points[len(b.points)-1])
 	}
 	e.sync()
 	e.changed()
@@ -436,14 +437,14 @@ func (e *Editor) pasteBlockRegister(rows []string, before bool, count int) {
 	if len(rows) == 0 {
 		return
 	}
-	r, ok := e.caretRect(e.caret)
+	r, ok := e.caretRect(e.Caret())
 	if !ok {
 		return
 	}
 	x := r.X
 	if !before {
-		_, lineEnd := e.sourceLineRange(e.caret)
-		next := e.nextGraphemeBoundary(e.caret)
+		_, lineEnd := e.sourceLineRange(e.Caret())
+		next := e.nextGraphemeBoundary(e.Caret())
 		if next <= lineEnd {
 			if nr, ok := e.caretRect(next); ok && nr.Y <= r.Y+r.H {
 				x = nr.X
@@ -475,7 +476,7 @@ func (e *Editor) pasteBlockRegister(rows []string, before bool, count int) {
 		idx := base + i
 		if idx >= len(visual) {
 			if extra.Len() == 0 {
-				if len(e.src) > 0 && !strings.HasSuffix(e.src, "\n") {
+				if len(e.Source()) > 0 && !strings.HasSuffix(e.Source(), "\n") {
 					extra.WriteByte('\n')
 				}
 			} else {
@@ -496,12 +497,12 @@ func (e *Editor) pasteBlockRegister(rows []string, before bool, count int) {
 	}
 	e.begin(stepEdit)
 	if extra.Len() > 0 {
-		e.replace(len(e.src), len(e.src), extra.String())
+		e.replace(len(e.Source()), len(e.Source()), extra.String())
 	}
 	for i := len(edits) - 1; i >= 0; i-- {
 		e.replace(edits[i].Start, edits[i].End, values[i])
 	}
-	e.commit(e.caret, e.caret)
+	e.commit(e.Caret(), e.Caret())
 }
 
 func (e *Editor) blockPosition(row blockVisualRow, x float32) int {

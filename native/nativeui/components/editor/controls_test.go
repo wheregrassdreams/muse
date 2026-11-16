@@ -60,15 +60,15 @@ func TestBlockControlsLeaveTheCaretAndTheViewAlone(t *testing.T) {
 				}
 			}
 			h.frame()
-			caret, scroll := h.e.caret, h.e.scroll.Y
+			caret, scroll := h.e.Caret(), h.e.scroll.Y
 			for i, want := range []func(*harness) bool{c.on, c.off} {
 				if !c.press(h) {
 					t.Fatal("no control to press")
 				}
 				h.frame()
 				h.frame()
-				if h.e.caret != caret {
-					t.Fatalf("press %d moved the caret: %d -> %d", i+1, caret, h.e.caret)
+				if h.e.Caret() != caret {
+					t.Fatalf("press %d moved the caret: %d -> %d", i+1, caret, h.e.Caret())
 				}
 				if h.e.scroll.Y != scroll {
 					t.Fatalf("press %d scrolled the view: %.1f -> %.1f", i+1, scroll, h.e.scroll.Y)

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	render "muse/nativeui/components/editor/render"
 )
 
 // BenchmarkStressBase64Heavy measures one cold frame plus one scroll frame on
@@ -143,8 +145,8 @@ func TestVeryLongCodeLineShapesBoundedCaretWindow(t *testing.T) {
 	source := "```text\n" + strings.Repeat("A", payloadSize) + "\n```\n"
 	h := newHarness(t, source)
 	line, block := h.e.leaves[0].codeLines()[0], h.e.leaves[0]
-	if got := len(block.view.disp.text); got > maxShapedCodeLineBytes+64 {
-		t.Fatalf("initial display has %d bytes; want <= %d", got, maxShapedCodeLineBytes+64)
+	if got := len(block.view.disp.text); got > render.CodeLineBudgetBytes+64 {
+		t.Fatalf("initial display has %d bytes; want <= %d", got, render.CodeLineBudgetBytes+64)
 	}
 	if got := len(block.view.disp.pieces); got > 5 {
 		t.Fatalf("initial display has %d pieces; want a bounded preview", got)
@@ -156,8 +158,8 @@ func TestVeryLongCodeLineShapesBoundedCaretWindow(t *testing.T) {
 	if !ok || block.view.disp.dispToSrc(d, false)+block.lineStart != target {
 		t.Fatalf("caret source offset %d did not round-trip through the focused preview", target)
 	}
-	if got := len(block.view.disp.text); got > maxShapedCodeLineBytes+64 {
-		t.Fatalf("focused display has %d bytes; want <= %d", got, maxShapedCodeLineBytes+64)
+	if got := len(block.view.disp.text); got > render.CodeLineBudgetBytes+64 {
+		t.Fatalf("focused display has %d bytes; want <= %d", got, render.CodeLineBudgetBytes+64)
 	}
 	if h.e.Source() != source {
 		t.Fatal("compacting the rendered view changed the Markdown source")
@@ -170,14 +172,14 @@ func TestVeryLongMultilineCodeBlockShapesBoundedSourceWindow(t *testing.T) {
 	source := "```text\n" + payload + "```\n"
 	h := newHarness(t, source)
 	block := h.e.leaves[0]
-	if got := len(block.view.disp.text); got > maxShapedCodeBlockBytes+256 {
-		t.Fatalf("initial display has %d bytes; want <= %d", got, maxShapedCodeBlockBytes+256)
+	if got := len(block.view.disp.text); got > render.CodeBlockBudgetBytes+256 {
+		t.Fatalf("initial display has %d bytes; want <= %d", got, render.CodeBlockBudgetBytes+256)
 	}
 	target := strings.Index(source, payload) + len(payload)/2
 	h.caretAt(target)
 	block = h.e.leaves[0]
-	if got := len(block.view.disp.text); got > maxShapedCodeBlockBytes+256 {
-		t.Fatalf("focused display has %d bytes; want <= %d", got, maxShapedCodeBlockBytes+256)
+	if got := len(block.view.disp.text); got > render.CodeBlockBudgetBytes+256 {
+		t.Fatalf("focused display has %d bytes; want <= %d", got, render.CodeBlockBudgetBytes+256)
 	}
 	d, ok := block.view.disp.srcToDisp(target - block.lineStart)
 	if !ok || block.view.disp.dispToSrc(d, false)+block.lineStart != target {

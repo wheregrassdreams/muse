@@ -73,7 +73,7 @@ func TestMermaidSourceRevealColorsWithoutRenderingDiagram(t *testing.T) {
 		}
 	}
 	selectStart := strings.Index(src, "解析")
-	h.e.anchor, h.e.caret = selectStart, selectStart+len("解析")
+	h.e.setSessionSelection(selectStart, selectStart+len("解析"))
 	h.frame()
 	if got := h.e.SelectedText(); got != "解析" {
 		t.Fatalf("CJK selection range moved across Mermaid token styling: %q", got)
@@ -102,8 +102,8 @@ func TestInlineMathSourceUsesTeXSyntaxColorsAndKeepsPreview(t *testing.T) {
 	contentEnd := strings.Index(src[contentStart:], "$") + contentStart
 	h.caretAt(contentStart + 2)
 	h.frame()
-	if h.e.caret != contentStart+2 {
-		t.Fatalf("TeX highlighting moved the source caret: got %d want %d", h.e.caret, contentStart+2)
+	if h.e.Caret() != contentStart+2 {
+		t.Fatalf("TeX highlighting moved the source caret: got %d want %d", h.e.Caret(), contentStart+2)
 	}
 	requireMathCodeStyle(t, h, contentStart, contentEnd)
 	l := h.e.leafAt(contentStart)

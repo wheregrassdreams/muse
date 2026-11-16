@@ -1,0 +1,245 @@
+package editor
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"muse/editor/blocks/paragraph"
+	"muse/editor/input"
+	"muse/editor/layout"
+)
+
+func TestEditorFoldOperationsAreKeymapNeutral(t *testing.T) {
+	h := newHarness(t, foldTestSource())
+	top := headingAtSource(t, h.e, "# Top")
+	child := headingAtSource(t, h.e, "## Child")
+	h.caretAt(top.lineStart)
+	if !h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldClose}) || !h.e.isFoldedHeading(top) {
+		t.Fatal("generic fold close did not close the caret section")
+	}
+	h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldOpen})
+	if h.e.isFoldedHeading(top) {
+		t.Fatal("generic fold open did not open the caret section")
+	}
+	h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldCloseRecursive})
+	if !h.e.isFoldedHeading(top) || !h.e.isFoldedHeading(child) {
+		t.Fatal("recursive close did not close nested sections")
+	}
+	h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldOpenRecursive})
+	if h.e.isFoldedHeading(top) || h.e.isFoldedHeading(child) {
+		t.Fatal("recursive open left nested sections closed")
+	}
+	h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAll, Fold: paragraph.FoldCloseAll})
+	for _, l := range []*leaf{top, child, headingAtSource(t, h.e, "### Grandchild"), headingAtSource(t, h.e, "# Next")} {
+		if _, canFold := h.e.foldSectionAtHeading(l); canFold && !h.e.isFoldedHeading(l) {
+			t.Fatalf("fold all left %q open", h.e.Source()[l.lineStart:l.end])
+		}
+	}
+	h.e.ApplyOperation(input.Operation{Kind: input.OperationFoldAll, Fold: paragraph.FoldOpenAll})
+	if len(h.e.folded) != 0 {
+		t.Fatalf("open all retained %d folds", len(h.e.folded))
+	}
+}
+
+func TestPageJumpDurationThresholdAndMaximum(t *testing.T) {
+	viewH := float32(700)
+	threshold := viewH * pageJumpMinDistanceInViews
+	if got := pageJumpDuration(threshold, viewH); got != 0 {
+		t.Fatalf("distance at threshold duration=%v, want instant", got)
+	}
+	near := pageJumpDuration(threshold*2, viewH)
+	far := pageJumpDuration(threshold*64, viewH)
+	if near <= 0 || far < near || far > pageJumpMaxDuration || far != pageJumpMaxDuration {
+		t.Fatalf("distance-based durations near=%v far=%v, maximum=%v", near, far, pageJumpMaxDuration)
+	}
+	if got := pageJumpAnimationDuration(threshold*2, viewH, pageJumpMaxAnimatedLeaves+1, true); got != 0 {
+		t.Fatalf("large virtual document animation=%v, want instant to bound per-frame layout work", got)
+	}
+	if got := pageJumpAnimationDuration(threshold*2, viewH, 10, false); got != 0 {
+		t.Fatalf("disabled preference animation=%v, want instant", got)
+	}
+}
+
+func TestPageJumpUsesAnimationOnlyForLongEnabledNavigation(t *testing.T) {
+	src := strings.Repeat("paragraph for page navigation\n\n", 90)
+	target := 0
+	for i := 0; i < 65; i++ {
+		target = strings.Index(src[target+1:], "paragraph") + target + 1
+	}
+	if target < 0 {
+		t.Fatal("target paragraph missing")
+	}
+	h := newHarness(t, src)
+	h.e.NavigateToOffset(target, layout.PageJumpTopMargin)
+	h.frame()
+	if h.e.scroll.Scrolling() {
+		t.Fatal("default-off page jump should be immediate")
+	}
+	if h.e.scroll.Y <= 0 {
+		t.Fatalf("instant page jump did not move scroll: %v", h.e.scroll.Y)
+	}
+	animated := newHarness(t, src)
+	opts := h.e.Options()
+	opts.SmoothPageJumps = true
+	animated.e.SetOptions(opts)
+	animated.e.NavigateToOffset(target, layout.PageJumpCenter)
+	animated.frame()
+	if !animated.e.scroll.Scrolling() {
+		t.Fatal("enabled long page jump should use ScrollState animation")
+	}
+	animated.tt.Advance(100 * time.Millisecond)
+	if animated.e.scroll.Y <= 0 {
+		t.Fatalf("ScrollState did not advance during the animation: y=%v pending=%v", animated.e.scroll.Y, animated.tt.FramePending())
+	}
+	animated.tt.Advance(time.Second)
+	if animated.e.scroll.Scrolling() || animated.e.scroll.Y <= 0 {
+		t.Fatalf("page jump did not settle: y=%v scrolling=%v", animated.e.scroll.Y, animated.e.scroll.Scrolling())
+	}
+}
+
+func TestNavigateToRangeSelectsAndSchedulesPageJump(t *testing.T) {
+	src := strings.Repeat("match in a distant paragraph\n\n", 90)
+	target := 0
+	for i := 0; i < 65; i++ {
+		target = strings.Index(src[target+1:], "match") + target + 1
+	}
+	h := newHarness(t, src)
+	opts := h.e.Options()
+	opts.SmoothPageJumps = true
+	h.e.SetOptions(opts)
+	h.e.NavigateToRange(target, target+len("match"))
+	h.frame()
+	if got := h.e.SelectionRange(); got != (Range{Start: target, End: target + len("match")}) {
+		t.Fatalf("navigated range=%+v", got)
+	}
+	if !h.e.scroll.Scrolling() {
+		t.Fatal("distant range navigation did not use the shared page-jump animation")
+	}
+}
+
+func TestEditorScrollCaretLinePlacements(t *testing.T) {
+	src := strings.Repeat("line content for viewport testing\n", 80)
+	h := newHarness(t, src)
+	h.caretAt(len("line content for viewport testing\n") * 35)
+	caret := h.e.Caret()
+	for _, tc := range []struct {
+		placement input.CaretLinePlacement
+		name      string
+	}{{input.CaretLineTop, "top"}, {input.CaretLineCenter, "center"}, {input.CaretLineBottom, "bottom"}} {
+		h.e.ApplyOperation(input.Operation{Kind: input.OperationScrollCaretLine, Placement: tc.placement})
+		h.frame()
+		r, ok := h.e.caretRect(caret)
+		if !ok {
+			t.Fatalf("%s placement lost caret geometry", tc.name)
+		}
+		screenY := r.Y - h.e.scroll.Y
+		switch tc.placement {
+		case input.CaretLineTop:
+			if screenY > 2 {
+				t.Fatalf("top caret screenY=%v", screenY)
+			}
+		case input.CaretLineCenter:
+			want := (h.e.viewH - r.H) / 2
+			if d := screenY - want; d < -2 || d > 2 {
+				t.Fatalf("center caret screenY=%v want=%v", screenY, want)
+			}
+		case input.CaretLineBottom:
+			want := h.e.viewH - r.H
+			if d := screenY - want; d < -2 || d > 2 {
+				t.Fatalf("bottom caret screenY=%v want=%v", screenY, want)
+			}
+		}
+		if h.e.Caret() != caret {
+			t.Fatalf("%s scroll moved caret: %d want %d", tc.name, h.e.Caret(), caret)
+		}
+	}
+}
+
+func TestVimZPrefixDispatchesScrollAndFoldOperations(t *testing.T) {
+	h := newHarness(t, foldTestSource())
+	h.e.SetKeymap("vim")
+	top := headingAtSource(t, h.e, "# Top")
+	child := headingAtSource(t, h.e, "## Child")
+	h.caretAt(top.lineStart)
+	modalKeys(h.e, "zt")
+	if h.e.scrollPlacement != input.CaretLineTop {
+		t.Fatalf("zt placement=%v", h.e.scrollPlacement)
+	}
+	modalKeys(h.e, "zz")
+	if h.e.scrollPlacement != input.CaretLineCenter {
+		t.Fatalf("zz placement=%v", h.e.scrollPlacement)
+	}
+	modalKeys(h.e, "zb")
+	if h.e.scrollPlacement != input.CaretLineBottom {
+		t.Fatalf("zb placement=%v", h.e.scrollPlacement)
+	}
+	modalKeys(h.e, "zc")
+	if !h.e.isFoldedHeading(top) {
+		t.Fatal("zc did not close current section")
+	}
+	modalKeys(h.e, "zo")
+	if h.e.isFoldedHeading(top) {
+		t.Fatal("zo did not open current section")
+	}
+	modalKeys(h.e, "zC")
+	if !h.e.isFoldedHeading(top) || !h.e.isFoldedHeading(child) {
+		t.Fatal("zC did not recursively close current section")
+	}
+	modalKeys(h.e, "zO")
+	if h.e.isFoldedHeading(top) || h.e.isFoldedHeading(child) {
+		t.Fatal("zO did not recursively open current section")
+	}
+	modalKeys(h.e, "zA")
+	if !h.e.isFoldedHeading(top) || !h.e.isFoldedHeading(child) {
+		t.Fatal("zA did not recursively toggle closed")
+	}
+	modalKeys(h.e, "zM")
+	if !h.e.isFoldedHeading(headingAtSource(t, h.e, "# Next")) {
+		t.Fatal("zM did not close all sections")
+	}
+	modalKeys(h.e, "zR")
+	if len(h.e.folded) != 0 {
+		t.Fatal("zR did not open all sections")
+	}
+	modalKeys(h.e, "zv")
+	if h.e.vimController().Sequence().Pending != "" {
+		t.Fatalf("zv left prefix pending: %q", h.e.vimController().Sequence().Pending)
+	}
+}
+
+func TestVimZPrefixCancelsTimesOutAndIsKeymapLocal(t *testing.T) {
+	e := New("# Heading\n\nBody\n", Options{})
+	e.SetKeymap("vim")
+	e.modalText("z")
+	e.modalKey(ui.KeyEscape, 0)
+	if e.vimController().Sequence().Pending != "" {
+		t.Fatal("Escape did not cancel z prefix")
+	}
+	e.modalText("z")
+	e.vimController().SetPending("z", time.Now().Add(-2*time.Second))
+	e.modalText("t")
+	if e.vimController().Sequence().Pending != "" || e.hasScrollTo {
+		t.Fatal("expired z prefix dispatched an operation")
+	}
+	e.SetKeymap("helix")
+	e.modalText("z")
+	if e.vimController().Sequence().Pending != "" {
+		t.Fatal("z prefix leaked into helix keymap")
+	}
+}
+
+func TestVimFindAndReplaceBindingsStayInVimConsumer(t *testing.T) {
+	e := New("abcXdef", Options{})
+	e.SetKeymap("helix")
+	modalKeys(e, "fXrZ;,")
+	state := e.vimController().View()
+	if state.AwaitingCharacter != 0 || state.AwaitingReplacement || state.FindValid {
+		t.Fatalf("Vim-only find/replace state leaked into Helix: %+v", state)
+	}
+	if got := e.Source(); got != "abcXdef" {
+		t.Fatalf("Vim-only key bindings changed source in Helix: %q", got)
+	}
+}

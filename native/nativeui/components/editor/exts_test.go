@@ -20,8 +20,8 @@ func TestAlertsComeFromTheParser(t *testing.T) {
 	// so a callout's recognition is not ours to write.
 	e := shownEditor(t, "> [!NOTE]\n> 正文\n")
 	found := false
-	for i := 0; i < e.p.doc.Len(); i++ {
-		if b := e.p.doc.Block(i); b.Kind == syntax.IncrementalQuote && b.Alert != syntax.IncrementalNoAlert {
+	for i := 0; i < e.p.Parser().Len(); i++ {
+		if b := e.p.Parser().Block(i); b.Kind == syntax.IncrementalQuote && b.Alert != syntax.IncrementalNoAlert {
 			found = true
 		}
 	}

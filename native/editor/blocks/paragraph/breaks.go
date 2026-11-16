@@ -16,7 +16,42 @@ type BlankInput struct {
 	CollapsedSelection bool
 	PhantomParagraph   bool
 	BlankSourceLine    bool
+	Source             string
+	Caret              int
 	Text               string
+}
+
+// BlankInputPlan describes paragraph metadata to capture before a source edit.
+// It does not duplicate the editor's text transaction: Session owns the
+// inserted text and resulting selection, while this plan preserves the
+// existing source newlines in the view-local Breaks set.
+type BlankInputPlan struct {
+	BeginHistory   bool
+	RememberBreaks []int
+}
+
+// PlanBlankInput computes the typed-break metadata transition for an input
+// intent. The host still commits input.Text through the editor Session.
+func PlanBlankInput(in BlankInput) BlankInputPlan {
+	if !ShouldTrackBlankInput(in) {
+		return BlankInputPlan{}
+	}
+	plan := BlankInputPlan{BeginHistory: true}
+	if in.PhantomParagraph || in.Caret < 0 || in.Caret > len(in.Source) {
+		return plan
+	}
+	lineStart := strings.LastIndexByte(in.Source[:in.Caret], '\n') + 1
+	lineEnd := len(in.Source)
+	if next := strings.IndexByte(in.Source[in.Caret:], '\n'); next >= 0 {
+		lineEnd = in.Caret + next
+	}
+	if lineStart > 0 && in.Source[lineStart-1] == '\n' {
+		plan.RememberBreaks = append(plan.RememberBreaks, lineStart-1)
+	}
+	if lineEnd < len(in.Source) && in.Source[lineEnd] == '\n' {
+		plan.RememberBreaks = append(plan.RememberBreaks, lineEnd)
+	}
+	return plan
 }
 
 // ShouldTrackBlankInput reports whether typing should pin the surrounding

@@ -1,48 +1,138 @@
-package editor
+package core
 
-// ReplaceSystemAll updates source managed by the application without adding a
-// separate Undo item. When possible, the patch is folded into the preceding
-// user edit so Undo still treats the metadata change as part of that edit.
-func (e *Editor) ReplaceSystemAll(src string) {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	if src == e.src {
-		return
+import (
+	"fmt"
+	"strings"
+)
+
+// SystemPatch is one minimal source replacement and its selection transition.
+// It can be planned before a UI adapter adjusts feature-owned ranges, then
+// committed atomically to the Session.
+type SystemPatch struct {
+	BeforeSource string
+	Edit         TextEdit
+	Before       Selection
+	After        Selection
+}
+
+// PlanSystemPatch computes a rune-aligned replacement from source to target.
+// The selection follows the same offset mapping as an ordinary source edit.
+func PlanSystemPatch(source, target string, selection Selection) (SystemPatch, bool) {
+	if source == target || validateSelection(source, selection) != nil {
+		return SystemPatch{}, false
 	}
 	from := 0
-	for from < len(e.src) && from < len(src) && e.src[from] == src[from] {
+	for from < len(source) && from < len(target) && source[from] == target[from] {
 		from++
 	}
-	toOld, toNew := len(e.src), len(src)
-	for toOld > from && toNew > from && e.src[toOld-1] == src[toNew-1] {
-		toOld--
-		toNew--
-	}
-	for from > 0 && from < len(e.src) && !runeStart(e.src[from]) {
+	for from > 0 && (!runeBoundary(source, from) || !runeBoundary(target, from)) {
 		from--
 	}
-	for toOld < len(e.src) && !runeStart(e.src[toOld]) {
-		toOld++
-		toNew++
+	oldEnd, newEnd := len(source), len(target)
+	for oldEnd > from && newEnd > from && source[oldEnd-1] == target[newEnd-1] {
+		oldEnd--
+		newEnd--
 	}
-	e.replaceRange(from, toOld, src[from:toNew])
+	for oldEnd < len(source) && !runeBoundary(source, oldEnd) {
+		oldEnd++
+	}
+	for newEnd < len(target) && !runeBoundary(target, newEnd) {
+		newEnd++
+	}
+	text := target[from:newEnd]
+	delta := len(text) - (oldEnd - from)
+	mapOffset := func(offset int) int {
+		switch {
+		case offset >= oldEnd:
+			return offset + delta
+		case offset > from:
+			return from + len(text)
+		default:
+			return offset
+		}
+	}
+	after := selection
+	after.Anchor = mapOffset(selection.Anchor)
+	after.Head = mapOffset(selection.Head)
+	return SystemPatch{
+		BeforeSource: source,
+		Edit:         TextEdit{Range: TextRange{Start: from, End: oldEnd}, Text: text},
+		Before:       selection,
+		After:        after,
+	}, true
+}
 
-	// replaceRange records a normal atomic edit and updates parser/caret state.
-	// Fold that edit into the immediately preceding history step; when no such
-	// step exists, keep the source update out of user-visible history.
-	n := len(e.hist.undo)
-	if n == 0 {
-		return
+// PlanSystemPatch builds a patch against the Session's current source and
+// selection. ApplySystemPatch rejects it if either has changed in the meantime.
+func (s *Session) PlanSystemPatch(target string) (SystemPatch, bool) {
+	if s == nil {
+		return SystemPatch{}, false
 	}
-	last := e.hist.undo[n-1]
-	e.hist.undo = e.hist.undo[:n-1]
-	if n == 1 {
-		return
+	s.mu.RLock()
+	patch, ok := PlanSystemPatch(s.src, target, s.selectionLocked())
+	s.mu.RUnlock()
+	return patch, ok
+}
+
+// ApplySystemPatch commits a system-owned source change without adding a
+// separate user-visible undo item. The patch is folded into the previous user
+// history step; if no such step exists, the system change remains the baseline.
+func (s *Session) ApplySystemPatch(patch SystemPatch, beforeMetadata, afterMetadata HistorySnapshot) (DispatchResult, error) {
+	if s == nil {
+		return DispatchResult{}, fmt.Errorf("nil editor session")
 	}
-	prev := &e.hist.undo[n-2]
-	prev.changes = append(prev.changes, last.changes...)
-	prev.after, prev.phAfter, prev.at = last.after, last.phAfter, last.at
-	prev.blockAfter = last.blockAfter
-	prev.breaksAfter = last.breaksAfter
-	prev.closedForCoalescing = true
+	s.editMu.Lock()
+	s.mu.Lock()
+	if s.src != patch.BeforeSource || s.selectionLocked() != patch.Before {
+		s.mu.Unlock()
+		s.editMu.Unlock()
+		return DispatchResult{}, fmt.Errorf("system patch is stale")
+	}
+	tx := Transaction{Edits: []TextEdit{patch.Edit}, Before: patch.Before, After: patch.After}
+	if err := validateTransactionSource(s.src, tx); err != nil {
+		s.mu.Unlock()
+		s.editMu.Unlock()
+		return DispatchResult{}, err
+	}
+	if patch.Edit.Range.Start == patch.Edit.Range.End && patch.Edit.Text == "" {
+		revision := s.rev
+		s.mu.Unlock()
+		s.editMu.Unlock()
+		return DispatchResult{Handled: true, Revision: revision}, nil
+	}
+	beforeSource := s.src
+	old := s.src[patch.Edit.Range.Start:patch.Edit.Range.End]
+	s.src = strings.Clone(s.src[:patch.Edit.Range.Start] + patch.Edit.Text + s.src[patch.Edit.Range.End:])
+	s.setSelection(patch.After)
+	s.rev++
+	s.redo = nil
+	step := sessionStep{
+		edits:          []historyEdit{{at: patch.Edit.Range.Start, old: old, new: patch.Edit.Text}},
+		before:         patch.Before,
+		after:          patch.After,
+		group:          HistoryGroupExplicit,
+		at:             time.Now(),
+		closed:         true,
+		beforeMetadata: cloneHistorySnapshot(beforeMetadata),
+		afterMetadata:  cloneHistorySnapshot(afterMetadata),
+	}
+	if n := len(s.undo); n > 0 {
+		mergeHistoryStep(&s.undo[n-1], step)
+		s.undo[n-1].group = HistoryGroupExplicit
+		s.undo[n-1].closed = true
+	}
+	change := Change{
+		Kind:         ChangeEdit,
+		BeforeSource: beforeSource,
+		AfterSource:  s.src,
+		Before:       patch.Before,
+		After:        patch.After,
+		Revision:     s.rev,
+		Edits:        []TextEdit{patch.Edit},
+	}
+	revision := s.rev
+	s.mu.Unlock()
+	s.editMu.Unlock()
+	s.notifyChange(change)
+	return DispatchResult{Handled: true, Changed: true, SelectionChanged: patch.Before != patch.After, Revision: revision}, nil
 }

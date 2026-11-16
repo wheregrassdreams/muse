@@ -1,149 +1,94 @@
 package editor
 
 import (
-	"fmt"
-	"time"
-	"unicode/utf8"
-
-	editorinput "muse/editor/input"
-	"muse/markdown"
+	editormodel "muse/editor"
+	"muse/editor/input"
 	"muse/markdown/syntax"
 )
 
-// bindSessionAdapters connects neutral session actions to the production
-// editor's existing incremental input/history path. The session owns all
-// document state; these callbacks only supply editor-specific effects such as
-// the incremental parser, table controller and viewport invalidation.
+// bindSessionAdapters connects the production presentation layer to the
+// backend-neutral Session. The Session remains the only owner of source,
+// selection, revision and undo history; callbacks here read state or provide
+// block-aware effects only.
 func (e *Editor) bindSessionAdapters() {
-	e.Session.dispatchInputFn = e.dispatchSessionInput
-	e.Session.dispatchKeyFn = func(event KeyEvent) bool {
-		if e.wikiSuggestionKey(event) {
-			return true
-		}
-		if e.tableHandleDrag != nil {
-			if event.Key == editorinput.KeyEscape {
-				e.finishTableHandleDrag(true)
+	e.Session.BindPresentationAdapter(editormodel.PresentationAdapter{
+		DispatchKey: func(event input.KeyEvent) bool {
+			if e.wikiSuggestionKey(event) {
+				return true
 			}
-			return true
-		}
-		if e.modalKeyEvent(event) {
-			if event.Key == editorinput.KeyEscape {
-				e.inlineMath.SetPreviewHidden(true)
+			if e.tableHandleDrag != nil {
+				if event.Key == input.KeyEscape {
+					e.finishTableHandleDrag(true)
+				}
+				return true
 			}
-			return true
+			if e.modalKeyEvent(event) {
+				if event.Key == input.KeyEscape {
+					e.inlineMath.SetPreviewHidden(true)
+				}
+				return true
+			}
+			if e.key(event) {
+				e.updateWikiSuggestions()
+				return true
+			}
+			return false
+		},
+		ApplyOperation: e.applyOperation,
+	})
+	e.Session.SetChangeHook(func(change editormodel.Change) {
+		e.changeMu.Lock()
+		e.pendingChanges = append(e.pendingChanges, change)
+		e.changeMu.Unlock()
+		if e.opts.Invalidate != nil {
+			e.opts.Invalidate()
 		}
-		if e.key(event) {
-			e.updateWikiSuggestions()
-			e.blinkStart = time.Now()
-			return true
-		}
-		return false
-	}
-	e.Session.applyTransactionFn = func(tx Transaction) (DispatchResult, error) {
-		e.paintMu.Lock()
-		defer e.paintMu.Unlock()
-		before := e.rev
-		if err := e.ApplyTransaction(tx); err != nil {
-			return DispatchResult{}, err
-		}
-		return DispatchResult{
-			Handled:  true,
-			Changed:  e.rev != before,
-			Revision: e.rev,
-		}, nil
-	}
-	e.Session.setSelectionFn = func(selection Selection) error {
-		e.Select(selection.Anchor, selection.Head)
-		e.selectionInclusive = selection.Inclusive
-		e.selectionLinewise = selection.Linewise
-		return nil
-	}
-	e.Session.applyOperationFn = e.applyOperation
-	e.Session.replaceSourceFn = e.SetSource
-	e.Session.sourceFn = e.sessionSource
-	e.Session.revisionFn = e.sessionRevision
-	e.Session.selectionFn = e.sessionSelection
-	e.Session.frameFn = e.sessionFrame
-}
-func (e *Editor) dispatchSessionInput(event InputEvent) (DispatchResult, error) {
-	beforeSource, beforeSelection := e.src, e.Session.selectionLocked()
-	switch event.Kind {
-	case InputInsertText:
-		if event.Text == "" {
-			return DispatchResult{Revision: e.rev}, nil
-		}
-		if !utf8.ValidString(event.Text) {
-			return DispatchResult{}, fmt.Errorf("inserted text is not valid UTF-8")
-		}
-		if !e.modalText(event.Text) {
-			e.compose = ""
-			e.typeText(event.Text)
-			e.updateWikiSuggestions()
-			e.blinkStart = time.Now()
-		}
-	case InputDeleteBackward:
-		e.key(KeyEvent{Key: editorinput.KeyBackspace})
-	case InputDeleteForward:
-		e.key(KeyEvent{Key: editorinput.KeyDelete})
-	case InputMoveHorizontal:
-		if event.Direction != -1 && event.Direction != 1 {
-			return DispatchResult{}, fmt.Errorf("horizontal direction must be -1 or +1")
-		}
-		e.ApplyOperation(EditorOperation{Kind: OperationMoveHorizontal, Direction: event.Direction, Extend: event.Extend})
-	case InputSetSelection:
-		selection := Selection{Anchor: event.Anchor, Head: event.Head, Inclusive: event.Inclusive, Linewise: event.Linewise}
-		if err := validateSelection(e.src, selection); err != nil {
-			return DispatchResult{}, err
-		}
-		e.Select(selection.Anchor, selection.Head)
-		e.selectionInclusive, e.selectionLinewise = selection.Inclusive, selection.Linewise
-	case InputUndo:
-		e.Undo()
-	case InputRedo:
-		e.Redo()
-	default:
-		return DispatchResult{}, fmt.Errorf("unsupported input kind %d", event.Kind)
-	}
-	afterSelection := e.Session.selectionLocked()
-	return DispatchResult{
-		Handled:          true,
-		Changed:          e.src != beforeSource,
-		SelectionChanged: afterSelection != beforeSelection,
-		Revision:         e.rev,
-	}, nil
+	})
 }
 
-func (e *Editor) sessionSource() string {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	return e.src
-}
-
-func (e *Editor) sessionRevision() uint64 {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	return e.rev
-}
-
-func (e *Editor) sessionSelection() Selection {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	return e.Session.selectionLocked()
-}
-
-func (e *Editor) sessionFrame() Frame {
-	e.paintMu.Lock()
-	defer e.paintMu.Unlock()
-	e.sync()
-	if e.Session.frame.Document == nil || e.Session.frame.Revision != e.rev || e.Session.frame.Source != e.src {
-		doc := syntax.FromIncremental(e.p.doc)
-		if doc == nil {
-			return Frame{Revision: e.rev, Source: e.src, Selection: e.Session.selectionLocked()}
-		}
-		doc.Source = e.src
-		parsed := markdown.Project(doc)
-		e.Session.frame = Frame{Revision: e.rev, Source: e.src, Document: parsed, Rendered: parsed.RenderDocument()}
+// drainSessionChanges applies committed source deltas to the incremental
+// parser. Changes are queued because Session invokes the hook after releasing
+// its own lock, potentially while a UI callback already holds paintMu.
+func (e *Editor) drainSessionChanges() {
+	e.changeMu.Lock()
+	changes := e.pendingChanges
+	e.pendingChanges = nil
+	e.changeMu.Unlock()
+	if len(changes) == 0 {
+		return
 	}
-	e.Session.frame.Selection = e.Session.selectionLocked()
-	return e.Session.frame.snapshot()
+	for _, change := range changes {
+		if e.p.Source() != change.BeforeSource || change.Kind == editormodel.ChangeReplaceSource || len(change.Edits) == 0 && change.BeforeSource != change.AfterSource {
+			e.resetParserForSource(change.AfterSource)
+			continue
+		}
+		ok := true
+		for _, edit := range change.Edits {
+			if edit.Range.Start < 0 || edit.Range.End < edit.Range.Start || edit.Range.End > len(e.p.Source()) {
+				ok = false
+				break
+			}
+			if !e.p.ApplyEdit(edit.Range.Start, edit.Range.End, edit.Text) {
+				ok = false
+				break
+			}
+		}
+		if !ok || e.p.Source() != change.AfterSource {
+			e.resetParserForSource(change.AfterSource)
+		}
+	}
+}
+
+func (e *Editor) resetParserForSource(source string) {
+	frontmatterEnd := sourceModelFrontmatterEnd(source)
+	var imageInlines []syntax.IncrementalInline
+	if frontmatterEnd == 0 {
+		imageInlines, _ = largeDataImageOnlySource(source)
+	}
+	e.p.Set(source, frontmatterEnd, imageInlines)
+	e.pending, e.pendingMulti = nil, false
+}
+
+func sourceModelFrontmatterEnd(source string) int {
+	return frontMatterEnd(source)
 }

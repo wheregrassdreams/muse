@@ -21,7 +21,7 @@ func TestVirtualLayoutForMediumImageNoteLoadsImagesOnDemand(t *testing.T) {
 	tester.Frame()
 	var imageLeaves []*leaf
 	for _, l := range e.leaves {
-		if leafMayContainImage(e.src, l) {
+		if leafMayContainImage(e.Source(), l) {
 			imageLeaves = append(imageLeaves, l)
 		}
 	}
@@ -44,7 +44,7 @@ func TestVirtualLayoutForMediumImageNoteLoadsImagesOnDemand(t *testing.T) {
 	e.layoutIfNeeded()
 	var scrolledLast *leaf
 	for _, l := range e.leaves {
-		if l.start == lastStart && leafMayContainImage(e.src, l) {
+		if l.start == lastStart && leafMayContainImage(e.Source(), l) {
 			scrolledLast = l
 			break
 		}
@@ -74,7 +74,7 @@ func TestVirtualLayoutDropsOffscreenImageViews(t *testing.T) {
 		}
 	}
 
-	e.caret, e.anchor = len(e.src), len(e.src)
+	e.setSessionSelection(len(e.Source()), len(e.Source()))
 	e.scroll.Y = max(e.docH-e.viewH, 0)
 	tester.Frame()
 	if first.view != nil && first.view.hasImageAsset() {
@@ -92,7 +92,7 @@ func TestVirtualLayoutDoesNotRetainPrefetchedImageViews(t *testing.T) {
 		t.Fatal("fixture did not enable virtual layout")
 	}
 
-	e.caret, e.anchor = len(e.src), len(e.src)
+	e.setSessionSelection(len(e.Source()), len(e.Source()))
 	e.scroll.Y = max(e.docH-e.viewH, 0) / 2
 	tester.Frame()
 	viewportTop, viewportBottom := e.scroll.Y, e.scroll.Y+e.viewH

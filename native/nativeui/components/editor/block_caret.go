@@ -13,7 +13,7 @@ func (e *Editor) blockCaret() bool { return e.Keymap() != "default" && !e.ModalA
 // cursor identifies a character cell, while the native editor stores the
 // boundary immediately before it.
 func (e *Editor) vimNormalOffset(off int) int {
-	off = max(0, min(off, len(e.src)))
+	off = max(0, min(off, len(e.Source())))
 	// Structural lines own their source boundary even when a Markdown
 	// container marker (for example the `>` on a blank quote line) occupies
 	// the physical source line. Clamping that boundary as though it were a
@@ -39,7 +39,7 @@ func (e *Editor) vimNormalOffset(off int) int {
 }
 
 func (e *Editor) vimFoldedSoftBreakAt(off int) bool {
-	if off < 0 || off >= len(e.src) || e.src[off] != '\n' {
+	if off < 0 || off >= len(e.Source()) || e.Source()[off] != '\n' {
 		return false
 	}
 	u := e.unitAt(off)
@@ -102,9 +102,9 @@ func (e *Editor) vimPointerOffset(off int, x, y float32) int {
 // Measure the actual shaped character; a line end uses a visible empty cell.
 func (e *Editor) blockCaretRect(r ui.Rect) ui.Rect {
 	r.W = max(e.lk.size*0.6, 2)
-	if e.caret < len(e.src) && e.src[e.caret] != '\n' {
-		_, n := utf8.DecodeRuneInString(e.src[e.caret:])
-		if next, ok := e.caretRect(e.caret + n); ok && next.Y-r.Y < 1 && next.Y-r.Y > -1 && next.X > r.X {
+	if e.Caret() < len(e.Source()) && e.Source()[e.Caret()] != '\n' {
+		_, n := utf8.DecodeRuneInString(e.Source()[e.Caret():])
+		if next, ok := e.caretRect(e.Caret() + n); ok && next.Y-r.Y < 1 && next.Y-r.Y > -1 && next.X > r.X {
 			r.W = next.X - r.X
 		}
 	}

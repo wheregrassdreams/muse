@@ -50,7 +50,7 @@ func TestASourceControlShowsABlockAsMarkdown(t *testing.T) {
 	// The control turns the block into its source.
 	h.tt.ClickAt(chip.X+6, chip.Y+4)
 	h.frame()
-	l := h.e.leafAt(h.e.caret)
+	l := h.e.leafAt(h.e.Caret())
 	if l == nil || l.kind != kRaw || l.view == nil {
 		t.Fatalf("the block is not its source: %+v", l)
 	}

@@ -69,6 +69,38 @@ func TestMarkerLengthsForVariableDelimiters(t *testing.T) {
 	}
 }
 
+func TestUnwrapSelectionPlansDelimiterRemovalAndMapsSelection(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		selection Range
+		want      Range
+	}{
+		{name: "whole span", selection: Range{Start: 0, End: 9}, want: Range{Start: 0, End: 5}},
+		{name: "caret in content", selection: Range{Start: 5, End: 5}, want: Range{Start: 3, End: 3}},
+		{name: "partial content", selection: Range{Start: 3, End: 6}, want: Range{Start: 1, End: 4}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, ok := UnwrapSelection("**hello**", test.selection, Range{Start: 0, End: 9}, MarkerStrong, "**", "**")
+			if !ok || plan.Selection != test.want || len(plan.Edits) != 2 ||
+				plan.Edits[0] != (Edit{Start: 7, End: 9}) || plan.Edits[1] != (Edit{Start: 0, End: 2}) {
+				t.Fatalf("UnwrapSelection() = %+v, %v; want selection %+v", plan, ok, test.want)
+			}
+		})
+	}
+}
+
+func TestPlanLinkCreatesDestinationCaretOrPreservesSelectedURL(t *testing.T) {
+	plan, ok := PlanLink("visit docs", Range{Start: 6, End: 10})
+	if !ok || !reflect.DeepEqual(plan.Edits, []Edit{{Start: 10, End: 10, Text: "]()"}, {Start: 6, End: 6, Text: "["}}) || plan.Selection != (Range{Start: 13, End: 13}) {
+		t.Fatalf("selected text link plan = %+v, %v", plan, ok)
+	}
+	plan, ok = PlanLink("https://example.test", Range{Start: 0, End: len("https://example.test")})
+	if !ok || len(plan.Edits) != 1 || plan.Edits[0].Text != "[https://example.test](https://example.test)" ||
+		plan.Selection != (Range{Start: 1, End: 21}) {
+		t.Fatalf("selected URL link plan = %+v, %v", plan, ok)
+	}
+}
+
 func TestWrapSelectionRejectsSplitRuneRanges(t *testing.T) {
 	source := "甲乙"
 	for _, selection := range []Range{{Start: 1, End: 3}, {Start: 0, End: 1}} {

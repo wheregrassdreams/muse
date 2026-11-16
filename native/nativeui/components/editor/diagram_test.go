@@ -161,7 +161,7 @@ func TestDiagramPans(t *testing.T) {
 	if contentW <= box.W {
 		t.Fatalf("diagram width %v does not overflow the column %v", contentW, box.W)
 	}
-	caret := h.e.caret
+	caret := h.e.Caret()
 	x, y := box.X+box.W/2, box.Y+box.H/2
 
 	h.tt.Move(x, y)
@@ -173,7 +173,7 @@ func TestDiagramPans(t *testing.T) {
 	if h.e.diagPan == nil {
 		t.Fatal("pressing the diagram did not start a pan")
 	}
-	if h.e.caret != caret {
+	if h.e.Caret() != caret {
 		t.Fatal("pressing the diagram moved the caret into its source")
 	}
 	h.tt.Move(x-120, y)
@@ -198,7 +198,7 @@ func TestDiagramPans(t *testing.T) {
 	if h.e.diagPan != nil {
 		t.Fatal("letting go did not end the pan")
 	}
-	if h.e.caret != caret {
+	if h.e.Caret() != caret {
 		t.Fatal("panning moved the caret into the diagram")
 	}
 }
@@ -218,11 +218,11 @@ func TestDiagramToggleSource(t *testing.T) {
 		t.Fatalf("the pointer over the source control is %v, want a hand", h.e.cursor)
 	}
 
-	caret := h.e.caret
+	caret := h.e.Caret()
 	h.tt.ClickAt(x, y)
 	h.frame()
-	if h.e.caret != caret {
-		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.caret)
+	if h.e.Caret() != caret {
+		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.Caret())
 	}
 	// The leaves are built again when the block changes what it shows.
 	l = blockOfKind(h, kCode)
@@ -244,8 +244,8 @@ func TestDiagramToggleSource(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		h.frame()
 	}
-	if h.e.caret != caret {
-		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.caret)
+	if h.e.Caret() != caret {
+		t.Fatalf("the control moved the caret from %d to %d", caret, h.e.Caret())
 	}
 	l = blockOfKind(h, kCode)
 	if l == nil || l.view == nil || l.view.diagramModel == nil {

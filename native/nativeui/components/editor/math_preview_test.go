@@ -7,17 +7,18 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	texmath "muse/markdown/math"
+	media "muse/nativeui/components/editor/blocks/media"
 )
 
-func TestLegacyMathVisualBridgeBuildsFromNeutralRaster(t *testing.T) {
+func TestMathVisualBuildsFromNeutralRaster(t *testing.T) {
 	raster, ok := texmath.TypesetCached(`\alpha + x`, 16, false)
 	if !ok || raster == nil {
 		t.Fatal("formula did not typeset")
 	}
-	light := legacyMathVisualFor(raster, false, "")
-	dark := legacyMathVisualFor(raster, true, "")
-	if light == nil || light.bmp == nil || dark == nil || dark.bmp == nil {
-		t.Fatal("legacy Editor.View bridge did not create toolkit bitmaps")
+	light := media.MathVisualFor(raster, false, "")
+	dark := media.MathVisualFor(raster, true, "")
+	if light == nil || light.Bitmap() == nil || dark == nil || dark.Bitmap() == nil {
+		t.Fatal("component math renderer did not create toolkit bitmaps")
 	}
 	if light == dark {
 		t.Fatal("light and dark formula visuals shared a theme-specific bitmap")
@@ -32,9 +33,9 @@ func TestInlineMathPreview(t *testing.T) {
 	if !ok || tex != "x^2" {
 		t.Fatalf("active formula = %q, %v", tex, ok)
 	}
-	docH, caret, scroll := h.e.docH, h.e.caret, h.e.scroll.Y
+	docH, caret, scroll := h.e.docH, h.e.Caret(), h.e.scroll.Y
 	h.shot("inline-math-preview")
-	if h.e.docH != docH || h.e.caret != caret || h.e.scroll.Y != scroll {
+	if h.e.docH != docH || h.e.Caret() != caret || h.e.scroll.Y != scroll {
 		t.Fatal("preview changed editor geometry or caret")
 	}
 	h.typ("+1")
@@ -76,7 +77,7 @@ func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testin
 	h.frame()
 
 	startRect, startOK := h.e.caretRect(start)
-	caretRect, caretOK := h.e.caretRect(h.e.caret)
+	caretRect, caretOK := h.e.caretRect(h.e.Caret())
 	if !startOK || !caretOK {
 		t.Fatalf("missing formula/caret geometry: start=%v caret=%v", startOK, caretOK)
 	}
@@ -89,7 +90,7 @@ func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testin
 		t.Fatalf("caret is not visible in the viewport: caret=%+v viewport=%+v scroll=%v", caretRect, viewport, h.e.scroll.Y)
 	}
 	frame, ok := h.e.InlineMathPreview()
-	if !ok || frame.Anchor != (EditorViewport{X: caretRect.X, Y: caretRect.Y, W: caretRect.W, H: caretRect.H}) {
+	if !ok || frame.Anchor != (media.Viewport{X: caretRect.X, Y: caretRect.Y, W: caretRect.W, H: caretRect.H}) {
 		t.Fatalf("preview did not follow the visible caret after the formula start scrolled away: frame=%+v caret=%+v ok=%v", frame, caretRect, ok)
 	}
 	h.shot("inline-math-preview-after-source-start-scrolls-away")

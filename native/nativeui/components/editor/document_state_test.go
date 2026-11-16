@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"muse/editor/source"
+	"muse/markdown/syntax"
 )
 
 // TestRandomKeysKeepTheDocumentSound presses keys at random and checks what
@@ -85,33 +87,39 @@ func seedName(src string) string {
 // checkSound checks the invariants of the document as it stands.
 func checkSound(t *testing.T, name string, step int, e *Editor) {
 	t.Helper()
-	if e.caret < 0 || e.caret > len(e.src) || e.anchor < 0 || e.anchor > len(e.src) {
-		t.Fatalf("%s step %d: caret %d .. anchor %d of %d bytes", name, step, e.caret, e.anchor, len(e.src))
+	if e.Caret() < 0 || e.Caret() > len(e.Source()) || e.Session.Selection().Anchor < 0 || e.Session.Selection().Anchor > len(e.Source()) {
+		t.Fatalf("%s step %d: caret %d .. anchor %d of %d bytes", name, step, e.Caret(), e.Session.Selection().Anchor, len(e.Source()))
 	}
 	// The empty document is the one line the source does not hold.
-	if e.src == "" && e.phantom == nil {
+	if e.Source() == "" && e.phantom == nil {
 		t.Fatalf("%s step %d: an empty document with no line for the caret", name, step)
 	}
 	// What the parser reads, the comments and the parse itself are derived
 	// from the source: the fast path an edit takes has to keep them equal to
 	// what reading the whole source again gives.
-	if e.p.src != e.src {
+	if e.p.Source() != e.Source() {
 		t.Fatalf("%s step %d: the parser holds another source", name, step)
 	}
-	if got, want := e.p.comments, commentRegions(e.src); !slices.Equal(got, want) {
+	if got, want := e.p.Comments(), commentRegions(e.Source()); !slices.Equal(got, want) {
 		t.Fatalf("%s step %d: comments %v, want %v", name, step, got, want)
 	}
-	wantMask := parserText(blankComments(maskFrontMatter(e.src, e.p.fm), e.p.comments))
-	if got := e.p.maskedSource(); got != wantMask {
+	want := source.New(exts, source.ParserText)
+	fmEnd := source.FrontmatterEnd(e.Source())
+	var imageOnly []syntax.IncrementalInline
+	if fmEnd == 0 {
+		imageOnly, _ = largeDataImageOnlySource(e.Source())
+	}
+	want.Set(e.Source(), fmEnd, imageOnly)
+	if got, wantMask := e.p.MaskedSource(), want.MaskedSource(); got != wantMask {
 		t.Fatalf("%s step %d: the parser's source is %q, want %q", name, step, got, wantMask)
 	}
 	prev := -1
 	seen := map[int]bool{}
 	for i, l := range e.leaves {
-		if l.start < 0 || l.end < l.start || l.end > len(e.src) {
-			t.Fatalf("%s step %d: leaf %d is %d..%d of %d", name, step, i, l.start, l.end, len(e.src))
+		if l.start < 0 || l.end < l.start || l.end > len(e.Source()) {
+			t.Fatalf("%s step %d: leaf %d is %d..%d of %d", name, step, i, l.start, l.end, len(e.Source()))
 		}
-		if !onRuneStart(e.src, l.start) || !onRuneStart(e.src, l.end) {
+		if !onRuneStart(e.Source(), l.start) || !onRuneStart(e.Source(), l.end) {
 			t.Fatalf("%s step %d: leaf %d %d..%d splits a character", name, step, i, l.start, l.end)
 		}
 		if l.start < prev {

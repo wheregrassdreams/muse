@@ -4,24 +4,24 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/internal/core"
+	"muse/editor"
 )
 
 type testHost struct {
 	view        DocumentView
-	selection   core.Selection
-	transaction core.Transaction
+	selection   editor.Selection
+	transaction editor.Transaction
 }
 
 func (h *testHost) TableView(lineStart int) (DocumentView, bool) {
 	return h.view, h.view.LineStart == lineStart
 }
 
-func (h *testHost) TextSelection() core.Selection { return h.selection }
+func (h *testHost) TextSelection() editor.Selection { return h.selection }
 
 func (h *testHost) DocumentSource() string { return h.view.Source }
 
-func (h *testHost) Apply(transaction core.Transaction) error {
+func (h *testHost) Apply(transaction editor.Transaction) error {
 	if err := transaction.Validate(len(h.view.Source)); err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func (h *testHost) Apply(transaction core.Transaction) error {
 func TestSnapshotCloneOwnsSelectionValues(t *testing.T) {
 	snapshot := Snapshot{
 		Mode:          "Visual",
-		TextSelection: core.Selection{Anchor: 3, Head: 9},
+		TextSelection: editor.Selection{Anchor: 3, Head: 9},
 		Selection:     &Selection{LineStart: 2, Anchor: Cell{Row: 0, Col: 1}, Focus: Cell{Row: 2, Col: 3}, Axis: Cells},
 		Bridge:        &ContentBridge{LineStart: 2, Axis: Columns, Col: 1, Direction: 1},
 	}
@@ -123,7 +123,7 @@ func TestCopyRegionReadsSourceViewAndPadsRaggedRows(t *testing.T) {
 	source := "| a | bb |\n| --- | --- |\n| c |\n"
 	view := DocumentView{
 		LineStart: 0, End: len(source), Source: source,
-		Rows: [][]core.TextRange{
+		Rows: [][]editor.TextRange{
 			{{Start: 2, End: 3}, {Start: 6, End: 8}},
 			{{Start: 27, End: 28}},
 		},
@@ -146,7 +146,7 @@ func TestCopyRegionReadsSourceViewAndPadsRaggedRows(t *testing.T) {
 
 func TestCopyRegionRejectsCellRangesOutsideDocumentView(t *testing.T) {
 	source := "| a |\n"
-	view := DocumentView{LineStart: 0, End: len(source), Source: source, Rows: [][]core.TextRange{{{Start: 3, End: len(source) + 1}}}}
+	view := DocumentView{LineStart: 0, End: len(source), Source: source, Rows: [][]editor.TextRange{{{Start: 3, End: len(source) + 1}}}}
 	if _, ok := CopyRegion(view, Selection{LineStart: 0, Anchor: Cell{}, Focus: Cell{}}); ok {
 		t.Fatal("CopyRegion accepted an out-of-range parser cell span")
 	}
@@ -157,12 +157,12 @@ func TestControllerClearRegionUsesOneAtomicHostTransaction(t *testing.T) {
 	host := &testHost{
 		view: DocumentView{
 			LineStart: 0, End: len(source), Source: source,
-			Rows: [][]core.TextRange{
+			Rows: [][]editor.TextRange{
 				{{Start: 2, End: 4}, {Start: 7, End: 9}},
 				{{Start: 27, End: 29}, {Start: 32, End: 34}},
 			},
 		},
-		selection: core.Selection{Anchor: 27, Head: 34},
+		selection: editor.Selection{Anchor: 27, Head: 34},
 	}
 	controller := &Controller{}
 	changed, err := controller.ClearRegion(host, Selection{
@@ -172,10 +172,10 @@ func TestControllerClearRegionUsesOneAtomicHostTransaction(t *testing.T) {
 		t.Fatalf("ClearRegion() = %v, %v", changed, err)
 	}
 	tx := host.transaction
-	if len(tx.Edits) != 2 || tx.Edits[0].Range != (core.TextRange{Start: 27, End: 29}) || tx.Edits[1].Range != (core.TextRange{Start: 32, End: 34}) {
+	if len(tx.Edits) != 2 || tx.Edits[0].Range != (editor.TextRange{Start: 27, End: 29}) || tx.Edits[1].Range != (editor.TextRange{Start: 32, End: 34}) {
 		t.Fatalf("transaction edits = %+v", tx.Edits)
 	}
-	if tx.Before != host.selection || tx.After != (core.Selection{Anchor: 27, Head: 27}) {
+	if tx.Before != host.selection || tx.After != (editor.Selection{Anchor: 27, Head: 27}) {
 		t.Fatalf("transaction selection = before %+v after %+v", tx.Before, tx.After)
 	}
 }
@@ -185,12 +185,12 @@ func TestControllerReplaceRegionSerializesAndGrowsTableAtomically(t *testing.T) 
 	host := &testHost{
 		view: DocumentView{
 			LineStart: 0, End: len(source) - 1, Source: source,
-			Rows: [][]core.TextRange{
+			Rows: [][]editor.TextRange{
 				{{Start: 2, End: 3}, {Start: 6, End: 7}},
 				{{Start: 26, End: 27}, {Start: 30, End: 31}},
 			},
 		},
-		selection: core.Selection{Anchor: 26, Head: 31},
+		selection: editor.Selection{Anchor: 26, Head: 31},
 	}
 	controller := &Controller{}
 	changed, err := controller.ReplaceRegion(host,
@@ -201,7 +201,7 @@ func TestControllerReplaceRegionSerializesAndGrowsTableAtomically(t *testing.T) 
 		t.Fatalf("ReplaceRegion() = %v, %v", changed, err)
 	}
 	tx := host.transaction
-	if len(tx.Edits) != 1 || tx.Edits[0].Range != (core.TextRange{Start: 0, End: len(source) - 1}) {
+	if len(tx.Edits) != 1 || tx.Edits[0].Range != (editor.TextRange{Start: 0, End: len(source) - 1}) {
 		t.Fatalf("replacement transaction = %+v", tx)
 	}
 	want := "| A | B |  |\n| --- | :---: | ---: |\n| x | new | extra |"
@@ -213,13 +213,13 @@ func TestControllerReplaceRegionSerializesAndGrowsTableAtomically(t *testing.T) 
 func TestControllerAddColumnUsesParserPipeOffsetsAndPreservesSelection(t *testing.T) {
 	source := "| a | b |\n| --- | --- |\n| c | d |"
 	lines := []LineView{
-		{Range: core.TextRange{Start: 0, End: 9}, Pipes: []int{0, 4, 8}},
-		{Range: core.TextRange{Start: 10, End: 23}, Pipes: []int{10, 16, 22}},
-		{Range: core.TextRange{Start: 24, End: 33}, Pipes: []int{24, 28, 32}},
+		{Range: editor.TextRange{Start: 0, End: 9}, Pipes: []int{0, 4, 8}},
+		{Range: editor.TextRange{Start: 10, End: 23}, Pipes: []int{10, 16, 22}},
+		{Range: editor.TextRange{Start: 24, End: 33}, Pipes: []int{24, 28, 32}},
 	}
 	host := &testHost{
 		view:      DocumentView{LineStart: 0, End: len(source), Source: source, Lines: lines},
-		selection: core.Selection{Anchor: 4, Head: 4},
+		selection: editor.Selection{Anchor: 4, Head: 4},
 	}
 	changed, err := (&Controller{}).AddColumnRight(host, 0)
 	if err != nil || !changed {
@@ -232,7 +232,7 @@ func TestControllerAddColumnUsesParserPipeOffsetsAndPreservesSelection(t *testin
 	if tx.Edits[1].Text != " --- |" || tx.Edits[0].Text != "   |" || tx.Edits[2].Text != "   |" {
 		t.Fatalf("column insertion text = %+v", tx.Edits)
 	}
-	if tx.After != (core.Selection{Anchor: 4, Head: 4}) {
+	if tx.After != (editor.Selection{Anchor: 4, Head: 4}) {
 		t.Fatalf("selection moved from unrelated source: %+v", tx.After)
 	}
 }
@@ -242,10 +242,10 @@ func TestControllerAddRowUsesContinuationPrefixAndMapsSelection(t *testing.T) {
 	host := &testHost{
 		view: DocumentView{
 			LineStart: 0, End: len(source), Source: source, ContinuationPrefix: "> ",
-			Rows:  [][]core.TextRange{{{Start: 2, End: 3}, {Start: 6, End: 7}}, {{Start: 26, End: 27}, {Start: 30, End: 31}}},
-			Lines: []LineView{{Range: core.TextRange{Start: 0, End: 9}}, {Range: core.TextRange{Start: 10, End: 23}}, {Range: core.TextRange{Start: 24, End: 33}}},
+			Rows:  [][]editor.TextRange{{{Start: 2, End: 3}, {Start: 6, End: 7}}, {{Start: 26, End: 27}, {Start: 30, End: 31}}},
+			Lines: []LineView{{Range: editor.TextRange{Start: 0, End: 9}}, {Range: editor.TextRange{Start: 10, End: 23}}, {Range: editor.TextRange{Start: 24, End: 33}}},
 		},
-		selection: core.Selection{Anchor: len(source), Head: len(source)},
+		selection: editor.Selection{Anchor: len(source), Head: len(source)},
 	}
 	changed, err := (&Controller{}).AddRowBelow(host, 0)
 	if err != nil || !changed {
@@ -262,19 +262,19 @@ func TestControllerAddRowUsesContinuationPrefixAndMapsSelection(t *testing.T) {
 
 func TestControllerReorderRowsAndColumnsSerializesThroughHost(t *testing.T) {
 	source := "| h1 | h2 |\n| :--- | ---: |\n| r1 | x |\n| r2 | y |"
-	rangeFor := func(value string) core.TextRange {
+	rangeFor := func(value string) editor.TextRange {
 		start := strings.Index(source, value)
-		return core.TextRange{Start: start, End: start + len(value)}
+		return editor.TextRange{Start: start, End: start + len(value)}
 	}
 	view := DocumentView{
 		LineStart: 0, End: len(source), Source: source, Alignments: []Alignment{AlignmentLeft, AlignmentRight},
-		Rows: [][]core.TextRange{
+		Rows: [][]editor.TextRange{
 			{rangeFor("h1"), rangeFor("h2")},
 			{rangeFor("r1"), rangeFor("x")},
 			{rangeFor("r2"), rangeFor("y")},
 		},
 	}
-	host := &testHost{view: view, selection: core.Selection{Anchor: 0, Head: 0}}
+	host := &testHost{view: view, selection: editor.Selection{Anchor: 0, Head: 0}}
 	changed, insertion, err := (&Controller{}).Reorder(host, 0, Rows, 1, 1, 3)
 	if err != nil || !changed || insertion != 2 {
 		t.Fatalf("row Reorder() = %v, %d, %v", changed, insertion, err)
@@ -283,7 +283,7 @@ func TestControllerReorderRowsAndColumnsSerializesThroughHost(t *testing.T) {
 	if got := host.transaction.Edits[0].Text; got != wantRows {
 		t.Fatalf("row reorder text = %q, want %q", got, wantRows)
 	}
-	host.transaction = core.Transaction{}
+	host.transaction = editor.Transaction{}
 	changed, insertion, err = (&Controller{}).Reorder(host, 0, Columns, 0, 0, 2)
 	if err != nil || !changed || insertion != 1 {
 		t.Fatalf("column Reorder() = %v, %d, %v", changed, insertion, err)
@@ -299,17 +299,17 @@ func TestControllerDeleteRowsCreatesSingleNormalTransaction(t *testing.T) {
 	host := &testHost{
 		view: DocumentView{
 			LineStart: 0, End: len(source), Source: source,
-			Rows:  [][]core.TextRange{{{Start: 2, End: 3}}, {{Start: 16, End: 17}}, {{Start: 22, End: 23}}},
-			Lines: []LineView{{Range: core.TextRange{Start: 0, End: 5}}, {Range: core.TextRange{Start: 6, End: 13}}, {Range: core.TextRange{Start: 14, End: 19}}, {Range: core.TextRange{Start: 20, End: 25}}},
+			Rows:  [][]editor.TextRange{{{Start: 2, End: 3}}, {{Start: 16, End: 17}}, {{Start: 22, End: 23}}},
+			Lines: []LineView{{Range: editor.TextRange{Start: 0, End: 5}}, {Range: editor.TextRange{Start: 6, End: 13}}, {Range: editor.TextRange{Start: 14, End: 19}}, {Range: editor.TextRange{Start: 20, End: 25}}},
 		},
-		selection: core.Selection{Anchor: 14, Head: 18},
+		selection: editor.Selection{Anchor: 14, Head: 18},
 	}
 	changed, caret, err := (&Controller{}).DeleteRows(host, 0, 1, 1, false, false)
 	if err != nil || !changed || caret != 14 {
 		t.Fatalf("DeleteRows() = %v, %d, %v", changed, caret, err)
 	}
 	tx := host.transaction
-	if len(tx.Edits) != 1 || tx.Edits[0].Range != (core.TextRange{Start: 14, End: 20}) || tx.Edits[0].Text != "" {
+	if len(tx.Edits) != 1 || tx.Edits[0].Range != (editor.TextRange{Start: 14, End: 20}) || tx.Edits[0].Text != "" {
 		t.Fatalf("delete transaction = %+v", tx)
 	}
 }
@@ -324,18 +324,18 @@ func TestControllerDeleteColumnsPreservesRowsAndAlignment(t *testing.T) {
 				pipes = append(pipes, start+i)
 			}
 		}
-		return LineView{Range: core.TextRange{Start: start, End: start + len(line)}, Pipes: pipes}
+		return LineView{Range: editor.TextRange{Start: start, End: start + len(line)}, Pipes: pipes}
 	}
 	header := "| A | B | C |"
 	delimiter := "| :--- | :---: | ---: |"
 	body := "| one | two | three |"
-	cell := func(text string) core.TextRange {
+	cell := func(text string) editor.TextRange {
 		start := strings.Index(source, text)
-		return core.TextRange{Start: start, End: start + len(text)}
+		return editor.TextRange{Start: start, End: start + len(text)}
 	}
 	view := DocumentView{
 		LineStart: 0, End: len(source), Source: source,
-		Rows:       [][]core.TextRange{{cell("A"), cell("B"), cell("C")}, {cell("one"), cell("two"), cell("three")}},
+		Rows:       [][]editor.TextRange{{cell("A"), cell("B"), cell("C")}, {cell("one"), cell("two"), cell("three")}},
 		Lines:      []LineView{lineView(header), lineView(delimiter), lineView(body)},
 		Alignments: []Alignment{AlignmentLeft, AlignmentCenter, AlignmentRight},
 	}
@@ -348,7 +348,7 @@ func TestControllerDeleteColumnsPreservesRowsAndAlignment(t *testing.T) {
 		{"clear", true, "| A |  | C |\n| :-- | :-: | --: |\n| one |  | three |"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			host := &testHost{view: view, selection: core.Selection{Anchor: 0, Head: 0}}
+			host := &testHost{view: view, selection: editor.Selection{Anchor: 0, Head: 0}}
 			changed, _, err := (&Controller{}).DeleteColumns(host, 0, 1, 1, tc.change)
 			if err != nil || !changed {
 				t.Fatalf("DeleteColumns() = %v, %v", changed, err)

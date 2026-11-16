@@ -11,30 +11,35 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
+	editormodel "muse/editor"
 	inlineblock "muse/editor/blocks/inline"
 	paragraph "muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
-	"muse/editor/internal/textlayout"
+	"muse/editor/input"
+	"muse/editor/input/vim"
 	layoutindex "muse/editor/layout"
+	"muse/editor/source"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
-	"muse/ui/scrollbar"
+	"muse/markdown/syntax"
+	inlineui "muse/nativeui/components/editor/blocks/inline"
+	media "muse/nativeui/components/editor/blocks/media"
+	tableui "muse/nativeui/components/editor/blocks/table"
+	"muse/nativeui/components/editor/feedback"
+	"muse/nativeui/components/editor/ime"
+	"muse/nativeui/components/editor/navigationrail"
+	editorscroll "muse/nativeui/components/editor/scroll"
+	"muse/nativeui/components/editor/textlayout"
+	vaultlinks "muse/vault/links"
 )
+
+const invalidParsedRevision = ^uint64(0)
+
+var nextEditorScopeID atomic.Uint64
 
 // Options configure an editor. The app sets them before building the
 // editor and changes them as its settings change.
-type LinkTargetState uint8
-
-const (
-	// LinkTargetUnknown means the caller has no current resolution result.
-	LinkTargetUnknown LinkTargetState = iota
-	// LinkTargetValid means an indexed target exists.
-	LinkTargetValid
-	// LinkTargetInvalid means the resolver checked the current index and found no target.
-	LinkTargetInvalid
-)
-
 type Options struct {
 	// FontSize is the body text's size in DIPs (16 when 0), LineHeight its
 	// line height as a multiple of it (1.75 when 0).
@@ -103,6 +108,8 @@ type Options struct {
 	// OnChange is called after every change of the source, the user's and
 	// the app's.
 	OnChange func()
+	// OnClose runs once when the editor surface releases its UI resources.
+	OnClose func()
 	// OnLink opens a link the user Cmd-clicked (Ctrl-clicked).
 	OnLink func(url string)
 	// WikiLinkSuggestions returns vault-relative targets for the partial
@@ -110,7 +117,7 @@ type Options struct {
 	WikiLinkSuggestions func(query string) []string
 	// WikiLinkSuggestionDetails optionally adds display titles and aliases while
 	// keeping Target as the stable text inserted into the source.
-	WikiLinkSuggestionDetails func(query string) []WikiSuggestion
+	WikiLinkSuggestionDetails func(query string) []vaultlinks.Suggestion
 	// OnWikiLinkHover reports a wiki target, pointer coordinates and the visible
 	// link fragment's bounds in editor-local coordinates. An empty target ends
 	// the hover. Embedded links are excluded.
@@ -121,8 +128,8 @@ type Options struct {
 	// CurrentPath is the absolute path of this editor's Markdown source.
 	CurrentPath string
 	// ResolveWikiLink reports the current index status of a wiki link target.
-	// A nil callback or an unavailable index means LinkTargetUnknown.
-	ResolveWikiLink func(currentPath, target string) LinkTargetState
+	// A nil callback or an unavailable index means inlineui.LinkTargetUnknown.
+	ResolveWikiLink func(currentPath, target string) inlineui.LinkTargetState
 	// LinkRevision changes when the target index changes; it refreshes cached link styles.
 	LinkRevision uint64
 	// LinkContext identifies the current document/workspace context for relative wiki resolution.
@@ -150,45 +157,9 @@ type Options struct {
 	WriteClipboard func(transfer.Data)
 }
 
-// DiagramRenderer is a temporary UI adapter port for rendering the neutral
-// diagram model retained in an editor leaf. The nativeui editor component
-// supplies it; Markdown parsing and editor geometry never depend on a painter.
-type DiagramRenderer func(p *ui.Painter, rect ui.Rect, theme *ui.Theme, model *diagrams.Model)
-
 // MathRenderer is a temporary UI adapter port for drawing a neutral math
 // raster in the virtualized editor and its inline preview.
 type MathRenderer func(p *ui.Painter, rect ui.Rect, raster *texmath.Raster, dark bool, font string)
-
-// HeadingRailItem is a detached heading entry for the navigation rail.
-type HeadingRailItem struct {
-	Offset int
-	Level  int
-}
-
-// HeadingRailViewport carries the available size without exposing toolkit
-// geometry to navigation consumers.
-type HeadingRailViewport struct {
-	Width, Height float32
-}
-
-// HeadingRailFrame is a read-only snapshot of headings and current section.
-// It contains no editor leaves or mutable parser state.
-type HeadingRailFrame struct {
-	Visible     bool
-	Revision    uint64
-	Active      int
-	Items       []HeadingRailItem
-	MarkerColor color.RGBA
-	ActiveColor color.RGBA
-	HoverColor  color.RGBA
-}
-
-// HeadingRailPreview is the selected heading and a short section excerpt.
-type HeadingRailPreview struct {
-	Title   string
-	Excerpt string
-	Level   int
-}
 
 // Editor is the state of a Markdown editor, kept by the app across frames:
 // the source and its parse, the selection, the history of undo and what
@@ -196,12 +167,19 @@ type HeadingRailPreview struct {
 type Editor struct {
 	// Session is the single owner of source, revision, selection and undo state.
 	// Presentation caches below derive from its source revision.
-	*Session
+	*editormodel.Session
+	// uiScopeID gives keyed child controls a stable scalar namespace without
+	// retaining the Editor through toolkit-owned keys.
+	uiScopeID uint64
 	// paintMu keeps a frame's leaves and parser snapshot together. MyGo calls
 	// Draw after the app's View callback returns, so an app edit can otherwise
 	// replace the parser while paint is still walking the previous leaves.
-	paintMu sync.Mutex
-	modal   modalState
+	paintMu        sync.Mutex
+	changeMu       sync.Mutex
+	pendingChanges []editormodel.Change
+	editBatch      *editormodel.EditBatch
+	modal          modalState
+	vimState       *vim.Controller
 	// folded is presentation state keyed by a heading's source line start.
 	// A source edit clears it so offsets can never fold an unrelated section.
 	folded                 map[int]bool
@@ -209,10 +187,13 @@ type Editor struct {
 	foldCacheRevision      uint64
 	foldSectionsCache      []foldSection
 	opts                   Options
-	diagramRenderer        DiagramRenderer
 	mathRenderer           MathRenderer
-	viewport               EditorViewport
+	viewport               media.Viewport
 	inlineMath             inlineblock.MathSession
+	closed                 bool
+	diagrams               []diagramPainterCacheEntry
+	diagramClock           uint64
+	rail                   navigationrail.State
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
 
@@ -229,7 +210,7 @@ type Editor struct {
 	// source for it: the document, the masked source it holds, the comments
 	// that mask hides, where the front matter ends. Only p.set and p.edit
 	// write it (see parsed.go); everything else reads it.
-	p parserSource
+	p *source.Document
 	// largeDataImageCache keeps the tiny synthetic inline projection for a
 	// single huge data image. Its strings reference src, so sync clears it on
 	// every source revision.
@@ -255,14 +236,8 @@ type Editor struct {
 	// parsed is the source revision the leaves reflect.
 	parsed uint64
 
-	smoothCursorFrom       int
-	smoothCursorStart      time.Time
-	smoothCursorActive     bool
 	smoothCursorNavigation bool
-	smoothCursorFromRect   ui.Rect
-	smoothCursorToRect     ui.Rect
-	smoothCursorRectsValid bool
-	smoothCursorFromSet    bool
+	feedbackState          feedback.State
 	vimImageRow            *vimImageRowCaret
 	block                  *blockSelection
 	blockAnchorOffset      int
@@ -293,18 +268,12 @@ type Editor struct {
 	// where a line wraps.
 	upstream bool
 
-	// An input method's composition, shown at the caret until committed;
-	// composeSel is its selection, in UTF-16 units of it.
-	compose    string
-	composeSel ui.TextInputRange
-	composing  bool
-
 	lk              look
 	views           map[viewKey]*leafView
-	dataImageAssets map[dataImageAssetKey]*images.Asset
-	dataAssetsRev   uint64
+	dataImageAssets media.DataImageAssets
 	typographyCache textlayout.Cache
 	frame           uint64
+	renderScratch   editorRenderScratch
 	assetGen        atomic.Uint64
 	imageHits       []imageHit
 	imageDrag       *imageResizeDrag
@@ -330,7 +299,7 @@ type Editor struct {
 	estW, estSize, estLH float32
 
 	scroll          ui.ScrollState
-	scrollIndicator scrollbar.Indicator
+	scrollIndicator editorscroll.IndicatorState
 	scrollHandle    ui.Handle
 	handle          ui.Handle
 	focused         bool
@@ -342,9 +311,9 @@ type Editor struct {
 	scrollTo        int
 	hasScrollTo     bool
 	scrollCenter    bool
-	scrollPlacement CaretLinePlacement
+	scrollPlacement input.CaretLinePlacement
 	pageJump        bool
-	pageJumpAlign   PageJumpAlignment
+	pageJumpAlign   layoutindex.PageJumpAlignment
 
 	// The pointer: a drag selecting by characters, words or blocks, from
 	// the range it started on; the syntax shown is frozen meanwhile, so
@@ -384,12 +353,6 @@ type Editor struct {
 	vimHighlights       []Range
 	vimCurrent          int
 	vimHighlightsActive bool
-	searchPulseStart    time.Time
-	searchPulseActive   bool
-	vimYankRanges       []Range
-	vimYankStart        time.Time
-	vimYankActive       bool
-
 	// elemRect is the element's box in the window, as the last frame drew it.
 	elemRect ui.Rect
 	// cursor is the pointer's shape where it rests.
@@ -397,7 +360,7 @@ type Editor struct {
 
 	// phantomStays keeps the phantom an edit made through its commit.
 	phantomStays bool
-	u16ix        u16Index
+	imeClient    *ime.Client
 	laidKey      laid
 	leavesLaid   bool
 	// unitList is the leaves and table cells the caret moves through,
@@ -423,7 +386,8 @@ type Editor struct {
 	railLeaves   []*leaf
 	railNext     []*leaf
 	railRev      uint64
-	railItems    []HeadingRailItem
+	railReady    bool
+	railItems    []navigationrail.Item
 	railItemsRev uint64
 	// hoverBlock is the start of the block the pointer is on, or -1: a
 	// block shows its source control there (see sourceChip).
@@ -431,7 +395,7 @@ type Editor struct {
 	// foldHover is the source offset of the heading under the pointer, or -1.
 	// Its control is shown only while this heading owns the pointer.
 	foldHover       int
-	wikiPopup       wikiSuggestionState
+	wikiPopup       inlineui.Popup
 	wikiHover       string
 	wikiHoverBounds ui.Rect
 	wikiEmbeds      map[string]*wikiEmbedCache
@@ -445,17 +409,6 @@ type Editor struct {
 	railDesc    string
 	railTextRev uint64
 	railTextIdx int
-}
-
-// SetDiagramRenderer installs the presentation adapter used to paint diagrams
-// in the virtualized editor. Pass nil when the host releases the editor.
-func (e *Editor) SetDiagramRenderer(renderer DiagramRenderer) {
-	if e == nil {
-		return
-	}
-	e.paintMu.Lock()
-	e.diagramRenderer = renderer
-	e.paintMu.Unlock()
 }
 
 // SetMathRenderer installs the presentation adapter used to paint math
@@ -507,15 +460,39 @@ type phantom struct {
 	before bool
 }
 
-// New returns an editor of src.
+// New returns an editor of src with a new session.
 func New(src string, opts Options) *Editor {
-	e := &Editor{Session: NewSession(src), opts: opts, views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
-		hoverBlock: -1, foldHover: -1}
+	e := NewFromSession(editormodel.NewSession(src), opts)
+	// Preserve the historical constructor behavior: a newly opened document
+	// starts at its first editable stop (for example, after a list marker),
+	// while NewFromSession keeps the caller's explicit restored selection.
+	e.setSessionHead(e.firstStop())
+	e.setSessionAnchor(e.Caret())
+	return e
+}
+
+// NewFromSession attaches the production renderer/input adapter to the
+// caller's authoritative session. It does not create a second source,
+// selection, or history owner.
+func NewFromSession(session *editormodel.Session, opts Options) *Editor {
+	if session == nil {
+		session = editormodel.NewSession("")
+	}
+	e := &Editor{Session: session, opts: opts, uiScopeID: nextEditorScopeID.Add(1), views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
+		hoverBlock: -1, foldHover: -1, rail: navigationrail.NewState()}
+	e.imeClient = ime.NewClient(e)
+	e.p = source.New(exts, source.ParserText)
 	e.bindSessionAdapters()
+	e.Session.BindHistoryParticipant(e)
 	// The window's theme comes with the first frame; until then, the light
 	// one, so that a document opened before it lays out.
 	e.setLook(ui.LightTheme())
-	e.SetSource(src)
+	e.resetParserForSource(session.Source())
+	e.sync()
+	if session.Source() == "" {
+		e.phantom = &phantom{at: 0}
+		e.sync()
+	}
 	return e
 }
 
@@ -524,16 +501,13 @@ func (e *Editor) SetOptions(opts Options) {
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
 	if !opts.SmoothCursor {
-		e.smoothCursorActive = false
-		e.smoothCursorRectsValid = false
-		e.smoothCursorFromSet = false
+		e.feedbackState.CancelCursor()
 	}
 	if !opts.SearchMatchPulse {
-		e.searchPulseActive = false
+		e.feedbackState.CancelSearchPulse()
 	}
 	if !opts.VimYankFlash {
-		e.vimYankActive = false
-		e.vimYankRanges = nil
+		e.feedbackState.CancelYankFlash()
 	}
 	if opts.DisableSmartTypography && !e.opts.DisableSmartTypography {
 		e.typographyCache.Clear()
@@ -547,9 +521,9 @@ func (e *Editor) SetOptions(opts Options) {
 	embedResolverChanged := (opts.ResolveWikiEmbed == nil) != (e.opts.ResolveWikiEmbed == nil)
 	headingMarkerRevealChanged := opts.HeadingMarkerReveal != e.opts.HeadingMarkerReveal
 	if codeChanged || frontmatterChanged {
-		e.rev++
+		e.parsed = invalidParsedRevision
 		if codeChanged {
-			e.parsed = 0
+			e.parsed = invalidParsedRevision
 			e.pending, e.pendingMulti = nil, false
 		}
 	}
@@ -567,12 +541,12 @@ func (e *Editor) SetOptions(opts Options) {
 	}
 	hideFMEnd := 0
 	if opts.HideFrontmatter {
-		hideFMEnd = hideFrontMatterEnd(e.src)
+		hideFMEnd = hideFrontMatterEnd(e.Source())
 	}
-	if frontmatterChanged && hideFMEnd > 0 && e.caret < hideFMEnd {
-		e.caret = e.firstStop()
-		if e.anchor < hideFMEnd {
-			e.anchor = e.caret
+	if frontmatterChanged && hideFMEnd > 0 && e.Caret() < hideFMEnd {
+		e.setSessionHead(e.firstStop())
+		if e.Session.Selection().Anchor < hideFMEnd {
+			e.setSessionAnchor(e.Caret())
 		}
 		e.hasGoal = false
 		e.wantReveal = true
@@ -599,12 +573,15 @@ func (e *Editor) actCaretStill(f func()) {
 }
 
 // Source returns the Markdown being edited.
-func (e *Editor) Source() string { return e.src }
+func (e *Editor) Source() string { return e.Session.Source() }
 
 // SetSource replaces the document, as opening another file does: the
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
 	e.finishBlockInput()
+	if e.editBatch != nil {
+		e.commit(e.Caret(), e.Caret())
+	}
 	e.paintMu.Lock()
 	defer e.paintMu.Unlock()
 	// Opening a document is a lifetime boundary. Incremental edits reuse these
@@ -615,7 +592,7 @@ func (e *Editor) SetSource(src string) {
 	e.views = make(map[viewKey]*leafView)
 	e.imageHits = nil
 	e.wikiEmbeds = nil
-	e.wikiPopup = wikiSuggestionState{}
+	e.wikiPopup.Reset()
 	e.wikiHover = ""
 	e.wikiHoverBounds = ui.Rect{}
 	e.railLeaves, e.railNext = nil, nil
@@ -639,26 +616,24 @@ func (e *Editor) SetSource(src string) {
 	e.foldHover = -1
 	e.typedBreaks.Clear()
 	e.resetFolds()
-	e.selectionInclusive = false
-	e.selectionLinewise = false
+	e.setSessionInclusive(false)
+	e.setSessionLinewise(false)
 	e.block, e.blockInput = nil, nil
 	e.tableHandleDrag = nil
 	e.horizontalDrag = nil
-	e.src = src
+	e.Session.ReplaceSource(src)
 	e.imageAlignments = nil
 	e.largeDataImageCache = largeDataImageInlineCache{}
-	e.p.clear()
-	e.rev++
-	e.u16ix = u16Index{}
+	e.p.Clear()
+	e.parsed = invalidParsedRevision
+	e.imeClient.Reset()
 	e.pending, e.pendingMulti = nil, false
-	e.anchor, e.caret = 0, 0
+	e.setSessionSelection(0, 0)
 	e.phantom = nil
-	e.compose, e.composing = "", false
-	e.hist = history{}
 	e.highlights, e.current = nil, -1
 	e.vimHighlights, e.vimCurrent, e.vimHighlightsActive = nil, -1, false
-	e.vimYankRanges, e.vimYankActive = nil, false
-	e.searchPulseActive = false
+	e.feedbackState.CancelYankFlash()
+	e.feedbackState.CancelSearchPulse()
 	e.scroll.Y = 0
 	e.hasGoal = false
 	e.sync()
@@ -668,29 +643,26 @@ func (e *Editor) SetSource(src string) {
 		e.phantom = &phantom{at: 0}
 		e.sync()
 	}
-	e.caret = e.firstStop()
-	e.anchor = e.caret
+	e.setSessionHead(e.firstStop())
+	e.setSessionAnchor(e.Caret())
 	for _, l := range e.leaves {
-		l.horizontal = blockHorizontalScroll{}
+		l.horizontal = editorscroll.HorizontalState{}
 	}
 }
 
 // sync parses the source again when it changed, and makes the leaves.
 func (e *Editor) sync() {
-	if e.dataAssetsRev != e.rev {
-		clear(e.dataImageAssets)
-		e.dataImageAssets = nil
-		e.dataAssetsRev = e.rev
-	}
-	if cached := &e.largeDataImageCache; cached.valid && cached.rev != e.rev {
+	e.drainSessionChanges()
+	e.dataImageAssets.ResetForRevision(e.Session.Revision())
+	if cached := &e.largeDataImageCache; cached.valid && cached.rev != e.Session.Revision() {
 		*cached = largeDataImageInlineCache{}
 	}
-	if e.parsed == e.rev && e.leaves != nil {
+	if e.parsed == e.Session.Revision() && e.leaves != nil {
 		// The caret may have moved into or out of a comment: the leaves are
 		// built for the comment it is in (its own show, the others do not),
 		// so that a caret moving there rebuilds leaves, not the parse.
-		if f, ok := commentAt(e.p.comments, e.caret); ok != e.leafCommentOK || (ok && f != e.leafComment) {
-			e.rev++
+		if f, ok := commentAt(e.p.Comments(), e.Caret()); ok != e.leafCommentOK || (ok && f != e.leafComment) {
+			e.parsed = invalidParsedRevision
 		} else {
 			return
 		}
@@ -700,30 +672,34 @@ func (e *Editor) sync() {
 		e.arenaCur ^= 1
 		a := &e.arena[e.arenaCur]
 		a.reset()
-		e.leaves = []*leaf{codeDocLeaf(a, e.src, e.opts.Code)}
-		carryViews(e.leafSrc, e.src, old, e.leaves)
-		e.leafSrc = e.src
-		e.parsed = e.rev
-		e.p.clear()
+		e.leaves = []*leaf{codeDocLeaf(a, e.Source(), e.opts.Code)}
+		carryViews(e.leafSrc, e.Source(), old, e.leaves)
+		e.leafSrc = e.Source()
+		e.parsed = e.Session.Revision()
+		e.p.Clear()
 		e.pending, e.pendingMulti = nil, false
 		return
 	}
 	// The parser's input is made here and nowhere else: one edit it can
 	// follow, or the whole source again. The choice is the same for every
 	// field of it, so a fast path cannot leave one of them behind.
-	if e.p.src != e.src {
-		fm := frontMatterEnd(e.src)
-		if e.pending == nil || e.pendingMulti || fm != e.p.fm || !e.p.edit(e.src, e.pending) {
-			e.p.set(e.src, fm)
+	if e.p.Source() != e.Source() {
+		fm := frontMatterEnd(e.Source())
+		if e.pending == nil || e.pendingMulti || fm != e.p.FrontmatterEnd() || !e.p.Edit(e.Source(), e.pending.from, e.pending.to, e.pending.text) {
+			var imageInlines []syntax.IncrementalInline
+			if fm == 0 {
+				imageInlines, _ = largeDataImageOnlySource(e.Source())
+			}
+			e.p.Set(e.Source(), fm, imageInlines)
 		}
 	}
 	e.pending, e.pendingMulti = nil, false
 	old := e.leaves
 	e.arenaCur ^= 1
-	e.leaves = buildLeaves(e.src, e.p.doc, e.p.fm, &e.arena[e.arenaCur])
-	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.src, e.leaves)
+	e.leaves = buildLeaves(e.Source(), e.p.Parser(), e.p.FrontmatterEnd(), &e.arena[e.arenaCur])
+	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.Source(), e.leaves)
 	if e.opts.HideFrontmatter {
-		hideFMEnd := hideFrontMatterEnd(e.src)
+		hideFMEnd := hideFrontMatterEnd(e.Source())
 		if hideFMEnd > 0 {
 			kept := e.leaves[:0]
 			for _, l := range e.leaves {
@@ -751,7 +727,7 @@ func (e *Editor) sync() {
 			// A table draws as a grid, not as the lines it is written in: it
 			// becomes a block of lines to show its source at all.
 			l := e.leaves[i]
-			e.leaves[i] = rawLeaf(&e.arena[e.arenaCur], e.src, l.lineStart, blockEnd(e.src, l), false)
+			e.leaves[i] = rawLeaf(&e.arena[e.arenaCur], e.Source(), l.lineStart, blockEnd(e.Source(), l), false)
 		case e.leaves[i].kind == kCode:
 			// A block of code shows its source in place, fence and all: its
 			// view asks sourceOpen (see codeView).
@@ -765,9 +741,9 @@ func (e *Editor) sync() {
 	// used to become raw leaves showing the comment's own text. With the
 	// comment blanked, its lines are a gap the caret reaches through the
 	// phantom — and the comment shows when the caret is in it.
-	if len(e.p.comments) > 0 {
+	if len(e.p.Comments()) > 0 {
 		kept := e.leaves[:0]
-		e.leafComment, e.leafCommentOK = commentAt(e.p.comments, e.caret)
+		e.leafComment, e.leafCommentOK = commentAt(e.p.Comments(), e.Caret())
 		for _, l := range e.leaves {
 			if e.insideComment(l.start, l.end) {
 				continue
@@ -785,9 +761,18 @@ func (e *Editor) sync() {
 			e.leaves = insertPhantom(e.leaves, p)
 		}
 	}
-	carryViews(e.leafSrc, e.src, old, e.leaves)
-	e.leafSrc = e.src
-	e.parsed = e.rev
+	// A parser/presentation rebuild can happen without a source revision
+	// change (for example, revealing a code block's Markdown source). The
+	// visible-leaf index stores pointers into the previous leaf slice, so it
+	// must be rebuilt alongside the new leaves.
+	e.visibleIndexReady = false
+	// Caret units also retain leaf pointers. They can change when a comment is
+	// revealed or a table switches to source view without a source revision.
+	e.unitList = nil
+	e.unitIndexCache.valid = false
+	carryViews(e.leafSrc, e.Source(), old, e.leaves)
+	e.leafSrc = e.Source()
+	e.parsed = e.Session.Revision()
 }
 
 // carryViews gives the leaves of the new parse the views of the leaves of
@@ -861,11 +846,11 @@ func commentsStay(oldSrc, newSrc string, from, to, newLen int) bool {
 // caret is not in: that comment's leaves are dropped, so it takes no room
 // and its source shows only while the caret is in it.
 func (e *Editor) insideComment(start, end int) bool {
-	for _, c := range e.p.comments {
+	for _, c := range e.p.Comments() {
 		if e.leafCommentOK && c == e.leafComment {
 			continue
 		}
-		if c.from <= start && end <= c.to {
+		if c.Start <= start && end <= c.End {
 			return true
 		}
 	}
@@ -875,7 +860,7 @@ func (e *Editor) insideComment(start, end int) bool {
 // touchesComment reports whether the edit range reached a comment.
 func touchesComment(cmts []cmt, from, to int) bool {
 	for _, c := range cmts {
-		if from <= c.to && to >= c.from {
+		if from <= c.End && to >= c.Start {
 			return true
 		}
 	}
@@ -883,7 +868,7 @@ func touchesComment(cmts []cmt, from, to int) bool {
 }
 
 // parserText returns whole lines of the source as the parser reads them.
-func parserText(lines string) string { return bracketMath(lines) }
+func parserText(lines string) string { return source.ParserText(lines) }
 
 // blockAt returns the index of the leaf whose first line starts at lineStart,
 // or -1: the block a source control was used on, found again by its line.
@@ -1016,35 +1001,35 @@ func (e *Editor) selection() (int, int) {
 	if e.block != nil {
 		rs := e.blockRanges()
 		if len(rs) == 0 {
-			return e.caret, e.caret
+			return e.Caret(), e.Caret()
 		}
 		return rs[0].Start, rs[len(rs)-1].End
 	}
-	if e.selectionLinewise {
-		aa, _ := e.sourceLineRange(e.anchor)
-		ca, cz := e.sourceLineRange(e.caret)
-		if cz < len(e.src) {
+	if e.Session.Selection().Linewise {
+		aa, _ := e.sourceLineRange(e.Session.Selection().Anchor)
+		ca, cz := e.sourceLineRange(e.Caret())
+		if cz < len(e.Source()) {
 			cz++
 		}
 		if aa <= ca {
 			return aa, cz
 		}
-		_, az := e.sourceLineRange(e.anchor)
-		if az < len(e.src) {
+		_, az := e.sourceLineRange(e.Session.Selection().Anchor)
+		if az < len(e.Source()) {
 			az++
 		}
 		return ca, az
 	}
-	if e.anchor < e.caret {
-		if e.selectionInclusive {
-			return e.anchor, e.nextGraphemeBoundary(e.caret)
+	if e.Session.Selection().Anchor < e.Caret() {
+		if e.Session.Selection().Inclusive {
+			return e.Session.Selection().Anchor, e.nextGraphemeBoundary(e.Caret())
 		}
-		return e.anchor, e.caret
+		return e.Session.Selection().Anchor, e.Caret()
 	}
-	if e.selectionInclusive {
-		return e.caret, e.nextGraphemeBoundary(e.anchor)
+	if e.Session.Selection().Inclusive {
+		return e.Caret(), e.nextGraphemeBoundary(e.Session.Selection().Anchor)
 	}
-	return e.caret, e.anchor
+	return e.Caret(), e.Session.Selection().Anchor
 }
 
 // textSelectionRange is the text envelope. textSelectionForUnit excludes the
@@ -1070,7 +1055,7 @@ func (e *Editor) SelectedText() string {
 			if i > 0 {
 				selected.WriteByte('\n')
 			}
-			selected.WriteString(e.src[r.Start:r.End])
+			selected.WriteString(e.Source()[r.Start:r.End])
 		}
 		return selected.String()
 	}
@@ -1092,7 +1077,7 @@ func (e *Editor) SelectedText() string {
 				continue
 			}
 		}
-		selected.WriteString(e.src[part.source.Start:part.source.End])
+		selected.WriteString(e.Source()[part.source.Start:part.source.End])
 	}
 	return selected.String()
 }
@@ -1118,8 +1103,8 @@ func (e *Editor) firstStop() int {
 		// A recognized whole-document data image starts at a legal caret
 		// boundary. Building its unit view just to discover that boundary
 		// scans and shapes the enormous destination during editor startup.
-		if l.kind == kPara && l.start == 0 && len(e.p.imageInlines) > 0 &&
-			e.p.imageInlines[0].Start == l.start {
+		if l.kind == kPara && l.start == 0 && len(e.p.ImageInlines()) > 0 &&
+			e.p.ImageInlines()[0].Start == l.start {
 			return l.start
 		}
 		if s, ok := e.edgeStop(l, false); ok {
@@ -1139,7 +1124,7 @@ func (e *Editor) lastStop() int {
 			return s
 		}
 	}
-	return len(e.src)
+	return len(e.Source())
 }
 
 // setCaret moves the caret to off, keeping the anchor when extend is set,
@@ -1153,7 +1138,7 @@ func (e *Editor) setCaret(off int, extend bool) {
 	}
 	e.pageJump = false
 	if !e.tableNavigating {
-		e.tableController.ResetNavigation()
+		_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
 	}
 	if b := e.tableBridge; b != nil {
 		inside := false
@@ -1179,8 +1164,8 @@ func (e *Editor) setCaret(off int, extend bool) {
 	if e.inlineMath.Active() && !e.inlineMath.ContainsCaret(off) {
 		e.inlineMath.Clear()
 	}
-	off = max(0, min(off, len(e.src)))
-	if off != e.caret {
+	off = max(0, min(off, len(e.Source())))
+	if off != e.Caret() {
 		// A virtual destination belongs to the current structural focus. Once
 		// navigation moves the source caret, later puts resolve from that caret.
 		e.clearTableVirtualEdit()
@@ -1188,23 +1173,23 @@ func (e *Editor) setCaret(off int, extend bool) {
 	if e.vimImageRow != nil && off != e.vimImageRow.lineStart {
 		e.clearVimImageRow()
 	}
-	if e.Keymap() == "vim" && e.modal.mode == "Normal" && !extend {
+	if e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeNormal && !extend {
 		off = e.vimNormalOffset(off)
 	}
 	if e.smoothCursorNavigation {
-		e.beginSmoothCursorMove(e.caret, off, extend)
+		e.beginSmoothCursorMove(e.Caret(), off, extend)
 	} else {
-		e.smoothCursorActive = false
+		e.feedbackState.CancelCursor()
 	}
 	if e.phantom != nil && !(off == e.phantom.at && e.leafIsPhantom(off)) {
 		e.dropPhantom()
 	}
-	e.caret = off
+	e.setSessionHead(off)
 	if !extend {
-		e.anchor = off
+		e.setSessionAnchor(off)
 	}
 	e.wantReveal = true
-	e.compose = ""
+	e.clearComposition()
 	e.blinkStart = time.Now()
 	if extend && e.tableBridge == nil {
 		e.structuralSelectionForRange()
@@ -1223,8 +1208,7 @@ func (e *Editor) dropPhantom() {
 		return
 	}
 	e.phantom = nil
-	e.rev++
-	e.parsed = 0
+	e.parsed = invalidParsedRevision
 	e.sync()
 }
 
@@ -1232,12 +1216,11 @@ func (e *Editor) dropPhantom() {
 func (e *Editor) setPhantom(p *phantom) {
 	e.clearTableSelection()
 	e.phantom = p
-	e.rev++
-	e.parsed = 0
+	e.parsed = invalidParsedRevision
 	e.sync()
-	e.caret, e.anchor = p.at, p.at
+	e.setSessionSelection(p.at, p.at)
 	e.wantReveal = true
-	e.compose = ""
+	e.clearComposition()
 	e.blinkStart = time.Now()
 }
 
@@ -1250,13 +1233,13 @@ func (e *Editor) Select(start, end int) {
 	e.cancelPageJump()
 	e.clearTableSelectionSession()
 	e.dropPhantom()
-	start = max(0, min(start, len(e.src)))
-	end = max(start, min(end, len(e.src)))
+	start = max(0, min(start, len(e.Source())))
+	end = max(start, min(end, len(e.Source())))
 	e.expandFoldsForRange(start, end)
-	e.anchor, e.caret = start, end
+	e.setSessionSelection(start, end)
 	e.block, e.blockInput = nil, nil
-	e.selectionInclusive = false
-	e.selectionLinewise = false
+	e.setSessionInclusive(false)
+	e.setSessionLinewise(false)
 	e.wantReveal = true
 	e.pageJump = false
 	e.hasScrollTo = false
@@ -1269,7 +1252,7 @@ func (e *Editor) Select(start, end int) {
 func (e *Editor) ScrollToOffset(off int) {
 	// Keep the long-standing outline navigation margin (two font sizes below
 	// the viewport top); explicit zt uses the exact top placement operation.
-	e.NavigateToOffset(off, PageJumpTopMargin)
+	e.NavigateToOffset(off, layoutindex.PageJumpTopMargin)
 }
 
 // ScrollY returns how far the document is scrolled, in DIPs: 0 when its
@@ -1315,7 +1298,7 @@ func (e *Editor) clearVimSearchHighlights() {
 	e.vimHighlights, e.vimCurrent, e.vimHighlightsActive = nil, -1, false
 	e.sourceRevealRanges = normalizeSourceRevealRanges(e.highlights)
 	e.searchRev++
-	e.searchPulseActive = false
+	e.feedbackState.CancelSearchPulse()
 	e.invalidate()
 }
 
@@ -1335,8 +1318,7 @@ func (e *Editor) noteSearchHighlightChange(old Range, oldOK bool) {
 	if !e.opts.SearchMatchPulse || !nextOK || oldOK && old == next {
 		return
 	}
-	e.searchPulseStart = time.Now()
-	e.searchPulseActive = true
+	e.feedbackState.StartSearchPulse(time.Now())
 }
 
 // Focus gives the editor the keyboard focus.
@@ -1347,7 +1329,7 @@ func (e *Editor) Focused() bool { return e.focused }
 
 // ViewportBounds returns the last editor viewport as logical coordinates.
 // It is updated while building a frame and is intended for the UI adapter.
-func (e *Editor) ViewportBounds() EditorViewport { return e.viewport }
+func (e *Editor) ViewportBounds() media.Viewport { return e.viewport }
 
 func (e *Editor) invalidate() {
 	if e.opts.Invalidate != nil {
@@ -1364,7 +1346,7 @@ func (e *Editor) Headings() []Heading {
 		if l.kind != kHeading || l.pending {
 			continue
 		}
-		text := strings.TrimSpace(e.plainText(e.p.doc.Inlines(l.id)))
+		text := strings.TrimSpace(e.plainText(e.p.Parser().Inlines(l.id)))
 		out = append(out, Heading{Level: l.level, Text: text, Offset: l.start})
 	}
 	return out
@@ -1382,7 +1364,7 @@ func (e *Editor) clearTableSelection() {
 	e.tableSelection = nil
 	e.tableBridge = nil
 	if !e.tableNavigating {
-		e.tableController.ResetNavigation()
+		_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
 	}
 	e.tableHandleDrag = nil
 }

@@ -33,12 +33,12 @@ func TestHiddenFrontmatterDoesNotAddAClosingDelimiterBlankLine(t *testing.T) {
 func TestHideFrontmatterKeepsSourceOffsetsAndBodyCaret(t *testing.T) {
 	src := "---\ntitle: note\ntags: [one]\n---\n# Body\nText.\n"
 	e := New(src, Options{})
-	if e.p.fm == 0 || !hasFrontmatterLeaf(e.leaves) {
+	if e.p.FrontmatterEnd() == 0 || !hasFrontmatterLeaf(e.leaves) {
 		t.Fatal("frontmatter should be visible by default")
 	}
 
 	e.SetOptions(Options{HideFrontmatter: true})
-	fm := e.p.fm
+	fm := e.p.FrontmatterEnd()
 	if e.Source() != src {
 		t.Fatal("changing visibility changed the source")
 	}
@@ -80,14 +80,14 @@ func TestHideFrontmatterLeavesCaretAtEmptyBody(t *testing.T) {
 	if hasFrontmatterLeaf(e.leaves) {
 		t.Fatal("hidden frontmatter still has a display leaf")
 	}
-	if e.Caret() < e.p.fm {
-		t.Fatalf("caret = %d, want an empty body offset at or after %d", e.Caret(), e.p.fm)
+	if e.Caret() < e.p.FrontmatterEnd() {
+		t.Fatalf("caret = %d, want an empty body offset at or after %d", e.Caret(), e.p.FrontmatterEnd())
 	}
 	if len(e.leaves) != 1 {
 		t.Fatalf("empty body has %d leaves, want one editable line", len(e.leaves))
 	}
-	if !e.leaves[0].isLine() || e.leaves[0].start < e.p.fm || e.Caret() != e.leaves[0].start {
-		t.Fatalf("empty body leaf/caret = (%+v, %d), want one editable line at or after %d", e.leaves[0], e.Caret(), e.p.fm)
+	if !e.leaves[0].isLine() || e.leaves[0].start < e.p.FrontmatterEnd() || e.Caret() != e.leaves[0].start {
+		t.Fatalf("empty body leaf/caret = (%+v, %d), want one editable line at or after %d", e.leaves[0], e.Caret(), e.p.FrontmatterEnd())
 	}
 }
 

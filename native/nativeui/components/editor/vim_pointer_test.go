@@ -34,13 +34,13 @@ func TestVimMouseDragUsesVisualSelectionModel(t *testing.T) {
 			mouse.e.SetKeymap("vim")
 			x, y := pointerCell(t, mouse.e, tc.start, .75)
 			mouse.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
-			if mouse.e.caret != tc.start {
-				t.Fatalf("Vim click landed at %d, want the start of character %d", mouse.e.caret, tc.start)
+			if mouse.e.Caret() != tc.start {
+				t.Fatalf("Vim click landed at %d, want the start of character %d", mouse.e.Caret(), tc.start)
 			}
 			targetX, targetY := pointerCell(t, mouse.e, tc.target, .75)
 			mouse.e.dragTo(targetX, targetY)
-			if mouse.e.modal.mode != "Visual" || !mouse.e.selectionInclusive {
-				t.Fatalf("mouse drag mode=%q inclusive=%v, want Vim Visual inclusive selection", mouse.e.modal.mode, mouse.e.selectionInclusive)
+			if mouse.e.vimController().Mode() != "Visual" || !mouse.e.Session.Selection().Inclusive {
+				t.Fatalf("mouse drag mode=%q inclusive=%v, want Vim Visual inclusive selection", mouse.e.vimController().Mode(), mouse.e.Session.Selection().Inclusive)
 			}
 
 			keys := newHarness(t, src)
@@ -50,8 +50,8 @@ func TestVimMouseDragUsesVisualSelectionModel(t *testing.T) {
 			if got, want := mouse.e.SelectedText(), keys.e.SelectedText(); got != want || got != "bc" {
 				t.Fatalf("mouse selection=%q, Vim v-%s selection=%q; want shared selection %q", got, tc.motion, want, "bc")
 			}
-			if mouse.e.anchor != keys.e.anchor || mouse.e.caret != keys.e.caret {
-				t.Fatalf("mouse endpoints=(%d,%d), Vim endpoints=(%d,%d)", mouse.e.anchor, mouse.e.caret, keys.e.anchor, keys.e.caret)
+			if mouse.e.Session.Selection().Anchor != keys.e.Session.Selection().Anchor || mouse.e.Caret() != keys.e.Caret() {
+				t.Fatalf("mouse endpoints=(%d,%d), Vim endpoints=(%d,%d)", mouse.e.Session.Selection().Anchor, mouse.e.Caret(), keys.e.Session.Selection().Anchor, keys.e.Caret())
 			}
 			mouse.shot("vim-mouse-visual-selection-" + tc.name)
 		})
@@ -64,23 +64,23 @@ func TestVimNormalClickAndCaretStayOnCharacter(t *testing.T) {
 	leftHalf.e.SetKeymap("vim")
 	x, y := pointerCell(t, leftHalf.e, 2, .25) // Left half of “c”.
 	leftHalf.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
-	if leftHalf.e.caret != 2 {
-		t.Fatalf("left-half click selected character at %d, want c at 2", leftHalf.e.caret)
+	if leftHalf.e.Caret() != 2 {
+		t.Fatalf("left-half click selected character at %d, want c at 2", leftHalf.e.Caret())
 	}
 
 	h := newHarness(t, src)
 	h.e.SetKeymap("vim")
 	x, y = pointerCell(t, h.e, 3, .9) // Empty space after the last glyph.
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x + 20, Y: y})
-	if h.e.caret != 3 {
-		t.Fatalf("click after last glyph left Vim caret at %d, want last character at 3", h.e.caret)
+	if h.e.Caret() != 3 {
+		t.Fatalf("click after last glyph left Vim caret at %d, want last character at 3", h.e.Caret())
 	}
 	if got := h.e.vimNormalOffset(len(src)); got != 3 {
 		t.Fatalf("normal-mode end offset=%d, want last character at 3", got)
 	}
 	h.e.setCaret(len(src), false)
-	if h.e.caret != 3 {
-		t.Fatalf("normal-mode caret reached empty end position %d, want 3", h.e.caret)
+	if h.e.Caret() != 3 {
+		t.Fatalf("normal-mode caret reached empty end position %d, want 3", h.e.Caret())
 	}
 	h.shot("vim-normal-caret-at-end")
 }
@@ -98,13 +98,13 @@ func TestVimLinewiseSelectsOneBlankLine(t *testing.T) {
 		t.Fatalf("parsed %d blank lines, want two", len(blanks))
 	}
 	for i, blank := range blanks {
-		h.e.anchor, h.e.caret = blank.start, blank.start
+		h.e.setSessionSelection(blank.start, blank.start)
 		sendVim(h, "V")
 		if got := h.e.SelectedText(); got != "\n" {
 			t.Fatalf("V on blank line %d selected %q, want one line break", i, got)
 		}
-		if h.e.modal.mode != "Visual" || !h.e.selectionLinewise {
-			t.Fatalf("blank-line V mode=%q linewise=%v", h.e.modal.mode, h.e.selectionLinewise)
+		if h.e.vimController().Mode() != "Visual" || !h.e.Session.Selection().Linewise {
+			t.Fatalf("blank-line V mode=%q linewise=%v", h.e.vimController().Mode(), h.e.Session.Selection().Linewise)
 		}
 		a, z := h.e.selection()
 		for j, candidate := range blanks {
@@ -126,8 +126,8 @@ func TestVimMotionAcrossInlineMathKeepsItsDestination(t *testing.T) {
 			h := newHarness(t, src)
 			h.e.SetKeymap("vim")
 			h.e.setCaret(9, false) // Inside the collapsed math source.
-			if h.e.caret != 9 {
-				t.Fatalf("normal-mode caret normalized an interior offset to %d", h.e.caret)
+			if h.e.Caret() != 9 {
+				t.Fatalf("normal-mode caret normalized an interior offset to %d", h.e.Caret())
 			}
 			switch mode {
 			case "Normal":
@@ -141,8 +141,8 @@ func TestVimMotionAcrossInlineMathKeepsItsDestination(t *testing.T) {
 			if mode == "Linewise Visual" {
 				want = len("before $x^2$ after\nnext") - len("next")
 			}
-			if h.e.caret != want {
-				t.Fatalf("%s ended at %d, want %d", mode, h.e.caret, want)
+			if h.e.Caret() != want {
+				t.Fatalf("%s ended at %d, want %d", mode, h.e.Caret(), want)
 			}
 		})
 	}

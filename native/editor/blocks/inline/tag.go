@@ -1,49 +1,40 @@
-package editor
+package inline
 
 import (
 	"unicode"
 	"unicode/utf8"
 )
 
-// #tag, as Obsidian writes it: a `#` that starts a word, then its name —
-// letters, digits, `_`, and `-` or `/` for nesting. A `#` inside a word is
-// not a tag (`a#b`), and neither is a lone one. A heading's own `#` never
-// reaches here: the parser takes it, and the leaf draws it as chrome.
-
-// tagAt returns where the tag starting at p ends, or -1 when no tag starts
-// there. src[s:e] is the text inline being drawn, so that the character
-// before the `#` can be checked.
-func tagAt(src string, p, s, e int) int {
-	if p >= e || src[p] != '#' {
+// TagAt returns the byte offset just after a tag beginning at at, or -1 when
+// no tag starts there. The input range is half-open UTF-8 source coordinates.
+func TagAt(source string, at, start, end int) int {
+	if start < 0 || at < start || at >= end || end > len(source) || source[at] != '#' {
 		return -1
 	}
-	if p > s {
-		prev, _ := utf8.DecodeLastRuneInString(src[s:p])
+	if at > start {
+		prev, _ := utf8.DecodeLastRuneInString(source[start:at])
 		if !unicode.IsSpace(prev) {
 			return -1
 		}
 	}
-	q := p + 1
-	for q < e {
-		r, n := utf8.DecodeRuneInString(src[q:e])
-		if !tagNameRune(r) || (q == p+1 && !tagFirstRune(r)) {
-			break
-		}
-		q += n
-	}
-	if q == p+1 {
+	if at+1 >= end {
 		return -1
 	}
-	return q
+	first, size := utf8.DecodeRuneInString(source[at+1 : end])
+	if !tagFirstRune(first) {
+		return -1
+	}
+	endOffset := at + 1 + size
+	for endOffset < end {
+		r, size := utf8.DecodeRuneInString(source[endOffset:end])
+		if !tagNameRune(r) {
+			break
+		}
+		endOffset += size
+	}
+	return endOffset
 }
 
-// tagFirstRune is what a tag's name may start with: a letter, a digit or an
-// underscore, never a separator, so `##` and `#-` stay as written.
-func tagFirstRune(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
-}
+func tagFirstRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
 
-// tagNameRune is what a tag's name is made of.
-func tagNameRune(r rune) bool {
-	return tagFirstRune(r) || r == '-' || r == '/'
-}
+func tagNameRune(r rune) bool { return tagFirstRune(r) || r == '-' || r == '/' }

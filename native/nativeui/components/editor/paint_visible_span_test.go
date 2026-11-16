@@ -10,7 +10,7 @@ func TestPaintVisibleSpanIsOrderedAndExcludesFoldedLeaves(t *testing.T) {
 
 	for i, l := range h.e.visibleLeaves {
 		if h.e.foldHidden(l) {
-			t.Fatalf("visible layout index contains folded leaf at %d: %q", i, h.e.src[l.lineStart:l.end])
+			t.Fatalf("visible layout index contains folded leaf at %d: %q", i, h.e.Source()[l.lineStart:l.end])
 		}
 		if i > 0 && l.y < h.e.visibleLeaves[i-1].y {
 			t.Fatalf("visible layout index is not y-sorted at %d: %v < %v", i, l.y, h.e.visibleLeaves[i-1].y)

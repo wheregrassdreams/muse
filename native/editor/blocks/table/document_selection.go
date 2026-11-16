@@ -1,180 +1,205 @@
-package editor
+package table
 
-import tablemodel "muse/editor/blocks/table"
+import "muse/editor"
 
-// selectionPart is a semantic unit in a document selection. Text before and
-// after a table retains its precise source range; complete table structures
-// own their range and highlighting, just like an explicitly selected row.
-type selectionPart struct {
-	source    Range
-	structure *tableSelection
+// SelectionPart is one semantic segment of a document text selection. Text
+// outside a table remains a source range; a crossed table becomes one
+// structural selection over its parser-projected cells.
+type SelectionPart struct {
+	Source editor.TextRange
+	Table  *Selection
 }
 
-func cloneTableSelection(s *tableSelection) *tableSelection {
-	if s == nil {
-		return nil
+// SelectionForTextRange promotes a source selection to a table region only
+// when it crosses a table boundary or covers the whole table. A selection
+// wholly inside table source remains an ordinary text selection.
+func SelectionForTextRange(view DocumentView, text editor.Selection) (*Selection, bool) {
+	if !validView(view) || text.Anchor == text.Head {
+		return nil, false
 	}
-	copy := *s
-	return &copy
+	start, end := ordered(text.Anchor, text.Head)
+	if start >= view.End || end <= view.LineStart {
+		return nil, false
+	}
+	if !(start <= view.LineStart && end >= view.End) && start >= view.LineStart && end <= view.End {
+		return nil, false
+	}
+	if len(view.Rows) == 0 || maxRowWidth(view.Rows) == 0 {
+		return nil, false
+	}
+
+	anchor := Cell{Row: 0, Col: 0}
+	if start > view.LineStart {
+		var ok bool
+		anchor, ok = CellAtSourceOffset(view, start, PreferNextCell)
+		if !ok {
+			return nil, false
+		}
+	}
+
+	lastRow := len(view.Rows) - 1
+	focus := Cell{Row: lastRow, Col: max(0, len(view.Rows[lastRow])-1)}
+	if end < view.End {
+		var ok bool
+		focus, ok = CellAtSourceOffset(view, end-1, PreferPreviousCell)
+		if !ok {
+			return nil, false
+		}
+	}
+	right := text.Head >= text.Anchor
+	if !right {
+		anchor, focus = focus, anchor
+	}
+	region := (Grid{LineStart: view.LineStart, Rows: len(view.Rows), Cols: maxRowWidth(view.Rows)}).Region(anchor, focus, right)
+	return region, region != nil
 }
 
-func (e *Editor) selectionParts() []selectionPart {
-	a, z := e.selection()
-	if a == z {
+// EffectiveSelection resolves table-local selection ownership from the
+// session's structural selection snapshots and the current source selection.
+// A block selection suppresses implicit promotion, while explicit stored
+// selections remain authoritative.
+func EffectiveSelection(view DocumentView, text editor.Selection, selected, documentRegion *Selection, blockSelection bool) (*Selection, bool) {
+	if !validView(view) {
+		return nil, false
+	}
+	if selected != nil && selected.LineStart == view.LineStart {
+		copy := *selected
+		return &copy, true
+	}
+	if documentRegion != nil && documentRegion.LineStart == view.LineStart {
+		start, end := ordered(text.Anchor, text.Head)
+		if start < view.End && end > view.LineStart {
+			copy := *documentRegion
+			return &copy, true
+		}
+	}
+	if blockSelection {
+		return nil, false
+	}
+	return SelectionForTextRange(view, text)
+}
+
+// PromoteCellRegion creates the canonical structural selection used when a
+// text selection is promoted to cell selection or when the user selects a
+// cell range directly. Coordinate resolution and mode eligibility remain with
+// the input adapter; orientation and table selection semantics live here.
+func PromoteCellRegion(grid Grid, anchor, focus Cell, right bool, origin SelectionOrigin) (*Selection, bool) {
+	if origin > SelectionOriginVisualText {
+		return nil, false
+	}
+	selection := grid.Region(anchor, focus, right)
+	if selection == nil {
+		return nil, false
+	}
+	selection.Origin = origin
+	return selection, true
+}
+
+// RegionMove is the result of moving the active end of a structural table
+// selection. Exited is true when movement crossed a table edge; the host then
+// resolves ExitCell to a source caret and continues document navigation.
+type RegionMove struct {
+	Selection Selection
+	Handled   bool
+	Changed   bool
+	Exited    bool
+	ExitCell  Cell
+	Direction Cell
+}
+
+// MoveRegion advances a cell-region focus by one or more grid coordinates.
+// It returns edge information instead of choosing a source offset or moving
+// between UI blocks. The anchor and text-promotion identity are preserved.
+func MoveRegion(grid Grid, current Selection, rowDelta, colDelta int) RegionMove {
+	if grid.Rows <= 0 || grid.Cols <= 0 || !current.CellRegion ||
+		current.LineStart != grid.LineStart || (rowDelta == 0 && colDelta == 0) {
+		return RegionMove{}
+	}
+	current, ok := current.Clamp(grid)
+	if !ok {
+		return RegionMove{}
+	}
+	row, col := current.Focus.Row+rowDelta, current.Focus.Col+colDelta
+	if row < 0 || row >= grid.Rows || col < 0 || col >= grid.Cols {
+		return RegionMove{
+			Handled: true, Exited: true,
+			ExitCell:  Cell{Row: clamp(current.Focus.Row, 0, grid.Rows-1), Col: clamp(current.Focus.Col, 0, grid.Cols-1)},
+			Direction: Cell{Row: sign(rowDelta), Col: sign(colDelta)},
+		}
+	}
+	selection := grid.Region(current.Anchor, Cell{Row: row, Col: col}, current.Right)
+	if selection == nil {
+		return RegionMove{}
+	}
+	selection.Origin = current.Origin
+	return RegionMove{
+		Selection: *selection,
+		Handled:   true,
+		Changed:   selection.Focus != current.Focus || selection.Anchor != current.Anchor,
+	}
+}
+
+func sign(value int) int {
+	if value < 0 {
+		return -1
+	}
+	if value > 0 {
+		return 1
+	}
+	return 0
+}
+
+// ProjectDocumentSelection decomposes a source selection across ordered table
+// projections. Each intersected table that is crossed structurally is emitted
+// once as a whole-source envelope plus a rectangular table selection. Tables
+// wholly inside the selection's active text range remain in a text segment.
+// The views must belong to the same immutable source revision and be ordered
+// by LineStart.
+func ProjectDocumentSelection(text editor.Selection, tables []DocumentView) []SelectionPart {
+	start, end := ordered(text.Anchor, text.Head)
+	if start == end {
 		return nil
 	}
-	var parts []selectionPart
-	start := a
-	for _, t := range e.leaves {
-		if t.kind != kTable || t.tab == nil {
+	parts := make([]SelectionPart, 0, len(tables)*2+1)
+	cursor := start
+	for _, view := range tables {
+		if !validView(view) || view.LineStart >= end || view.End <= start || view.LineStart < cursor && cursor != start {
 			continue
 		}
-		s := e.tableStructureSelection(t)
-		if s == nil {
+		region, ok := SelectionForTextRange(view, text)
+		if !ok {
 			continue
 		}
-		// The semantic table segment owns the whole source block. Unselected
-		// Markdown cells and delimiters inside that block must not leak out as
-		// ordinary text parts around a row/column/cell projection.
-		lo, hi := t.lineStart, blockEnd(e.src, t)
-		if start < lo {
-			parts = append(parts, selectionPart{source: Range{start, lo}})
+		if cursor < view.LineStart {
+			parts = append(parts, SelectionPart{Source: editor.TextRange{Start: cursor, End: view.LineStart}})
 		}
-		parts = append(parts, selectionPart{source: Range{lo, hi}, structure: s})
-		start = hi
+		parts = append(parts, SelectionPart{
+			Source: editor.TextRange{Start: view.LineStart, End: view.End},
+			Table:  region,
+		})
+		cursor = view.End
 	}
-	if start < z {
-		parts = append(parts, selectionPart{source: Range{start, z}})
+	if cursor < end {
+		parts = append(parts, SelectionPart{Source: editor.TextRange{Start: cursor, End: end}})
 	}
 	return parts
 }
 
-func (e *Editor) tableStructureSelection(t *leaf) *tableSelection {
-	if t == nil {
-		return nil
-	}
-	if s := e.tableSelection; s != nil {
-		if s.lineStart == t.lineStart {
-			return s
-		}
-	}
-	if s := e.tableDocumentRegion; s != nil && s.lineStart == t.lineStart {
-		a, z := e.selection()
-		if a < blockEnd(e.src, t) && z > t.lineStart {
-			return s
-		}
-	}
-	if e.block != nil {
-		return nil
-	}
-	a, z := e.selection()
-	return e.tableStructureInRange(t, a, z)
+func validView(view DocumentView) bool {
+	return view.LineStart >= 0 && view.End >= view.LineStart && view.End <= len(view.Source)
 }
 
-func (e *Editor) tableStructureInRange(t *leaf, a, z int) *tableSelection {
-	if t == nil || t.tab == nil || len(t.tab.rows) == 0 {
-		return nil
+func maxRowWidth(rows [][]editor.TextRange) int {
+	width := 0
+	for _, row := range rows {
+		width = max(width, len(row))
 	}
-	end := blockEnd(e.src, t)
-	if a >= end || z <= t.lineStart {
-		return nil
-	}
-	if a <= t.lineStart && z >= end {
-		lastRow := len(t.tab.rows) - 1
-		lastCol := max(0, len(t.tab.rows[lastRow])-1)
-		if e.caret < e.anchor {
-			return tableRegionSelection(t, lastRow, lastCol, 0, 0, false)
-		}
-		return tableRegionSelection(t, 0, 0, lastRow, lastCol, true)
-	}
-	// Ranges entirely inside the table remain text selections. A document range
-	// crossing either boundary gets a rectangular structural segment for only
-	// the table intersection (including the complete table case).
-	if a >= t.lineStart && z <= end {
-		return nil
-	}
-	lo, hi := max(a, t.lineStart), min(z, end)
-	if lo >= hi {
-		return nil
-	}
-	anchorRow, anchorCol := 0, 0
-	if lo > t.lineStart {
-		anchorRow, anchorCol = e.tableCellAtRangeBoundary(t, lo)
-	}
-	lastRow := len(t.tab.rows) - 1
-	lastCol := max(0, len(t.tab.rows[lastRow])-1)
-	focusRow, focusCol := lastRow, lastCol
-	if hi < end {
-		focusRow, focusCol = e.tableCellAtRangeBoundary(t, hi-1)
-	}
-	if e.caret < e.anchor {
-		anchorRow, focusRow = focusRow, anchorRow
-		anchorCol, focusCol = focusCol, anchorCol
-	}
-	return tableRegionSelection(t, anchorRow, anchorCol, focusRow, focusCol, e.caret >= e.anchor)
+	return width
 }
 
-// tableCellAtRangeBoundary maps source offsets through parser-owned cell spans.
-// Pipe and separator characters fall back to the projection's line mapping.
-func (e *Editor) tableCellAtRangeBoundary(t *leaf, off int) (int, int) {
-	if _, row, col := cellAt(t, off); row >= 0 && col >= 0 {
-		return row, col
+func ordered(a, b int) (int, int) {
+	if a <= b {
+		return a, b
 	}
-	row, col, ok := e.tablePositionAtSource(t, off)
-	if !ok {
-		return 0, 0
-	}
-	return row, col
-}
-
-func tableRegionSelection(t *leaf, anchorRow, anchorCol, focusRow, focusCol int, right bool) *tableSelection {
-	if t == nil || t.tab == nil {
-		return nil
-	}
-	selection := (tablemodel.Grid{LineStart: t.lineStart, Rows: len(t.tab.rows), Cols: t.tab.cols()}).Region(
-		tablemodel.Cell{Row: anchorRow, Col: anchorCol},
-		tablemodel.Cell{Row: focusRow, Col: focusCol}, right,
-	)
-	return tableSelectionFromSnapshot(selection)
-}
-
-func (e *Editor) textSelectionForUnit(u *leaf) (int, int) {
-	if e.block != nil {
-		return 0, 0
-	}
-	if u.table != nil {
-		// A table region owns selection presentation for the entire table. The
-		// rectangle determines which cells are structurally selected; ordinary
-		// source-range highlighting must not leak into the other cells.
-		if e.tableStructureSelection(u.table) != nil {
-			return 0, 0
-		}
-	}
-	return e.textSelectionRange()
-}
-
-// leaveTableBoundary carries the selection envelope into an adjacent document
-// block. Only the active head moves; the table is retained as a semantic part.
-func (e *Editor) leaveTableBoundary(t *leaf, dir int, extend bool) {
-	if !e.hasGoal {
-		if r, ok := e.caretRect(e.selectionFocus()); ok {
-			e.goalX, e.hasGoal = r.X, true
-		}
-	}
-	for i, l := range e.leaves {
-		if l != t {
-			continue
-		}
-		if i+dir < 0 || i+dir >= len(e.leaves) {
-			anchor := e.anchor
-			if e.phantomAtEdge(i, dir) {
-				if extend {
-					e.anchor = anchor
-				}
-				return
-			}
-		}
-		e.enterLeaf(i+dir, dir, extend)
-		return
-	}
+	return b, a
 }

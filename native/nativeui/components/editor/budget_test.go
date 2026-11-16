@@ -45,7 +45,7 @@ func TestTypingFrameBudget(t *testing.T) {
 	tt.Frame()
 	tt.Frame()
 	mid := benchmarkProse(t, src)
-	e.anchor, e.caret = mid, mid
+	e.setSessionSelection(mid, mid)
 	e.wantReveal = true
 	tt.Frame()
 

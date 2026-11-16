@@ -121,7 +121,7 @@ func TestHTMLBlockShowsItsSourceAtTheCaret(t *testing.T) {
 func closingLeaf(t *testing.T, e *Editor) *leaf {
 	t.Helper()
 	for _, l := range e.leaves {
-		if l.kind == kHTML && strings.HasPrefix(strings.TrimSpace(e.src[l.start:l.end]), "</") {
+		if l.kind == kHTML && strings.HasPrefix(strings.TrimSpace(e.Source()[l.start:l.end]), "</") {
 			return l
 		}
 	}
