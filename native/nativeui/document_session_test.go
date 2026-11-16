@@ -10,6 +10,7 @@ import (
 	"muse/document/frontmatter"
 	"muse/platform/filesystem/documentstore"
 	"muse/platform/filesystem/filemetadata"
+	"muse/platform/filesystem/imagefiles"
 	vaultfilessource "muse/platform/filesystem/vaultfilessource"
 	vaultindexsource "muse/platform/filesystem/vaultindexsource"
 	vaultsearchstore "muse/platform/filesystem/vaultsearchstore"
@@ -195,6 +196,7 @@ func configureVaultPorts(t *testing.T, a *App) {
 	}
 	a.SetDependencies(Dependencies{
 		DocumentMetadata:      filemetadata.New(),
+		ImageLocalFiles:       imagefiles.New(),
 		VaultSearchReconciler: nativeUITestSearchReconciler{store: store},
 		NewVaultIndex: func(root string) (applicationvault.IndexPort, error) {
 			source, err := vaultindexsource.New(root)
