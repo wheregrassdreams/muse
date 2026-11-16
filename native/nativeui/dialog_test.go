@@ -26,6 +26,7 @@ func TestOpenFileDialogReturnsImmediately(t *testing.T) {
 	defer func() { openDialog = old }()
 
 	a := New()
+	withDocumentPorts(t, a)
 	done := make(chan struct{})
 	go func() {
 		a.openFileDialog()

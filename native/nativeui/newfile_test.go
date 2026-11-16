@@ -13,6 +13,7 @@ import (
 func TestNewFileToolbarCreatesAndOpens(t *testing.T) {
 	dir := t.TempDir()
 	a := New()
+	withDocumentPorts(t, a)
 	a.root = dir
 
 	tt := ui.NewTester(a.View, 1200, 800)
