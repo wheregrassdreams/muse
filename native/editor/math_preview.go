@@ -2,8 +2,8 @@ package editor
 
 import texmath "muse/markdown/math"
 
-// MathPreviewRect is backend-neutral viewport geometry in logical pixels.
-type MathPreviewRect struct {
+// EditorViewport is backend-neutral editor viewport geometry in logical pixels.
+type EditorViewport struct {
 	X, Y, W, H float32
 }
 
@@ -11,8 +11,8 @@ type MathPreviewRect struct {
 // is immutable and revision-independent; the host owns all drawing and card
 // interaction. Width and Height are the formula's natural logical size.
 type MathPreviewFrame struct {
-	Viewport MathPreviewRect
-	Anchor   MathPreviewRect
+	Viewport EditorViewport
+	Anchor   EditorViewport
 	Raster   *texmath.Raster
 	Width    float32
 	Height   float32
@@ -37,7 +37,7 @@ func (e *Editor) InlineMathPreview() (MathPreviewFrame, bool) {
 		return MathPreviewFrame{}, false
 	}
 	frame := MathPreviewFrame{
-		Viewport: e.mathPreviewViewport,
+		Viewport: e.viewport,
 		Anchor:   anchor,
 		FontSize: e.lk.size,
 		Font:     e.lk.font,
@@ -53,23 +53,23 @@ func (e *Editor) InlineMathPreview() (MathPreviewFrame, bool) {
 	return frame, true
 }
 
-func (e *Editor) mathPreviewAnchor(start int) (MathPreviewRect, bool) {
+func (e *Editor) mathPreviewAnchor(start int) (EditorViewport, bool) {
 	anchor, ok := e.caretRect(start)
 	if !ok {
-		return MathPreviewRect{}, false
+		return EditorViewport{}, false
 	}
-	anchor.X += e.mathPreviewViewport.X
-	anchor.Y += e.mathPreviewViewport.Y - e.scroll.Y
+	anchor.X += e.viewport.X
+	anchor.Y += e.viewport.Y - e.scroll.Y
 	// Keep the preview associated with the formula's opening delimiter while
 	// it is visible. If the formula wraps beyond the viewport, follow the live
 	// caret so its preview stays available during editing.
-	if anchor.Y+anchor.H <= e.mathPreviewViewport.Y || anchor.Y >= e.mathPreviewViewport.Y+e.mathPreviewViewport.H {
+	if anchor.Y+anchor.H <= e.viewport.Y || anchor.Y >= e.viewport.Y+e.viewport.H {
 		anchor, ok = e.caretRect(e.caret)
 		if !ok {
-			return MathPreviewRect{}, false
+			return EditorViewport{}, false
 		}
-		anchor.X += e.mathPreviewViewport.X
-		anchor.Y += e.mathPreviewViewport.Y - e.scroll.Y
+		anchor.X += e.viewport.X
+		anchor.Y += e.viewport.Y - e.scroll.Y
 	}
-	return MathPreviewRect{X: anchor.X, Y: anchor.Y, W: anchor.W, H: anchor.H}, true
+	return EditorViewport{X: anchor.X, Y: anchor.Y, W: anchor.W, H: anchor.H}, true
 }

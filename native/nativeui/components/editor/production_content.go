@@ -39,7 +39,6 @@ func NewProductionContent(value *editor.Editor, onClose func()) *ProductionConte
 	if value != nil {
 		value.SetDiagramRenderer(content.drawDiagram)
 		value.SetMathRenderer(drawMathRaster)
-		value.SetHeadingRailRenderer(content.drawHeadingRail)
 	}
 	return content
 }
@@ -49,6 +48,10 @@ func (c *ProductionContent) Render(ctx *ui.Context) {
 		return
 	}
 	c.editor.ViewWithInput(ctx, c.handleInput)
+	viewport := c.editor.ViewportBounds()
+	bounds := ui.Rect{X: viewport.X, Y: viewport.Y, W: viewport.W, H: viewport.H}
+	frame := c.editor.HeadingRailSnapshot(editor.HeadingRailViewport{Width: viewport.W, Height: viewport.H})
+	c.drawHeadingRail(ctx, bounds, frame, c.editor.HeadingRailPreview, func(offset int) { c.editor.JumpToHeading(offset) })
 	if frame, ok := c.editor.InlineMathPreview(); ok {
 		drawInlineMathPreview(ctx, frame)
 	}
@@ -107,7 +110,6 @@ func (c *ProductionContent) Close() {
 	if c.editor != nil {
 		c.editor.SetDiagramRenderer(nil)
 		c.editor.SetMathRenderer(nil)
-		c.editor.SetHeadingRailRenderer(nil)
 	}
 	c.diagrams = nil
 	c.rail.ys = nil

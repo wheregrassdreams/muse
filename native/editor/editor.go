@@ -190,11 +190,6 @@ type HeadingRailPreview struct {
 	Level   int
 }
 
-// HeadingRailRenderer is a temporary presentation port. The component owns
-// hover state, animation and painting; callbacks expose only typed queries and
-// navigation by heading index.
-type HeadingRailRenderer func(c *ui.Context, bounds ui.Rect, frame HeadingRailFrame, preview func(index int) HeadingRailPreview, jump func(offset int))
-
 // Editor is the state of a Markdown editor, kept by the app across frames:
 // the source and its parse, the selection, the history of undo and what
 // the editor laid out. View builds it.
@@ -216,8 +211,7 @@ type Editor struct {
 	opts                   Options
 	diagramRenderer        DiagramRenderer
 	mathRenderer           MathRenderer
-	mathPreviewViewport    MathPreviewRect
-	headingRailRenderer    HeadingRailRenderer
+	viewport               EditorViewport
 	inlineMath             inlineblock.MathSession
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
@@ -472,17 +466,6 @@ func (e *Editor) SetMathRenderer(renderer MathRenderer) {
 	}
 	e.paintMu.Lock()
 	e.mathRenderer = renderer
-	e.paintMu.Unlock()
-}
-
-// SetHeadingRailRenderer installs the presentation adapter for the heading
-// navigation rail. Pass nil while the legacy direct-View path is in use.
-func (e *Editor) SetHeadingRailRenderer(renderer HeadingRailRenderer) {
-	if e == nil {
-		return
-	}
-	e.paintMu.Lock()
-	e.headingRailRenderer = renderer
 	e.paintMu.Unlock()
 }
 
@@ -1361,6 +1344,10 @@ func (e *Editor) Focus() { e.handle.Focus() }
 
 // Focused reports whether the editor has the keyboard focus.
 func (e *Editor) Focused() bool { return e.focused }
+
+// ViewportBounds returns the last editor viewport as logical coordinates.
+// It is updated while building a frame and is intended for the UI adapter.
+func (e *Editor) ViewportBounds() EditorViewport { return e.viewport }
 
 func (e *Editor) invalidate() {
 	if e.opts.Invalidate != nil {

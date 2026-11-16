@@ -4,23 +4,11 @@ import (
 	"image/color"
 	"sort"
 	"strings"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // railEdge is how near the document's start or end the view must be for the
 // first or last heading to be the current one.
 const railEdge = float32(56)
-
-// railView supplies the current editor snapshot to the presentation adapter.
-// The component owns pointer tracking, animation, hit testing and painting.
-func (e *Editor) railView(c *ui.Context, b ui.Rect) {
-	if e.headingRailRenderer == nil {
-		return
-	}
-	frame := e.HeadingRailSnapshot(HeadingRailViewport{Width: b.W, Height: b.H})
-	e.headingRailRenderer(c, b, frame, e.HeadingRailPreview, func(offset int) { e.JumpToHeading(offset) })
-}
 
 // HeadingRailSnapshot returns the detached heading list and active section
 // for a navigation rail. The item slice remains valid until the document

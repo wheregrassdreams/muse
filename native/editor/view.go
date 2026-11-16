@@ -461,7 +461,7 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 	}
 
 	b := e.scrollHandle.Bounds(c)
-	e.mathPreviewViewport = MathPreviewRect{X: b.X, Y: b.Y, W: b.W, H: b.H}
+	e.viewport = EditorViewport{X: b.X, Y: b.Y, W: b.W, H: b.H}
 	if b.W > 0 {
 		e.elemW, e.viewH = b.W, b.H
 	}
@@ -580,7 +580,6 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 		}
 		// The rail floats over the document's right edge, and follows the pointer
 		// there as an overlay does.
-		e.railView(c, b)
 		e.tableEdgesView(c, b, tablePointer)
 		e.wikiSuggestionsView(c, b)
 		if _, active := e.searchMatchPulse(c.Now()); active {

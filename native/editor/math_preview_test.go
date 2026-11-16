@@ -89,7 +89,7 @@ func TestInlineMathPreviewStaysVisibleWhenCaretScrollsPastFormulaStart(t *testin
 		t.Fatalf("caret is not visible in the viewport: caret=%+v viewport=%+v scroll=%v", caretRect, viewport, h.e.scroll.Y)
 	}
 	frame, ok := h.e.InlineMathPreview()
-	if !ok || frame.Anchor != (MathPreviewRect{X: caretRect.X, Y: caretRect.Y, W: caretRect.W, H: caretRect.H}) {
+	if !ok || frame.Anchor != (EditorViewport{X: caretRect.X, Y: caretRect.Y, W: caretRect.W, H: caretRect.H}) {
 		t.Fatalf("preview did not follow the visible caret after the formula start scrolled away: frame=%+v caret=%+v ok=%v", frame, caretRect, ok)
 	}
 	h.shot("inline-math-preview-after-source-start-scrolls-away")
