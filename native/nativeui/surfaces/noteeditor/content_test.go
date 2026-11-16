@@ -52,6 +52,12 @@ func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
 	if hosted == nil || hosted.session != content.session {
 		t.Fatal("factory did not receive the pane-owned editor session")
 	}
+	if err := content.Replace(0, len("one\ntwo\n"), "one\ntwo\n"); err != nil {
+		t.Fatal(err)
+	}
+	if content.Snapshot().Dirty || len(actions) != 0 {
+		t.Fatalf("no-op replacement changed document state: snapshot=%+v actions=%+v", content.Snapshot(), actions)
+	}
 
 	if err := content.ReplaceUser("changed\n"); err != nil {
 		t.Fatal(err)

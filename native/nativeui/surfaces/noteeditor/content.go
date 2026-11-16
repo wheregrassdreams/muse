@@ -243,16 +243,18 @@ func (c *Content) Replace(start, end int, value string) error {
 	if err := c.ensureOpen(); err != nil {
 		return err
 	}
+	before := c.session.Source()
 	selection := c.session.Selection()
+	var result editor.DispatchResult
 	var err error
 	c.mutateSession(func() {
-		_, err = c.session.ApplyTransaction(editor.Transaction{
+		result, err = c.session.ApplyTransaction(editor.Transaction{
 			Before: selection,
 			After:  editor.Selection{Anchor: start + len(value), Head: start + len(value)},
 			Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: start, End: end}, Text: value}},
 		})
 	})
-	if err == nil {
+	if err == nil && result.Changed && c.session.Source() != before {
 		c.editorChanged()
 	}
 	return err
