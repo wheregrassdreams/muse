@@ -85,37 +85,12 @@ func (e *Editor) wordsForDisplay(text string) *displayWordIndex {
 // bigWordStart returns the next or previous Vim WORD start. A WORD is a
 // contiguous run of non-whitespace display text, including punctuation.
 func (w *displayWordIndex) bigWordStart(off, dir int) (navigation.Range, bool) {
-	if dir > 0 {
-		i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
-		if i < len(w.bigWords) && w.bigWords[i].Start <= off {
-			i++
-		}
-		if i < len(w.bigWords) {
-			return w.bigWords[i], true
-		}
-		return navigation.Range{}, false
-	}
-	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].Start >= off })
-	if i > 0 {
-		previous := w.bigWords[i-1]
-		if previous.Start < off && off < previous.End {
-			return previous, true
-		}
-		return previous, true
-	}
-	return navigation.Range{}, false
+	return navigation.BigWordStart(w.bigWords, off, navigation.Direction(dir))
 }
 
 // bigWordEnd returns the current/next Vim WORD's exclusive display-byte end.
 func (w *displayWordIndex) bigWordEnd(off int, next bool) (navigation.Range, bool) {
-	i := sort.Search(len(w.bigWords), func(i int) bool { return w.bigWords[i].End > off })
-	if next && i < len(w.bigWords) && w.bigWords[i].Start <= off {
-		i++
-	}
-	if i < len(w.bigWords) {
-		return w.bigWords[i], true
-	}
-	return navigation.Range{}, false
+	return navigation.BigWordEnd(w.bigWords, off, next)
 }
 
 func (w *displayWordIndex) byteAtUTF16(off int, end bool) int {

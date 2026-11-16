@@ -264,17 +264,8 @@ func (e *Editor) applyVimMotion(intent vim.Intent, iteration int, extend bool) {
 
 func (e *Editor) applyModalOperator(intent vim.Intent) {
 	if intent.Linewise {
-		a, z := e.modalLine(e.Caret())
-		for i := 1; i < max(1, intent.Count); i++ {
-			if z < len(e.Source()) {
-				z++
-				_, z = e.modalLine(z)
-			}
-		}
-		if intent.Operator == "c" && z > a && e.Source()[z-1] == '\n' {
-			z--
-		}
-		e.modalApply(intent.Operator, a, z)
+		range_ := vim.LinewiseOperatorRange(e.Source(), e.Caret(), intent.Count, intent.Operator)
+		e.modalApply(intent.Operator, range_.Start, range_.End)
 		return
 	}
 	if e.vimController().Mode() == vim.ModeBlockVisual && e.block != nil {
