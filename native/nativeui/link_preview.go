@@ -61,11 +61,11 @@ func (a *App) hoverWikiLinkAt(target string, x, y float32, linkBounds ui.Rect) {
 
 func (a *App) resolveVaultImage(src, base, root string) string {
 	if a.vault != nil {
-		return markdownui.ResolveImageSourceWithLookup(src, base, root, a.vault.FindImage)
+		return markdownui.ResolveImageSourceWithLocalFilesAndLookup(src, base, root, a.imageLocalFiles, a.vault.FindImage)
 	}
 	// The catalog is built asynchronously when a vault opens. Keep the first
 	// frame free of a fallback WalkDir; local/root-relative images still resolve.
-	return markdownui.ResolveImageSourceWithLookup(src, base, root, nil)
+	return markdownui.ResolveImageSourceWithLocalFilesAndLookup(src, base, root, a.imageLocalFiles, nil)
 }
 
 // wikiLinkSuggestions returns vault-relative Markdown paths without their
@@ -234,7 +234,7 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		if p.imagePath != imagePath {
 			p.imagePath = imagePath
 			p.image = nil
-			p.imageAsset = markdownui.LoadImageAssetWithCacheStore(imagePath, "", a.imageCacheStore, a.invalidate)
+			p.imageAsset = markdownui.LoadImageAssetWithLocalFiles(imagePath, "", a.imageLocalFiles, a.imageCacheStore, nil, a.invalidate)
 		}
 		if p.imageAsset != nil {
 			if next, _ := p.imageAsset.Advance(c.Now()); next > 0 {
@@ -279,7 +279,8 @@ func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
 		MarkdownOptions: markdownui.Options{
 			BodyFontSize: 12, Padding: 0, ContentWidth: 346,
 			BaseDir: filepath.Join(a.vaultSnapshot.Root, filepath.Dir(loc.Path)), AssetRoot: a.vaultSnapshot.Root,
-			ImageCacheStore: a.imageCacheStore, ResolveImage: a.resolveVaultImage, OnAsync: a.invalidate,
+			ImageCacheStore: a.imageCacheStore, LocalFiles: a.imageLocalFiles,
+			ResolveImage: a.resolveVaultImage, OnAsync: a.invalidate,
 			OnImagePreview: func(src string) {
 				resolved := a.resolveVaultImage(src, filepath.Join(a.vaultSnapshot.Root, filepath.Dir(loc.Path)), a.vaultSnapshot.Root)
 				if resolved != "" {
