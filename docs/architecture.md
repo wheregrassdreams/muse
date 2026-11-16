@@ -15,13 +15,17 @@ Status: target architecture for the modular-monolith refactor. This document is 
 native/
 ├── app/                           # composition root and module lifetime
 ├── cmd/muse-native/               # thin executable entry point
+├── cmd/mdshot/                    # Markdown rendering inspection utility
+├── cmd/searchbench/               # search benchmark utility
 ├── application/                   # cross-module user use cases
+│   ├── agent/                     # agent session and tool workflows
 │   ├── document/                  # open/save/export note workflows
 │   ├── config/                    # typed settings persistence port
 │   ├── vault/                     # open/switch/refresh vault workflows
 │   └── workspace/                 # restore and persist session workflows
 ├── events/                        # minimal typed in-process event contract
 ├── document/                      # durable note model and policies
+│   ├── date/                      # note date parsing and normalization
 │   ├── frontmatter/
 │   ├── repository.go              # note/recovery ports and domain errors
 │   └── types/                     # stable value types only
@@ -55,6 +59,7 @@ native/
 │   ├── render/
 │   ├── images/
 │   ├── math/
+│   │   └── texcanvas/             # native canvas integration for TeX rendering
 │   └── diagrams/
 ├── agent/                         # AI session/tool/provider-independent flow
 ├── config/                        # serialized settings, defaults and migration
@@ -92,18 +97,25 @@ native/
 │   │   ├── doctypes/                # backend-neutral document type registry/open policy
 │   │   ├── documentdialogs/       # reusable document dialogs and export presentation
 │   │   └── linkpreview/           # wiki-link hover preview state and rendering
-│   └── interactions/
+│   └── interactions/              # shared focus, keyboard routing and drag/drop behavior
+│       └── dragpayload/           # typed payloads shared by filetree and editor surfaces
 ├── platform/                      # OS/runtime adapters
 │   ├── externalopener/            # open URLs/files with the host system
 │   ├── cachepath/                  # OS/XDG cache-root policy
+│   ├── process/
+│   │   └── vaultsearchindexer/    # indexer process reconciliation/lifecycle
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
 │       ├── configstore/           # user settings JSON files and config-root policy
 │       ├── imagecache/            # atomic image cache persistence
+│       ├── exportstore/           # exported document writing
+│       ├── filemetadata/          # platform file metadata reads
+│       ├── imagefiles/            # image source file access
 │       ├── naviconstore/          # concrete per-vault icon preference persistence
 │       ├── recentstore/           # concrete recent-document persistence
 │       ├── vaultfiles/             # concrete vault file operations
 │       ├── vaultindexsource/      # concrete recursive source for vault indexing
+│       ├── vaultfilessource/      # concrete source for vault catalog discovery
 │       ├── vaultsearchstore/      # concrete persistent search-index storage
 │       ├── workspacestore/        # concrete workspace snapshot persistence
 │       └── watcher/               # concrete filesystem watcher
