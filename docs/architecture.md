@@ -41,6 +41,7 @@ native/
 │   ├── input/                     # keymap, Vim modes and command interpretation
 │   │   └── vim/                   # Vim mode state machine, prefixes and command mapping
 │   ├── navigation/                # source-position movement and structural navigation
+│   ├── findreplace/                # current-buffer match ranges and source replacement operations
 │   ├── source/                    # editor source/revision bridge to Markdown syntax
 │   ├── layout/                    # editor block geometry and virtualized layout policy
 │   ├── blocks/
@@ -64,6 +65,7 @@ native/
 ├── nativeui/                      # Muse panels and presentation composition
 │   ├── window/                     # generic window, pane and overlay hosting/lifecycle
 │   ├── surfaces/                   # feature-owned window content implementations
+│   │   ├── backlinks/               # backlink overlay content and scroll presentation
 │   │   ├── noteeditor/              # compose each pane's document/editor session
 │   │   ├── imagepreview/
 │   │   ├── imagedocument/
@@ -74,6 +76,7 @@ native/
 │   │   ├── filetree/
 │   │   ├── outline/
 │   │   ├── search/
+│   │   ├── findreplace/             # current-document find/replace view state and typed actions
 │   │   ├── commandpalette/
 │   │   ├── naviconpicker/
 │   │   ├── vaulthome/
@@ -121,6 +124,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 | `editor/input` | Toolkit-neutral key/text event and operation contracts shared by keymaps | `event.go`, `key_event.go`, `operation.go`, and `sequence.go` |
 | `editor/input/vim` | Independent Vim mode state machine, pending prefixes/counts/registers, and mapping from neutral key/text events to typed editor operations | `modal.go`, Vim-specific command interpretation, and mode/sequence tests; extract Editor-private callbacks into a narrow Host contract during wiring |
 | `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
+| `editor/findreplace` | Case-insensitive current-buffer matching, source ranges and safe single/all replacement planning | Current-document `findHits`, snippet/range generation, and replacement planning in `nativeui.App` |
 | `editor/layout` | Block geometry, visible-range indexing, virtualization and scroll policy | Geometry/policy portions of `layout.go`, `horizontal_scroll.go`, and `vim_virtual_image_rows.go` |
 | `editor/blocks/inline` | Inline formatting, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go` |
 | `editor/blocks/paragraph` | Heading/list/fold/break behavior and paragraph transactions | `folding.go`, `typed_breaks.go`, `paragraph`/heading/list portions of editor commands |
@@ -164,7 +168,7 @@ For very large Base64 image destinations, the exact Markdown recognition and syn
 
 `search/quickopen` owns fuzzy matching across candidate path, title, and aliases, including rank and rune-based highlight positions. The Quick Open surface owns only its query/selection view state and input presentation; it consumes ranked candidates and returns typed actions. It does not scan or rank the full catalog itself. Mermaid parsing and diagram models remain in `markdown`; the Mermaid Preview surface owns only its transient viewport state and rendering host integration.
 
-`nativeui/window` owns the generic runtime contract for opening, closing, focusing and placing windows, panes and overlays. It exposes stable IDs, generic descriptors and lifecycle operations; it does not expose a feature's concrete state type. Feature constructors take their own typed inputs and return a generic hosted-content interface plus an opaque handle. The manager owns host placement, z-order, focus and lifecycle; the hosted content owns its state, rendering and feature actions. Image preview owns zoom/pan/decode state, Quick Open owns query/selection state, and Mermaid Preview owns its diagram view state behind that generic handle. `workspace` owns durable document/pane descriptors, while transient overlays such as Quick Open and previews are not restored unless a product requirement explicitly says so. Persisted layout never contains bitmaps, widgets or feature-private state.
+`nativeui/window` owns the generic runtime contract for opening, closing, focusing and placing windows, panes and overlays. It exposes stable IDs, generic descriptors and lifecycle operations; it does not expose a feature's concrete state type. Feature constructors take their own typed inputs and return a generic hosted-content interface plus an opaque handle. The manager owns host placement, z-order, focus and lifecycle; the hosted content owns its state, rendering and feature actions. Image preview owns zoom/pan/decode state, Quick Open owns query/selection state, Mermaid Preview owns its diagram view state, and Backlinks owns its list/scroll presentation behind that generic handle. `vault/links` owns backlink data and resolution; the Backlinks surface owns only its presentation and navigation actions. `workspace` owns durable document/pane descriptors, while transient overlays such as Quick Open and previews are not restored unless a product requirement explicitly says so. Persisted layout never contains bitmaps, widgets or feature-private state.
 
 The runtime manager exposes `FocusedPane(host)` as a feature-neutral routing context, including while an overlay owns keyboard focus. It can activate and render one generic content handle per pane, but does not own tab presentation or split geometry: `workspace` persists tab order, active document per pane, and the split tree; `nativeui/workspacepresenter` maps that model to pane slots and asks the window manager to render each slot's active content. The presenter owns MyGo rows/columns, dividers, resize gestures, and focus requests; it emits typed workspace actions instead of editing workspace state itself. Pane focus and content focus remain separate so modal and transient surfaces do not change the active document pane.
 
@@ -188,9 +192,11 @@ The root `nativeui` package is still larger than its target responsibility. Keep
 | `vault_home.go`, settings and nav-icon picker rendering/state | `panels/vaulthome`, `panels/settings`, `panels/naviconpicker` | Injected repositories and application capability adapters |
 | `assistant_panel_adapter.go`: assistant panel rendering and tool-policy rules | `panels/agent` for presentation; `agent` / `application/agent` for policy and workflows | Tool capability wiring at composition time |
 | `filetree_panel.go`, `file_tree_keys.go`: tree rendering, view state, tree-local commands | `panels/filetree`; shared focus/key routing in `interactions` | Typed action dispatch to `application/vault` |
-| `properties_panel_adapter.go`: property editing rules, metadata updates, persistence | `panels/properties` for presentation; `document` / `application/document` for metadata and workflows | Repository/use-case injection and action routing |
+| `app.go`: flattened visible tree rows and cache invalidation coupled to expansion state | `panels/filetree` projection state | Supply catalog child/directory lookups and invalidate after vault catalog changes |
+| `properties_panel_adapter.go`: property view preferences, parsed-document cache, system-property snapshot and display projection | `panels/properties` | Config repository load/save adapter and typed metadata-workflow dispatch to `application/document` |
 | `vault_lifecycle.go`: backlink grouping/resolution and search-result policy | `vault/links`, `search`, and `application/vault` | Watch/index lifecycle coordination and opening the selected document |
 | `workspace_search_policy.go`: search scheduling/coalescing | `search` or a focused `application/search` workflow | UI query input and dispatch |
+| `app.go`: current-document find/replace query, hit cache, selection, scrolling and rendering | `panels/findreplace` for presentation; `editor/findreplace` for matching/ranges/replacement planning | Route typed actions to the active note editor and apply resulting transactions |
 | `file_creation.go` and file-operation branches in `app.go` | `application/vault` for create/move/overwrite/root-boundary policy | Dialog/drop event translation and typed use-case calls |
 | `link_preview.go`: hover state/rendering and wiki target resolution | `components/linkpreview` for presentation; `vault/links` for resolution | Surface lifecycle and resolver injection |
 | `document_header.go` and settings/assistant panel renderers | `surfaces/noteeditor` or their owning panel/shared component | Composition only |
