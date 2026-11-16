@@ -13,10 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/egoist/mygo/ui"
-
 	mdoc "muse/markdown"
-	markdownui "muse/nativeui/components/markdown"
 )
 
 // Type is one kind of openable document.
@@ -30,8 +27,6 @@ type Type struct {
 	Extensions []string
 	// Parse turns file bytes into a document.
 	Parse func(src []byte) *mdoc.Doc
-	// View draws a document natively.
-	View func(c *ui.Context, d *mdoc.Doc, o markdownui.Options) ui.Element
 	// Editable reports whether the type can be edited and written back.
 	Editable bool
 }
@@ -52,7 +47,6 @@ func NewRegistry() *Registry {
 		Name:       "Markdown",
 		Extensions: []string{".md", ".markdown", ".mdx", ".mdown", ".mkd"},
 		Parse:      mdoc.ParseFile,
-		View:       markdownui.View,
 		Editable:   true,
 	})
 
@@ -66,7 +60,6 @@ func NewRegistry() *Registry {
 			".sql", ".graphql", ".gql", ".proto", ".vue", ".svelte", ".astro", ".tex", ".bib", ".org", ".rst", ".adoc", ".properties", ".mod", ".sum", ".gradle", ".mk", ".cmake", ".plist", ".diff", ".patch",
 		},
 		Parse:    func(b []byte) *mdoc.Doc { return mdoc.ParsePlainText(string(b)) },
-		View:     markdownui.View,
 		Editable: true,
 	})
 

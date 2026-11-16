@@ -31,7 +31,7 @@ func TestChildrenShowsImagesButHidesOtherBinaryFiles(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, dir)
 	got := a.children(dir)
 	want := map[string]bool{
 		filepath.Join(dir, "sub"):    true,
@@ -92,7 +92,7 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	if err := os.WriteFile(path, []byte{0, 1, 2, 3}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	a.path = "existing.md"
 	a.loadDoc("preserve me")
