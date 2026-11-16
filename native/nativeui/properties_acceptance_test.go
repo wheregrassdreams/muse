@@ -156,7 +156,7 @@ func TestPropertyDisplayPreferencesPersistOutsideMarkdown(t *testing.T) {
 	if !b.propertyPrefs.Fields["tags"].Hidden {
 		t.Fatal("hidden preference not restored on document open")
 	}
-	fields := b.orderedProperties(d.Fields)
+	fields := b.propertyProjection(d.Fields).Ordered
 	if len(fields) < 2 || fields[0].Key != "status" {
 		t.Fatalf("order was not restored: %+v", fields)
 	}

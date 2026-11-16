@@ -3,7 +3,6 @@ package nativeui
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -50,36 +49,35 @@ func (a *App) propertiesViewModel() propertypanel.ViewModel {
 		return model
 	}
 	model.DocumentType = propertyDocumentType(d)
-	for _, field := range propertyCoreFields(d.Fields) {
-		projected := a.panelField(field, true)
-		if a.propertyPrefs.Fields[field.Key].Hidden || propertySecondary(field.Key) {
-			model.HiddenFields = append(model.HiddenFields, projected)
-		} else {
-			model.Fields = append(model.Fields, projected)
-		}
+	projection := a.propertyProjection(d.Fields)
+	for _, field := range projection.Visible {
+		model.Fields = append(model.Fields, a.panelField(field, frontmatter.IsCoreKey(field.Key)))
 	}
-	ordered := a.orderedProperties(d.Fields)
-	summary := summaryPropertyFields(ordered, a.propertyPrefs)
-	for i, field := range summary {
+	for _, field := range projection.Hidden {
+		model.HiddenFields = append(model.HiddenFields, a.panelField(field, frontmatter.IsCoreKey(field.Key)))
+	}
+	moveUp, moveDown := propertyMoveCapabilities(projection.Ordered, a.propertyPrefs)
+	for i, field := range projection.Summary {
 		if i >= 5 {
 			break
 		}
 		model.Summary = append(model.Summary, a.panelField(field, false))
 	}
-	if len(summary) > 4 {
-		model.MoreCount = len(summary) - 4
+	if len(projection.Summary) > 4 {
+		model.MoreCount = len(projection.Summary) - 4
 	}
-	for i, field := range ordered {
-		if propertyOmitted(field.Key) || isCoreProperty(field.Key) {
-			continue
+	for i := range model.Fields {
+		field := &model.Fields[i]
+		if !frontmatter.IsCoreKey(field.Key) {
+			field.CanMoveUp = moveUp[field.Key]
+			field.CanMoveDown = moveDown[field.Key]
 		}
-		projected := a.panelField(field, false)
-		projected.CanMoveUp = i > 0 && a.propertyPrefs.Fields[ordered[i-1].Key].Pinned == a.propertyPrefs.Fields[field.Key].Pinned
-		projected.CanMoveDown = i+1 < len(ordered) && a.propertyPrefs.Fields[ordered[i+1].Key].Pinned == a.propertyPrefs.Fields[field.Key].Pinned
-		if a.propertyPrefs.Fields[field.Key].Hidden || propertySecondary(field.Key) {
-			model.HiddenFields = append(model.HiddenFields, projected)
-		} else {
-			model.Fields = append(model.Fields, projected)
+	}
+	for i := range model.HiddenFields {
+		field := &model.HiddenFields[i]
+		if !frontmatter.IsCoreKey(field.Key) {
+			field.CanMoveUp = moveUp[field.Key]
+			field.CanMoveDown = moveDown[field.Key]
 		}
 	}
 	for _, system := range a.propertySystem {
@@ -112,7 +110,7 @@ func (a *App) panelField(field frontmatter.Field, core bool) propertypanel.Field
 	projected := propertypanel.Field{
 		Key: field.Key, Label: propertyLabel(field.Key), Value: field.Value,
 		DisplayValue: displayPropertyValue(field), Kind: panelFieldKind(field.Kind),
-		Editable: field.Editable, Removable: field.Editable && !isCoreProperty(field.Key),
+		Editable: field.Editable, Removable: field.Editable && !frontmatter.IsCoreKey(field.Key),
 		Pinned: pref.Pinned, Hidden: pref.Hidden, CanPin: field.Editable, CanHide: field.Editable, CanReorder: field.Editable && !core,
 	}
 	if field.Kind == "list" {
@@ -166,7 +164,7 @@ func (a *App) propertyField(key string) (frontmatter.Field, bool) {
 			return field, true
 		}
 	}
-	for _, field := range propertyCoreFields(d.Fields) {
+	for _, field := range a.propertyProjection(d.Fields).Core {
 		if field.Key == key {
 			return field, true
 		}
@@ -326,20 +324,6 @@ func (a *App) propertySummary(c *ui.Context) {
 	propertypanel.RenderSummary(c, a.propertiesViewModel(), a.dispatchPropertyAction)
 }
 
-func summaryPropertyFields(fields []frontmatter.Field, prefs documentPropertyPrefs) []frontmatter.Field {
-	visible := make([]frontmatter.Field, 0, len(fields))
-	for _, f := range fields {
-		if propertyOmitted(f.Key) || strings.EqualFold(f.Key, "type") || prefs.Fields[f.Key].Hidden || propertySecondary(f.Key) {
-			continue
-		}
-		if strings.TrimSpace(displayPropertyValue(f)) == "" {
-			continue
-		}
-		visible = append(visible, f)
-	}
-	return visible
-}
-
 func displayPropertyValue(f frontmatter.Field) string {
 	return frontmatter.DisplayValue(f)
 }
@@ -399,14 +383,6 @@ func (a *App) applyPropertyYAMLSource(draft string) error {
 	}
 	a.applyPropertySource(next)
 	return nil
-}
-
-func propertyCoreFields(fields []frontmatter.Field) []frontmatter.Field {
-	return frontmatter.CoreFields(fields)
-}
-
-func isCoreProperty(key string) bool {
-	return frontmatter.IsCoreKey(key)
 }
 
 func propertyTypeName(kind string) string {
@@ -481,50 +457,31 @@ func (a *App) propertySaveField(key, value string) {
 	a.invalidate()
 }
 
-func (a *App) orderedProperties(fields []frontmatter.Field) []frontmatter.Field {
-	out := append([]frontmatter.Field(nil), fields...)
-	rank := func(key string) int {
-		switch strings.ToLower(key) {
-		case "tags":
-			return 0
-		case "status":
-			return 1
-		case "date":
-			return 2
-		case "aliases":
-			return 3
-		default:
-			return 10
+func (a *App) propertyProjection(fields []frontmatter.Field) frontmatter.InspectorProjection {
+	preferences := make(map[string]frontmatter.FieldPreference, len(a.propertyPrefs.Fields))
+	for key, pref := range a.propertyPrefs.Fields {
+		preferences[key] = frontmatter.FieldPreference{Pinned: pref.Pinned, Hidden: pref.Hidden, Order: pref.Order}
+	}
+	return frontmatter.ProjectInspector(fields, preferences)
+}
+
+func propertyMoveCapabilities(fields []frontmatter.Field, preferences documentPropertyPrefs) (map[string]bool, map[string]bool) {
+	moveUp := make(map[string]bool, len(fields))
+	moveDown := make(map[string]bool, len(fields))
+	for i, field := range fields {
+		if i > 0 && preferences.Fields[fields[i-1].Key].Pinned == preferences.Fields[field.Key].Pinned {
+			moveUp[field.Key] = true
+		}
+		if i+1 < len(fields) && preferences.Fields[fields[i+1].Key].Pinned == preferences.Fields[field.Key].Pinned {
+			moveDown[field.Key] = true
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		pi, pj := a.propertyPrefs.Fields[out[i].Key], a.propertyPrefs.Fields[out[j].Key]
-		if pi.Pinned != pj.Pinned {
-			return pi.Pinned
-		}
-		if pi.Order > 0 || pj.Order > 0 {
-			oi, oj := pi.Order, pj.Order
-			if oi == 0 {
-				oi = int(^uint(0) >> 1)
-			}
-			if oj == 0 {
-				oj = int(^uint(0) >> 1)
-			}
-			if oi != oj {
-				return oi < oj
-			}
-		}
-		if rank(out[i].Key) != rank(out[j].Key) {
-			return rank(out[i].Key) < rank(out[j].Key)
-		}
-		return false
-	})
-	return out
+	return moveUp, moveDown
 }
 
 func (a *App) moveProperty(key string, delta int) {
 	d := a.propertyDocument()
-	fields := a.orderedProperties(d.Fields)
+	fields := a.propertyProjection(d.Fields).Ordered
 	index := -1
 	for i, f := range fields {
 		if f.Key == key {
@@ -587,14 +544,6 @@ func propertyValueColor(t *ui.Theme) ui.Color {
 		return ui.Hex("#dededb")
 	}
 	return ui.Hex("#323231")
-}
-
-func propertyOmitted(key string) bool {
-	return frontmatter.OmitFromPropertySummary(key)
-}
-
-func propertySecondary(key string) bool {
-	return frontmatter.IsSecondaryProperty(key)
 }
 
 func propertyLabel(key string) string {
