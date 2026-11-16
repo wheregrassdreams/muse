@@ -151,6 +151,8 @@ Text shaping needs an explicit backend boundary. `editor/layout` owns neutral bl
 
 The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/components/editor` must be able to consume it without violating Go's `internal` import boundary.
 
+`editor.Session.Frame` is a neutral source snapshot containing only revision, source text, and selection. It must not carry a Markdown AST, rendered block tree, toolkit object, or cache. `editor/source` owns the source-to-syntax projection; Markdown parsing and render models remain in `markdown`. `nativeui/components/editor` may keep a separate immutable viewport frame containing only visible UI blocks and presentation resources.
+
 `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component.
 
 ### Editor UI component extraction map
