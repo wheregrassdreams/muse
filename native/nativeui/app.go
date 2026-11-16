@@ -214,7 +214,7 @@ type App struct {
 	folderToggled map[string]time.Time
 
 	// quick open (⌘O): fuzzy file jump inside the workspace
-	coreMigration        *coreMigrationPreview
+	coreMigration        *documentsave.CoreMetadataPlan
 	coreMigrationOpen    bool
 	coreMigrationLoading bool
 	coreMigrationRunning bool
