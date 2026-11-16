@@ -135,7 +135,8 @@ for package in \
   native/markdown/images \
   native/markdown/math \
   native/markdown/diagrams \
-  native/agent \
+  native/application/agent \
+  native/platform/agent \
   native/config \
   native/theme \
   native/ui/scrollbar \
