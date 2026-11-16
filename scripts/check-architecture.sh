@@ -76,7 +76,6 @@ for package in \
   native/workspace \
   native/editor \
   native/editor/internal/core \
-  native/editor/internal/textlayout \
   native/editor/input \
   native/editor/input/vim \
   native/editor/navigation \
@@ -99,6 +98,7 @@ for package in \
   native/nativeui \
   native/nativeui/components \
   native/nativeui/components/editor \
+  native/nativeui/components/editor/textlayout \
   native/nativeui/components/markdown \
   native/nativeui/components/doctypes \
   native/nativeui/components/documentdialogs \

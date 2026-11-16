@@ -47,8 +47,7 @@ native/
 │   │   ├── paragraph/
 │   │   └── table/                 # table editing subsystem
 │   └── internal/
-│       ├── core/                  # editor-private buffer/transaction primitives
-│       └── textlayout/            # editor-private text shaping/layout implementation
+│       └── core/                  # editor-private buffer/transaction primitives
 ├── markdown/                      # public Markdown parse/render facade
 │   ├── syntax/
 │   ├── render/
@@ -82,6 +81,7 @@ native/
 │   │   └── settings/
 │   ├── components/
 │   │   ├── editor/                  # MyGo input/render adapter over editor.Session
+│   │   │   └── textlayout/           # MyGo-backed shaping helpers used by the editor view
 │   │   ├── markdown/                # MyGo painter over neutral Markdown models
 │   │   ├── doctypes/                # backend-neutral document type registry/open policy
 │   │   ├── documentdialogs/       # reusable document dialogs and export presentation
@@ -128,7 +128,7 @@ The table entries are responsibility guides, not mechanical move lists: files th
 
 Vim remains a selectable editor input strategy, not a second editor core. Its state machine owns mode transitions, command prefixes/counts, register selection, and command-to-operation mapping. It calls typed host capabilities for source/selection queries and operation dispatch; it must not reach into `Editor` fields or own buffer/history. `editor/navigation` implements movement semantics, `editor/blocks/*` implements block operations, and `editor/internal/core` commits edits. The UI adapter translates MyGo events to neutral input events and renders the current mode label/command prompt from an immutable Vim view state.
 
-Text shaping needs an explicit backend boundary. `editor/layout` owns neutral geometry and virtualization policy. Any MyGo text measurement, painter, font, or rich-text API belongs under `nativeui/components/editor`; `editor/internal/textlayout` may remain only for backend-neutral shaping algorithms and must not import MyGo. This replaces the earlier ambiguous wording that assigned all shaping implementation details to `editor/internal/textlayout`.
+Text shaping needs an explicit backend boundary. `editor/layout` owns neutral block geometry and virtualization policy. The current shaping implementation imports MyGo and therefore belongs under `nativeui/components/editor/textlayout`; it must not stay under `editor` or `editor/internal`. If a backend-neutral shaping algorithm is extracted later, it can live behind that component package's narrow input/output contract without depending on MyGo.
 
 The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/components/editor` must be able to consume it without violating Go's `internal` import boundary.
 
