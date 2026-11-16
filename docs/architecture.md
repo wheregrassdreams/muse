@@ -100,6 +100,7 @@ native/
 │   └── interactions/              # shared focus, keyboard routing and drag/drop behavior
 │       └── dragpayload/           # typed payloads shared by filetree and editor surfaces
 ├── platform/                      # OS/runtime adapters
+│   ├── agent/                      # external AI provider HTTP adapters and wire protocol
 │   ├── externalopener/            # open URLs/files with the host system
 │   ├── cachepath/                  # OS/XDG cache-root policy
 │   ├── process/
@@ -329,6 +330,7 @@ Complete the target file/package layout before doing further production wiring. 
 ## Architecture decisions during implementation
 
 - 2026-11-16: GoRex is adopted as a behavioral reference for tab/pane focus and split-layout interactions, not as a package architecture to copy. Muse separates durable layout (`workspace`), generic live hosting (`nativeui/window`), and toolkit layout presentation (`nativeui/workspacepresenter`). A pane's note/editor composition belongs to `nativeui/surfaces/noteeditor`; recent pane focus used for runtime close fallback is session policy and is not serialized as durable document content.
+- 2026-11-17: Provider-specific HTTP and wire-format code belongs to `platform/agent`; `agent` and `application/agent` own provider-independent session, policy, and stream contracts. The composition root constructs concrete provider adapters and injects their ports. This keeps network protocols and credentials out of UI and application policy.
 - 2026-11-16: Refactor execution is layout-first. First relocate implementation and test files to the target package tree without changing package declarations, imports, APIs, or behavior; then perform package/API wiring against that completed tree. The layout-only intermediate may not compile, so do not use build success as its acceptance criterion. The completed wiring phase must remove all migration shells and satisfy the full completion gate above.
 
 Do not weaken these criteria to close the goal. If any criterion remains open, keep the goal active and continue the refactor.
