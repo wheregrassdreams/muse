@@ -38,6 +38,7 @@ native/
 ├── workspace/                     # tabs, active view, layout and restoration
 ├── editor/                        # public editing-session facade and composition
 │   ├── input/                     # keymap, Vim modes and command interpretation
+│   │   └── vim/                   # Vim mode state machine, prefixes and command mapping
 │   ├── navigation/                # source-position movement and structural navigation
 │   ├── layout/                    # editor block geometry and virtualized layout policy
 │   ├── blocks/
@@ -107,7 +108,8 @@ The child entries in this tree are real Go package boundaries, not merely folder
 |---|---|---|
 | `editor` facade | Public `Session`, neutral input/transaction/frame types, and composition only | Keep the public API small (`api.go`, `session.go`); do not leave the current `Editor` view implementation as the production facade |
 | `editor/internal/core` | Buffer, selection, undo/history, source transactions, system patches | Core portions of `editor.go`, `edit.go`, `transaction.go`, `history.go`, `operations.go`, `multirange.go`, and `system_patch.go` |
-| `editor/input` | Toolkit-neutral key/text intents, Vim mapping, command interpretation | Semantic portions of `input.go`, `modal.go`, `modal_command_line.go`, and `native_commands.go`; MyGo event conversion stays in `nativeui/components/editor` |
+| `editor/input` | Toolkit-neutral key/text event and operation contracts shared by keymaps | `event.go`, `key_event.go`, `operation.go`, and `sequence.go` |
+| `editor/input/vim` | Independent Vim mode state machine, pending prefixes/counts/registers, and mapping from neutral key/text events to typed editor operations | `modal.go`, Vim-specific command interpretation, and mode/sequence tests; extract Editor-private callbacks into a narrow Host contract during wiring |
 | `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
 | `editor/layout` | Block geometry, visible-range indexing, virtualization and scroll policy | Geometry/policy portions of `layout.go`, `horizontal_scroll.go`, and `vim_virtual_image_rows.go` |
 | `editor/blocks/inline` | Inline formatting, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go` |
@@ -115,7 +117,9 @@ The child entries in this tree are real Go package boundaries, not merely folder
 | `editor/blocks/table` | Table selection model, hit testing, grid geometry, and row/column operations | Semantic portions of `table_document_selection.go`, `table_region_*.go`, `table_virtual_edit.go`, and `table_visual_modes.go` |
 | `nativeui/components/editor` | MyGo input/render adapter, rich-text editing, IME, painting, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go` |
 
-The table entries are responsibility guides, not mechanical move lists: files that combine model behavior and UI must be split before their owners change. Tests move with the package that owns the tested behavior; UI/input tests belong with the component adapter, while transaction and navigation tests stay with their neutral subsystem. A package is justified when it has a coherent contract and more than a forwarding file.
+The table entries are responsibility guides, not mechanical move lists: files that combine model behavior and UI must be split before their owners change. Tests move with the package that owns the tested behavior; Vim mode/command tests belong with `editor/input/vim`, movement semantics belong with `editor/navigation`, UI/input adapter tests belong with the component adapter, and transaction tests stay with the core. A package is justified when it has a coherent contract and more than a forwarding file.
+
+Vim remains a selectable editor input strategy, not a second editor core. Its state machine owns mode transitions, command prefixes/counts, register selection, and command-to-operation mapping. It calls typed host capabilities for source/selection queries and operation dispatch; it must not reach into `Editor` fields or own buffer/history. `editor/navigation` implements movement semantics, `editor/blocks/*` implements block operations, and `editor/internal/core` commits edits. The UI adapter translates MyGo events to neutral input events and renders the current mode label/command prompt from an immutable Vim view state.
 
 Text shaping needs an explicit backend boundary. `editor/layout` owns neutral geometry and virtualization policy. Any MyGo text measurement, painter, font, or rich-text API belongs under `nativeui/components/editor`; `editor/internal/textlayout` may remain only for backend-neutral shaping algorithms and must not import MyGo. This replaces the earlier ambiguous wording that assigned all shaping implementation details to `editor/internal/textlayout`.
 
