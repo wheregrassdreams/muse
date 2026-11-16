@@ -81,6 +81,8 @@ native/
 │   │   ├── agent/
 │   │   └── settings/
 │   ├── components/
+│   │   ├── icons/                  # MyGo adapter for the UI-independent ui/iconlibrary catalog
+│   │   ├── windowcontrols/         # native window shell controls
 │   │   ├── editor/                  # MyGo input/render adapter over editor.Session
 │   │   │   └── textlayout/           # MyGo-backed shaping helpers used by the editor view
 │   │   ├── markdown/                # MyGo painter over neutral Markdown models
@@ -185,6 +187,7 @@ The root `nativeui` package is still larger than its target responsibility. Keep
 | `file_creation.go` and file-operation branches in `app.go` | `application/vault` for create/move/overwrite/root-boundary policy | Dialog/drop event translation and typed use-case calls |
 | `link_preview.go`: hover state/rendering and wiki target resolution | `components/linkpreview` for presentation; `vault/links` for resolution | Surface lifecycle and resolver injection |
 | `document_header.go` and settings/assistant panel renderers | `surfaces/noteeditor` or their owning panel/shared component | Composition only |
+| `icons.go`, `window_controls.go`, `header_fade.go` | `components/icons` adapts catalog assets; `components/windowcontrols` owns native shell buttons; evaluate `header_fade.go` as shell visual behavior | App shell composition |
 
 This is a migration map, not permission to move whole files blindly: first define a view snapshot, typed actions, or consumer-owned capability where needed, then move the cohesive behavior and its tests. A helper may remain in root only when it is app orchestration; a feature rule does not become orchestration just because it currently reads private `App` fields. Resolve that dependency by moving state behind the owning module's API. UI-only shell visuals and window/surface open-close adapters may remain in `nativeui` when they have no feature policy or duplicated feature state.
 
