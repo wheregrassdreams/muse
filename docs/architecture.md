@@ -99,7 +99,27 @@ native/
 
 The child entries in this tree are real Go package boundaries, not merely folders used to group files. `editor` and `markdown` are public facades; they should compose focused subsystems rather than retain the current large implementation bodies. A subsystem may stay in its parent package only when it shares private invariants that cannot yet be expressed through a narrow typed contract. Do not create one-file packages or empty forwarding shells just to match the tree.
 
-`editor/internal/core` owns the editing buffer and transaction/history value semantics. `editor/input` turns toolkit-neutral key and text input into editor operations; `nativeui` translates MyGo events at its edge. `editor/navigation` owns movement policy and source-position navigation. `editor/layout` owns editor block geometry and virtualization policy, while `editor/internal/textlayout` owns shaping implementation details. `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax remains in Markdown parsing, while table selection and edits belong to `editor/blocks/table`.
+### Editor extraction map
+
+`native/editor` is not intended to stay flat. The current files are large and some mix policy with MyGo rendering, so migration must split by responsibility rather than move each file wholesale. The main groups are:
+
+| Target package | Responsibility | Current flat-file families to inspect and split |
+|---|---|---|
+| `editor` facade | Public `Session`, neutral input/transaction/frame types, and composition only | Keep the public API small (`api.go`, `session.go`); do not leave the current `Editor` view implementation as the production facade |
+| `editor/internal/core` | Buffer, selection, undo/history, source transactions, system patches | Core portions of `editor.go`, `edit.go`, `transaction.go`, `history.go`, `operations.go`, `multirange.go`, and `system_patch.go` |
+| `editor/input` | Toolkit-neutral key/text intents, Vim mapping, command interpretation | Semantic portions of `input.go`, `modal.go`, `modal_command_line.go`, and `native_commands.go`; MyGo event conversion stays in `nativeui/components/editor` |
+| `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
+| `editor/layout` | Block geometry, visible-range indexing, virtualization and scroll policy | Geometry/policy portions of `layout.go`, `horizontal_scroll.go`, and `vim_virtual_image_rows.go` |
+| `editor/blocks/inline` | Inline formatting, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go` |
+| `editor/blocks/paragraph` | Heading/list/fold/break behavior and paragraph transactions | `folding.go`, `typed_breaks.go`, `paragraph`/heading/list portions of editor commands |
+| `editor/blocks/table` | Table selection model, hit testing, grid geometry, and row/column operations | Semantic portions of `table_document_selection.go`, `table_region_*.go`, `table_virtual_edit.go`, and `table_visual_modes.go` |
+| `nativeui/components/editor` | MyGo input/render adapter, rich-text editing, IME, painting, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go` |
+
+The table entries are responsibility guides, not mechanical move lists: files that combine model behavior and UI must be split before their owners change. Tests move with the package that owns the tested behavior; UI/input tests belong with the component adapter, while transaction and navigation tests stay with their neutral subsystem. A package is justified when it has a coherent contract and more than a forwarding file.
+
+Text shaping needs an explicit backend boundary. `editor/layout` owns neutral geometry and virtualization policy. Any MyGo text measurement, painter, font, or rich-text API belongs under `nativeui/components/editor`; `editor/internal/textlayout` may remain only for backend-neutral shaping algorithms and must not import MyGo. This replaces the earlier ambiguous wording that assigned all shaping implementation details to `editor/internal/textlayout`.
+
+`editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component.
 
 `markdown/syntax` owns Markdown parsing and AST values. `markdown/render` maps parsed values to rendered blocks. `images`, `math`, and `diagrams` own their bounded media/rendering pipelines and caches; they expose results to the renderer without depending on the editor session. The root `markdown` package is the stable entry point for common parse/render operations.
 
