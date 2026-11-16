@@ -10,6 +10,7 @@ import (
 
 	applicationagent "muse/application/agent"
 	"muse/config"
+	"muse/platform/filesystem/imagefiles"
 )
 
 type assistantWorkspaceStub struct {
@@ -19,7 +20,7 @@ type assistantWorkspaceStub struct {
 func (w *assistantWorkspaceStub) Root() string                          { return w.root }
 func (w *assistantWorkspaceStub) CurrentDocument() (string, string)     { return w.path, w.source }
 func (w *assistantWorkspaceStub) ReadFile(string) ([]byte, error)       { return nil, os.ErrNotExist }
-func (w *assistantWorkspaceStub) ReadDir(string) ([]os.DirEntry, error) { return nil, nil }
+func (w *assistantWorkspaceStub) ReadDir(string) ([]applicationagent.Entry, error) { return nil, nil }
 func (w *assistantWorkspaceStub) ResolveWithinRoot(path string) (string, error) {
 	return filepath.Join(w.root, path), nil
 }
@@ -71,6 +72,20 @@ func TestAssistantPresenterAppliesTypedEffectsOnce(t *testing.T) {
 	presenter.applyEffect(app, part)
 	if first == "# Note\n" || app.source != first {
 		t.Fatalf("typed effect was not applied exactly once: first=%q after=%q", first, app.source)
+	}
+}
+
+func TestAssistantMarkdownReceivesInjectedLocalImageFiles(t *testing.T) {
+	app := New()
+	files := imagefiles.New()
+	app.imageLocalFiles = files
+	app.root = t.TempDir()
+	options := assistantMarkdownOptions(app, 480)
+	if options.LocalFiles != files {
+		t.Fatal("assistant Markdown renderer did not receive the injected local image capability")
+	}
+	if options.ContentWidth != 480 || options.AssetRoot != app.root {
+		t.Fatalf("assistant Markdown options lost its layout or vault context: %+v", options)
 	}
 }
 

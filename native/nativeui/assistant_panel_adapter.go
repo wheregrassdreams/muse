@@ -59,7 +59,7 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 		Suggestions: []string{locales.AiSuggestionSummarize(), locales.AiSuggestionFormalize(), locales.AiSuggestionTitles()},
 		RenderMarkdown: func(c *ui.Context, source string, width float32) {
 			doc := mdoc.Parse(source)
-			markdownui.BlocksView(c, doc.Blocks, markdownui.Options{BodyFontSize: 12.5, SoftBreaksAsSpaces: true, ContentWidth: width, BaseDir: app.docDir(), AssetRoot: app.root, OnImagePreview: app.openImagePreview, Padding: 0, IndentStep: 14})
+			markdownui.BlocksView(c, doc.Blocks, assistantMarkdownOptions(app, width))
 		}}
 	if strings.TrimSpace(app.ai.BaseURL) == "" || strings.TrimSpace(app.ai.Model) == "" {
 		model.SetupTitle, model.SetupDetail, model.SetupButton = locales.AiSetupModelTitle(), locales.AiSetupModelDetail(), locales.AiSetupModel()
@@ -124,6 +124,18 @@ func (p *assistantPanel) render(c *ui.Context, app *App) {
 	})
 	if snapshot.Busy {
 		c.After(60 * time.Millisecond)
+	}
+}
+
+func assistantMarkdownOptions(app *App, width float32) markdownui.Options {
+	if app == nil {
+		return markdownui.Options{}
+	}
+	return markdownui.Options{
+		BodyFontSize: 12.5, SoftBreaksAsSpaces: true, ContentWidth: width,
+		BaseDir: app.docDir(), AssetRoot: app.root, LocalFiles: app.imageLocalFiles,
+		ImageCacheStore: app.imageCacheStore, OnImagePreview: app.openImagePreview,
+		Padding: 0, IndentStep: 14,
 	}
 }
 
