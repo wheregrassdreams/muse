@@ -309,7 +309,7 @@ func (e *Editor) paintLayout(p *ui.Painter, l *leaf, v *leafView, x, y float32) 
 
 func (e *Editor) yankFlashTouches(u *leaf) bool {
 	lo, hi := leafLo(e, u), u.end
-	for _, r := range e.feedbackState.Yank.Ranges {
+	for _, r := range e.feedbackState.YankRanges() {
 		if r.Start < hi && r.End > lo {
 			return true
 		}
@@ -319,7 +319,7 @@ func (e *Editor) yankFlashTouches(u *leaf) bool {
 
 func (e *Editor) paintVimYankFlash(p *ui.Painter, u *leaf, v *leafView, lx, ly float32, box ui.Rect, opacity float32) {
 	col := e.lk.accent.Alpha(0.32 * opacity)
-	for _, r := range e.feedbackState.Yank.Ranges {
+	for _, r := range e.feedbackState.YankRanges() {
 		if r.Start >= u.end || r.End <= leafLo(e, u) {
 			continue
 		}
@@ -970,8 +970,8 @@ func (e *Editor) paintCaret(p *ui.Painter, ox, oy float32, clip ui.Rect) {
 	if !ok {
 		return
 	}
-	if e.compositionText() == "" && feedback.SmoothCursorNeedsFrames(e.opts.SmoothCursor, e.feedbackState.Cursor.Active) {
-		transition := e.feedbackState.Cursor
+	transition := e.feedbackState.CursorState()
+	if e.compositionText() == "" && feedback.SmoothCursorNeedsFrames(e.opts.SmoothCursor, transition.Active) {
 		from := ui.Rect{X: transition.FromRect.X, Y: transition.FromRect.Y, W: transition.FromRect.W, H: transition.FromRect.H}
 		fromOK := transition.FromRectSet
 		if !fromOK {

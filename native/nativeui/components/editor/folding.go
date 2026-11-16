@@ -33,8 +33,9 @@ func (e *Editor) foldSections() []foldSection {
 		if l.kind == kHeading {
 			headings = append(headings, l)
 			modelHeadings = append(modelHeadings, paragraph.HeadingRange{
-				Start: l.lineStart, End: l.end, ContentStart: foldContentStart(e.Source(), l),
-				Level: l.level, Pending: l.pending,
+				Start: l.lineStart, End: l.end,
+				ContentStart: paragraph.HeadingContentStart(e.Source(), blockEnd(e.Source(), l)),
+				Level:        l.level, Pending: l.pending,
 			})
 		}
 	}
@@ -55,17 +56,6 @@ func (e *Editor) foldSections() []foldSection {
 	}
 	e.foldSectionsCache, e.foldCacheRevision = sections, e.Session.Revision()
 	return sections
-}
-
-func foldContentStart(source string, heading *leaf) int {
-	from := blockEnd(source, heading)
-	if from < len(source) && source[from] == '\r' {
-		from++
-	}
-	if from < len(source) && source[from] == '\n' {
-		from++
-	}
-	return from
 }
 
 func (e *Editor) foldSectionAtHeading(h *leaf) (foldSection, bool) {
@@ -89,7 +79,7 @@ func (e *Editor) foldHidden(l *leaf) bool {
 		return false
 	}
 	for _, section := range e.foldSections() {
-		if e.folded[section.heading.lineStart] && l != section.heading && l.lineStart >= section.model.From && l.lineStart < section.model.To {
+		if l != section.heading && section.model.Hides(e.folded[section.heading.lineStart], l.lineStart) {
 			return true
 		}
 	}

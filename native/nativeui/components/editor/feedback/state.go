@@ -13,9 +13,9 @@ type TextRange struct {
 // Callers provide source offsets and renderer-space rectangles as values;
 // this package never retains an editor, widget, or renderer object.
 type State struct {
-	Cursor CursorTransition
-	Search SearchPulse
-	Yank   YankFlash
+	cursor CursorTransition
+	search SearchPulse
+	yank   YankFlash
 }
 
 type CursorTransition struct {
@@ -43,26 +43,62 @@ func (s *State) Reset() {
 	if s == nil {
 		return
 	}
-	s.Cursor = CursorTransition{}
-	s.Search = SearchPulse{}
-	s.Yank = YankFlash{}
+	s.cursor = CursorTransition{}
+	s.search = SearchPulse{}
+	s.yank = YankFlash{}
+}
+
+// CursorState returns a value snapshot of the current visual cursor transition.
+func (s *State) CursorState() CursorTransition {
+	if s == nil {
+		return CursorTransition{}
+	}
+	return s.cursor
+}
+
+// SearchState returns a value snapshot of the current match pulse.
+func (s *State) SearchState() SearchPulse {
+	if s == nil {
+		return SearchPulse{}
+	}
+	return s.search
+}
+
+// YankState returns a detached snapshot of the active yank feedback.
+func (s *State) YankState() YankFlash {
+	if s == nil {
+		return YankFlash{}
+	}
+	state := s.yank
+	state.Ranges = append([]TextRange(nil), state.Ranges...)
+	return state
+}
+
+// YankRanges returns the current ranges for synchronous rendering. The slice
+// is borrowed and must not be retained or modified; it remains valid until the
+// next state mutation.
+func (s *State) YankRanges() []TextRange {
+	if s == nil || !s.yank.Active {
+		return nil
+	}
+	return s.yank.Ranges
 }
 
 func (s *State) CancelCursor() {
 	if s != nil {
-		s.Cursor = CursorTransition{}
+		s.cursor = CursorTransition{}
 	}
 }
 
 func (s *State) CancelSearchPulse() {
 	if s != nil {
-		s.Search = SearchPulse{}
+		s.search = SearchPulse{}
 	}
 }
 
 func (s *State) CancelYankFlash() {
 	if s != nil {
-		s.Yank = YankFlash{}
+		s.yank = YankFlash{}
 	}
 }
 
@@ -72,13 +108,13 @@ func (s *State) BeginCursor(from, to int, now time.Time) {
 	}
 	var rebased Rect
 	rebasedSet := false
-	if s.Cursor.Active && s.Cursor.RectsSet {
-		if current, active := InterpolateSmoothCursor(s.Cursor.Started, now, s.Cursor.FromRect, s.Cursor.ToRect); active {
+	if s.cursor.Active && s.cursor.RectsSet {
+		if current, active := InterpolateSmoothCursor(s.cursor.Started, now, s.cursor.FromRect, s.cursor.ToRect); active {
 			rebased = current
 			rebasedSet = true
 		}
 	}
-	s.Cursor = CursorTransition{
+	s.cursor = CursorTransition{
 		From: from, To: to, Started: now, Active: from != to,
 		FromRect: rebased, FromRectSet: rebasedSet,
 	}
@@ -87,12 +123,12 @@ func (s *State) BeginCursor(from, to int, now time.Time) {
 // CursorRects returns interpolated cursor geometry while the transition is
 // active. The final rectangle is returned with active=false when it expires.
 func (s *State) CursorRects(now time.Time) (Rect, bool) {
-	if s == nil || !s.Cursor.Active || !s.Cursor.RectsSet {
+	if s == nil || !s.cursor.Active || !s.cursor.RectsSet {
 		return Rect{}, false
 	}
-	rect, active := InterpolateSmoothCursor(s.Cursor.Started, now, s.Cursor.FromRect, s.Cursor.ToRect)
+	rect, active := InterpolateSmoothCursor(s.cursor.Started, now, s.cursor.FromRect, s.cursor.ToRect)
 	if !active {
-		s.Cursor.Active = false
+		s.cursor.Active = false
 	}
 	return rect, active
 }
@@ -101,31 +137,31 @@ func (s *State) SetCursorRects(from, to Rect) {
 	if s == nil {
 		return
 	}
-	s.Cursor.FromRect, s.Cursor.ToRect = from, to
-	s.Cursor.FromRectSet, s.Cursor.RectsSet = true, true
+	s.cursor.FromRect, s.cursor.ToRect = from, to
+	s.cursor.FromRectSet, s.cursor.RectsSet = true, true
 }
 
 func (s *State) SetCursorFromRect(from Rect) {
 	if s == nil {
 		return
 	}
-	s.Cursor.FromRect = from
-	s.Cursor.FromRectSet = true
+	s.cursor.FromRect = from
+	s.cursor.FromRectSet = true
 }
 
 func (s *State) StartSearchPulse(now time.Time) {
 	if s != nil {
-		s.Search = SearchPulse{Started: now, Active: true}
+		s.search = SearchPulse{Started: now, Active: true}
 	}
 }
 
 func (s *State) SearchPulseOpacity(now time.Time) (float32, bool) {
-	if s == nil || !s.Search.Active {
+	if s == nil || !s.search.Active {
 		return 0, false
 	}
-	alpha, active := SearchMatchPulse(now.Sub(s.Search.Started))
+	alpha, active := SearchMatchPulse(now.Sub(s.search.Started))
 	if !active {
-		s.Search.Active = false
+		s.search.Active = false
 	}
 	return alpha, active
 }
@@ -140,18 +176,18 @@ func (s *State) StartYankFlash(ranges []TextRange, now time.Time) {
 			valid = append(valid, r)
 		}
 	}
-	s.Yank = YankFlash{Started: now, Ranges: valid, Active: len(valid) > 0}
+	s.yank = YankFlash{Started: now, Ranges: valid, Active: len(valid) > 0}
 }
 
-func (s *State) YankFlashOpacity(now time.Time) (float32, []TextRange, bool) {
-	if s == nil || !s.Yank.Active {
-		return 0, nil, false
+func (s *State) YankFlashOpacity(now time.Time) (float32, bool) {
+	if s == nil || !s.yank.Active {
+		return 0, false
 	}
-	opacity, active := VimYankFlashOpacity(now.Sub(s.Yank.Started))
+	opacity, active := VimYankFlashOpacity(now.Sub(s.yank.Started))
 	if !active {
-		s.Yank.Active = false
-		s.Yank.Ranges = nil
-		return 0, nil, false
+		s.yank.Active = false
+		s.yank.Ranges = nil
+		return 0, false
 	}
-	return opacity, s.Yank.Ranges, true
+	return opacity, true
 }

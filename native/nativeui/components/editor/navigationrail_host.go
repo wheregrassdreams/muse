@@ -23,7 +23,7 @@ func (e *Editor) HeadingRailSnapshot(viewport navigationrail.ViewportSize) navig
 		ActiveColor: color.RGBA{R: e.lk.text.R, G: e.lk.text.G, B: e.lk.text.B, A: e.lk.text.A},
 		HoverColor:  color.RGBA{R: e.lk.muted.R, G: e.lk.muted.G, B: e.lk.muted.B, A: e.lk.muted.A},
 	}
-	if !e.headingRailVisible(viewport.Width, viewport.Height) {
+	if !navigationrail.ShouldShow(len(e.railLeaves), e.docH, e.viewH, viewport.Width, viewport.Height) {
 		return frame
 	}
 	frame.Visible = true
@@ -60,11 +60,6 @@ func (e *Editor) JumpToHeading(offset int) bool {
 		}
 	}
 	return false
-}
-
-func (e *Editor) headingRailVisible(width, height float32) bool {
-	return len(e.railLeaves) > 1 && e.docH > e.viewH+1 &&
-		width > 52 && height > 52
 }
 
 // railCurrent returns the heading whose section contains the center of the
@@ -106,15 +101,7 @@ func (e *Editor) railPreviewText(i int) {
 	e.railText = strings.TrimSpace(e.plainText(e.p.Parser().Inlines(leaf.id)))
 	e.railDesc = ""
 	if i < len(e.railNext) && e.railNext[i] != nil && e.railNext[i].id >= 0 {
-		e.railDesc = railExcerpt(e.plainText(e.p.Parser().Inlines(e.railNext[i].id)))
+		e.railDesc = navigationrail.Excerpt(e.plainText(e.p.Parser().Inlines(e.railNext[i].id)))
 	}
 	e.railTextIdx, e.railTextRev = i, e.Session.Revision()
-}
-
-func railExcerpt(text string) string {
-	text = strings.Join(strings.Fields(text), " ")
-	if runes := []rune(text); len(runes) > 140 {
-		return strings.TrimSpace(string(runes[:140])) + "…"
-	}
-	return text
 }

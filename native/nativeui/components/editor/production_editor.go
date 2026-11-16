@@ -480,7 +480,7 @@ func NewFromSession(session *editormodel.Session, opts Options) *Editor {
 	}
 	e := &Editor{Session: session, opts: opts, uiScopeID: nextEditorScopeID.Add(1), views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
 		hoverBlock: -1, foldHover: -1, rail: navigationrail.NewState()}
-	e.imeClient = ime.NewClient(e)
+	e.imeClient = ime.NewClient(e, e)
 	e.p = source.New(exts, source.ParserText)
 	e.bindSessionAdapters()
 	e.Session.BindHistoryParticipant(e)

@@ -19,8 +19,8 @@ func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 		e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller, smoothCursorNavigation: true}
 		e.beginSmoothCursorMove(4, 8, false)
 		want := keymap == "vim" || keymap == "helix"
-		if e.feedbackState.Cursor.Active != want {
-			t.Errorf("keymap %q active=%v, want %v", keymap, e.feedbackState.Cursor.Active, want)
+		if e.feedbackState.CursorState().Active != want {
+			t.Errorf("keymap %q active=%v, want %v", keymap, e.feedbackState.CursorState().Active, want)
 		}
 	}
 	session := editormodel.NewSession("0123456789")
@@ -30,7 +30,7 @@ func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 	controller.SetMode(vim.ModeInsert)
 	e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller}
 	e.beginSmoothCursorMove(4, 8, false)
-	if e.feedbackState.Cursor.Active {
+	if e.feedbackState.CursorState().Active {
 		t.Fatal("insert-mode movement should not animate")
 	}
 }
@@ -39,16 +39,16 @@ func TestSmoothCursorExcludesDirectCaretChangesAndTextEdits(t *testing.T) {
 	e := New("alpha beta", Options{SmoothCursor: true})
 	e.SetKeymap("vim")
 	e.setCaret(0, false)
-	if e.feedbackState.Cursor.Active {
+	if e.feedbackState.CursorState().Active {
 		t.Fatal("direct caret changes such as pointer placement must not animate")
 	}
 	e.modalText("l")
-	if !e.feedbackState.Cursor.Active {
+	if !e.feedbackState.CursorState().Active {
 		t.Fatal("modal navigation should animate")
 	}
 	e.feedbackState.CancelCursor()
 	e.modalText("x")
-	if e.feedbackState.Cursor.Active {
+	if e.feedbackState.CursorState().Active {
 		t.Fatal("text edits must not animate caret relocation")
 	}
 }
@@ -58,13 +58,13 @@ func TestSmoothCursorAnimationClearsWhenDisabledOrKeymapLeavesModal(t *testing.T
 	e.SetKeymap("vim")
 	e.feedbackState.BeginCursor(1, 2, time.Now())
 	e.SetOptions(Options{})
-	if e.feedbackState.Cursor.Active {
+	if e.feedbackState.CursorState().Active {
 		t.Fatal("disabling smooth cursor should discard an in-flight animation")
 	}
 	e.SetOptions(Options{SmoothCursor: true})
 	e.feedbackState.BeginCursor(1, 2, time.Now())
 	e.SetKeymap("default")
-	if e.feedbackState.Cursor.Active {
+	if e.feedbackState.CursorState().Active {
 		t.Fatal("leaving modal keymaps should discard an in-flight animation")
 	}
 }
@@ -135,16 +135,17 @@ func TestSmoothCursorNavigationRebasesFromCurrentVisualPosition(t *testing.T) {
 		opts:                   Options{SmoothCursor: true},
 		vimState:               controller,
 		smoothCursorNavigation: true,
-		feedbackState: feedback.State{Cursor: feedback.CursorTransition{
-			From: 4, To: 5, Started: start, Active: true,
-			FromRect: feedback.Rect{X: 0, Y: 0, W: 2, H: 10}, ToRect: feedback.Rect{X: 20, Y: 10, W: 4, H: 20},
-			FromRectSet: true, RectsSet: true,
-		}},
+		feedbackState:          feedback.State{},
 	}
+	e.feedbackState.BeginCursor(4, 5, start)
+	e.feedbackState.SetCursorRects(
+		feedback.Rect{X: 0, Y: 0, W: 2, H: 10},
+		feedback.Rect{X: 20, Y: 10, W: 4, H: 20},
+	)
 	now := start.Add(feedback.SmoothCursorDuration / 2)
 	e.beginSmoothCursorMoveAt(5, 6, false, now)
 	want := feedback.Rect{X: 10, Y: 5, W: 3, H: 15}
-	transition := e.feedbackState.Cursor
+	transition := e.feedbackState.CursorState()
 	if !transition.FromRectSet || transition.FromRect != want || transition.Started != now {
 		t.Fatalf("rebased animation from=%+v set=%v start=%v", transition.FromRect, transition.FromRectSet, transition.Started)
 	}

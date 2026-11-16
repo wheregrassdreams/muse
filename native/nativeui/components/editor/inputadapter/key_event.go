@@ -137,3 +137,13 @@ func KeyEvent(ev ui.InputEvent) (editorinput.KeyEvent, bool) {
 	}
 	return editorinput.KeyEvent{Key: key, Modifiers: modifiers}, true
 }
+
+// TextEvent converts MyGo's committed text event into the keymap-neutral
+// editor input contract. Composition remains a host operation because it
+// carries toolkit-specific selection and lifecycle state.
+func TextEvent(ev ui.InputEvent) (editorinput.Event, bool) {
+	if ev.Kind != ui.InputText {
+		return editorinput.Event{}, false
+	}
+	return editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text}, true
+}

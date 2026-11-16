@@ -136,18 +136,18 @@ func (e *Editor) paintBlockHorizontalBar(p *ui.Painter, l *leaf, ox, oy float32)
 		return
 	}
 	s := &l.horizontal
-	if s.indicator == nil {
-		s.indicator = &editorScroll.IndicatorState{}
+	if s.Indicator == nil {
+		s.Indicator = &editorScroll.IndicatorState{}
 	}
-	s.shown = s.indicator.Visible(p.Now(), s.x, 0)
-	if !s.shown && (e.horizontalDrag == nil || e.horizontalDrag.leaf != l) {
+	s.Shown = s.Indicator.Visible(p.Now(), s.Offset, 0)
+	if !s.Shown && (e.horizontalDrag == nil || e.horizontalDrag.leaf != l) {
 		return
 	}
-	s.shown = true
-	if remaining := s.indicator.Remaining(p.Now()); remaining > 0 {
+	s.Shown = true
+	if remaining := s.Indicator.Remaining(p.Now()); remaining > 0 {
 		p.After(remaining)
 	}
-	track, thumb := editorScroll.HorizontalBarRects(box, w, s.x)
+	track, thumb := editorScroll.HorizontalBarRects(box, w, s.Offset)
 	track.X, track.Y = track.X+ox, track.Y+oy
 	thumb.X, thumb.Y = thumb.X+ox, thumb.Y+oy
 	e.paintDiagramBar(p, track, thumb, e.horizontalDrag != nil && e.horizontalDrag.leaf == l)

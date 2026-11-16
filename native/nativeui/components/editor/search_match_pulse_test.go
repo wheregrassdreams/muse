@@ -28,16 +28,16 @@ func TestSearchMatchPulseIsBriefAndOptIn(t *testing.T) {
 func TestSearchMatchPulseStartsWhenCurrentHitChanges(t *testing.T) {
 	e := New("alpha alpha", Options{SearchMatchPulse: true})
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 0)
-	if !e.feedbackState.Search.Active {
+	if !e.feedbackState.SearchState().Active {
 		t.Fatal("choosing a current search match did not start the pulse")
 	}
-	start := e.feedbackState.Search.Started
+	start := e.feedbackState.SearchState().Started
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 0)
-	if !e.feedbackState.Search.Started.Equal(start) {
+	if !e.feedbackState.SearchState().Started.Equal(start) {
 		t.Fatal("repainting the same current hit restarted the pulse")
 	}
 	e.SetHighlights([]Range{{Start: 0, End: 5}, {Start: 6, End: 11}}, 1)
-	if !e.feedbackState.Search.Started.After(start) {
+	if !e.feedbackState.SearchState().Started.After(start) {
 		t.Fatal("selecting a different current hit did not restart the pulse")
 	}
 }
@@ -57,17 +57,18 @@ func TestVimYankFlashIsOptInAndVimOnly(t *testing.T) {
 	e.SetKeymap("vim")
 	e.Select(0, 0)
 	modalKeys(e, "yy")
-	if !e.feedbackState.Yank.Active || len(e.feedbackState.Yank.Ranges) != 1 {
-		t.Fatalf("Vim yy did not flash its yanked range: active=%v ranges=%v", e.feedbackState.Yank.Active, e.feedbackState.Yank.Ranges)
+	yank := e.feedbackState.YankState()
+	if !yank.Active || len(yank.Ranges) != 1 {
+		t.Fatalf("Vim yy did not flash its yanked range: active=%v ranges=%v", yank.Active, yank.Ranges)
 	}
-	if got := e.Source()[e.feedbackState.Yank.Ranges[0].Start:e.feedbackState.Yank.Ranges[0].End]; got != "alpha beta" {
+	if got := e.Source()[yank.Ranges[0].Start:yank.Ranges[0].End]; got != "alpha beta" {
 		t.Fatalf("flashed range=%q", got)
 	}
 
 	e.SetKeymap("helix")
 	e.Select(0, 0)
 	modalKeys(e, "vly")
-	if e.feedbackState.Yank.Active {
+	if e.feedbackState.YankState().Active {
 		t.Fatal("Vim yank flash leaked into Helix mode")
 	}
 
@@ -75,7 +76,7 @@ func TestVimYankFlashIsOptInAndVimOnly(t *testing.T) {
 	e.SetOptions(Options{})
 	e.Select(0, 0)
 	modalKeys(e, "yy")
-	if e.feedbackState.Yank.Active {
+	if e.feedbackState.YankState().Active {
 		t.Fatal("disabled Vim yank flash was active")
 	}
 }
@@ -85,10 +86,11 @@ func TestVimYankFlashTracksVisualYankRange(t *testing.T) {
 	e.SetKeymap("vim")
 	e.Select(0, 0)
 	modalKeys(e, "vly")
-	if !e.feedbackState.Yank.Active || len(e.feedbackState.Yank.Ranges) != 1 {
-		t.Fatalf("Visual yank did not flash its range: active=%v ranges=%v", e.feedbackState.Yank.Active, e.feedbackState.Yank.Ranges)
+	yank := e.feedbackState.YankState()
+	if !yank.Active || len(yank.Ranges) != 1 {
+		t.Fatalf("Visual yank did not flash its range: active=%v ranges=%v", yank.Active, yank.Ranges)
 	}
-	r := e.feedbackState.Yank.Ranges[0]
+	r := yank.Ranges[0]
 	if got, register := e.Source()[r.Start:r.End], e.vimController().View().Register; got != register {
 		t.Fatalf("flashed Visual range=%q, yanked register=%q", got, register)
 	}

@@ -37,7 +37,11 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		key, ok := inputadapter.KeyEvent(ev)
 		return ok && e.DispatchKey(key)
 	case ui.InputText:
-		result, err := e.Session.Dispatch(editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text})
+		event, ok := inputadapter.TextEvent(ev)
+		if !ok {
+			return false
+		}
+		result, err := e.Session.Dispatch(event)
 		return err == nil && result.Handled
 	case ui.InputCompose:
 		if !e.ModalAcceptsText() {

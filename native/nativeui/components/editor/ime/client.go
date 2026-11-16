@@ -2,10 +2,10 @@ package ime
 
 import "github.com/egoist/mygo/ui"
 
-// ClientHost is the narrow capability contract needed by the platform text
-// input adapter. Source conversion and composition lifecycle stay in this
-// package; the host owns edits and leaf-backed geometry.
-type ClientHost interface {
+// TextSession is the source and edit capability needed by the platform text
+// input adapter. It exposes detached source state and explicit edit actions,
+// never the editor or its mutable model.
+type TextSession interface {
 	TextInputSnapshot() Snapshot
 	ModalAcceptsIMEText() bool
 	InsertIMEText(string)
@@ -13,6 +13,11 @@ type ClientHost interface {
 	ReplaceIMEBytes(start, end int, text string)
 	ReconvertIMEBytes(start, end int)
 	DeleteIMESelection()
+}
+
+// GeometryHost supplies the leaf-backed geometry and focus lifecycle needed
+// by the MyGo text-input adapter.
+type GeometryHost interface {
 	CaretBoundsForIMEOffset(int) (ui.Rect, bool)
 	CompositionCaretBounds() (ui.Rect, bool)
 	IMESelectionCaretWidth() float32
@@ -25,13 +30,14 @@ type ClientHost interface {
 // It owns UTF-16 conversion and composition transitions, but delegates source
 // transactions and geometry to the editor host.
 type Client struct {
-	host        ClientHost
+	session     TextSession
+	geometry    GeometryHost
 	index       Index
 	composition Composition
 }
 
-func NewClient(host ClientHost) *Client {
-	return &Client{host: host}
+func NewClient(session TextSession, geometry GeometryHost) *Client {
+	return &Client{session: session, geometry: geometry}
 }
 
 func (c *Client) controller() Controller {
@@ -44,10 +50,10 @@ func (c *Client) controller() Controller {
 type clientControllerHost struct{ client *Client }
 
 func (h clientControllerHost) TextInputSnapshot() Snapshot {
-	if h.client == nil || h.client.host == nil {
+	if h.client == nil || h.client.session == nil {
 		return Snapshot{}
 	}
-	return h.client.host.TextInputSnapshot()
+	return h.client.session.TextInputSnapshot()
 }
 
 func (h clientControllerHost) SetIMEComposition(composition Composition) {
@@ -115,15 +121,17 @@ func (c *Client) MarkedRange() (ui.TextInputRange, bool) {
 }
 
 func (c *Client) ReplaceText(r *ui.TextInputRange, text string) {
-	if c == nil || c.host == nil {
+	if c == nil || c.session == nil {
 		return
 	}
-	host := c.host
+	host := c.session
 	if !host.ModalAcceptsIMEText() {
 		host.InsertModalIMEText(text)
 		return
 	}
-	defer host.InvalidateIME()
+	if c.geometry != nil {
+		defer c.geometry.InvalidateIME()
+	}
 	controller := c.controller()
 	state := controller.State()
 	snapshot := host.TextInputSnapshot()
@@ -144,11 +152,14 @@ func (c *Client) ReplaceText(r *ui.TextInputRange, text string) {
 }
 
 func (c *Client) SetMarkedText(r *ui.TextInputRange, text string, selected ui.TextInputRange) {
-	if c == nil || c.host == nil || !c.host.ModalAcceptsIMEText() {
+	if c == nil || c.session == nil || !c.session.ModalAcceptsIMEText() {
 		return
 	}
-	host := c.host
-	defer host.InvalidateIME()
+	host := c.session
+	geometry := c.geometry
+	if geometry != nil {
+		defer geometry.InvalidateIME()
+	}
 	controller := c.controller()
 	state := controller.State()
 	snapshot := host.TextInputSnapshot()
@@ -162,14 +173,16 @@ func (c *Client) SetMarkedText(r *ui.TextInputRange, text string, selected ui.Te
 		host.DeleteIMESelection()
 	}
 	controller.SetMarkedText(text, Range{Start: selected.Start, End: selected.End})
-	host.RevealIMECaret()
+	if geometry != nil {
+		geometry.RevealIMECaret()
+	}
 }
 
 func (c *Client) UnmarkText() {
-	if c == nil || c.host == nil {
+	if c == nil || c.session == nil {
 		return
 	}
-	host := c.host
+	host := c.session
 	controller := c.controller()
 	if !host.ModalAcceptsIMEText() {
 		controller.ClearMarkedText()
@@ -180,15 +193,17 @@ func (c *Client) UnmarkText() {
 		return
 	}
 	host.InsertIMEText(text)
-	host.InvalidateIME()
+	if c.geometry != nil {
+		c.geometry.InvalidateIME()
+	}
 }
 
 func (c *Client) BoundsForRange(r ui.TextInputRange) (ui.Rect, ui.TextInputRange, bool) {
-	if c == nil || c.host == nil {
+	if c == nil || c.session == nil || c.geometry == nil {
 		return ui.Rect{}, ui.TextInputRange{}, false
 	}
-	host := c.host
-	snapshot := host.TextInputSnapshot()
+	session, host := c.session, c.geometry
+	snapshot := session.TextInputSnapshot()
 	b, extra := c.controller().VirtualByte(min(r.Start, r.End))
 	var rect ui.Rect
 	var ok bool
@@ -210,9 +225,9 @@ func (c *Client) BoundsForRange(r ui.TextInputRange) (ui.Rect, ui.TextInputRange
 }
 
 func (c *Client) IndexForPoint(point ui.Point) (int, bool) {
-	if c == nil || c.host == nil {
+	if c == nil || c.geometry == nil {
 		return 0, false
 	}
-	offset := c.host.HitTestIME(point)
+	offset := c.geometry.HitTestIME(point)
 	return c.controller().VirtualUnits(offset), true
 }

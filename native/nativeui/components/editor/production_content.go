@@ -3,7 +3,6 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 
-	editorinput "muse/editor/input"
 	"muse/markdown/diagrams"
 	media "muse/nativeui/components/editor/blocks/media"
 	"muse/nativeui/components/editor/inputadapter"
@@ -45,7 +44,11 @@ func (e *Editor) handleInput(ev ui.InputEvent) bool {
 		key, ok := inputadapter.KeyEvent(ev)
 		return ok && e.DispatchKey(key)
 	case ui.InputText:
-		result, err := e.Session.Dispatch(editorinput.Event{Kind: editorinput.InsertText, Text: ev.Text})
+		event, ok := inputadapter.TextEvent(ev)
+		if !ok {
+			return false
+		}
+		result, err := e.Session.Dispatch(event)
 		return err == nil && result.Handled
 	default:
 		return e.HandleNativeInput(ev)

@@ -29,6 +29,6 @@ func (e *Editor) vimYankFlashOpacity(now time.Time) (float32, bool) {
 	if e.Keymap() != "vim" || !e.opts.VimYankFlash {
 		return 0, false
 	}
-	opacity, _, active := e.feedbackState.YankFlashOpacity(now)
+	opacity, active := e.feedbackState.YankFlashOpacity(now)
 	return opacity, active
 }

@@ -28,10 +28,10 @@ type Snapshot struct {
 	Selection Selection
 }
 
-// Host is the complete text/selection capability required by the input-method
-// state machine. It receives immutable values and never exposes the editor
-// widget or leaf model.
-type Host interface {
+// CompositionHost is the narrow text/selection boundary for composition
+// state. It receives immutable values and never exposes the editor widget or
+// leaf model.
+type CompositionHost interface {
 	TextInputSnapshot() Snapshot
 	SetIMEComposition(Composition)
 }
@@ -39,11 +39,11 @@ type Host interface {
 // Controller coordinates text-input queries with a host and owns marked-text
 // state. Hosts remain responsible for committing source edits and layout.
 type Controller struct {
-	host  Host
+	host  CompositionHost
 	state State
 }
 
-func NewController(host Host, index *Index, composition Composition) Controller {
+func NewController(host CompositionHost, index *Index, composition Composition) Controller {
 	return Controller{host: host, state: NewState(index, composition)}
 }
 
