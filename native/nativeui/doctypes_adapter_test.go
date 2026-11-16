@@ -6,20 +6,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/nativeui/components/doctypes"
 )
-
-func TestEditableFileTypes(t *testing.T) {
-	for _, p := range []string{"a.md", "a.txt", "a.json", "a.yaml", "a.go", "README", "LICENSE"} {
-		if !isEditableFile(p) {
-			t.Errorf("%q should be editable", p)
-		}
-	}
-	for _, p := range []string{"a.png", "a.jpg", "a.pdf", "a.zip", "a.exe", "a.bin", "a.docx"} {
-		if isEditableFile(p) {
-			t.Errorf("%q should not be editable", p)
-		}
-	}
-}
 
 func TestChildrenShowsImagesButHidesOtherBinaryFiles(t *testing.T) {
 	dir := t.TempDir()
@@ -52,15 +40,15 @@ func TestChildrenShowsImagesButHidesOtherBinaryFiles(t *testing.T) {
 func TestCommonImagesAreVisibleButNotEditable(t *testing.T) {
 	for _, ext := range []string{"png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "avif"} {
 		path := "image." + ext
-		if !isImageFile(path) || !isVisibleWorkspaceFile(path) {
+		if !doctypes.IsImagePath(path) || !doctypes.IsVisibleWorkspacePath(path) {
 			t.Errorf("%q should be shown in the file tree", path)
 		}
-		if isEditableFile(path) {
+		if doctypes.IsEditablePath(path) {
 			t.Errorf("%q must not be opened as editor text", path)
 		}
 	}
 	for _, ext := range []string{"pdf", "zip", "exe", "bin", "docx"} {
-		if isVisibleWorkspaceFile("payload." + ext) {
+		if doctypes.IsVisibleWorkspacePath("payload." + ext) {
 			t.Errorf("non-image binary %q should remain hidden", ext)
 		}
 	}
@@ -81,7 +69,7 @@ func TestOpenRejectsBinaryData(t *testing.T) {
 }
 
 func TestOpenRejectsBinaryExtension(t *testing.T) {
-	if isEditableFile("image.png") {
+	if doctypes.IsEditablePath("image.png") {
 		t.Fatal("image extensions must never be editable text")
 	}
 }
@@ -96,7 +84,7 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	a.setWorkspace(dir)
 	setDocumentPathForTest(a, "existing.md")
 	a.loadDoc("preserve me")
-	a.activeNote.MarkDirty()
+	a.noteEditor().MarkDirty()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !tt.HasText("photo.png") {
@@ -113,8 +101,8 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	if a.imagePreviewOpen() {
 		t.Fatal("opening image from file tree opened global preview")
 	}
-	if a.documentPath() != "existing.md" || a.activeNote.Source() != "preserve me" || !a.documentDirty() {
-		t.Fatalf("opening image changed dirty editor document: path=%q source=%q dirty=%v", a.documentPath(), a.activeNote.Source(), a.documentDirty())
+	if a.documentPath() != "existing.md" || a.noteEditor().Source() != "preserve me" || !a.documentDirty() {
+		t.Fatalf("opening image changed dirty editor document: path=%q source=%q dirty=%v", a.documentPath(), a.noteEditor().Source(), a.documentDirty())
 	}
 	if a.displayName() != "photo.png" || a.docPath() != "photo.png" {
 		t.Fatalf("image title path=%q display=%q", a.docPath(), a.displayName())
