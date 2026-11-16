@@ -139,7 +139,7 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 
 ### Editor UI component extraction map
 
-`nativeui/components/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint, so those files must not be moved wholesale into child packages. Extract in this order, introducing narrow immutable frames or typed host interfaces before a package boundary:
+`nativeui/components/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint. In the layout phase, place files under the target responsibility directories without changing their bodies; these paths are only a skeleton and are not usable package boundaries yet. In the later wiring phase, split mixed implementations and introduce narrow immutable frames or typed host interfaces before changing package declarations and imports.
 
 | Target package | Owns | Candidate current files / required seam |
 |---|---|---|
@@ -151,7 +151,7 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 | `components/editor/render` | MyGo painting and view composition from an immutable visible-block frame | `paint.go`, `display.go`, `production_view.go` only after `leaf`/`leafView` cease to be shared mutable implementation details |
 | `components/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
 
-The candidate map is staged by contract strength: pure event conversion and block-specific adapters can move before the main renderer; the render package is last because it currently has the widest private-state reach. Split oversized files within the current package first where they share invariants; create a subpackage only when its public inputs/outputs are narrower than the state it replaces. The semantic `editor/blocks/*` packages remain the source of behavior; these UI packages only translate host events and present their state.
+The candidate map records the final owners, not an instruction to change dependencies during the layout pass. The renderer currently has the widest private-state reach, so its package API will need special care during wiring. The semantic `editor/blocks/*` packages remain the source of behavior; these UI packages only translate host events and present their state.
 
 `markdown/syntax` owns Markdown parsing and AST values. `markdown/render` maps parsed values to rendered blocks. `images`, `math`, and `diagrams` own their bounded media/rendering pipelines and caches; they expose results to the renderer without depending on the editor session. The root `markdown` package is the stable entry point for common parse/render operations.
 
