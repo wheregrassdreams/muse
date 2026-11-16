@@ -101,14 +101,12 @@ for package in \
   native/ui/scrollbar \
   native/ui/iconlibrary \
   native/nativeui \
-  native/nativeui/components \
   native/nativeui/components/editor \
   native/nativeui/components/editor/textlayout \
   native/nativeui/components/markdown \
   native/nativeui/components/doctypes \
   native/nativeui/components/documentdialogs \
   native/nativeui/components/linkpreview \
-  native/nativeui/components/windowcontrols \
   native/nativeui/window \
   native/nativeui/workspacepresenter \
   native/nativeui/surfaces/noteeditor \

@@ -85,8 +85,7 @@ native/
 │   │   ├── markdown/                # MyGo painter over neutral Markdown models
 │   │   ├── doctypes/                # backend-neutral document type registry/open policy
 │   │   ├── documentdialogs/       # reusable document dialogs and export presentation
-│   │   ├── linkpreview/           # wiki-link hover preview state and rendering
-│   │   └── windowcontrols/        # platform-specific window button presentation
+│   │   └── linkpreview/           # wiki-link hover preview state and rendering
 │   └── interactions/
 ├── platform/                      # OS/runtime adapters
 │   ├── externalopener/            # open URLs/files with the host system
