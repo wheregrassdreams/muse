@@ -47,6 +47,7 @@ native/
 │   │   └── table/                 # table editing subsystem
 │   └── internal/
 │       ├── core/                  # editor-private buffer/transaction primitives
+│       ├── parser/                # incremental editor-source bridge to Markdown syntax
 │       └── textlayout/            # editor-private text shaping/layout implementation
 ├── markdown/                      # public Markdown parse/render facade
 │   ├── syntax/
@@ -108,6 +109,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 |---|---|---|
 | `editor` facade | Public `Session`, neutral input/transaction/frame types, and composition only | Keep the public API small (`api.go`, `session.go`); do not leave the current `Editor` view implementation as the production facade |
 | `editor/internal/core` | Buffer, selection, undo/history, source transactions, system patches | Core portions of `editor.go`, `edit.go`, `transaction.go`, `history.go`, `operations.go`, `multirange.go`, and `system_patch.go` |
+| `editor/internal/parser` | Incremental synchronization from editor source revisions to the Markdown syntax parser, including editor-only comment/frontmatter masking and source-offset preservation | `parsed.go`, `mask.go`, and parser-source tests |
 | `editor/input` | Toolkit-neutral key/text event and operation contracts shared by keymaps | `event.go`, `key_event.go`, `operation.go`, and `sequence.go` |
 | `editor/input/vim` | Independent Vim mode state machine, pending prefixes/counts/registers, and mapping from neutral key/text events to typed editor operations | `modal.go`, Vim-specific command interpretation, and mode/sequence tests; extract Editor-private callbacks into a narrow Host contract during wiring |
 | `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
@@ -122,6 +124,8 @@ The table entries are responsibility guides, not mechanical move lists: files th
 Vim remains a selectable editor input strategy, not a second editor core. Its state machine owns mode transitions, command prefixes/counts, register selection, and command-to-operation mapping. It calls typed host capabilities for source/selection queries and operation dispatch; it must not reach into `Editor` fields or own buffer/history. `editor/navigation` implements movement semantics, `editor/blocks/*` implements block operations, and `editor/internal/core` commits edits. The UI adapter translates MyGo events to neutral input events and renders the current mode label/command prompt from an immutable Vim view state.
 
 Text shaping needs an explicit backend boundary. `editor/layout` owns neutral geometry and virtualization policy. Any MyGo text measurement, painter, font, or rich-text API belongs under `nativeui/components/editor`; `editor/internal/textlayout` may remain only for backend-neutral shaping algorithms and must not import MyGo. This replaces the earlier ambiguous wording that assigned all shaping implementation details to `editor/internal/textlayout`.
+
+The editor parser adapter does not duplicate Markdown grammar or AST ownership. `editor/internal/parser` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar.
 
 `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component.
 
