@@ -1,6 +1,12 @@
 package config
 
-import userconfig "muse/config"
+import (
+	"errors"
+
+	userconfig "muse/config"
+)
+
+var ErrRepositoryUnavailable = errors.New("configuration repository is not configured")
 
 // Service applies application-level defaults and normalization around the
 // settings persistence capability. The filesystem repository remains an
@@ -48,4 +54,40 @@ func (s Service) SaveEditorSettings(settings userconfig.EditorSettings) error {
 		return nil
 	}
 	return s.repository.SaveEditorSettings(userconfig.NormalizeEditorSettings(settings))
+}
+
+func (s Service) LoadAssistantSettings() (userconfig.AssistantSettings, error) {
+	if s.repository == nil {
+		return userconfig.DefaultAssistantSettings(), nil
+	}
+	settings, err := s.repository.LoadAssistantSettings()
+	if err != nil {
+		return userconfig.DefaultAssistantSettings(), err
+	}
+	return settings, nil
+}
+
+func (s Service) SaveAssistantSettings(settings userconfig.AssistantSettings) error {
+	if s.repository == nil {
+		return ErrRepositoryUnavailable
+	}
+	return s.repository.SaveAssistantSettings(settings)
+}
+
+func (s Service) LoadDocumentPropertyPreferences(notePath string) (userconfig.DocumentPropertyPreferences, error) {
+	if s.repository == nil {
+		return userconfig.DocumentPropertyPreferences{}, nil
+	}
+	preferences, err := s.repository.LoadDocumentPropertyPreferences(notePath)
+	if err != nil {
+		return userconfig.DocumentPropertyPreferences{}, err
+	}
+	return preferences, nil
+}
+
+func (s Service) SaveDocumentPropertyPreferences(notePath string, preferences userconfig.DocumentPropertyPreferences) error {
+	if s.repository == nil {
+		return nil
+	}
+	return s.repository.SaveDocumentPropertyPreferences(notePath, preferences)
 }
