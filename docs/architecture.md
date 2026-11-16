@@ -108,6 +108,7 @@ native/
 │       ├── documentstore/         # concrete note/recovery persistence
 │       ├── configstore/           # user settings JSON files and config-root policy
 │       ├── imagecache/            # atomic image cache persistence
+│       ├── temporaryimages/       # temporary image files for unsaved documents
 │       ├── exportstore/           # exported document writing
 │       ├── filemetadata/          # platform file metadata reads
 │       ├── imagefiles/            # image source file access
