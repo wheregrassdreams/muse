@@ -150,6 +150,8 @@ The sidebar `panels` are distinct from window surfaces. Each panel package owns 
 
 `nativeui/components/doctypes` owns the backend-neutral registry of openable document kinds, extension matching, parse selection, and editable-file policy. It must not import MyGo widgets or Markdown presentation. The composition root binds a document type to a concrete surface/view adapter; reusable dialogs and file-tree panels consume the registry's stable type metadata and policies.
 
+For the panel boundary, App-specific adapters and integration tests that need `nativeui.App` private state live in `nativeui` itself. Child panel packages own view models, typed actions, and rendering; the root adapter maps those actions into application use cases. A directory name alone does not establish a package boundary, and a child directory may not declare `package nativeui`.
+
 Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/components/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/components/markdown` paints the neutral Markdown model for both editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
 ## Ownership and model boundaries
