@@ -104,6 +104,66 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.documentDirty() {
 		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.documentDirty(), data)
 	}
+	if state := a.activeNote.PersistenceState(); state.Revision != document.RevisionOf(string(data)) || state.BaseSource != string(data) {
+		t.Fatalf("successful merge did not adopt the saved revision as its new baseline: %#v", state)
+	}
+}
+
+func TestTryMergeExternalChangesPreservesDirtyBufferWhenDiskChangesAgain(t *testing.T) {
+	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "merge-race.md")
+	base := "line one\nline two\nline three\n"
+	if err := os.WriteFile(path, []byte(base), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	repository := &changeBeforeSaveRepository{
+		Repository: store,
+		path:       path,
+		source:     "line one\nline two\nconcurrent line three\n",
+	}
+	a := New()
+	a.navIconStore, _ = applicationvault.NewIconPreferences(&memoryNavIconRepository{values: make(map[string]map[string]string)})
+	a.SetDocumentRepositories(repository, store, store)
+	setDocumentPathForTest(a, path)
+	a.loadDoc(base)
+	if err := a.activeNote.ReplaceUser("local line one\nline two\nline three\n"); err != nil {
+		t.Fatal(err)
+	}
+	external := "line one\nline two\nexternal line three\n"
+	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	a.documents.ConflictOpen = true
+	if a.tryMergeExternalChanges() {
+		t.Fatal("merge unexpectedly overwrote a concurrent disk change")
+	}
+	disk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buffer := a.documentSource()
+	if string(disk) != repository.source || !strings.Contains(buffer, "local line one") || !strings.Contains(buffer, "external line three") || !a.documentDirty() || !a.documents.ConflictOpen {
+		t.Fatalf("concurrent conflict lost data: disk=%q buffer=%q dirty=%v conflict=%v", disk, buffer, a.documentDirty(), a.documents.ConflictOpen)
+	}
+	if state := a.activeNote.PersistenceState(); state.Revision != document.RevisionOf(external) || state.BaseSource != external {
+		t.Fatalf("merge race did not retain the last observed disk baseline: %#v", state)
+	}
+}
+
+type changeBeforeSaveRepository struct {
+	document.Repository
+	path   string
+	source string
+}
+
+func (r *changeBeforeSaveRepository) Save(path, source string, expected document.Revision) (document.Revision, error) {
+	if path == r.path {
+		if err := os.WriteFile(path, []byte(r.source), 0o640); err != nil {
+			return "", err
+		}
+	}
+	return r.Repository.Save(path, source, expected)
 }
 
 type memoryNavIconRepository struct{ values map[string]map[string]string }

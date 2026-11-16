@@ -1,22 +1,21 @@
 package nativeui
 
 import (
-	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	documentsave "muse/application/document"
-	"muse/document"
 	"muse/locales"
 	"muse/nativeui/components/documentdialogs"
 )
 
 func (a *App) openRecovery() {
-	if a.documentSession == nil {
+	if a.activeNote == nil {
 		a.notice(locales.CommonRecoveryReadError("document services are not configured"))
 		return
 	}
-	drafts, err := a.documentSession.ListDrafts()
+	drafts, err := a.activeNote.ListDrafts()
 	if err != nil {
 		a.notice(locales.CommonRecoveryReadError(err.Error()))
 		return
@@ -25,20 +24,20 @@ func (a *App) openRecovery() {
 }
 
 func (a *App) openHistory() {
-	if a.path == "" {
+	if a.documentPath() == "" {
 		a.notice(locales.DocumentUnsaved())
 		return
 	}
-	if a.documentSession == nil {
+	if a.activeNote == nil {
 		a.notice(locales.CommonHistoryReadError("document services are not configured"))
 		return
 	}
-	entries, err := a.documentSession.ListHistory(a.path)
+	entries, err := a.activeNote.ListHistory(a.documentPath())
 	if err != nil {
 		a.notice(locales.CommonHistoryReadError(err.Error()))
 		return
 	}
-	a.documents.OpenHistory(a.path, entries)
+	a.documents.OpenHistory(a.documentPath(), entries)
 }
 
 func (a *App) documentDialogs(c *ui.Context) {
@@ -51,31 +50,28 @@ func (a *App) documentDialogs(c *ui.Context) {
 				return
 			}
 			source := a.diskSource()
-			a.path = ""
-			a.loadDoc(source)
-			a.dirty = true
-			a.documentChanged()
+			a.loadDocumentAt("", source)
+			a.activeNote.MarkDirty()
 			a.documents.ConflictOpen = false
 			a.updateTitle()
 		case documentdialogs.ReloadDisk:
-			data, err := os.ReadFile(a.path)
+			note, err := documentsave.Read(a.documentRepository, a.documentPath())
 			if err != nil {
 				a.notice(err.Error())
 				return
 			}
-			if !isTextData(data) {
+			if !isTextSource(note.Source) {
 				a.notice(locales.DocumentExternalNotText())
 				return
 			}
 			if !a.preserveCurrentDraft() {
 				return
 			}
-			a.loadDoc(string(data))
-			a.dirty = false
+			a.loadDoc(note.Source)
 			a.documents.ConflictOpen = false
 			a.updateTitle()
 		case documentdialogs.RestoreDraft:
-			draft, err := a.documentSession.ReadDraft(action.Key)
+			draft, err := a.activeNote.ReadDraft(action.Key)
 			if err != nil {
 				a.notice(err.Error())
 				return
@@ -83,14 +79,12 @@ func (a *App) documentDialogs(c *ui.Context) {
 			if !a.preserveCurrentDraft() {
 				return
 			}
-			a.path = ""
-			a.loadDoc(draft.Text)
-			a.dirty = true
-			a.documentChanged()
+			a.loadDocumentAt("", draft.Text)
+			a.activeNote.MarkDirty()
 			a.documents.RecoveryOpen = false
 			a.updateTitle()
 		case documentdialogs.RestoreHistory:
-			note, err := a.documentSession.ReadHistory(a.documents.HistoryPath, action.ID)
+			note, err := a.activeNote.ReadHistory(a.documents.HistoryPath, action.ID)
 			if err != nil {
 				a.notice(err.Error())
 				return
@@ -98,10 +92,8 @@ func (a *App) documentDialogs(c *ui.Context) {
 			if !a.preserveCurrentDraft() {
 				return
 			}
-			a.path = ""
-			a.loadDoc(note.Source)
-			a.dirty = true
-			a.documentChanged()
+			a.loadDocumentAt("", note.Source)
+			a.activeNote.MarkDirty()
 			a.documents.HistoryOpen = false
 			a.updateTitle()
 		case documentdialogs.CloseConflict:
@@ -115,56 +107,62 @@ func (a *App) documentDialogs(c *ui.Context) {
 }
 
 func (a *App) tryMergeExternalChanges() bool {
-	if a.documentSession == nil || a.path == "" {
+	if a.activeNote == nil || a.documentPath() == "" {
 		return false
 	}
-	state := a.documentSession.Snapshot()
-	external, err := os.ReadFile(a.path)
-	if err != nil || !isTextData(external) {
+	state := a.activeNote.PersistenceState()
+	external, err := documentsave.Read(a.documentRepository, a.documentPath())
+	if err != nil || !isTextSource(external.Source) {
 		a.notice(locales.DocumentExternalReadFailed())
 		return false
 	}
-	externalSource := string(external)
+	externalSource := external.Source
 	merged, ok := documentsave.MergeDisjointEdits(state.BaseSource, a.diskSource(), externalSource)
 	if !ok {
 		a.notice(locales.DocumentExternalMergeConflict())
 		return false
 	}
-	a.documentSession.Rebase(a.path, document.RevisionOf(externalSource), externalSource)
-	a.crlf = strings.Contains(externalSource, "\r\n")
-	a.ed.ReplaceAll(strings.ReplaceAll(merged, "\r\n", "\n"))
-	a.dirty = a.diskSource() != externalSource
+	if !a.activeNote.Rebase(external.Path, external.Revision, externalSource) {
+		a.notice(locales.DocumentExternalReadFailed())
+		return false
+	}
+	_ = a.activeNote.ReplaceUser(strings.ReplaceAll(merged, "\r\n", "\n"))
 	a.documents.ConflictOpen = false
-	if !a.dirty {
-		a.documentSession.ClearAutosave()
+	if !a.documentDirty() {
+		a.activeNote.ClearAutosave()
 		a.updateManagedTimestamp()
-		a.dirty = a.diskSource() != externalSource
-		if !a.dirty {
+		if !a.documentDirty() {
 			a.notice(locales.DocumentExternalLoaded())
 			return true
 		}
 	}
 	a.flushManagedTimestamp()
-	if err := a.writeDocument(a.path, a.diskSource(), state.Revision); err != nil {
-		a.documentSession.SetConflict(a.path)
+	if err := a.writeDocument(external.Path, a.diskSource(), external.Revision); err != nil {
+		a.activeNote.SetConflict(a.documentPath())
 		a.documents.ConflictOpen = true
 		a.notice(locales.CommonMergedSaveError(err.Error()))
 		return false
 	}
 	a.documents.ConflictOpen = false
-	a.dirty = false
-	_ = a.documentSession.DeleteDraft(a.path)
+	_ = a.activeNote.DeleteDraft(a.documentPath())
 	a.updateTitle()
 	a.notice(locales.DocumentExternalMerged())
 	return true
 }
 
+func isTextSource(source string) bool {
+	if strings.IndexByte(source, 0) >= 0 {
+		return false
+	}
+	return utf8.ValidString(source)
+}
+
 func (a *App) preserveCurrentDraft() bool {
-	if !a.dirty || a.documentSession == nil {
+	if a.activeNote == nil || !a.documentDirty() {
 		return true
 	}
 	a.flushManagedTimestamp()
-	if _, err := a.documentSession.PreserveDraft(a.path, a.diskSource()); err != nil {
+	if _, err := a.activeNote.PreserveDraft(a.documentPath(), a.diskSource()); err != nil {
 		a.notice(locales.CommonDraftPreserveError(err.Error()))
 		return false
 	}

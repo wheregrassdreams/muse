@@ -130,6 +130,31 @@ func TestSessionOwnsDraftHistoryAndDestinationOperations(t *testing.T) {
 	}
 }
 
+func TestSessionLoadReadsCurrentRepositoryRevisionWithoutChangingSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(path, []byte("current on disk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	session := NewSession(store, store, store, nil)
+	session.Open(path, "older buffer")
+	before := session.Snapshot()
+
+	note, err := session.Load(path)
+	if err != nil || note.Source != "current on disk" || note.Revision != domain.RevisionOf(note.Source) {
+		t.Fatalf("loaded note=%+v error=%v", note, err)
+	}
+	if after := session.Snapshot(); after != before {
+		t.Fatalf("read-only load changed persistence session: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestReadRejectsMissingRepository(t *testing.T) {
+	if _, err := Read(nil, "note.md"); err == nil {
+		t.Fatal("read without a repository unexpectedly succeeded")
+	}
+}
+
 func TestSessionSaveNowForOtherDocumentDoesNotReplaceActiveRevision(t *testing.T) {
 	root := t.TempDir()
 	activePath := filepath.Join(root, "active.md")

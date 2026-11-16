@@ -165,10 +165,20 @@ func (s *Session) StartSave(request SaveRequest) {
 
 // Load reads a durable note through the configured repository.
 func (s *Session) Load(path string) (domain.Note, error) {
-	if s == nil || s.repository == nil {
+	if s == nil {
+		return Read(nil, path)
+	}
+	return Read(s.repository, path)
+}
+
+// Read performs a read-only document request through the configured
+// repository. It is also used by presentation actions that must inspect disk
+// state before deciding whether to replace or merge an open buffer.
+func Read(repository domain.Repository, path string) (domain.Note, error) {
+	if repository == nil {
 		return domain.Note{}, errors.New("document repository is not configured")
 	}
-	return s.repository.Read(path)
+	return repository.Read(path)
 }
 
 // DestinationRevision returns the current revision when saving over the open
