@@ -17,8 +17,13 @@ if rg -n '^package (mdoc|mdedit|vaultsearch|vaultindex|vaultwatch|notestore|scro
   fail "legacy package declarations remain"
 fi
 
-if rg -n '^package nativeui$' native/nativeui/panels --glob '*.go'; then
-  fail "nativeui/panels contains child packages that masquerade as the parent package"
+if rg -n '^package nativeui$' native/nativeui --glob '*.go' | rg -v '^native/nativeui/[^/]+\.go:'; then
+  fail "nativeui child directories contain files that masquerade as the parent package"
+fi
+
+if rg -n 'ProductionContent|documentSession|^[[:space:]]*ed[[:space:]]+\*editorui\.Editor' \
+  native/nativeui/app.go native/nativeui/components/editor --glob '*.go'; then
+  fail "temporary production-editor bridge or duplicate App editor owner remains"
 fi
 
 if rg -n '"(muse/(nativeui|platform|cmd)/|github\.com/egoist/mygo)' \
