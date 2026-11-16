@@ -156,14 +156,6 @@ func (e *Editor) finishInputTransaction() {
 	}
 }
 
-// HandleNativeInput handles the presentation events not yet represented by
-// editor/input intents (pointer gestures, IME composition, and drag/drop).
-// It is a temporary adapter seam and must disappear as those operations gain
-// backend-neutral contracts.
-func (e *Editor) HandleNativeInput(event ui.InputEvent) bool {
-	return e.input(event)
-}
-
 // command runs an edit command of the menus.
 func (e *Editor) command(cmd string) bool {
 	switch cmd {

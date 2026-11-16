@@ -157,8 +157,8 @@ type Options struct {
 	WriteClipboard func(transfer.Data)
 }
 
-// MathRenderer is a temporary UI adapter port for drawing a neutral math
-// raster in the virtualized editor and its inline preview.
+// MathRenderer is an optional host painter for a math raster. It allows an
+// embedding surface to share its own math visual cache with the editor.
 type MathRenderer func(p *ui.Painter, rect ui.Rect, raster *texmath.Raster, dark bool, font string)
 
 // Editor is the state of a Markdown editor, kept by the app across frames:

@@ -131,8 +131,8 @@ type ImageResources interface {
 // MathResources resolves only math rasters requested by visible blocks.
 type MathResources interface {
 	Math(ResourceID, bool, string) (MathVisual, bool)
-	// DrawMath is a narrowly scoped compatibility capability for hosts with a
-	// custom math painter. Return true once it painted the requested visual.
+	// DrawMath is an optional host-owned painter for a cached math visual.
+	// Return true once it painted the requested visual.
 	DrawMath(*ui.Painter, ui.Rect, ResourceID, bool, string) bool
 }
 

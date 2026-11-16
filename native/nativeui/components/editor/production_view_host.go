@@ -422,17 +422,6 @@ const virtualImageLayoutMin = 16
 // View builds the editor: a scroll view of the document as one surface
 // the user writes on.
 func (e *Editor) View(c *ui.Context) ui.Element {
-	return e.ViewWithInput(c, e.input)
-}
-
-// ViewWithInput builds the existing virtualized editor with a host-owned
-// MyGo event adapter. It is a temporary migration seam: toolkit event
-// translation belongs in nativeui/components/editor, while the editor keeps
-// typed Session operations and its current layout/paint behavior.
-func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui.Element {
-	if input == nil {
-		input = e.input
-	}
 	t := c.Theme()
 	e.setLook(t)
 	e.frame++
@@ -511,7 +500,7 @@ func (e *Editor) ViewWithInput(c *ui.Context, input func(ui.InputEvent) bool) ui
 				el := ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(h).Focusable().FocusRing(false).Bind(&e.handle).
 					Role(ui.RoleTextField).Label(label).
 					HandleTextInput(e).Cursor(cursor).
-					HandleInput(input).Draw(drawEditor).ContextMenu(e.menu)
+					HandleInput(e.input).Draw(drawEditor).ContextMenu(e.menu)
 				if px, py, over := el.PointerPosition(); over {
 					// Read the native surface every frame: scrolling under a
 					// stationary mouse changes its document-space cell, too.
