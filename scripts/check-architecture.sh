@@ -78,7 +78,9 @@ for package in \
   native/editor/internal/core \
   native/editor/internal/textlayout \
   native/editor/input \
+  native/editor/input/vim \
   native/editor/navigation \
+  native/editor/source \
   native/editor/layout \
   native/editor/blocks/inline \
   native/editor/blocks/paragraph \
@@ -98,6 +100,10 @@ for package in \
   native/nativeui/components \
   native/nativeui/components/editor \
   native/nativeui/components/markdown \
+  native/nativeui/components/doctypes \
+  native/nativeui/components/documentdialogs \
+  native/nativeui/components/linkpreview \
+  native/nativeui/components/windowcontrols \
   native/nativeui/window \
   native/nativeui/workspacepresenter \
   native/nativeui/surfaces/noteeditor \
@@ -105,11 +111,11 @@ for package in \
   native/nativeui/surfaces/imagedocument \
   native/nativeui/surfaces/mermaidpreview \
   native/nativeui/surfaces/quickopen \
-  native/nativeui/components/doctypes \
   native/nativeui/interactions \
   native/nativeui/panels/filetree \
   native/nativeui/panels/outline \
   native/nativeui/panels/search \
+  native/nativeui/panels/commandpalette \
   native/nativeui/surfaces/quickopen \
   native/nativeui/panels/naviconpicker \
   native/nativeui/panels/vaulthome \
@@ -128,6 +134,7 @@ for package in \
   native/platform/filesystem/vaultsearchstore \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \
+  native/platform/externalopener \
   native/platform/process/vaultsearchindexer \
   native/platform/cachepath \
   native/locales; do
