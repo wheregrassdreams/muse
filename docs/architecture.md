@@ -40,6 +40,7 @@ native/
 │   ├── input/                     # keymap, Vim modes and command interpretation
 │   │   └── vim/                   # Vim mode state machine, prefixes and command mapping
 │   ├── navigation/                # source-position movement and structural navigation
+│   ├── source/                    # editor source/revision bridge to Markdown syntax
 │   ├── layout/                    # editor block geometry and virtualized layout policy
 │   ├── blocks/
 │   │   ├── inline/
@@ -47,7 +48,6 @@ native/
 │   │   └── table/                 # table editing subsystem
 │   └── internal/
 │       ├── core/                  # editor-private buffer/transaction primitives
-│       ├── parser/                # incremental editor-source bridge to Markdown syntax
 │       └── textlayout/            # editor-private text shaping/layout implementation
 ├── markdown/                      # public Markdown parse/render facade
 │   ├── syntax/
@@ -55,9 +55,6 @@ native/
 │   ├── images/
 │   ├── math/
 │   └── diagrams/
-├── nativeui/components/
-│   ├── editor/                     # MyGo input/render adapter over editor.Session
-│   └── markdown/                   # MyGo painter over neutral Markdown models
 ├── agent/                         # AI session/tool/provider-independent flow
 ├── config/                        # serialized settings, defaults and migration
 ├── theme/                         # runtime palette and visual tokens
@@ -77,12 +74,16 @@ native/
 │   │   ├── filetree/
 │   │   ├── outline/
 │   │   ├── search/
+│   │   ├── commandpalette/
 │   │   ├── naviconpicker/
 │   │   ├── vaulthome/
 │   │   ├── properties/
 │   │   ├── agent/
 │   │   └── settings/
 │   ├── components/
+│   │   ├── editor/                  # MyGo input/render adapter over editor.Session
+│   │   ├── markdown/                # MyGo painter over neutral Markdown models
+│   │   ├── doctypes/                # backend-neutral document type registry/open policy
 │   │   ├── documentdialogs/       # reusable document dialogs and export presentation
 │   │   ├── linkpreview/           # wiki-link hover preview state and rendering
 │   │   └── windowcontrols/        # platform-specific window button presentation
@@ -113,7 +114,7 @@ The child entries in this tree are real Go package boundaries, not merely folder
 |---|---|---|
 | `editor` facade | Public `Session`, neutral input/transaction/frame types, and composition only | Keep the public API small (`api.go`, `session.go`); do not leave the current `Editor` view implementation as the production facade |
 | `editor/internal/core` | Buffer, selection, undo/history, source transactions, system patches | Core portions of `editor.go`, `edit.go`, `transaction.go`, `history.go`, `operations.go`, `multirange.go`, and `system_patch.go` |
-| `editor/internal/parser` | Incremental synchronization from editor source revisions to the Markdown syntax parser, including editor-only comment/frontmatter masking and source-offset preservation | `parsed.go`, `mask.go`, and parser-source tests |
+| `editor/source` | Incremental synchronization from editor source revisions to the Markdown syntax parser, including editor-only comment/frontmatter masking and source-offset preservation | `parsed.go`, `mask.go`, and parser-source tests |
 | `editor/input` | Toolkit-neutral key/text event and operation contracts shared by keymaps | `event.go`, `key_event.go`, `operation.go`, and `sequence.go` |
 | `editor/input/vim` | Independent Vim mode state machine, pending prefixes/counts/registers, and mapping from neutral key/text events to typed editor operations | `modal.go`, Vim-specific command interpretation, and mode/sequence tests; extract Editor-private callbacks into a narrow Host contract during wiring |
 | `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
@@ -129,7 +130,7 @@ Vim remains a selectable editor input strategy, not a second editor core. Its st
 
 Text shaping needs an explicit backend boundary. `editor/layout` owns neutral geometry and virtualization policy. Any MyGo text measurement, painter, font, or rich-text API belongs under `nativeui/components/editor`; `editor/internal/textlayout` may remain only for backend-neutral shaping algorithms and must not import MyGo. This replaces the earlier ambiguous wording that assigned all shaping implementation details to `editor/internal/textlayout`.
 
-The editor parser adapter does not duplicate Markdown grammar or AST ownership. `editor/internal/parser` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar.
+The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/components/editor` must be able to consume it without violating Go's `internal` import boundary.
 
 `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component.
 
@@ -146,6 +147,8 @@ The MyGo-native [GoRex implementation](https://github.com/egoist/gorex) is a use
 The sidebar `panels` are distinct from window surfaces. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `surfaces/noteeditor` composes one pane's `application/document` workflow and `editor.Session` into generic hosted content through `components/editor`; its source, dirty/save state, cursor, and editor instance are private to that pane surface. The `App` routes typed commands to the pane surface and does not keep parallel document or editor state. `components` owns reusable UI pieces such as document-type presentations and shared primitives; icon assets and lookup live in `ui/iconlibrary`. `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
 
 `nativeui.App` constructs a feature surface with that feature's typed constructor, opens it through the generic manager, and holds only opaque handles or generic descriptors—not fields such as `imagepreview.State`, `quickopen.State` or `diagramPreviewState`. The main editor is also a pane content surface: App asks `nativeui/surfaces/noteeditor` to compose the pane's document workflow, editor session and `nativeui/components/editor` adapter, then registers that generic content for the active workspace pane. `nativeui/workspacepresenter` renders each pane through `RenderPane`. App routes pane-scoped commands using `FocusedPane` plus typed feature-owned capabilities; it does not reach into editor/widget state. A surface maps generic open/close/focus lifecycle to its private session. The manager handles host placement and lifecycle only; it does not interpret image, document, search or editor behavior. If descriptor-based restore later needs factories, the composition root registers factories by stable kind and passes only portable descriptors; the concrete state remains private. Avoid a universal mutable state bag or a global service locator.
+
+`nativeui/components/doctypes` owns the backend-neutral registry of openable document kinds, extension matching, parse selection, and editable-file policy. It must not import MyGo widgets or Markdown presentation. The composition root binds a document type to a concrete surface/view adapter; reusable dialogs and file-tree panels consume the registry's stable type metadata and policies.
 
 Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/components/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/components/markdown` paints the neutral Markdown model for both editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
