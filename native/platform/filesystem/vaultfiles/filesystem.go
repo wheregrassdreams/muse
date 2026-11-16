@@ -22,6 +22,25 @@ func (f *FileSystem) Stat(path string) (fs.FileInfo, error) { return os.Stat(pat
 
 func (f *FileSystem) Lstat(path string) (fs.FileInfo, error) { return os.Lstat(path) }
 
+func (f *FileSystem) CreateFile(path string, content []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+func (f *FileSystem) CreateDirectory(path string) error { return os.Mkdir(path, 0o755) }
+
 func (f *FileSystem) Rename(oldPath, newPath string) error { return renameNoReplace(oldPath, newPath) }
 
 func (f *FileSystem) Copy(source, destination string) error {

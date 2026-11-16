@@ -12,19 +12,108 @@ import (
 )
 
 type localFileSystem struct {
-	trashed    []string
-	trashErr   error
-	trashErrAt string
+	trashed            []string
+	trashErr           error
+	trashErrAt         string
+	createFileErr      error
+	createDirectoryErr error
 }
 
 func (localFileSystem) Lstat(path string) (fs.FileInfo, error) { return os.Lstat(path) }
 func (localFileSystem) Rename(oldPath, newPath string) error   { return os.Rename(oldPath, newPath) }
+func (f *localFileSystem) CreateFile(path string, content []byte) error {
+	if f.createFileErr != nil {
+		return f.createFileErr
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	return file.Close()
+}
+func (f *localFileSystem) CreateDirectory(path string) error {
+	if f.createDirectoryErr != nil {
+		return f.createDirectoryErr
+	}
+	return os.Mkdir(path, 0o755)
+}
 func (f *localFileSystem) Trash(path string) error {
 	if f.trashErr != nil && (f.trashErrAt == "" || filepath.Base(path) == f.trashErrAt) {
 		return f.trashErr
 	}
 	f.trashed = append(f.trashed, path)
 	return os.RemoveAll(path)
+}
+
+func TestFileOperationsCreateFileAndFolderChooseCollisionFreeVaultPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Untitled.md"), []byte("preserve"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "New folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ops := NewFileOperations(&localFileSystem{})
+	createdFile, err := ops.CreateFile(root, root, "Untitled", ".md", []byte("new note"))
+	if err != nil || createdFile != filepath.Join(root, "Untitled 2.md") {
+		t.Fatalf("CreateFile = %q, %v", createdFile, err)
+	}
+	if body, err := os.ReadFile(filepath.Join(root, "Untitled.md")); err != nil || string(body) != "preserve" {
+		t.Fatalf("collision changed existing file: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(createdFile); err != nil || string(body) != "new note" {
+		t.Fatalf("created file body=%q err=%v", body, err)
+	}
+	createdFolder, err := ops.CreateFolder(root, root, "New folder")
+	if err != nil || createdFolder != filepath.Join(root, "New folder 2") {
+		t.Fatalf("CreateFolder = %q, %v", createdFolder, err)
+	}
+}
+
+func TestFileOperationsCreationRejectsInvalidAndOutsideVaultDestinations(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	ops := NewFileOperations(&localFileSystem{})
+	for _, name := range []string{"", ".", "..", "../escape", "nested/name"} {
+		if _, err := ops.CreateFile(root, root, name, ".md", nil); err == nil {
+			t.Errorf("CreateFile accepted invalid name %q", name)
+		}
+		if _, err := ops.CreateFolder(root, root, name); err == nil {
+			t.Errorf("CreateFolder accepted invalid name %q", name)
+		}
+	}
+	if _, err := ops.CreateFile(root, outside, "note", ".md", nil); err == nil || !strings.Contains(err.Error(), "outside the vault") {
+		t.Fatalf("outside-vault file destination error = %v", err)
+	}
+	if _, err := ops.CreateFolder(root, outside, "folder"); err == nil || !strings.Contains(err.Error(), "outside the vault") {
+		t.Fatalf("outside-vault folder destination error = %v", err)
+	}
+	linked := filepath.Join(root, "linked")
+	if err := os.Symlink(outside, linked); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := ops.CreateFile(root, linked, "note", ".md", nil); err == nil {
+		t.Fatal("CreateFile accepted a symlink destination")
+	}
+	if _, err := ops.CreateFolder(root, linked, "folder"); err == nil {
+		t.Fatal("CreateFolder accepted a symlink destination")
+	}
+}
+
+func TestFileOperationsCreationPropagatesPermissionErrors(t *testing.T) {
+	root := t.TempDir()
+	fileOps := NewFileOperations(&localFileSystem{createFileErr: fs.ErrPermission})
+	if _, err := fileOps.CreateFile(root, root, "note", ".md", nil); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("CreateFile permission error = %v", err)
+	}
+	folderOps := NewFileOperations(&localFileSystem{createDirectoryErr: fs.ErrPermission})
+	if _, err := folderOps.CreateFolder(root, root, "folder"); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("CreateFolder permission error = %v", err)
+	}
 }
 func (localFileSystem) Copy(source, destination string) error {
 	info, err := os.Lstat(source)

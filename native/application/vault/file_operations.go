@@ -14,6 +14,8 @@ import (
 // Concrete disk and OS trash access belongs to platform adapters.
 type FileSystem interface {
 	Lstat(path string) (fs.FileInfo, error)
+	CreateFile(path string, content []byte) error
+	CreateDirectory(path string) error
 	Rename(oldPath, newPath string) error
 	Copy(source, destination string) error
 	Trash(path string) error
@@ -27,6 +29,101 @@ type FileMove struct {
 type FileCopy struct {
 	Source string
 	Target string
+}
+
+// CreateFile writes a new file under an existing vault directory. A collision
+// selects the next numbered name; exclusive creation closes the race between
+// checking a candidate and creating it.
+func (o *FileOperations) CreateFile(root, directory, base, extension string, content []byte) (string, error) {
+	if o == nil || o.fs == nil {
+		return "", errors.New("vault file operations are not configured")
+	}
+	root, err := absolute(root)
+	if err != nil {
+		return "", err
+	}
+	directory, err = absolute(directory)
+	if err != nil {
+		return "", err
+	}
+	if err := o.validateCreateLocation(root, directory, base); err != nil {
+		return "", err
+	}
+	if extension != "" && (strings.ContainsAny(extension, "/\\\x00") || !strings.HasPrefix(extension, ".") || filepath.Base(extension) != extension) {
+		return "", errors.New("file extension must be a single suffix")
+	}
+	directoryInfo, err := o.fs.Lstat(directory)
+	if err != nil {
+		return "", err
+	}
+	if !directoryInfo.IsDir() || directoryInfo.Mode()&fs.ModeSymlink != 0 {
+		return "", errors.New("file destination is not a directory")
+	}
+	for suffix := 1; ; suffix++ {
+		name := base
+		if suffix > 1 {
+			name = fmt.Sprintf("%s %d", base, suffix)
+		}
+		candidate := filepath.Join(directory, name+extension)
+		if err := o.fs.CreateFile(candidate, content); errors.Is(err, fs.ErrExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+}
+
+// CreateFolder creates a new directory under an existing vault directory,
+// choosing the next numbered name when the preferred name already exists.
+func (o *FileOperations) CreateFolder(root, directory, base string) (string, error) {
+	if o == nil || o.fs == nil {
+		return "", errors.New("vault file operations are not configured")
+	}
+	root, err := absolute(root)
+	if err != nil {
+		return "", err
+	}
+	directory, err = absolute(directory)
+	if err != nil {
+		return "", err
+	}
+	if err := o.validateCreateLocation(root, directory, base); err != nil {
+		return "", err
+	}
+	directoryInfo, err := o.fs.Lstat(directory)
+	if err != nil {
+		return "", err
+	}
+	if !directoryInfo.IsDir() || directoryInfo.Mode()&fs.ModeSymlink != 0 {
+		return "", errors.New("folder destination is not a directory")
+	}
+	for suffix := 1; ; suffix++ {
+		name := base
+		if suffix > 1 {
+			name = fmt.Sprintf("%s %d", base, suffix)
+		}
+		candidate := filepath.Join(directory, name)
+		if err := o.fs.CreateDirectory(candidate); errors.Is(err, fs.ErrExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+}
+
+func (o *FileOperations) validateCreateLocation(root, directory, base string) error {
+	if strings.TrimSpace(base) == "" || base == "." || base == ".." || strings.ContainsAny(base, "/\\\x00") || filepath.Base(base) != base {
+		return errors.New("creation name must be a single file or folder name")
+	}
+	if !withinRoot(root, directory) {
+		return fmt.Errorf("creation destination is outside the vault: %s", directory)
+	}
+	if err := o.ensureNoSymlinkPath(root, directory); err != nil {
+		return err
+	}
+	return nil
 }
 
 // FileOperations applies vault boundaries, collision handling, and copy/trash

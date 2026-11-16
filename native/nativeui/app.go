@@ -33,7 +33,6 @@ import (
 	workspaceapp "muse/application/workspace"
 	"muse/config"
 	"muse/document"
-	"muse/document/frontmatter"
 	mdedit "muse/editor"
 	"muse/events"
 	"muse/locales"
@@ -2821,36 +2820,6 @@ func (a *App) createTarget() string {
 		return a.selectedPath
 	}
 	return a.root
-}
-
-func (a *App) newFileIn(dir string) {
-	path := uniquePath(dir, locales.DocumentUntitled(), ".md")
-	source, err := frontmatter.EnsureCore("")
-	if err == nil {
-		source, err = frontmatter.SetTyped(source, "created_at", time.Now().UTC().Format(time.RFC3339Nano), "text")
-	}
-	if err != nil {
-		a.notice(locales.CommonCreateFailed(err.Error()))
-		a.invalidate()
-		return
-	}
-	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
-		a.notice(locales.CommonCreateFailed(err.Error()))
-		a.invalidate()
-		return
-	}
-	a.clearTreeCache()
-	a.requestOpen(path)
-}
-
-func (a *App) newFolderIn(dir string) {
-	path := uniquePath(dir, locales.FilesNewFolderDefault(), "")
-	if err := os.Mkdir(path, 0o755); err != nil {
-		a.notice(locales.CommonCreateFailed(err.Error()))
-	} else {
-		a.clearTreeCache()
-	}
-	a.invalidate()
 }
 
 func (a *App) clearTreeCache() {
