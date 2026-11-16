@@ -61,16 +61,18 @@ type Capabilities struct {
 }
 
 type Assistant struct {
-	Enabled         bool
-	Provider        string
-	BaseURL         string
-	APIKey          string
-	Model           string
-	SystemPrompt    string
-	Capabilities    Capabilities
-	AvailableModels []string
-	ModelsLoading   bool
-	ModelsError     string
+	Enabled            bool
+	Provider           string
+	BaseURL            string
+	APIKey             string
+	Model              string
+	SystemPrompt       string
+	Capabilities       Capabilities
+	AvailableModels    []string
+	ModelsLoading      bool
+	ModelsError        string
+	SettingsPath       string
+	CapabilitiesDetail string
 }
 
 type ViewModel struct {
@@ -367,6 +369,12 @@ func renderAssistant(c *ui.Context, model Assistant, dispatch func(Action)) {
 			emit(dispatch, Action{Kind: CapabilityChanged, Capability: ManageCapability, Enabled: value})
 		})
 	})
+	if model.SettingsPath != "" {
+		ui.Text(c, locales.AiConfigLocation(model.SettingsPath)).FontSize(10.5).TextColor(c.Theme().TextMuted).SingleLine().Ellipsis("…")
+	}
+	if model.CapabilitiesDetail != "" {
+		ui.Text(c, model.CapabilitiesDetail).FontSize(11.5).TextColor(c.Theme().TextMuted).Padding(0, 4).Wrap()
+	}
 }
 
 func textField(c *ui.Context, label, detail, value, placeholder string, password bool, kind ActionKind, dispatch func(Action)) {

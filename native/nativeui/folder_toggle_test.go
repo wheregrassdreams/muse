@@ -14,7 +14,7 @@ func TestFolderFirstClickAndWorkspaceReset(t *testing.T) {
 	if err := os.Mkdir(sub, 0755); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, dir)
 	if a.folderToggled == nil {
 		t.Fatal("constructor did not initialize toggle state")
 	}

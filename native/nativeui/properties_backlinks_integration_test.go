@@ -22,15 +22,15 @@ func TestPropertyBacklinksUseSharedSourceProjection(t *testing.T) {
 	if !tt.HasText("Source（2 处）") {
 		t.Fatalf("property backlinks card did not display grouped count: %q", tt.Texts())
 	}
-	targetPath := a.path
+	targetPath := a.documentPath()
 	if err := tt.Click("属性反向链接：Source.md"); err != nil {
 		t.Fatalf("click grouped property backlink: %v", err)
 	}
-	if filepath.Clean(a.path) != filepath.Join(a.root, "Source.md") || a.indexedOffset != sources[0].Start {
-		t.Fatalf("grouped backlink did not navigate to first link: path=%q offset=%d want path=%q offset=%d", a.path, a.indexedOffset, filepath.Join(a.root, "Source.md"), sources[0].Start)
+	if filepath.Clean(a.documentPath()) != filepath.Join(a.root, "Source.md") || a.indexedOffset != sources[0].Start {
+		t.Fatalf("grouped backlink did not navigate to first link: path=%q offset=%d want path=%q offset=%d", a.documentPath(), a.indexedOffset, filepath.Join(a.root, "Source.md"), sources[0].Start)
 	}
 	// Keep the original target selected while checking live index updates below.
-	a.path = targetPath
+	setDocumentPathForTest(a, targetPath)
 	a.openProperties()
 	tt.Frame()
 

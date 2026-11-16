@@ -51,19 +51,18 @@ func e2eWorkspace(t *testing.T) (string, string) {
 func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 	dir, one := e2eWorkspace(t)
 
-	a := New()
-	withDocumentPorts(t, a)
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
 	clickTreeRow(t, tt, "周报.md")
 	tt.Frame()
-	if a.path != one {
-		t.Fatalf("a.path = %q, want %q", a.path, one)
+	if a.documentPath() != one {
+		t.Fatalf("a.documentPath() = %q, want %q", a.documentPath(), one)
 	}
-	if !strings.Contains(a.source, "原始行") {
-		t.Fatalf("file not loaded: %q", a.source)
+	if !strings.Contains(a.documentSource(), "原始行") {
+		t.Fatalf("file not loaded: %q", a.documentSource())
 	}
 
 	// Click the rendered list item, go to its end and type.
@@ -71,7 +70,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 	tt.Key(0, ui.KeyEnd)
 	tt.Type(" E2E 追加")
 	tt.Frame()
-	if !a.dirty {
+	if !a.documentDirty() {
 		t.Fatal("typing did not mark the document dirty")
 	}
 
@@ -84,7 +83,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 			t.Fatalf("saved markdown missing %q; got:\n%s", want, got)
 		}
 	}
-	if a.dirty {
+	if a.documentDirty() {
 		t.Fatalf("dirty stayed true after a successful save")
 	}
 }
@@ -97,15 +96,15 @@ func TestE2ESaveUntitledViaDialog(t *testing.T) {
 	tt.Frame()
 
 	// A new window is an empty document with the caret in it: type away.
-	a.ed.Focus()
+	a.activeNote.FocusCommands().Focus()
 	tt.Frame()
 	tt.Type("# E2E 已验证")
 	tt.Frame()
 	tt.Key(0, ui.KeyEnter)
 	tt.Type("正文")
 	tt.Frame()
-	if a.source != "# E2E 已验证\n正文" {
-		t.Fatalf("source = %q", a.source)
+	if a.documentSource() != "# E2E 已验证\n正文" {
+		t.Fatalf("source = %q", a.documentSource())
 	}
 
 	dir := t.TempDir()
@@ -122,11 +121,11 @@ func TestE2ESaveUntitledViaDialog(t *testing.T) {
 		t.Fatalf("saved doc missing typed text; got:\n%s", b)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for a.path != target && time.Now().Before(deadline) {
+	for a.documentPath() != target && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if a.path != target {
-		t.Fatalf("a.path = %q, want %q", a.path, target)
+	if a.documentPath() != target {
+		t.Fatalf("a.documentPath() = %q, want %q", a.documentPath(), target)
 	}
 }
 
@@ -137,8 +136,7 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := New()
-	withDocumentPorts(t, a)
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -151,22 +149,22 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 	tt.Frame()
 	a.save()
 	waitFileContains(t, one, "已保存再切走")
-	if a.dirty {
+	if a.documentDirty() {
 		t.Fatal("dirty after save")
 	}
 
 	clickTreeRow(t, tt, "notes.md")
 	tt.Frame()
-	if a.path != two || !strings.Contains(a.source, "第二份文档。") {
-		t.Fatalf("notes.md not opened: path=%q source=%q", a.path, a.source)
+	if a.documentPath() != two || !strings.Contains(a.documentSource(), "第二份文档。") {
+		t.Fatalf("notes.md not opened: path=%q source=%q", a.documentPath(), a.documentSource())
 	}
 	clickTreeRow(t, tt, "周报.md")
 	tt.Frame()
-	if !strings.Contains(a.source, "已保存再切走") {
-		t.Fatalf("saved edit not loaded after switching back: %q", a.source)
+	if !strings.Contains(a.documentSource(), "已保存再切走") {
+		t.Fatalf("saved edit not loaded after switching back: %q", a.documentSource())
 	}
-	if a.path != one {
-		t.Fatalf("a.path = %q, want %q", a.path, one)
+	if a.documentPath() != one {
+		t.Fatalf("a.documentPath() = %q, want %q", a.documentPath(), one)
 	}
 }
 
@@ -176,8 +174,7 @@ func TestE2ETableCmdEnterAddsRow(t *testing.T) {
 	if err := os.WriteFile(one, []byte("| a | b |\n| --- | --- |\n| 1 | 2 |\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
-	withDocumentPorts(t, a)
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -212,15 +209,14 @@ func TestE2EWindowsLineEndingsRoundTrip(t *testing.T) {
 	if err := os.WriteFile(one, []byte("# 标题\r\n\r\n正文\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
-	withDocumentPorts(t, a)
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	clickTreeRow(t, tt, "crlf.md")
 	tt.Frame()
-	if strings.Contains(a.source, "\r") {
-		t.Fatalf("the editor sees carriage returns: %q", a.source)
+	if strings.Contains(a.documentSource(), "\r") {
+		t.Fatalf("the editor sees carriage returns: %q", a.documentSource())
 	}
 	clickSource(t, a, tt, "正文")
 	tt.Key(0, ui.KeyEnd)
@@ -243,8 +239,8 @@ func TestOutlineClickMovesCaret(t *testing.T) {
 		t.Fatalf("outline row: %v", err)
 	}
 	tt.Frame()
-	if want := strings.Index(a.source, "二"); a.ed.Caret() != want {
-		t.Fatalf("caret = %d, want %d", a.ed.Caret(), want)
+	if want := strings.Index(a.documentSource(), "二"); a.activeNote.NavigationCommands().Caret() != want {
+		t.Fatalf("caret = %d, want %d", a.activeNote.NavigationCommands().Caret(), want)
 	}
 }
 
@@ -261,7 +257,7 @@ func TestSearchSelectsMatch(t *testing.T) {
 	}
 	a.goToHit(1)
 	tt.Frame()
-	if got := a.ed.SelectedText(); got != "muse" {
+	if got := a.activeNote.ClipboardCommands().SelectedText(); got != "muse" {
 		t.Fatalf("selected %q", got)
 	}
 }
@@ -271,15 +267,15 @@ func TestAIEditIsUndoable(t *testing.T) {
 	a.loadDoc("原文。\n")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	a.ed.ReplaceAll("原文。\n\nAI 新增。\n")
+	a.activeNote.ReplaceUser("原文。\n\nAI 新增。\n")
 	tt.Frame()
-	if !a.dirty || a.source != "原文。\n\nAI 新增。\n" {
-		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.dirty, a.source)
+	if !a.documentDirty() || a.documentSource() != "原文。\n\nAI 新增。\n" {
+		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.documentDirty(), a.documentSource())
 	}
-	a.ed.Undo()
+	a.activeNote.Undo()
 	tt.Frame()
-	if a.source != "原文。\n" {
-		t.Fatalf("undo left %q", a.source)
+	if a.documentSource() != "原文。\n" {
+		t.Fatalf("undo left %q", a.documentSource())
 	}
 }
 
@@ -302,16 +298,15 @@ func TestSearchReplace(t *testing.T) {
 	tt.Frame()
 	a.goToHit(1)
 	a.replaceHit()
-	if a.source != "cat and dog and Cat\n" {
-		t.Fatalf("replace one: %q", a.source)
+	if a.documentSource() != "cat and dog and Cat\n" {
+		t.Fatalf("replace one: %q", a.documentSource())
 	}
 	a.replaceAllHits()
-	if a.source != "dog and dog and dog\n" {
-		t.Fatalf("replace all: %q", a.source)
+	if a.documentSource() != "dog and dog and dog\n" {
+		t.Fatalf("replace all: %q", a.documentSource())
 	}
-	a.ed.Undo()
-	a.docChanged()
-	if a.source != "cat and dog and Cat\n" {
-		t.Fatalf("undo replace all: %q", a.source)
+	a.activeNote.Undo()
+	if a.documentSource() != "cat and dog and Cat\n" {
+		t.Fatalf("undo replace all: %q", a.documentSource())
 	}
 }

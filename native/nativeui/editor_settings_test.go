@@ -11,18 +11,18 @@ import (
 func TestEditorKeymapPersists(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	if a.ed.Keymap() != "default" {
-		t.Fatal(a.ed.Keymap())
+	if a.activeNote.ModalCommands().Keymap() != "default" {
+		t.Fatal(a.activeNote.ModalCommands().Keymap())
 	}
 	a.setEditorKeymap("vim")
 	b := New()
-	if b.ed.Keymap() != "vim" {
-		t.Fatalf("restored %q", b.ed.Keymap())
+	if b.activeNote.ModalCommands().Keymap() != "vim" {
+		t.Fatalf("restored %q", b.activeNote.ModalCommands().Keymap())
 	}
 	if err := os.WriteFile(editorConfigPath(), []byte(`{"keymap":"unknown"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if got := New().ed.Keymap(); got != "default" {
+	if got := New().activeNote.ModalCommands().Keymap(); got != "default" {
 		t.Fatal(got)
 	}
 }
@@ -38,15 +38,15 @@ func TestEditorKeymapSettingsUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.ed.Keymap() != "vim" {
-		t.Fatal(a.ed.Keymap())
+	if a.activeNote.ModalCommands().Keymap() != "vim" {
+		t.Fatal(a.activeNote.ModalCommands().Keymap())
 	}
 	if err := tt.Click("按键模式：默认"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.ed.Keymap() != "default" {
-		t.Fatal(a.ed.Keymap())
+	if a.activeNote.ModalCommands().Keymap() != "default" {
+		t.Fatal(a.activeNote.ModalCommands().Keymap())
 	}
 }
 
@@ -83,8 +83,8 @@ func TestSmartTypographyDefaultsAndReload(t *testing.T) {
 				}
 			}
 			a := New()
-			if a.smartTypography != tc.want || a.ed.Options().DisableSmartTypography != !tc.want {
-				t.Fatalf("smartTypography = %v, editor disabled = %v; want enabled %v", a.smartTypography, a.ed.Options().DisableSmartTypography, tc.want)
+			if a.smartTypography != tc.want || a.activeNote.PresentationCommands().Settings().DisableSmartTypography != !tc.want {
+				t.Fatalf("smartTypography = %v, editor disabled = %v; want enabled %v", a.smartTypography, a.activeNote.PresentationCommands().Settings().DisableSmartTypography, tc.want)
 			}
 		})
 	}
@@ -96,18 +96,18 @@ func TestSmartTypographyAndKeymapSaveTogether(t *testing.T) {
 	a.setEditorKeymap("vim")
 	a.setSmartTypography(false)
 	b := New()
-	if b.smartTypography || b.ed.Keymap() != "vim" {
-		t.Fatalf("typography save restored enabled=%v keymap=%q", b.smartTypography, b.ed.Keymap())
+	if b.smartTypography || b.activeNote.ModalCommands().Keymap() != "vim" {
+		t.Fatalf("typography save restored enabled=%v keymap=%q", b.smartTypography, b.activeNote.ModalCommands().Keymap())
 	}
 	b.setEditorKeymap("helix")
 	c := New()
-	if c.smartTypography || !c.ed.Options().DisableSmartTypography || c.ed.Keymap() != "helix" {
-		t.Fatalf("keymap save restored enabled=%v disabled=%v keymap=%q", c.smartTypography, c.ed.Options().DisableSmartTypography, c.ed.Keymap())
+	if c.smartTypography || !c.activeNote.PresentationCommands().Settings().DisableSmartTypography || c.activeNote.ModalCommands().Keymap() != "helix" {
+		t.Fatalf("keymap save restored enabled=%v disabled=%v keymap=%q", c.smartTypography, c.activeNote.PresentationCommands().Settings().DisableSmartTypography, c.activeNote.ModalCommands().Keymap())
 	}
 	c.setSmartTypography(true)
 	d := New()
-	if !d.smartTypography || d.ed.Options().DisableSmartTypography || d.ed.Keymap() != "helix" {
-		t.Fatalf("re-enable restored enabled=%v disabled=%v keymap=%q", d.smartTypography, d.ed.Options().DisableSmartTypography, d.ed.Keymap())
+	if !d.smartTypography || d.activeNote.PresentationCommands().Settings().DisableSmartTypography || d.activeNote.ModalCommands().Keymap() != "helix" {
+		t.Fatalf("re-enable restored enabled=%v disabled=%v keymap=%q", d.smartTypography, d.activeNote.PresentationCommands().Settings().DisableSmartTypography, d.activeNote.ModalCommands().Keymap())
 	}
 }
 
@@ -126,8 +126,8 @@ func TestSmartTypographySettingsToggle(t *testing.T) {
 			t.Fatal(err)
 		}
 		// The click updates the active editor without waiting for another frame.
-		if a.smartTypography != enabled || a.editorOptions().DisableSmartTypography != !enabled || a.ed.Options().DisableSmartTypography != !enabled {
-			t.Fatalf("toggle: enabled=%v options disabled=%v editor disabled=%v; want enabled %v", a.smartTypography, a.editorOptions().DisableSmartTypography, a.ed.Options().DisableSmartTypography, enabled)
+		if a.smartTypography != enabled || a.editorOptions().DisableSmartTypography != !enabled || a.activeNote.PresentationCommands().Settings().DisableSmartTypography != !enabled {
+			t.Fatalf("toggle: enabled=%v options disabled=%v editor disabled=%v; want enabled %v", a.smartTypography, a.editorOptions().DisableSmartTypography, a.activeNote.PresentationCommands().Settings().DisableSmartTypography, enabled)
 		}
 		saved := loadEditorSettings()
 		if saved.SmartTypography == nil || *saved.SmartTypography != enabled {
@@ -140,16 +140,16 @@ func TestSmartTypographySettingsToggle(t *testing.T) {
 func TestVimVirtualImageRowsDefaultOffAndPersist(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	if a.vimVirtualImageRows || a.ed.Options().VimVirtualImageRows {
+	if a.vimVirtualImageRows || a.activeNote.PresentationCommands().Settings().VimVirtualImageRows {
 		t.Fatal("Vim virtual image rows should default off")
 	}
 	a.setVimVirtualImageRows(true)
 	b := New()
-	if !b.vimVirtualImageRows || !b.ed.Options().VimVirtualImageRows {
+	if !b.vimVirtualImageRows || !b.activeNote.PresentationCommands().Settings().VimVirtualImageRows {
 		t.Fatal("Vim virtual image rows were not restored from settings")
 	}
 	b.setVimVirtualImageRows(false)
-	if c := New(); c.vimVirtualImageRows || c.ed.Options().VimVirtualImageRows {
+	if c := New(); c.vimVirtualImageRows || c.activeNote.PresentationCommands().Settings().VimVirtualImageRows {
 		t.Fatal("disabled Vim virtual image rows were not restored")
 	}
 }
@@ -157,16 +157,16 @@ func TestVimVirtualImageRowsDefaultOffAndPersist(t *testing.T) {
 func TestHeadingMarkerRevealDefaultsOffAndPersists(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	if a.headingMarkerReveal || a.ed.Options().HeadingMarkerReveal {
+	if a.headingMarkerReveal || a.activeNote.PresentationCommands().Settings().HeadingMarkerReveal {
 		t.Fatal("heading marker reveal preference should default off")
 	}
 	a.setHeadingMarkerReveal(true)
 	b := New()
-	if !b.headingMarkerReveal || !b.ed.Options().HeadingMarkerReveal {
+	if !b.headingMarkerReveal || !b.activeNote.PresentationCommands().Settings().HeadingMarkerReveal {
 		t.Fatal("heading marker reveal preference was not restored")
 	}
 	b.setHeadingMarkerReveal(false)
-	if c := New(); c.headingMarkerReveal || c.ed.Options().HeadingMarkerReveal {
+	if c := New(); c.headingMarkerReveal || c.activeNote.PresentationCommands().Settings().HeadingMarkerReveal {
 		t.Fatal("disabled heading marker reveal preference was not restored")
 	}
 }
@@ -181,7 +181,7 @@ func TestHeadingMarkerRevealSettingsToggleThroughEditorPage(t *testing.T) {
 	if err := tt.Click("标题标记按空格展开开关"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.headingMarkerReveal || !a.ed.Options().HeadingMarkerReveal {
+	if !a.headingMarkerReveal || !a.activeNote.PresentationCommands().Settings().HeadingMarkerReveal {
 		t.Fatal("settings toggle did not update editor heading reveal behavior")
 	}
 	if saved := loadEditorSettings(); saved.HeadingMarkerReveal == nil || !*saved.HeadingMarkerReveal {
@@ -201,8 +201,8 @@ func TestVimVirtualImageRowsSettingsToggle(t *testing.T) {
 		if err := tt.Click("Vim 图片虚拟行开关"); err != nil {
 			t.Fatal(err)
 		}
-		if a.vimVirtualImageRows != enabled || a.ed.Options().VimVirtualImageRows != enabled {
-			t.Fatalf("toggle enabled=%v app=%v editor=%v", enabled, a.vimVirtualImageRows, a.ed.Options().VimVirtualImageRows)
+		if a.vimVirtualImageRows != enabled || a.activeNote.PresentationCommands().Settings().VimVirtualImageRows != enabled {
+			t.Fatalf("toggle enabled=%v app=%v editor=%v", enabled, a.vimVirtualImageRows, a.activeNote.PresentationCommands().Settings().VimVirtualImageRows)
 		}
 		saved := loadEditorSettings()
 		if saved.VimVirtualImageRows == nil || *saved.VimVirtualImageRows != enabled {
@@ -237,19 +237,19 @@ func TestCursorSettingsDefaultOffAndPersist(t *testing.T) {
 func TestSearchMatchPulseSettingDefaultAndPersist(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	if a.searchMatchPulse || a.editorOptions().SearchMatchPulse || a.ed.Options().SearchMatchPulse {
+	if a.searchMatchPulse || a.editorOptions().SearchMatchPulse || a.activeNote.PresentationCommands().Settings().SearchMatchPulse {
 		t.Fatal("search match pulse should default off")
 	}
 	a.setSearchMatchPulse(true)
 	b := New()
-	if !b.searchMatchPulse || !b.editorOptions().SearchMatchPulse || !b.ed.Options().SearchMatchPulse {
+	if !b.searchMatchPulse || !b.editorOptions().SearchMatchPulse || !b.activeNote.PresentationCommands().Settings().SearchMatchPulse {
 		t.Fatal("search match pulse was not restored from settings")
 	}
 	if saved := loadEditorSettings(); saved.SearchMatchPulse == nil || !*saved.SearchMatchPulse {
 		t.Fatal("search match pulse was not saved")
 	}
 	b.setSearchMatchPulse(false)
-	if c := New(); c.searchMatchPulse || c.ed.Options().SearchMatchPulse {
+	if c := New(); c.searchMatchPulse || c.activeNote.PresentationCommands().Settings().SearchMatchPulse {
 		t.Fatal("disabled search match pulse was not restored")
 	}
 }
@@ -264,7 +264,7 @@ func TestSearchMatchPulseSettingToggleThroughEditorPage(t *testing.T) {
 	if err := tt.Click("搜索命中轻微动效开关"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.searchMatchPulse || !a.ed.Options().SearchMatchPulse {
+	if !a.searchMatchPulse || !a.activeNote.PresentationCommands().Settings().SearchMatchPulse {
 		t.Fatal("settings toggle did not enable search match pulse")
 	}
 	if saved := loadEditorSettings(); saved.SearchMatchPulse == nil || !*saved.SearchMatchPulse {
@@ -275,20 +275,20 @@ func TestSearchMatchPulseSettingToggleThroughEditorPage(t *testing.T) {
 func TestVimYankFlashSettingDefaultAndPersist(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	if a.vimYankFlash || a.editorOptions().VimYankFlash || a.ed.Options().VimYankFlash {
+	if a.vimYankFlash || a.editorOptions().VimYankFlash || a.activeNote.PresentationCommands().Settings().VimYankFlash {
 		t.Fatal("Vim yank flash should default off")
 	}
 	a.setEditorKeymap("vim")
 	a.setVimYankFlash(true)
 	b := New()
-	if !b.vimYankFlash || !b.editorOptions().VimYankFlash || !b.ed.Options().VimYankFlash {
+	if !b.vimYankFlash || !b.editorOptions().VimYankFlash || !b.activeNote.PresentationCommands().Settings().VimYankFlash {
 		t.Fatal("Vim yank flash was not restored from settings")
 	}
 	if saved := loadEditorSettings(); saved.VimYankFlash == nil || !*saved.VimYankFlash {
 		t.Fatal("Vim yank flash was not saved")
 	}
 	b.setVimYankFlash(false)
-	if c := New(); c.vimYankFlash || c.ed.Options().VimYankFlash {
+	if c := New(); c.vimYankFlash || c.activeNote.PresentationCommands().Settings().VimYankFlash {
 		t.Fatal("disabled Vim yank flash was not restored")
 	}
 }
@@ -309,7 +309,7 @@ func TestVimYankFlashSettingsToggleAndVisibility(t *testing.T) {
 	if err := standard.Click("Vim 复制选区闪显开关"); err != nil {
 		t.Fatal(err)
 	}
-	if !a.vimYankFlash || !a.ed.Options().VimYankFlash {
+	if !a.vimYankFlash || !a.activeNote.PresentationCommands().Settings().VimYankFlash {
 		t.Fatal("Vim yank flash toggle did not update app and editor")
 	}
 }
@@ -327,8 +327,8 @@ func TestCursorSettingsToggleThroughEditorPage(t *testing.T) {
 		set   func() bool
 		opt   func() bool
 	}{
-		{"光标淡入淡出开关", func() bool { return a.cursorFade }, func() bool { return a.ed.Options().CursorFade }},
-		{"平滑光标开关", func() bool { return a.smoothCursor }, func() bool { return a.ed.Options().SmoothCursor }},
+		{"光标淡入淡出开关", func() bool { return a.cursorFade }, func() bool { return a.activeNote.PresentationCommands().Settings().CursorFade }},
+		{"平滑光标开关", func() bool { return a.smoothCursor }, func() bool { return a.activeNote.PresentationCommands().Settings().SmoothCursor }},
 		{locales.SettingsHideMouseCursor(), func() bool { return a.hideMouseCursor }, func() bool { return a.hideMouseCursor }},
 	} {
 		if err := tt.Click(tc.label); err != nil {
@@ -354,7 +354,7 @@ func TestHideMouseCursorAfterTypingAndVimInputUntilIdle(t *testing.T) {
 	a := New()
 	a.setHideMouseCursor(true)
 	tt := ui.NewTester(a.View, 1200, 800)
-	a.ed.Focus()
+	a.activeNote.FocusCommands().Focus()
 	tt.Frame()
 	tt.Move(700, 400)
 	tt.Type("x")
@@ -369,7 +369,7 @@ func TestHideMouseCursorAfterTypingAndVimInputUntilIdle(t *testing.T) {
 		t.Fatal("pointer was not restored after typing stopped")
 	}
 	a.setEditorKeymap("vim")
-	a.ed.Focus()
+	a.activeNote.FocusCommands().Focus()
 	tt.Frame()
 	tt.Key(0, ui.KeyJ)
 	if !a.mouseCursorHidden {

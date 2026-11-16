@@ -8,7 +8,7 @@ import (
 
 func TestPropertiesInspectorKeepsFileSidebarAndSource(t *testing.T) {
 	a := New()
-	a.path = "/tmp/filename-title.md"
+	setDocumentPathForTest(a, "/tmp/filename-title.md")
 	src := "---\ntags: [work, 回归]\nstatus: draft\ncustom: keep\n---\n# Body\n"
 	a.loadDoc(src)
 	tt := ui.NewTester(a.View, 1200, 800)
@@ -25,30 +25,30 @@ func TestPropertiesInspectorKeepsFileSidebarAndSource(t *testing.T) {
 	if a.panel != beforePanel || a.panelOpen != beforeOpen {
 		t.Fatal("opening properties replaced the left file sidebar")
 	}
-	if a.ed.Source() != src {
+	if a.activeNote.Source() != src {
 		t.Fatal("opening properties rewrote Markdown")
 	}
-	if frontmatter.Title(src, a.path) != "Body" {
+	if frontmatter.Title(src, a.documentPath()) != "Body" {
 		t.Fatal("canonical H1 title was not selected")
 	}
 }
 
 func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	a := New()
-	a.path = "/tmp/default-name.md"
+	setDocumentPathForTest(a, "/tmp/default-name.md")
 	src := "---\ntags: [one]\npath: custom-user-value\n---\nbody text\n"
 	a.loadDoc(src)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	caret := a.ed.Caret()
+	caret := a.activeNote.NavigationCommands().Caret()
 	if err := a.propertySet("title", "Manual title"); err != nil {
 		t.Fatal(err)
 	}
-	if frontmatter.Title(a.ed.Source(), a.path) != "default-name" || a.path != "/tmp/default-name.md" {
+	if frontmatter.Title(a.activeNote.Source(), a.documentPath()) != "default-name" || a.documentPath() != "/tmp/default-name.md" {
 		t.Fatal("legacy YAML title incorrectly overrode the canonical title")
 	}
-	if !a.ed.Undo() || a.ed.Source() != src || a.ed.Caret() != caret {
+	if !a.activeNote.Undo() || a.activeNote.Source() != src || a.activeNote.NavigationCommands().Caret() != caret {
 		t.Fatal("property edit did not undo with original body caret")
 	}
 	if err := a.propertySet("path", "new user value"); err != nil {
@@ -60,14 +60,14 @@ func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	if err := a.propertyDelete("title"); err != nil {
 		t.Fatal(err)
 	}
-	if frontmatter.Title(a.ed.Source(), a.path) != "default-name" {
+	if frontmatter.Title(a.activeNote.Source(), a.documentPath()) != "default-name" {
 		t.Fatal("removing title did not restore filename fallback")
 	}
 }
 
 func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 	a := New()
-	a.path = "/tmp/Filename.md"
+	setDocumentPathForTest(a, "/tmp/Filename.md")
 	src := "---\nstatus: draft\ntags: [one]\n---\nBody\n"
 	a.loadDoc(src)
 	tt := ui.NewTester(a.View, 1200, 800)
@@ -85,15 +85,15 @@ func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	found := false
-	for _, f := range frontmatter.Parse(a.ed.Source()).Fields {
+	for _, f := range frontmatter.Parse(a.activeNote.Source()).Fields {
 		if f.Key == "status" && f.Value == "done" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("inline edit not saved: %q", a.ed.Source())
+		t.Fatalf("inline edit not saved: %q", a.activeNote.Source())
 	}
-	saved := a.ed.Source()
+	saved := a.activeNote.Source()
 	if err := tt.Click("编辑属性 status"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 	tt.Type("Cancelled")
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.propertyEditKey != "" || a.ed.Source() != saved {
+	if a.propertyEditKey != "" || a.activeNote.Source() != saved {
 		t.Fatal("Escape did not cancel metadata editing")
 	}
 }
@@ -110,7 +110,7 @@ func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	a.path = "/tmp/Filename.md"
+	setDocumentPathForTest(a, "/tmp/Filename.md")
 	const src = "---\ntitle: Legacy metadata title\ntags: [one]\n---\n# Body H1\n\nBody\n"
 	a.loadDoc(src)
 	tt := ui.NewTester(a.View, 1200, 800)
@@ -122,7 +122,7 @@ func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 	if err := tt.Click("编辑文档标题"); err == nil {
 		t.Fatal("dedicated title editing is still available")
 	}
-	if got := a.ed.Headings(); len(got) != 1 || got[0].Text != "Body H1" {
+	if got := a.activeNote.NavigationCommands().Headings(); len(got) != 1 || got[0].Text != "Body H1" {
 		t.Fatalf("body H1 was changed: %+v", got)
 	}
 	a.openProperties()
@@ -131,7 +131,7 @@ func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 	if tt.HasText("Legacy metadata title") || !tt.HasText("Type") || !tt.HasText("Note") {
 		t.Fatal("inspector has a legacy title or lacks the default Type")
 	}
-	if a.ed.Source() != src {
+	if a.activeNote.Source() != src {
 		t.Fatal("hiding title UI changed existing YAML or body")
 	}
 	runtimeShot(t, tt, "page-h1-without-title-field")
@@ -140,17 +140,17 @@ func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 func TestPropertyDisplayPreferencesPersistOutsideMarkdown(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	a.path = "/tmp/preferences-note.md"
+	setDocumentPathForTest(a, "/tmp/preferences-note.md")
 	src := "---\ntags: [one]\nstatus: draft\n---\nBody\n"
 	a.loadDoc(src)
 	a.propertyDocument()
 	a.updatePropertyPreference("tags", func(p *fieldDisplayPreference) { p.Hidden = true })
 	a.moveProperty("status", -1)
-	if a.ed.Source() != src {
+	if a.activeNote.Source() != src {
 		t.Fatal("display preferences changed YAML")
 	}
 	b := New()
-	b.path = a.path
+	setDocumentPathForTest(b, a.documentPath())
 	b.loadDoc(src)
 	d := b.propertyDocument()
 	if !b.propertyPrefs.Fields["tags"].Hidden {
@@ -164,19 +164,19 @@ func TestPropertyDisplayPreferencesPersistOutsideMarkdown(t *testing.T) {
 
 func TestPropertyYAMLSourceCannotOverwriteBody(t *testing.T) {
 	a := New()
-	a.path = "/tmp/source.md"
+	setDocumentPathForTest(a, "/tmp/source.md")
 	a.loadDoc("---\ntitle: Old\n---\n# Keep body\n")
 	if err := a.applyPropertyYAMLSource("---\ntitle: New\n---"); err != nil {
 		t.Fatal(err)
 	}
 	want := "---\ntitle: New\n---\n# Keep body\n"
-	if a.ed.Source() != want {
-		t.Fatalf("YAML source merged incorrectly: %q", a.ed.Source())
+	if a.activeNote.Source() != want {
+		t.Fatalf("YAML source merged incorrectly: %q", a.activeNote.Source())
 	}
 	if err := a.applyPropertyYAMLSource("---\ntitle: Bad\n---\nreplacing body"); err == nil {
 		t.Fatal("source form accepted body content")
 	}
-	if a.ed.Source() != want {
+	if a.activeNote.Source() != want {
 		t.Fatal("rejected YAML source changed document")
 	}
 }

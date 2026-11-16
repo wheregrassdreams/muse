@@ -14,12 +14,12 @@ func TestSwitchingWorkspaceClearsDocumentAndShowsVaultActions(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "Notes"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.applyOpen(filepath.Join(t.TempDir(), "Old.md"), "old vault content")
 	a.setWorkspace(root)
 
-	if a.path != "" || a.source != "" || a.dirty {
-		t.Fatalf("workspace switch retained prior document: path=%q source=%q dirty=%v", a.path, a.source, a.dirty)
+	if a.documentPath() != "" || a.documentSource() != "" || a.documentDirty() {
+		t.Fatalf("workspace switch retained prior document: path=%q source=%q dirty=%v", a.documentPath(), a.documentSource(), a.documentDirty())
 	}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -30,11 +30,11 @@ func TestSwitchingWorkspaceClearsDocumentAndShowsVaultActions(t *testing.T) {
 
 func TestSettingSameWorkspaceKeepsCurrentDocument(t *testing.T) {
 	root := t.TempDir()
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.applyOpen(filepath.Join(root, "Current.md"), "keep me")
 	a.setWorkspace(root)
-	if a.path != filepath.Join(root, "Current.md") || a.source != "keep me" {
-		t.Fatalf("reselecting same workspace cleared document: path=%q source=%q", a.path, a.source)
+	if a.documentPath() != filepath.Join(root, "Current.md") || a.documentSource() != "keep me" {
+		t.Fatalf("reselecting same workspace cleared document: path=%q source=%q", a.documentPath(), a.documentSource())
 	}
 }

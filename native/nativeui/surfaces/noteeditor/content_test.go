@@ -93,3 +93,26 @@ func TestContentCloseClosesOwnerOnce(t *testing.T) {
 		t.Fatalf("close lifecycle: closed=%v actions=%+v", hosted.closed, actions)
 	}
 }
+
+func TestContentMutationConsolidatesRendererChangeCallback(t *testing.T) {
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	var actions []Action
+	var hosted *testSurface
+	content, err := NewUntitled("pane-c", "", Dependencies{Documents: store, Recovery: store, History: store}, func(session *editor.Session, options SurfaceOptions) window.Content {
+		hosted = &testSurface{session: session, options: options}
+		return hosted
+	}, func(action Action) { actions = append(actions, action) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(content.Close)
+
+	content.mutateSession(func() { hosted.options.OnChange() })
+	if len(actions) != 0 {
+		t.Fatalf("renderer callback escaped semantic mutation: %+v", actions)
+	}
+	content.editorChanged()
+	if len(actions) != 1 || actions[0].Kind != DocumentChanged {
+		t.Fatalf("semantic mutation emitted %d actions, want one DocumentChanged: %+v", len(actions), actions)
+	}
+}

@@ -12,7 +12,7 @@ func TestCopyRelativeAndAbsolutePath(t *testing.T) {
 	if err := os.WriteFile(file, []byte("# One\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := New()
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	var copied string
 	old := clipboardWrite

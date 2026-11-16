@@ -16,6 +16,7 @@ import (
 	"muse/locales"
 	mdoc "muse/nativeui/components/markdown"
 	"muse/nativeui/surfaces/imagepreview"
+	"muse/platform/filesystem/imagefiles"
 )
 
 func writePreviewPNG(t *testing.T) string {
@@ -44,12 +45,13 @@ func writePreviewPNG(t *testing.T) string {
 func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	path := writePreviewPNG(t)
 	a := New()
-	a.ed.SetSource("note\n" + strings.Repeat("entry\n", 100))
-	a.ed.Focus()
+	a.imageLocalFiles = imagefiles.New()
+	a.loadDoc("note\n" + strings.Repeat("entry\n", 100))
+	a.activeNote.FocusCommands().Focus()
 	a.openImagePreview(path)
 	tt := ui.NewTester(a.View, 900, 600)
 	deadline := time.Now().Add(2 * time.Second)
-	for !tt.HasText("preview.png") && time.Now().Before(deadline) {
+	for (!tt.HasText("preview.png") || !tt.HasText("100%")) && time.Now().Before(deadline) {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -63,20 +65,20 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	writeImageUIScreenshot(t, tt, "image-preview")
 	tt.Wheel(450, 300, 0, -40)
 	tt.Frame()
-	if a.ed.ScrollY() != 0 {
-		t.Fatalf("wheel up scrolled the note to %v", a.ed.ScrollY())
+	if a.activeNote.NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("wheel up scrolled the note to %v", a.activeNote.NavigationCommands().ScrollY())
 	}
 	tt.Wheel(450, 300, 0, 40)
 	tt.Frame()
-	if a.ed.ScrollY() != 0 {
-		t.Fatalf("wheel down scrolled the note to %v", a.ed.ScrollY())
+	if a.activeNote.NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("wheel down scrolled the note to %v", a.activeNote.NavigationCommands().ScrollY())
 	}
 	tt.Scroll(450, 300, 18, -24)
 	tt.Frame()
 	tt.Pinch(450, 300, 1.5)
 	tt.Frame()
 	tt.Type("accidental")
-	if got := a.ed.Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
+	if got := a.activeNote.Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
 		t.Fatalf("typing with preview open changed note source: %q", got)
 	}
 	if err := tt.Click("放大图片"); err != nil {
@@ -95,7 +97,7 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 		t.Fatal("Esc left the image preview open")
 	}
 	tt.Frame()
-	if !a.ed.Focused() {
+	if !a.activeNote.FocusCommands().Focused() {
 		t.Fatal("closing the preview did not restore editor focus")
 	}
 }
@@ -103,7 +105,7 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 func TestImagePreviewUsesSharedMissingImageMessage(t *testing.T) {
 	dir := t.TempDir()
 	a := New()
-	a.path = filepath.Join(dir, "note.md")
+	setDocumentPathForTest(a, filepath.Join(dir, "note.md"))
 	src := filepath.Join(dir, "附件", "missing.png")
 	a.openImagePreview(src)
 	tt := ui.NewTester(a.View, 900, 600)
@@ -137,7 +139,9 @@ func TestFullImagePreviewAdvancesAnimatedGIFFrames(t *testing.T) {
 	}
 	src := filepath.Join(root, "Attachments", "animation.gif")
 	a := New()
-	a.root, a.path = root, filepath.Join(root, "Home.md")
+	a.imageLocalFiles = imagefiles.New()
+	a.root = root
+	setDocumentPathForTest(a, filepath.Join(root, "Home.md"))
 	a.openImagePreview(src)
 	tt := ui.NewTester(a.View, 900, 600)
 	deadline := time.Now().Add(2 * time.Second)
@@ -178,6 +182,7 @@ func TestImageInitialScaleFitsOnlyOversizedImages(t *testing.T) {
 func TestImageDocumentCanvasZoomPanAndFullscreen(t *testing.T) {
 	path := writePreviewPNG(t)
 	a := New()
+	a.imageLocalFiles = imagefiles.New()
 	a.openImageDocument(path, false)
 	tt := ui.NewTester(a.View, 900, 600)
 	tt.Frame()

@@ -27,12 +27,12 @@ func TestFileTreeFocusNavigationDoesNotMoveEditorSelection(t *testing.T) {
 	root := keyTestWorkspace(t)
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetSource("line one\nline two\nline three")
-	a.ed.SetKeymap("vim")
-	a.ed.Focus()
+	a.loadDoc("line one\nline two\nline three")
+	a.activeNote.ModalCommands().SetKeymap("vim")
+	a.activeNote.FocusCommands().Focus()
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
-	before := a.ed.SelectionRange()
+	before := a.activeNote.NavigationCommands().SelectionRange()
 
 	tt.Key(0, ui.KeyJ)
 	tt.Frame()
@@ -58,18 +58,18 @@ func TestFileTreeFocusNavigationDoesNotMoveEditorSelection(t *testing.T) {
 	if a.treeFocusPath != next || a.lastPanelAction != interactions.ActionNavigate {
 		t.Fatalf("tree Down did not dispatch navigation: focus=%q action=%q", a.treeFocusPath, a.lastPanelAction)
 	}
-	if got := a.ed.SelectionRange(); got != before || a.ed.Source() != "line one\nline two\nline three" {
-		t.Fatalf("tree navigation changed editor selection/source: range=%+v source=%q", got, a.ed.Source())
+	if got := a.activeNote.NavigationCommands().SelectionRange(); got != before || a.activeNote.Source() != "line one\nline two\nline three" {
+		t.Fatalf("tree navigation changed editor selection/source: range=%+v source=%q", got, a.activeNote.Source())
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if a.path != next || a.lastPanelAction != interactions.ActionOpen {
-		t.Fatalf("tree Enter did not open focused file through interactions.ActionOpen: path=%q action=%q", a.path, a.lastPanelAction)
+	if a.documentPath() != next || a.lastPanelAction != interactions.ActionOpen {
+		t.Fatalf("tree Enter did not open focused file through interactions.ActionOpen: path=%q action=%q", a.documentPath(), a.lastPanelAction)
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if tt.Focused("文件树") || !a.ed.Focused() || a.focusedPanel != interactions.PanelIDEditor {
-		t.Fatalf("Escape did not restore editor toolkit focus: treeFocused=%v editorFocused=%v panel=%q", tt.Focused("文件树"), a.ed.Focused(), a.focusedPanel)
+	if tt.Focused("文件树") || !a.activeNote.FocusCommands().Focused() || a.focusedPanel != interactions.PanelIDEditor {
+		t.Fatalf("Escape did not restore editor toolkit focus: treeFocused=%v editorFocused=%v panel=%q", tt.Focused("文件树"), a.activeNote.FocusCommands().Focused(), a.focusedPanel)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestFileTreeVimNodeSelectionAndRefreshOperations(t *testing.T) {
 	}
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetKeymap("vim")
+	a.activeNote.ModalCommands().SetKeymap("vim")
 	a.expanded[dest] = true
 	a.expanded[nested] = true
 	a.treeFocusPath = nested
@@ -237,11 +237,11 @@ func TestFileTreeVimNodeSelectionAndRefreshOperations(t *testing.T) {
 	// only currently visible rows.
 	focused := filepath.Join(root, "alpha.md")
 	a.treeFocusPath = focused
-	beforeOpen := a.path
+	beforeOpen := a.documentPath()
 	tt.Key(0, ui.KeyTab)
 	tt.Frame()
-	if !a.treeSelection[focused] || a.path != beforeOpen || a.lastPanelAction != interactions.ActionToggleSelection {
-		t.Fatalf("Tab did not toggle the row without opening it: selected=%v path=%q action=%q", a.treeSelection[focused], a.path, a.lastPanelAction)
+	if !a.treeSelection[focused] || a.documentPath() != beforeOpen || a.lastPanelAction != interactions.ActionToggleSelection {
+		t.Fatalf("Tab did not toggle the row without opening it: selected=%v path=%q action=%q", a.treeSelection[focused], a.documentPath(), a.lastPanelAction)
 	}
 	selectionBeforeInvert := make(map[string]bool, len(a.treeSelection))
 	for path, selected := range a.treeSelection {
@@ -277,7 +277,7 @@ func TestVimTreeBindingsDoNotRunOutsideVimTreeFocus(t *testing.T) {
 	root := keyTestWorkspace(t)
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetKeymap("default")
+	a.activeNote.ModalCommands().SetKeymap("default")
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	before := len(a.treeSelection)
@@ -286,7 +286,7 @@ func TestVimTreeBindingsDoNotRunOutsideVimTreeFocus(t *testing.T) {
 	if a.lastPanelAction == interactions.ActionToggleSelection || len(a.treeSelection) != before {
 		t.Fatalf("Standard mode captured Vim Tab: action=%q selection=%v", a.lastPanelAction, a.treeSelection)
 	}
-	a.ed.SetKeymap("vim")
+	a.activeNote.ModalCommands().SetKeymap("vim")
 	a.focusPanel(interactions.PanelIDEditor)
 	tt.Frame()
 	path := filepath.Join(root, "alpha.md")
@@ -310,8 +310,8 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	root := keyTestWorkspace(t)
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetKeymap("vim")
-	a.ed.Focus()
+	a.activeNote.ModalCommands().SetKeymap("vim")
+	a.activeNote.FocusCommands().Focus()
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	rows := a.fileRows()
@@ -353,8 +353,8 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	tt.Frame()
 	tt.Key(0, ui.KeyL)
 	tt.Frame()
-	if a.focusedPanel != interactions.PanelIDEditor || !a.ed.Focused() || tt.Focused("文件树") {
-		t.Fatalf("Ctrl+W l did not restore editor focus: panel=%q ed=%v tree=%v", a.focusedPanel, a.ed.Focused(), tt.Focused("文件树"))
+	if a.focusedPanel != interactions.PanelIDEditor || !a.activeNote.FocusCommands().Focused() || tt.Focused("文件树") {
+		t.Fatalf("Ctrl+W l did not restore editor focus: panel=%q ed=%v tree=%v", a.focusedPanel, a.activeNote.FocusCommands().Focused(), tt.Focused("文件树"))
 	}
 	tt.Key(ui.Ctrl, ui.KeyW)
 	tt.Frame()
@@ -367,11 +367,11 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Shift, ui.KeyW)
 	tt.Frame()
-	if a.lastPanelAction != interactions.ActionFocusPreviousPanel || a.focusedPanel != interactions.PanelIDEditor || !a.ed.Focused() {
-		t.Fatalf("Ctrl+W W did not cycle backward: action=%q panel=%q editor=%v", a.lastPanelAction, a.focusedPanel, a.ed.Focused())
+	if a.lastPanelAction != interactions.ActionFocusPreviousPanel || a.focusedPanel != interactions.PanelIDEditor || !a.activeNote.FocusCommands().Focused() {
+		t.Fatalf("Ctrl+W W did not cycle backward: action=%q panel=%q editor=%v", a.lastPanelAction, a.focusedPanel, a.activeNote.FocusCommands().Focused())
 	}
 	// A standard-mode tree never consumes Vim's gg tree-only sequence.
-	a.ed.SetKeymap("default")
+	a.activeNote.ModalCommands().SetKeymap("default")
 	tt.Frame()
 	if !a.focusPanel(interactions.PanelIDFiles) {
 		t.Fatal("could not restore tree focus")
@@ -385,7 +385,7 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	if a.treeFocusPath != standardTreeFocus || a.lastPanelAction == interactions.ActionNavigate {
 		t.Fatalf("standard mode captured Vim gg: before=%q after=%q action=%q", standardTreeFocus, a.treeFocusPath, a.lastPanelAction)
 	}
-	a.ed.SetKeymap("vim")
+	a.activeNote.ModalCommands().SetKeymap("vim")
 	tt.Frame()
 	if !a.focusPanel(interactions.PanelIDEditor) {
 		t.Fatal("could not restore editor focus")
@@ -394,7 +394,7 @@ func TestFileTreeVimSequencesAreSplitByFocusContext(t *testing.T) {
 	// The prefix is inactive in Vim Insert mode.
 	tt.Type("i")
 	tt.Frame()
-	if !a.ed.ModalAcceptsText() {
+	if !a.activeNote.ModalCommands().AcceptsTextInput() {
 		t.Fatal("fixture did not enter Vim Insert mode")
 	}
 	tt.Key(ui.Ctrl, ui.KeyW)
@@ -408,9 +408,9 @@ func TestTreeSequencePrefixesAreCanceledByPointerFocusTransitions(t *testing.T) 
 	root := keyTestWorkspace(t)
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetKeymap("vim")
-	a.ed.SetSource("line one\n\nline two")
-	a.ed.Focus()
+	a.activeNote.ModalCommands().SetKeymap("vim")
+	a.loadDoc("line one\n\nline two")
+	a.activeNote.FocusCommands().Focus()
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 
@@ -441,8 +441,8 @@ func TestTreeSequencePrefixesAreCanceledByPointerFocusTransitions(t *testing.T) 
 	}
 	tt.ClickAt(line.X+line.W/2, line.Y+line.H/2)
 	tt.Frame()
-	if a.focusedPanel != interactions.PanelIDEditor || a.treeKeySequences.Pending() || !a.ed.Focused() {
-		t.Fatalf("editor pointer focus did not cancel gg: panel=%q pending=%v editor=%v rect=%+v focusedText=%v texts=%v", a.focusedPanel, a.treeKeySequences.Pending(), a.ed.Focused(), line, tt.Focused("文档"), tt.Texts())
+	if a.focusedPanel != interactions.PanelIDEditor || a.treeKeySequences.Pending() || !a.activeNote.FocusCommands().Focused() {
+		t.Fatalf("editor pointer focus did not cancel gg: panel=%q pending=%v editor=%v rect=%+v focusedText=%v texts=%v", a.focusedPanel, a.treeKeySequences.Pending(), a.activeNote.FocusCommands().Focused(), line, tt.Focused("文档"), tt.Texts())
 	}
 	clickTreeRow(t, tt, "dest")
 	tt.Frame()
@@ -461,7 +461,7 @@ func TestTreeContextMenuClipboardActionsUseSelectionAndFocusedTarget(t *testing.
 	dest := filepath.Join(root, "dest")
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.ed.SetSource("editor text remains untouched")
+	a.loadDoc("editor text remains untouched")
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.SetClipboard("system clipboard stays unchanged")
 	tt.Frame()
@@ -475,7 +475,7 @@ func TestTreeContextMenuClipboardActionsUseSelectionAndFocusedTarget(t *testing.
 		t.Fatal(err)
 	}
 	rightClickTreeRow(t, tt, "beta.md")
-	editorSource := a.ed.Source()
+	editorSource := a.activeNote.Source()
 	if !contains(tt.Menu(), "复制项目") {
 		t.Fatalf("context menu omitted copy: %v", tt.Menu())
 	}
@@ -485,7 +485,7 @@ func TestTreeContextMenuClipboardActionsUseSelectionAndFocusedTarget(t *testing.
 	if a.lastPanelAction != interactions.ActionCopy || len(a.treeClipboard) != 2 || a.treeClipboardCut {
 		t.Fatalf("context Copy did not dispatch selected group: action=%q clipboard=%+v cut=%v", a.lastPanelAction, a.treeClipboard, a.treeClipboardCut)
 	}
-	if a.ed.Source() != editorSource {
+	if a.activeNote.Source() != editorSource {
 		t.Fatal("tree item Copy wrote into editor text")
 	}
 	if tt.Clipboard() != "system clipboard stays unchanged" {

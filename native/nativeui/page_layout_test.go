@@ -48,7 +48,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 			tt := ui.NewTester(a.View, 1600, 1000)
 			a.setWorkspace(root)
 			a.openPathNow(notePath)
-			waitDocument(t, tt, func() bool { return a.vaultSnapshot.Ready && a.source == referencePage })
+			waitDocument(t, tt, func() bool { return a.vaultSnapshot.Ready && a.documentSource() == referencePage })
 			a.openProperties()
 			tt.Frame()
 			tt.Advance(time.Second)
@@ -71,7 +71,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 				t.Fatal("expanded section did not expose real document timestamps")
 			}
 			runtimeShot(t, tt, "reference-properties-expanded-"+name)
-			if a.ed.Source() != referencePage {
+			if a.activeNote.Source() != referencePage {
 				t.Fatal("inspector styling or expanding hidden fields rewrote Markdown")
 			}
 		})
@@ -81,7 +81,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 func TestReferenceInspectorTypeEditPreservesBodyAndUndo(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
-	a.path = "/tmp/note.md"
+	setDocumentPathForTest(a, "/tmp/note.md")
 	const src = "# Actual H1\n\nBody text.\n"
 	a.loadDoc(src)
 	a.openProperties()
@@ -96,11 +96,11 @@ func TestReferenceInspectorTypeEditPreservesBodyAndUndo(t *testing.T) {
 	tt.Type("Article")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	d := frontmatter.Parse(a.ed.Source())
-	if propertyDocumentType(d) != "Article" || !strings.HasSuffix(a.ed.Source(), src) {
-		t.Fatalf("type edit damaged document: %q", a.ed.Source())
+	d := frontmatter.Parse(a.activeNote.Source())
+	if propertyDocumentType(d) != "Article" || !strings.HasSuffix(a.activeNote.Source(), src) {
+		t.Fatalf("type edit damaged document: %q", a.activeNote.Source())
 	}
-	if !a.ed.Undo() || a.ed.Source() != src {
+	if !a.activeNote.Undo() || a.activeNote.Source() != src {
 		t.Fatal("type edit did not undo as one native operation")
 	}
 }

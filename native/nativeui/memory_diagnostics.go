@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	editorui "muse/nativeui/components/editor"
+	"muse/editor"
 	markdownui "muse/nativeui/components/markdown"
 )
 
@@ -62,7 +62,10 @@ func logMemoryDiagnostics(app *App) {
 		}
 	}
 	app.mainMu.Lock()
-	image := editorui.MemorySnapshot(app.ed)
+	var image editor.MemorySnapshot
+	if app.activeNote != nil {
+		image = app.activeNote.MemorySnapshot()
+	}
 	vaultReady := app.vault != nil && app.vaultSnapshot.Ready
 	app.mainMu.Unlock()
 	profilePath := os.Getenv("MUSE_MEMORY_PROFILE_PATH")

@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/transfer"
@@ -39,12 +38,16 @@ import (
 	mdoc "muse/markdown"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
-	"muse/nativeui/components"
 	doctypes "muse/nativeui/components/doctypes"
 	"muse/nativeui/components/documentdialogs"
+	editorui "muse/nativeui/components/editor"
 	"muse/nativeui/interactions"
 	"muse/nativeui/panels/filetree"
+	outlineui "muse/nativeui/panels/outline"
+	searchui "muse/nativeui/panels/search"
+	settingsui "muse/nativeui/panels/settings"
 	"muse/nativeui/surfaces/mermaidpreview"
+	"muse/nativeui/surfaces/noteeditor"
 	"muse/nativeui/window"
 	vaultsearch "muse/search"
 	appearance "muse/theme"
@@ -143,7 +146,10 @@ var (
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
 	watcherBackendFactory       func() (vaultwatch.Backend, error)
-	documentSession             *documentsave.Session
+	documentRepository          document.Repository
+	documentRecovery            document.RecoveryRepository
+	documentHistory             document.HistoryRepository
+	activeNote                  *noteeditor.Content
 	documentExportWriter        documentsave.ExportWriter
 	metadataReader              documentsave.MetadataReader
 	documentEvents              *events.Dispatcher[document.DocumentSaved]
@@ -153,6 +159,7 @@ type App struct {
 	newVaultCatalog             applicationvault.CatalogFactory
 	fileOperations              *applicationvault.FileOperations
 	imageCacheStore             images.CacheStore
+	imageLocalFiles             images.LocalFiles
 	workspaceEvents             *events.Dispatcher[workspace.WorkspaceRestored]
 	workspaceRestorer           *workspaceapp.Restorer
 	workspaceSubscription       *events.Subscription
@@ -176,13 +183,14 @@ type App struct {
 	workspaceSearchResults      ui.ListState
 	workspaceIndicator          scrollbar.Indicator
 	workspaceReveal             bool
-	workspaceSubmit             bool
 	workspaceInputFocus         ui.Handle
 	indexedPath                 string
 	indexedOffset               int
 	indexedRevision             string
 	win                         *mygo.Window
 	windows                     *window.Manager
+	workspacePane               window.PaneID
+	editorPaneHandle            window.Handle
 	imagePreviewHandle          window.Handle
 	imageDocumentHandle         window.Handle
 	quickOpenHandle             window.Handle
@@ -334,15 +342,9 @@ type App struct {
 	propertyScroll          ui.ScrollState
 	propertyIndicator       scrollbar.Indicator
 
-	// document: the editor owns the Markdown being written; source mirrors
-	// it for what reads the document (saving, search, the AI's tools), and
-	// every change goes through the editor, as a step of its undo.
-	ed       *mdedit.Editor
-	path     string
-	source   string
-	crlf     bool
+	// The active note pane is the sole owner of document identity, source,
+	// line-ending policy, selection, and persistence state.
 	headings []heading
-	dirty    bool
 
 	propertyEditKey      string
 	propertyEditDraft    string
@@ -369,7 +371,6 @@ type App struct {
 	localeConfigured       bool
 	settingsDrag           ui.Point
 	settingsScroll         ui.ScrollState
-	settingsIndicator      scrollbar.Indicator
 	aiEnabled              bool
 	aiIndicator            scrollbar.Indicator
 	fontSize               float64
@@ -407,8 +408,7 @@ type App struct {
 	replaceWith string
 
 	// outline rows
-	outlineState ui.ListState
-	outlineRow   int
+	outlineRow int
 
 	// status line
 	status   string
@@ -442,6 +442,7 @@ type Dependencies struct {
 	RecentItems           *workspaceapp.RecentItems
 	NavIcons              applicationvault.NavigationIconRepository
 	ImageCacheStore       images.CacheStore
+	ImageLocalFiles       images.LocalFiles
 	NewWatcherBackend     func() (vaultwatch.Backend, error)
 	NewAgentWorkspace     func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error)
 }
@@ -499,12 +500,16 @@ func New() *App {
 	if s.VimYankFlash != nil {
 		a.vimYankFlash = *s.VimYankFlash
 	}
-	a.ed = mdedit.New("", a.editorOptions())
-	a.ed.SetKeymap(s.Keymap)
+	if err := a.createActiveNote(document.NewNote("", "", document.RevisionOf("")), 0); err != nil {
+		panic(err)
+	}
+	a.activeNote.ModalCommands().SetKeymap(s.Keymap)
 	a.loadDoc("")
 	a.windows = window.NewManager(func() {
-		if a.ed != nil {
-			a.ed.Focus()
+		if a.activeNote != nil {
+			if commands := a.activeNote.FocusCommands(); commands != nil {
+				commands.Focus()
+			}
 		}
 	})
 	return a
@@ -536,13 +541,13 @@ func (a *App) View(c *ui.Context) {
 		}
 		a.invalidate()
 	}
-	if !a.anyModalOwnsKeyboard() {
+	if !closedManagedSurface && !a.anyModalOwnsKeyboard() {
 		a.handlePanelShortcuts(c)
 	} else {
 		a.cancelPanelSequences()
 		a.cancelTreeSequences()
 	}
-	if !a.anyModalOwnsKeyboard() && c.Shortcut(ui.Cmd, ui.KeyO) {
+	if !closedManagedSurface && !a.anyModalOwnsKeyboard() && c.Shortcut(ui.Cmd, ui.KeyO) {
 		a.openWorkspaceSearch()
 	}
 	a.vaultTick(c)
@@ -571,10 +576,10 @@ func (a *App) View(c *ui.Context) {
 		}
 	})
 	row.ObserveInput(func(ev ui.InputEvent) {
-		if !a.hideMouseCursor || !a.ed.Focused() {
+		if !a.hideMouseCursor || !a.activeNote.FocusCommands().Focused() {
 			return
 		}
-		if (a.ed.Keymap() == "vim" || a.ed.Keymap() == "helix") && ev.Kind == ui.InputKeyDown {
+		if (a.activeNote.ModalCommands().Keymap() == "vim" || a.activeNote.ModalCommands().Keymap() == "helix") && ev.Kind == ui.InputKeyDown {
 			a.mouseCursorHidden = true
 			a.mouseCursorHiddenUntil = ev.Time.Add(1500 * time.Millisecond)
 		} else if ev.Kind == ui.InputText || ev.Kind == ui.InputCompose {
@@ -610,21 +615,22 @@ func (a *App) View(c *ui.Context) {
 			a.propertiesSidebar(c)
 		}
 	})
-	if a.ed != nil && a.ed.Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
+	if a.activeNote != nil && a.activeNote.FocusCommands().Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
 		a.setFocusedPanel(interactions.PanelIDEditor)
 	}
 
 	a.sidebarToggle(c)
 	a.windowControls(c)
-	if !a.anyModalOwnsKeyboard() && !closedManagedSurface {
-		a.settingsDialog(c)
-		a.renameDialog(c)
-		a.documentDialogs(c)
-		a.coreMetadataMigrationDialog(c)
-		a.linksDialog(c)
-		a.commandPaletteDialog(c)
-		a.workspaceSearchDialog(c)
-	}
+	// Keyboard ownership controls input routing, not whether an open dialog
+	// gets rendered. Each dialog checks its own active state; keeping this
+	// render path unconditional avoids a modal hiding itself from the frame.
+	a.settingsDialog(c)
+	a.renameDialog(c)
+	a.documentDialogs(c)
+	a.coreMetadataMigrationDialog(c)
+	a.linksDialog(c)
+	a.commandPaletteDialog(c)
+	a.workspaceSearchDialog(c)
 	if a.windows != nil {
 		a.windows.Render(c, "main", window.Overlay)
 		a.windows.Render(c, "main", window.ModalOverlay)
@@ -633,7 +639,7 @@ func (a *App) View(c *ui.Context) {
 	if a.treePreviewPath != "" {
 		a.treePreviewPopupHovered = filetree.RenderImagePreview(c, filetree.ImagePreview{
 			Path: a.treePreviewPath, Anchor: a.treePreviewRect,
-			CacheStore: a.imageCacheStore, OnLoad: a.invalidate,
+			CacheStore: a.imageCacheStore, LocalFiles: a.imageLocalFiles, OnLoad: a.invalidate,
 		})
 	}
 }
@@ -1122,8 +1128,8 @@ func (a *App) spaceName() string {
 	switch {
 	case a.root != "":
 		return filepath.Base(a.root)
-	case a.path != "":
-		return filepath.Base(filepath.Dir(a.path))
+	case a.documentPath() != "":
+		return filepath.Base(filepath.Dir(a.documentPath()))
 	}
 	return locales.DocumentUntitled()
 }
@@ -1403,7 +1409,11 @@ func (a *App) remapTreePaths(moves []applicationvault.FileMove) {
 		}
 		return path
 	}
-	a.path = remap(a.path)
+	if next := remap(a.documentPath()); next != a.documentPath() {
+		if note, err := a.readDocument(next); err == nil && a.activeNote != nil {
+			_ = a.activeNote.Relocate(note)
+		}
+	}
 	a.selectedPath = remap(a.selectedPath)
 	a.treeFocusPath = remap(a.treeFocusPath)
 	if a.treeSelection != nil {
@@ -1594,59 +1604,39 @@ func (a *App) treeDraggedPaths(primary string) []string {
 }
 
 func (a *App) outlineView(c *ui.Context) {
-	t := c.Theme()
-	if len(a.headings) == 0 {
-		ui.Column(c).Fill().Center().Padding(20).Children(func() {
-			ui.Text(c, locales.DocumentNoHeading()).FontSize(12).TextColor(t.TextMuted)
-		})
-		return
-	}
 	current := -1
 	for i, h := range a.headings {
-		if h.offset <= a.ed.Caret() {
+		if h.offset <= a.activeNote.NavigationCommands().Caret() {
 			current = i
 		}
 	}
 	if current >= 0 {
 		a.outlineRow = current
 	}
-	showScrollbar := a.outlineIndicator.Visible(c.Now(), a.outlineScroll.X, a.outlineScroll.Y)
-	if showScrollbar {
-		c.After(a.outlineIndicator.Remaining(c.Now()))
+	headings := make([]outlineui.Heading, len(a.headings))
+	for i, h := range a.headings {
+		headings[i] = outlineui.Heading{Level: h.level, Text: h.text, Offset: h.offset}
 	}
-	ui.List(c, &a.outlineState, len(a.headings), func(i int) {
-		h := a.headings[i]
-		row := ui.Row(c).Height(26).Radius(6).Padding(0, 8, 0, 6+float32(h.level-1)*14).
-			Gap(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-		switch {
-		case i == a.outlineRow:
-			row.Background(t.SurfaceHover)
-		case row.Hovered():
-			row.Background(t.SurfaceHover)
+	selected := outlineui.SelectedRange{Start: -1, End: -1}
+	if current >= 0 {
+		selected = outlineui.SelectedRange{Start: current, End: current}
+	}
+	outlineui.Render(c, outlineui.ViewModel{
+		Headings: headings, SelectedRange: selected,
+		Scroll: outlineui.ScrollPort{State: &a.outlineScroll, Indicator: &a.outlineIndicator},
+	}, func(action outlineui.Action) {
+		if action.Kind != outlineui.SelectHeading {
+			return
 		}
-		row.Children(func() {
-			// 层级条：H1 实心强调点，深层弱化为细条，替代整行大色块
-			if i == a.outlineRow {
-				ui.Box(c).Width(2.5).Height(14).Radius(1.5).Background(t.Accent)
-			} else {
-				ui.Box(c).Width(2.5).Height(14).Radius(1.5).Opacity(0)
+		for i, heading := range a.headings {
+			if heading.offset == action.Offset {
+				a.outlineRow = i
+				break
 			}
-			label := ui.Text(c, h.text).SingleLine().Ellipsis("…")
-			switch {
-			case h.level == 1:
-				label.FontSize(12.5).FontWeight(600).TextColor(t.Text)
-			case h.level == 2:
-				label.FontSize(12).FontWeight(500).TextColor(t.Text)
-			default:
-				label.FontSize(11.5).TextColor(t.TextMuted)
-			}
-		})
-		row.OnClick(func() {
-			a.outlineRow = i
-			a.ed.NavigateToOffset(h.offset, mdedit.PageJumpTopMargin)
-			a.ed.Focus()
-		})
-	}).Grow(1).Padding(0, 8).Gap(0).TrackScroll(&a.outlineScroll).Scrollbars(showScrollbar)
+		}
+		a.activeNote.NavigationCommands().NavigateToOffset(action.Offset)
+		a.activeNote.FocusCommands().Focus()
+	})
 }
 
 // snippetParts splits a search snippet at the first case-insensitive
@@ -1665,68 +1655,6 @@ func snippetParts(snippet, query string) (string, string, string) {
 	return snippet[:idx], snippet[idx : idx+len(q)], snippet[idx+len(q):]
 }
 
-// workspaceSearchText keeps the entire result label readable while marking
-// every visible occurrence of each query term. Positions are rune-based so
-// CJK text before a match does not shift the highlight.
-func workspaceSearchText(c *ui.Context, t *ui.Theme, text, query string, color ui.Color, size float32) ui.Element {
-	runes := []rune(text)
-	lower := make([]rune, len(runes))
-	for i, r := range runes {
-		lower[i] = unicode.ToLower(r)
-	}
-	hits := make(map[int]struct{})
-	for _, term := range strings.Fields(query) {
-		needle := []rune(term)
-		for i := range needle {
-			needle[i] = unicode.ToLower(needle[i])
-		}
-		if len(needle) == 0 || len(needle) > len(lower) {
-			continue
-		}
-		for start := 0; start+len(needle) <= len(lower); {
-			matched := true
-			for j, r := range needle {
-				if lower[start+j] != r {
-					matched = false
-					break
-				}
-			}
-			if !matched {
-				start++
-				continue
-			}
-			for j := range needle {
-				hits[start+j] = struct{}{}
-			}
-			start += len(needle)
-		}
-	}
-	if len(hits) == 0 {
-		return ui.RichText(c, ui.Span{Text: text}).FontSize(size).TextColor(color).SingleLine().Ellipsis("…")
-	}
-	spans := make([]ui.Span, 0, len(hits)*2+1)
-	for start := 0; start < len(runes); {
-		_, highlighted := hits[start]
-		end := start + 1
-		for end < len(runes) {
-			_, nextHighlighted := hits[end]
-			if nextHighlighted != highlighted {
-				break
-			}
-			end++
-		}
-		span := ui.Span{Text: string(runes[start:end])}
-		if highlighted {
-			span.Color = t.Accent
-			span.Background = ui.RGBA(t.Accent.R, t.Accent.G, t.Accent.B, 0.18)
-			span.Radius = 2
-		}
-		spans = append(spans, span)
-		start = end
-	}
-	return ui.RichText(c, spans...).FontSize(size).TextColor(color).SingleLine().Ellipsis("…")
-}
-
 func (a *App) searchView(c *ui.Context) {
 	a.documentSearchView(c)
 }
@@ -1734,23 +1662,21 @@ func (a *App) searchView(c *ui.Context) {
 func (a *App) openWorkspaceSearch() {
 	a.closeQuickOpen()
 	a.cmdPalette = false
-	if a.root == "" && a.path != "" {
-		a.root = filepath.Dir(a.path)
+	if a.root == "" && a.documentPath() != "" {
+		a.root = filepath.Dir(a.documentPath())
 	}
 	a.enableDocumentServices()
 	a.workspaceSearch = true
 	a.workspaceQuery = ""
 	a.workspaceSearchSel = 0
 	a.workspaceReveal = true
-	a.workspaceSubmit = false
 	a.invalidate()
 }
 
 func (a *App) closeWorkspaceSearch() {
 	a.workspaceSearch = false
-	a.workspaceSubmit = false
 	if a.vault != nil {
-		_, _ = a.vault.Query("", a.vaultSearchLiteral, a.path, a.diskSource())
+		_, _ = a.vault.Query("", a.vaultSearchLiteral, a.documentPath(), a.diskSource())
 		a.vaultSearchSubmitted = ""
 		a.vaultSnapshot = a.vault.Snapshot()
 	}
@@ -1786,178 +1712,95 @@ func (a *App) openWorkspaceRecent(entry recentEntry) {
 	a.requestOpen(entry.Path)
 }
 
-func (a *App) openSelectedWorkspaceHit() {
-	hits := a.vaultSnapshot.Search.Hits
-	if a.vault == nil || a.workspaceSearchSel < 0 || a.workspaceSearchSel >= len(hits) {
-		return
-	}
-	hit := hits[a.workspaceSearchSel]
-	a.closeWorkspaceSearch()
-	a.navigateSearchHit(hit)
-}
-
-func (a *App) openSelectedWorkspaceItem() {
-	if strings.TrimSpace(a.workspaceQuery) != "" {
-		a.openSelectedWorkspaceHit()
-		return
-	}
-	recent := a.workspaceRecentNotes()
-	if a.workspaceSearchSel >= 0 && a.workspaceSearchSel < len(recent) {
-		a.openWorkspaceRecent(recent[a.workspaceSearchSel])
-	}
-}
-
-func (a *App) submitWorkspaceSearch() {
-	if !a.workspaceSearch || a.workspaceSubmit {
-		return
-	}
-	a.workspaceSubmit = true
-	a.openSelectedWorkspaceItem()
-}
-
 func (a *App) workspaceSearchDialog(c *ui.Context) {
 	if !a.workspaceSearch {
 		return
 	}
-	if c.Shortcut(0, ui.KeyEscape) {
-		a.closeWorkspaceSearch()
-		return
-	}
-	if c.Shortcut(0, ui.KeyEnter) {
-		a.submitWorkspaceSearch()
-		return
-	}
 	a.syncWorkspaceSearchQuery()
-	v := a.vault
 	if !a.vaultSearchDue.IsZero() && time.Until(a.vaultSearchDue) > 0 {
 		c.After(time.Until(a.vaultSearchDue))
 	}
-	querying := strings.TrimSpace(a.workspaceQuery) != ""
-	count := 0
-	if querying && v != nil {
-		count = len(a.vaultSnapshot.Search.Hits)
-	} else if !querying {
-		count = len(a.workspaceRecentNotes())
+
+	model := searchui.ViewModel{
+		Open: &a.workspaceSearch, Query: a.workspaceQuery,
+		Mode: searchui.FullText, Selected: a.workspaceSearchSel,
+		RevealSelection: a.workspaceReveal,
+		InputFocus:      &a.workspaceInputFocus, SearchIcon: iconSearch,
+		FileIcon: iconFile, IconTint: iconTint(c.Theme()),
+		Scroll: searchui.ScrollPort{State: &a.workspaceScroll, Results: &a.workspaceSearchResults, Indicator: &a.workspaceIndicator},
 	}
-	if c.Shortcut(0, ui.KeyUp) && count > 0 {
-		a.workspaceSearchSel = (a.workspaceSearchSel - 1 + count) % count
-		a.workspaceReveal = true
+	if a.vaultSearchLiteral {
+		model.Mode = searchui.Literal
 	}
-	if c.Shortcut(0, ui.KeyDown) && count > 0 {
-		a.workspaceSearchSel = (a.workspaceSearchSel + 1) % count
-		a.workspaceReveal = true
+	if a.root == "" {
+		model.Availability = searchui.VaultRequired
+	} else if a.vault == nil || !a.vaultSnapshot.SearchAvailable {
+		model.Availability = searchui.IndexBuilding
+		model.Error = a.vaultSnapshot.Search.Error
+		if model.Error == "" {
+			model.Error = a.vaultSnapshot.Error
+		}
+	} else {
+		model.Availability = searchui.Ready
+		model.Busy = a.vaultSnapshot.Search.Busy
+		model.Error = a.vaultSnapshot.Search.Error
 	}
-	if a.workspaceSearchSel >= count {
-		a.workspaceSearchSel = max(0, count-1)
-	}
-	t := c.Theme()
-	ui.DialogBase(c, &a.workspaceSearch, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.30))
-		panel.Width(760).Height(620).MaxWidthPercent(94).MaxHeightPercent(86).Padding(0).Gap(0).Radius(14).
-			Background(t.Background).Border(1, t.Border).
-			Shadow(0, 18, 44, -8, ui.RGBA(0, 0, 0, 0.32)).Clip().Children(func() {
-			ui.Row(c).Height(58).Padding(0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconSearch).Size(18, 18).TextColor(t.TextMuted)
-				ui.TextInputBase(c, &a.workspaceQuery).Ref(&a.workspaceInputFocus).Grow(1).MinWidth(0).
-					Placeholder(locales.WorkspaceSearchPlaceholder()).Label(locales.MenuSearchWorkspace()).AutoFocus().
-					OnSubmit(func() { a.submitWorkspaceSearch() }).
-					OnTextKey(func(k ui.TextKey) bool {
-						if k.Mods != ui.Ctrl || (k.Key != ui.KeyN && k.Key != ui.KeyP) || count == 0 {
-							return false
-						}
-						step := 1
-						if k.Key == ui.KeyP {
-							step = -1
-						}
-						a.workspaceSearchSel = (a.workspaceSearchSel + step + count) % count
-						a.workspaceReveal = true
-						return true
-					})
-				fullLabel, literalLabel := locales.WorkspaceSearchFullText(), locales.WorkspaceSearchLiteral()
-				if v == nil || !a.vaultSearchLiteral {
-					fullLabel = locales.WorkspaceSearchFullTextSelected()
-				} else {
-					literalLabel = locales.WorkspaceSearchLiteralSelected()
-				}
-				if ui.Button(c, fullLabel).Clicked() && v != nil && a.vaultSearchLiteral {
-					a.vaultSearchLiteral = false
-					a.vaultSearchSubmitted = "\x00"
-					a.vaultSnapshot.Search.Hits = nil
-					a.workspaceReveal = true
-					a.vaultSearchDue = time.Now()
-					a.workspaceInputFocus.Focus(c)
-				}
-				if ui.Button(c, literalLabel).Clicked() && v != nil && !a.vaultSearchLiteral {
-					a.vaultSearchLiteral = true
-					a.vaultSearchSubmitted = "\x00"
-					a.vaultSnapshot.Search.Hits = nil
-					a.workspaceReveal = true
-					a.vaultSearchDue = time.Now()
-					a.workspaceInputFocus.Focus(c)
-				}
-			})
-			ui.Box(c).Height(1).FillWidth().Background(t.Border)
-			if !querying {
-				showSearchScroll := a.workspaceIndicator.Visible(c.Now(), a.workspaceScroll.X, a.workspaceScroll.Y)
-				if showSearchScroll {
-					c.After(a.workspaceIndicator.Remaining(c.Now()))
-				}
-				components.QuietScroll(c, &a.workspaceScroll, &a.workspaceIndicator).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Scrollbars(showSearchScroll).Children(func() {
-					recent := a.workspaceRecentNotes()
-					if len(recent) == 0 {
-						ui.Text(c, locales.WorkspaceRecentEmpty()).FontSize(12).TextColor(t.TextMuted)
-					}
-					for i, entry := range recent {
-						e := entry
-						a.workspaceSearchRow(c, t, i == a.workspaceSearchSel, filepath.Base(e.Path), a.workspacePathLabel(e.Path), "", func() { a.openWorkspaceRecent(e) })
-					}
-				})
-			} else if a.root == "" {
-				ui.Text(c, locales.WorkspaceSearchHint()).FontSize(12).TextColor(t.TextMuted)
-			} else {
-				a.workspaceSearchView(c)
-			}
-			ui.Box(c).Height(1).FillWidth().Background(t.Border)
-			ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
-				if querying && v != nil && a.vaultSnapshot.SearchAvailable {
-					if a.vaultSearchLiteral {
-						ui.Text(c, locales.SearchMatchCount(len(a.vaultSnapshot.Search.Hits))).FontSize(10.5).TextColor(t.TextMuted)
-					} else {
-						ui.Text(c, locales.WorkspaceNoteCount(len(a.vaultSnapshot.Search.Hits))).FontSize(10.5).TextColor(t.TextMuted)
-					}
-				} else if !querying {
-					ui.Text(c, locales.WorkspaceRecentNotes()).FontSize(10.5).TextColor(t.TextMuted)
-				}
-				ui.Spacer(c)
-				ui.Text(c, locales.WorkspaceQuickKeys()).FontSize(10.5).TextColor(t.TextMuted)
-			})
+	model.CanChangeMode = a.vault != nil
+	for _, entry := range a.workspaceRecentNotes() {
+		model.Recent = append(model.Recent, searchui.RecentItem{
+			Path: entry.Path, Title: filepath.Base(entry.Path), PathLabel: a.workspacePathLabel(entry.Path),
 		})
+	}
+	if a.vault != nil {
+		hits := a.vaultSnapshot.Search.Hits
+		a.workspaceSearchResults.Key = func(i int) any { return hits[i].Path }
+		for _, hit := range hits {
+			title := filepath.Base(hit.Path)
+			if noteTitle, _, ok := a.vault.NoteContent(hit.Path); ok && strings.TrimSpace(noteTitle) != "" {
+				title = noteTitle
+			}
+			model.Results = append(model.Results, searchui.Result{
+				Path: hit.Path, Revision: hit.Revision, Offset: hit.Start,
+				Title: title, PathLabel: a.workspacePathLabel(hit.Path), Snippet: hit.Snippet,
+			})
+		}
+	}
+	searchui.Render(c, model, func(action searchui.Action) {
+		switch action.Kind {
+		case searchui.QueryChanged:
+			if a.workspaceQuery != action.Query {
+				a.workspaceQuery = action.Query
+				a.workspaceSearchSel = 0
+				a.workspaceReveal = true
+				a.vaultSearchDue = time.Time{}
+			}
+		case searchui.ModeChanged:
+			a.vaultSearchLiteral = action.Mode == searchui.Literal
+			a.vaultSearchSubmitted = "\x00"
+			a.vaultSnapshot.Search.Hits = nil
+			a.workspaceSearchSel = 0
+			a.workspaceReveal = true
+			a.vaultSearchDue = time.Now()
+			a.workspaceInputFocus.Focus(c)
+		case searchui.MoveSelection:
+			a.workspaceSearchSel = action.Index
+			a.workspaceReveal = true
+		case searchui.SelectionRevealed:
+			a.workspaceReveal = false
+		case searchui.OpenRecent:
+			a.openWorkspaceRecent(recentEntry{Path: action.Recent.Path})
+		case searchui.OpenResult:
+			a.workspaceSearchSel = action.Index
+			a.closeWorkspaceSearch()
+			a.navigateSearchHit(vaultsearch.Hit{
+				Path: action.Result.Path, Revision: action.Result.Revision, Start: action.Result.Offset,
+			})
+		case searchui.Dismiss:
+			a.closeWorkspaceSearch()
+		}
 	})
 }
 
-func (a *App) workspaceSearchRow(c *ui.Context, t *ui.Theme, selected bool, title, path, snippet string, open func()) {
-	row := ui.Row(c).FillWidth().Height(64).Shrink(0).Padding(9, 11).Gap(10).Radius(8).AlignItems(ui.Center).Cursor(ui.CursorPointer).Label(locales.WorkspaceOpenNote(title))
-	if selected {
-		row.Background(t.SurfaceHover)
-	} else if row.Hovered() {
-		row.Background(t.SurfaceHover)
-	}
-	row.Children(func() {
-		ui.Icon(c, iconFile).Size(16, 16).TextColor(iconTint(t))
-		ui.Column(c).FillWidth().AlignItems(ui.Start).Gap(3).Children(func() {
-			ui.Text(c, title).FontSize(13).FontWeight(620).TextColor(t.Text).SingleLine().Ellipsis("…")
-			ui.Text(c, path).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			if snippet != "" {
-				ui.Text(c, strings.Join(strings.Fields(snippet), " ")).FontSize(11.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
-			}
-		})
-	})
-	if selected && a.workspaceReveal {
-		row.ScrollIntoView()
-		a.workspaceReveal = false
-	}
-	row.OnClick(open)
-}
 func (a *App) documentSearchView(c *ui.Context) {
 	t := c.Theme()
 	ui.Column(c).Fill().Padding(10).Gap(8).Children(func() {
@@ -2021,21 +1864,21 @@ type searchHit struct {
 // refreshSearch finds the query in the document again when either changed,
 // and shows the matches in the editor.
 func (a *App) refreshSearch() {
-	key := [2]string{a.query, a.source}
+	key := [2]string{a.query, a.documentSource()}
 	if key == a.searchKey {
 		return
 	}
 	a.searchKey = key
-	a.searchHits = findHits(a.source, a.query)
+	a.searchHits = findHits(a.documentSource(), a.query)
 	a.matches = len(a.searchHits)
 	if a.searchRow >= a.matches {
 		a.searchRow = -1
 	}
-	ranges := make([]mdedit.Range, len(a.searchHits))
+	ranges := make([]noteeditor.TextRange, len(a.searchHits))
 	for i, h := range a.searchHits {
-		ranges[i] = mdedit.Range{Start: h.start, End: h.end}
+		ranges[i] = noteeditor.TextRange{Start: h.start, End: h.end}
 	}
-	a.ed.SetHighlights(ranges, a.searchRow)
+	a.activeNote.SearchCommands().SetHighlights(ranges, a.searchRow)
 }
 
 // goToHit selects match i in the editor.
@@ -2045,13 +1888,13 @@ func (a *App) goToHit(i int) {
 	}
 	a.searchRow = i
 	h := a.searchHits[i]
-	ranges := make([]mdedit.Range, len(a.searchHits))
+	ranges := make([]noteeditor.TextRange, len(a.searchHits))
 	for k, x := range a.searchHits {
-		ranges[k] = mdedit.Range{Start: x.start, End: x.end}
+		ranges[k] = noteeditor.TextRange{Start: x.start, End: x.end}
 	}
-	a.ed.SetHighlights(ranges, i)
-	a.ed.NavigateToRange(h.start, h.end)
-	a.ed.Focus()
+	a.activeNote.SearchCommands().SetHighlights(ranges, i)
+	a.activeNote.NavigationCommands().NavigateToRange(h.start, h.end)
+	a.activeNote.FocusCommands().Focus()
 }
 
 // replaceHit replaces the chosen match, or the first, and goes to the next.
@@ -2061,8 +1904,7 @@ func (a *App) replaceHit() {
 		return
 	}
 	h := a.searchHits[i]
-	a.ed.Replace(h.start, h.end, a.replaceWith)
-	a.docChanged()
+	_ = a.activeNote.Replace(h.start, h.end, a.replaceWith)
 	a.refreshSearch()
 	if a.matches > 0 {
 		a.goToHit(min(i, a.matches-1))
@@ -2077,11 +1919,11 @@ func (a *App) replaceAllHits() {
 	var b strings.Builder
 	at := 0
 	for _, h := range a.searchHits {
-		b.WriteString(a.source[at:h.start])
+		b.WriteString(a.documentSource()[at:h.start])
 		b.WriteString(a.replaceWith)
 		at = h.end
 	}
-	b.WriteString(a.source[at:])
+	b.WriteString(a.documentSource()[at:])
 	n := len(a.searchHits)
 	a.editDoc(b.String())
 	a.refreshSearch()
@@ -2142,10 +1984,10 @@ func hitSnippet(src string, s, e int) string {
 
 func (a *App) editorContent(c *ui.Context) {
 	if a.imageDocumentOpen() {
-		a.windows.RenderPane(c, "main", "editor")
+		a.renderFocusedPane(c)
 		return
 	}
-	if a.root != "" && a.path == "" && a.source == "" {
+	if a.root != "" && a.documentPath() == "" && a.documentSource() == "" {
 		a.vaultHome(c)
 		return
 	}
@@ -2153,22 +1995,57 @@ func (a *App) editorContent(c *ui.Context) {
 		opts := a.editorOptions()
 		if !a.flat {
 			a.editorHeader(c)
-			a.ed.SetOptions(opts)
-			ed := a.ed.View(c).Grow(1)
-			if a.mouseCursorHidden {
-				ed.Cursor(ui.CursorNone)
-			}
+			a.configureActiveNote(opts.TopInset)
+			a.renderEditorPane(c)
 			return
 		}
 		opts.TopInset = a.headerH(c)
-		a.ed.SetOptions(opts)
-		ed := a.ed.View(c).Grow(1)
-		if a.mouseCursorHidden {
-			ed.Cursor(ui.CursorNone)
-		}
+		a.configureActiveNote(opts.TopInset)
+		a.renderEditorPane(c)
 		a.headerVeil(c)
 		a.editorHeader(c)
 	})
+}
+
+// focusedPane returns the window host's active pane, falling back to the
+// initial editor pane before any pane content has been opened.
+func (a *App) focusedPane() window.PaneID {
+	if a.windows != nil {
+		if pane, ok := a.windows.FocusedPane("main"); ok {
+			return pane
+		}
+	}
+	if a.workspacePane != "" {
+		return a.workspacePane
+	}
+	return "editor"
+}
+
+func (a *App) renderFocusedPane(c *ui.Context) {
+	if a.windows == nil {
+		return
+	}
+	a.windows.RenderPane(c, "main", a.focusedPane())
+}
+
+func (a *App) renderEditorPane(c *ui.Context) {
+	if a.windows == nil || a.activeNote == nil {
+		return
+	}
+	pane := a.focusedPane()
+	if !a.windows.Contains(a.editorPaneHandle) {
+		handle, err := a.windows.Open(a.activeNote, window.Placement{Host: "main", Pane: pane, Layer: window.PaneContent})
+		if err != nil {
+			a.notice(err.Error())
+			return
+		}
+		a.editorPaneHandle = handle
+		a.activeNote.FocusCommands().Focus()
+	} else if err := a.windows.Place(a.editorPaneHandle, window.Placement{Host: "main", Pane: pane, Layer: window.PaneContent}); err != nil {
+		a.notice(err.Error())
+		return
+	}
+	a.windows.RenderPane(c, "main", pane)
 }
 
 func (a *App) editorHeader(c *ui.Context) {
@@ -2215,13 +2092,13 @@ func (a *App) editorHeader(c *ui.Context) {
 		if a.imageDocumentOpen() {
 			a.smallIcon(c, iconImage, locales.ToolbarGlobalPreview(), func() { a.openImagePreview(a.imageDocumentPath()) })
 		}
-		if label := a.ed.ModeLabel(); label != "" {
+		if label := a.activeNote.ModalCommands().ModeLabel(); label != "" {
 			ui.Text(c, label).FontSize(11).TextColor(t.TextMuted).Label(locales.DocumentMode())
 		}
 		if a.status != "" {
 			ui.Text(c, a.status).FontSize(11).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 		}
-		if a.dirty && !a.imageDocumentOpen() {
+		if a.documentDirty() && !a.imageDocumentOpen() {
 			a.smallIcon(c, iconSave, locales.MenuSave(), func() { a.save() })
 		}
 		if a.propertiesEnabled() {
@@ -2229,23 +2106,23 @@ func (a *App) editorHeader(c *ui.Context) {
 		} else {
 			info := a.smallIconTint(c, iconInfo, locales.DocumentInfo(), nil, tint)
 			info.Menu(func(m *ui.Menu) {
-				chars, _, lines := countText(a.source)
+				chars, _, lines := countText(a.documentSource())
 				m.Item(locales.DocumentPathValue(a.docPath()))
 				m.Item(locales.DocumentCharacterLineCount(chars, lines))
 				if a.metadataReader != nil {
-					if metadata, err := a.metadataReader.ReadMetadata(a.path); err == nil && !metadata.ModifiedAt.IsZero() {
+					if metadata, err := a.metadataReader.ReadMetadata(a.documentPath()); err == nil && !metadata.ModifiedAt.IsZero() {
 						m.Item(locales.DocumentModifiedAt(metadata.ModifiedAt))
 					}
 				}
 				m.Separator()
-				if m.Item(locales.FilesInFinder()).Chosen() && a.path != "" {
-					mygo.Shell.ShowItemInFolder(a.path)
+				if m.Item(locales.FilesInFinder()).Chosen() && a.documentPath() != "" {
+					mygo.Shell.ShowItemInFolder(a.documentPath())
 				}
 			})
 		}
 		more := a.smallIconTint(c, iconMore, locales.DocumentMore(), nil, tint)
 		more.Menu(func(m *ui.Menu) {
-			if !a.imageDocumentOpen() && codeLanguage(a.path) == "" {
+			if !a.imageDocumentOpen() && codeLanguage(a.documentPath()) == "" {
 				m.Submenu(locales.DocumentExport(), func(export *ui.Menu) {
 					if export.Item(locales.DocumentExportMarkdown()).Chosen() {
 						a.exportDocument(noteExportMarkdown)
@@ -2271,12 +2148,12 @@ func (a *App) editorHeader(c *ui.Context) {
 			if m.Item(locales.MenuSave()).Chosen() {
 				a.save()
 			}
-			if m.Item(locales.DocumentCopyPathMenu()).Chosen() && a.path != "" {
-				clipboardWrite(a.path)
+			if m.Item(locales.DocumentCopyPathMenu()).Chosen() && a.documentPath() != "" {
+				clipboardWrite(a.documentPath())
 				a.notice(locales.DocumentCopiedPath())
 			}
-			if m.Item(locales.FilesSetWorkspace()).Chosen() && a.path != "" {
-				a.setWorkspace(filepath.Dir(a.path))
+			if m.Item(locales.FilesSetWorkspace()).Chosen() && a.documentPath() != "" {
+				a.setWorkspace(filepath.Dir(a.documentPath()))
 			}
 		})
 	})
@@ -2421,9 +2298,11 @@ func (a *App) finish(fn func()) {
 
 func (a *App) snapshotDoc() (dirty bool, name, path, source, revision string) {
 	a.onMain(func() {
-		dirty, name, path, source = a.dirty, a.displayName(), a.path, a.diskSource()
-		if a.documentSession != nil {
-			revision = string(a.documentSession.Snapshot().Revision)
+		dirty, name, path, source = a.documentDirty(), a.displayName(), a.documentPath(), a.diskSource()
+		if a.activeNote != nil {
+			snapshot := a.activeNote.Snapshot()
+			dirty, path, source = snapshot.Dirty, snapshot.Path, snapshot.DiskSource
+			revision = string(snapshot.Revision)
 		}
 	})
 	return
@@ -2473,7 +2352,11 @@ func (a *App) openFileDialog() {
 			a.finish(nil)
 			return
 		}
-		note, err := a.documentSession.Load(paths[0])
+		if a.activeNote == nil {
+			a.finish(nil)
+			return
+		}
+		note, err := a.readDocument(paths[0])
 		data := []byte(note.Source)
 		if err != nil {
 			errorDialog(locales.DialogOpenFailed(), err.Error())
@@ -2499,7 +2382,11 @@ func (a *App) openPathNow(path string) {
 		a.invalidate()
 		return
 	}
-	note, err := a.documentSession.Load(path)
+	if a.activeNote == nil {
+		a.notice("document pane is not initialized")
+		return
+	}
+	note, err := a.readDocument(path)
 	data := []byte(note.Source)
 	if err != nil {
 		a.notice(locales.CommonOpenFileFailed(err.Error()))
@@ -2527,7 +2414,7 @@ func (a *App) requestOpen(path string) {
 		a.invalidate()
 		return
 	}
-	if !a.dirty {
+	if !a.documentDirty() {
 		a.openPathNow(path)
 		return
 	}
@@ -2540,7 +2427,11 @@ func (a *App) requestOpen(path string) {
 			a.finish(func() { a.indexedPath = "" })
 			return
 		}
-		note, err := a.documentSession.Load(path)
+		if a.activeNote == nil {
+			a.finish(nil)
+			return
+		}
+		note, err := a.readDocument(path)
 		data := []byte(note.Source)
 		if err != nil {
 			errorDialog(locales.DialogOpenFailed(), err.Error())
@@ -2562,7 +2453,6 @@ func (a *App) applyOpen(path, data string) {
 	}
 	a.pushNav(path)
 	a.closeImageDocument()
-	a.path = path
 	a.selectedPath = path
 	if a.vault != nil {
 		_ = a.vault.WatchFile(path)
@@ -2570,20 +2460,19 @@ func (a *App) applyOpen(path, data string) {
 			a.queueLinkIndexSnapshot()
 		}
 	}
-	a.loadDoc(data)
-	a.dirty = false
+	a.loadDocumentAt(path, data)
 	a.updateTitle()
 	a.addRecent(path, false)
-	a.ed.Focus()
+	a.activeNote.FocusCommands().Focus()
 	if a.indexedPath == path {
-		a.ed.ScrollToOffset(editorOffset(data, a.indexedOffset))
+		a.activeNote.NavigationCommands().ScrollToOffset(editorOffset(data, a.indexedOffset))
 		a.indexedPath = ""
 		a.indexedRevision = ""
 	}
 }
 
 func (a *App) newDoc() {
-	if !a.dirty {
+	if !a.documentDirty() {
 		a.resetDoc()
 		return
 	}
@@ -2602,41 +2491,38 @@ func (a *App) newDoc() {
 
 func (a *App) resetDoc() {
 	a.closeImageDocument()
-	a.path = ""
 	a.selectedPath = ""
-	a.loadDoc("")
-	a.dirty = false
+	a.loadDocumentAt("", "")
 	a.updateTitle()
-	a.ed.Focus()
+	a.activeNote.FocusCommands().Focus()
 }
 
 func (a *App) save() {
 	a.flushManagedTimestamp()
-	if a.path == "" {
+	if a.documentPath() == "" {
 		a.saveAs()
 		return
 	}
-	if !isEditableFile(a.path) {
-		a.notice(locales.FilesUnsupportedType(filepath.Base(a.path)))
+	if !isEditableFile(a.documentPath()) {
+		a.notice(locales.FilesUnsupportedType(filepath.Base(a.documentPath())))
 		a.invalidate()
 		return
 	}
 	var revision document.Revision
-	if a.documentSession != nil {
-		revision = a.documentSession.Snapshot().Revision
+	if a.activeNote != nil {
+		revision = a.activeNote.Snapshot().Revision
 	}
-	if err := a.writeDocument(a.path, a.diskSource(), revision); err != nil {
-		if a.documentSession != nil && errors.Is(err, document.ErrConflict) {
-			a.documentSession.SetConflict(a.path)
+	if err := a.writeDocument(a.documentPath(), a.diskSource(), revision); err != nil {
+		if a.activeNote != nil && errors.Is(err, document.ErrConflict) {
+			a.activeNote.SetConflict(a.documentPath())
 			if a.documents != nil {
 				a.documents.ConflictOpen = true
 			}
 		}
 		a.notice(locales.CommonSaveError(err.Error()))
 	} else {
-		a.dirty = false
-		if a.documentSession != nil {
-			_ = a.documentSession.DeleteDraft(a.path)
+		if a.activeNote != nil {
+			_ = a.activeNote.DeleteDraft(a.documentPath())
 		}
 		a.notice(locales.DocumentSaved())
 	}
@@ -2665,7 +2551,6 @@ func (a *App) confirmDiscardOffUI() bool {
 		return false
 	}
 	if res.Button == 1 {
-		a.onMain(func() { a.dirty = false })
 		return true
 	}
 	savePath := path
@@ -2691,10 +2576,10 @@ func (a *App) confirmDiscardOffUI() bool {
 		return false
 	}
 	var expected document.Revision
-	if a.documentSession == nil {
+	if a.activeNote == nil {
 		err = errors.New("document repository is not configured")
 	} else {
-		expected, err = a.documentSession.DestinationRevision(savePath, path, document.Revision(revision))
+		expected, err = a.activeNote.DestinationRevision(savePath, document.Revision(revision))
 	}
 	if err == nil {
 		err = a.writeDocument(savePath, source, expected)
@@ -2704,12 +2589,7 @@ func (a *App) confirmDiscardOffUI() bool {
 		return false
 	}
 	a.onMain(func() {
-		a.path = savePath
 		a.selectedPath = savePath
-		if a.documentSession != nil {
-			a.documentSession.Open(savePath, source)
-		}
-		a.dirty = a.diskSource() != source
 		a.updateTitle()
 	})
 	return true
@@ -2723,13 +2603,13 @@ func (a *App) saveAs() {
 	var name, source, originalPath, revision string
 	a.onMain(func() {
 		name = locales.DocumentUntitled() + ".md"
-		if a.path != "" {
-			name = filepath.Base(a.path)
+		if a.documentPath() != "" {
+			name = filepath.Base(a.documentPath())
 		}
 		source = a.diskSource()
-		originalPath = a.path
-		if a.documentSession != nil {
-			revision = string(a.documentSession.Snapshot().Revision)
+		originalPath = a.documentPath()
+		if a.activeNote != nil {
+			revision = string(a.activeNote.Snapshot().Revision)
 		}
 	})
 	a.startBusy()
@@ -2758,11 +2638,22 @@ func (a *App) saveAs() {
 				return
 			}
 		}
+		if createdAt != "" && a.activeNote != nil {
+			var applyErr error
+			a.onMain(func() {
+				applyErr = a.activeNote.ReplaceSystem(strings.ReplaceAll(source, "\r\n", "\n"))
+			})
+			if applyErr != nil {
+				errorDialog(locales.DialogSaveFailed(), applyErr.Error())
+				a.finish(nil)
+				return
+			}
+		}
 		var expected document.Revision
-		if a.documentSession == nil {
+		if a.activeNote == nil {
 			err = errors.New("document repository is not configured")
 		} else {
-			expected, err = a.documentSession.DestinationRevision(path, originalPath, document.Revision(revision))
+			expected, err = a.activeNote.DestinationRevision(path, document.Revision(revision))
 		}
 		if err == nil {
 			err = a.writeDocument(path, source, expected)
@@ -2773,27 +2664,7 @@ func (a *App) saveAs() {
 			return
 		}
 		a.finish(func() {
-			a.path = path
 			a.selectedPath = path
-			if a.documentSession != nil {
-				a.documentSession.Open(path, source)
-			}
-			if createdAt != "" && codeLanguage(path) == "" {
-				createdTime, _ := time.Parse(time.RFC3339Nano, createdAt)
-				current, _, metadataErr := documentsave.EnsureCreatedAt(a.ed.Source(), createdTime)
-				if metadataErr != nil {
-					a.notice(locales.CommonExternalUpdateTimestampFailed(metadataErr.Error()))
-				} else {
-					if a.documentSession != nil {
-						a.documentSession.SetApplyingMetadata(true)
-					}
-					a.ed.ReplaceSystemAll(current)
-					if a.documentSession != nil {
-						a.documentSession.SetApplyingMetadata(false)
-					}
-				}
-			}
-			a.dirty = a.diskSource() != source
 			a.updateTitle()
 			a.clearTreeCache()
 		})
@@ -2963,11 +2834,9 @@ func (a *App) trash(path string) {
 			return
 		}
 		a.finish(func() {
-			if a.path == path || strings.HasPrefix(a.path, path+string(filepath.Separator)) {
-				a.path = ""
+			if docPath := a.documentPath(); docPath == path || strings.HasPrefix(docPath, path+string(filepath.Separator)) {
 				a.selectedPath = ""
-				a.loadDoc("")
-				a.dirty = false
+				a.loadDocumentAt("", "")
 				a.updateTitle()
 			}
 			a.clearTreeCache()
@@ -3011,11 +2880,9 @@ func (a *App) trashTreeItems(paths []string) {
 		a.finish(func() {
 			for _, path := range trashed {
 				delete(a.treeSelection, path)
-				if a.path == path || strings.HasPrefix(a.path, path+string(filepath.Separator)) {
-					a.path = ""
+				if docPath := a.documentPath(); docPath == path || strings.HasPrefix(docPath, path+string(filepath.Separator)) {
 					a.selectedPath = ""
-					a.loadDoc("")
-					a.dirty = false
+					a.loadDocumentAt("", "")
 					a.updateTitle()
 				}
 			}
@@ -3093,10 +2960,8 @@ func uniquePath(dir, base, ext string) string {
 // Settings
 
 func (a *App) settingsDialog(c *ui.Context) {
-	t := c.Theme()
-	showScrollbar := a.settingsIndicator.Visible(c.Now(), a.settingsScroll.X, a.settingsScroll.Y)
-	if showScrollbar {
-		c.After(a.settingsIndicator.Remaining(c.Now()))
+	if !a.settingsOpen {
+		return
 	}
 	w, h := c.Size()
 	panelW := min(820, w-64)
@@ -3105,261 +2970,140 @@ func (a *App) settingsDialog(c *ui.Context) {
 	maxY := (h-panelH)/2 - 12
 	bounds := ui.Rect{X: -maxX, Y: -maxY, W: 2 * maxX, H: 2 * maxY}
 	ui.DialogBase(c, &a.settingsOpen, func(backdrop, panel ui.Element) {
-		// term-fleet's settings is a floating window, not a sheet: the page
-		// behind stays visible while it is open.
 		backdrop.Background(ui.Transparent)
 		panel.Width(panelW).Height(panelH).Radius(14).Clip().
-			Background(t.Surface).Border(1, t.Border).
+			Background(c.Theme().Surface).Border(1, c.Theme().Border).
 			Shadow(0, 18, 50, 0, ui.RGBA(0, 0, 0, 0.28)).
 			Draggable(&a.settingsDrag, ui.DraggableOptions{Bounds: &bounds, Rigid: true}).
 			Children(func() {
-				ui.Row(c).Height(44).Shrink(0).Padding(0, 10, 0, 16).Gap(10).Children(func() {
-					ui.Text(c, locales.SettingsTitle()).FontSize(14).FontWeight(600)
-					ui.Text(c, locales.SettingsImmediate()).FontSize(11.5).TextColor(t.TextMuted)
-					ui.Spacer(c)
-					a.smallIcon(c, iconClose, locales.SettingsClose(), func() { a.settingsOpen = false })
-				})
-				ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-					// Left navigation, 184px.
-					ui.Column(c).Width(184).Shrink(0).FillHeight().Padding(0, 8, 8, 4).Gap(2).Children(func() {
-						a.settingsNavItem(c, locales.SettingsAppearance(), 0)
-						a.settingsNavItem(c, locales.SettingsEditor(), 1)
-						a.settingsNavItem(c, locales.SettingsAI(), 2)
-					})
-					// Right content card, with its own 44px page header.
-					ui.Column(c).Grow(1).MinWidth(0).FillHeight().Padding(0, 8, 8, 8).Children(func() {
-						card := ui.Column(c).FillWidth().FillHeight().Radius(14).Clip().
-							Background(t.Background).Border(1, t.Border)
-						card.Children(func() {
-							title := locales.SettingsAppearance()
-							switch a.settingsTab {
-							case 1:
-								title = locales.SettingsEditor()
-							case 2:
-								title = locales.SettingsAI()
-							}
-							ui.Row(c).Height(44).Shrink(0).Padding(0, 18).AlignItems(ui.Center).
-								BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-								ui.Text(c, title).FontSize(15).FontWeight(650)
-							})
-							ui.Scroll(c).Fill().TrackScroll(&a.settingsScroll).Scrollbars(showScrollbar).Children(func() {
-								ui.Column(c).FillWidth().Padding(18).Gap(18).Children(func() {
-									switch a.settingsTab {
-									case 0:
-										a.appearanceSettings(c)
-									case 1:
-										a.editorSettings(c)
-									default:
-										a.aiSettings(c)
-									}
-								})
-							})
-						})
-					})
-				})
-				footer := locales.SettingsFooter()
-				if a.settingsTab == 2 {
-					footer = locales.SettingsAIFooter()
-				} else {
-					footer = locales.SettingsFooter()
-				}
-				ui.Row(c).Height(34).Shrink(0).Padding(0, 16).Gap(7).AlignItems(ui.Center).
-					BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
-					ui.Box(c).Size(6, 6).Radius(3).Background(t.TextMuted)
-					ui.Text(c, footer).FontSize(11.5).TextColor(t.TextMuted)
-				})
+				settingsui.Render(c, a.settingsViewModel(), a.dispatchSettingsAction)
 			})
 	})
 }
 
-func (a *App) settingsNavItem(c *ui.Context, label string, tab int) {
-	t := c.Theme()
-	b := ui.ButtonBase(c).Width(168).Height(32).Padding(0, 10).Radius(7).Label(label)
-	switch {
-	case a.settingsTab == tab:
-		if t.Dark {
-			b.Background(ui.RGBA(255, 255, 255, 0.08))
-		} else {
-			b.Background(t.Background).Border(1, t.Border)
-		}
-	case b.Hovered():
-		b.Background(t.SurfaceHover)
+func (a *App) settingsViewModel() settingsui.ViewModel {
+	mode := settingsui.ThemeSystem
+	switch a.themeMode {
+	case themeLight:
+		mode = settingsui.ThemeLight
+	case themeDark:
+		mode = settingsui.ThemeDark
 	}
-	b.OnClick(func() { a.settingsTab = tab })
-	b.Children(func() {
-		ui.Text(c, label).FontSize(13).TextColor(t.Text)
-	})
-}
-
-// settingsGroup is the inset panel the settings pages group their rows in.
-func settingsGroup(c *ui.Context, title string, fn func()) {
-	t := c.Theme()
-	ui.Column(c).FillWidth().Gap(8).Children(func() {
-		if title != "" {
-			ui.Text(c, title).FontSize(12).FontWeight(600).TextColor(t.TextMuted).Padding(0, 4)
-		}
-		ui.Column(c).FillWidth().Radius(12).Background(t.Surface).Padding(4, 16).Children(fn)
-	})
-}
-
-func settingsRow(c *ui.Context, label, detail string, control func()) {
-	t := c.Theme()
-	ui.Row(c).FillWidth().Padding(11, 0).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-			ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
-			if detail != "" {
-				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
-			}
-		})
-		ui.Row(c).Shrink(0).Gap(8).AlignItems(ui.Center).Children(control)
-	})
-}
-
-// settingsRowToggle is settingsRow for a switch: its label turns it too, so
-// the left of the row is as much the switch as the switch is.
-func settingsRowToggle(c *ui.Context, label, detail string, on *bool) {
-	settingsRowToggleAction(c, label, detail, on, func() { *on = !*on })
-}
-
-func settingsRowToggleAction(c *ui.Context, label, detail string, on *bool, toggle func()) {
-	t := c.Theme()
-	ui.Row(c).FillWidth().Padding(11, 0).Gap(16).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).MinWidth(0).Gap(3).OnClick(toggle).Children(func() {
-			ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
-			if detail != "" {
-				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
-			}
-		})
-		checked := *on
-		control := ui.ButtonBase(c).Width(38).Height(22).Radius(11).Padding(2).
-			Label(locales.SettingsToggleStateLabel(label)).Tooltip(label).AlignItems(ui.Center)
-		if checked {
-			control.Background(t.Accent)
-		} else {
-			control.Background(t.Border)
-		}
-		control.OnClick(toggle).Children(func() {
-			if checked {
-				ui.Row(c).Fill().Justify(ui.End).Children(func() {
-					ui.Box(c).Size(18, 18).Radius(9).Background(t.Background)
-				})
-			} else {
-				ui.Row(c).Fill().Justify(ui.Start).Children(func() { ui.Box(c).Size(18, 18).Radius(9).Background(t.Background) })
-			}
-		})
-	})
-}
-
-func (a *App) appearanceSettings(c *ui.Context) {
-	t := c.Theme()
-	settingsGroup(c, locales.Language(), func() {
-		settingsRow(c, locales.SettingsLanguage(), locales.SettingsLanguageDetail(), func() {
-			choices := []struct{ tag, label string }{
-				{"", locales.LanguageSystem()},
-				{"zh-Hans", locales.LanguageChinese()},
-				{"en", locales.LanguageEnglish()},
-			}
-			for _, choice := range choices {
-				choice := choice
-				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(choice.label)
-				selected := (choice.tag == "" && (!a.localeConfigured || a.localeSetting == "")) ||
-					(choice.tag != "" && a.localeConfigured && a.localeSetting == choice.tag)
-				if selected {
-					b.Background(c.Theme().Background).Border(1, c.Theme().Border)
-				} else if b.Hovered() {
-					b.Background(c.Theme().SurfaceHover)
-				}
-				b.OnClick(func() { a.setLocale(choice.tag) }).Children(func() { ui.Text(c, choice.label) })
-			}
-		})
-	})
-	settingsGroup(c, locales.ThemeTitle(), func() {
-		a.settingsDivider(c, false)
-		settingsRow(c, locales.ThemeTitle(), locales.ThemeDescription(), func() {
-			for mode, label := range []string{locales.ThemeLight(), locales.ThemeDark(), locales.ThemeSystem()} {
-				mode, label := mode, label
-				b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(locales.ThemeControl(label))
-				if a.themeMode == mode {
-					b.Background(c.Theme().Background).Border(1, c.Theme().Border)
-				} else if b.Hovered() {
-					b.Background(c.Theme().SurfaceHover)
-				}
-				b.OnClick(func() { a.setThemeMode(mode) }).Children(func() { ui.Text(c, label) })
-			}
-		})
-		a.settingsDivider(c, true)
-		a.accentSettings(c)
-		a.settingsDivider(c, true)
-		settingsRowToggle(c, locales.MenuHeaderFade(), locales.SettingsHeaderFadeDetail(), &a.headerFade)
-	})
-	settingsGroup(c, locales.SettingsNavigation(), func() {
-		settingsRowToggleAction(c, locales.SettingsSmoothPageJumps(), locales.SettingsSmoothPageJumpsDetail(), &a.smoothPageJumps, func() {
-			a.setSmoothPageJumps(!a.smoothPageJumps)
-		})
-	})
-	a.typographySettings(c)
-	ui.Text(c, locales.NativeRenderingNote()).
-		FontSize(11.5).TextColor(t.TextMuted).Padding(0, 4)
-}
-
-func (a *App) typographySettings(c *ui.Context) {
-	settingsGroup(c, locales.SettingsTypography(), func() {
-		a.settingsDivider(c, false)
-		settingsRowToggleAction(c, locales.SettingsSmartTypography(), locales.SettingsSmartTypographyDetail(), &a.smartTypography, func() { a.setSmartTypography(!a.smartTypography) })
-		a.settingsDivider(c, true)
-		settingsRow(c, locales.SettingsFontSize(), locales.SettingsFontSizeDetail(), func() {
-			ui.Textf(c, "%.0fpx", a.fontSize).FontSize(12).TextColor(c.Theme().TextMuted).Width(38)
-			ui.Slider(c, &a.fontSize, 12, 22).Width(190).Label(locales.SettingsFontSize())
-		})
-		a.settingsDivider(c, true)
-		settingsRow(c, locales.SettingsLineHeight(), locales.SettingsLineHeightDetail(), func() {
-			ui.Textf(c, "%.1f", a.lineHeight).FontSize(12).TextColor(c.Theme().TextMuted).Width(38)
-			ui.Slider(c, &a.lineHeight, 1.4, 2.2).Width(190).Label(locales.SettingsLineHeight())
-		})
-	})
-}
-
-func (a *App) editorSettings(c *ui.Context) {
-	settingsGroup(c, locales.SettingsKeymap(), func() { a.keymapSettings(c) })
-	settingsGroup(c, locales.SettingsCursor(), func() {
-		settingsRowToggleAction(c, locales.SettingsHideMouseCursor(), locales.SettingsHideMouseCursorDetail(), &a.hideMouseCursor, func() {
-			a.setHideMouseCursor(!a.hideMouseCursor)
-		})
-		a.settingsDivider(c, true)
-		settingsRowToggleAction(c, locales.SettingsCursorFade(), locales.SettingsCursorFadeDetail(), &a.cursorFade, func() { a.setCursorFade(!a.cursorFade) })
-		if a.ed.Keymap() == "vim" || a.ed.Keymap() == "helix" {
-			a.settingsDivider(c, true)
-			settingsRowToggleAction(c, locales.SettingsSmoothCursor(), locales.SettingsSmoothCursorDetail(), &a.smoothCursor, func() { a.setSmoothCursor(!a.smoothCursor) })
-		}
-	})
-	settingsGroup(c, locales.SettingsEditorGroup(), func() {
-		settingsRowToggleAction(c, locales.SettingsHeadingMarkerReveal(), locales.SettingsHeadingMarkerRevealDetail(), &a.headingMarkerReveal, func() {
-			a.setHeadingMarkerReveal(!a.headingMarkerReveal)
-		})
-	})
-	if a.ed.Keymap() == "vim" {
-		settingsGroup(c, "Vim", func() {
-			settingsRowToggleAction(c, locales.SettingsVimImageRows(), locales.SettingsVimImageRowsDetail(), &a.vimVirtualImageRows, func() {
-				a.setVimVirtualImageRows(!a.vimVirtualImageRows)
-			})
-			a.settingsDivider(c, true)
-			settingsRowToggleAction(c, locales.SettingsVimYankFlash(), locales.SettingsVimYankFlashDetail(), &a.vimYankFlash, func() {
-				a.setVimYankFlash(!a.vimYankFlash)
-			})
-		})
+	accents := make([]settingsui.Accent, 0, len(appearance.Presets))
+	for _, preset := range appearance.Presets {
+		accents = append(accents, settingsui.Accent{ID: preset.ID, Label: accentLocalizedName(preset.ID), Color: preset.Color})
 	}
-	settingsGroup(c, locales.SettingsSearch(), func() {
-		settingsRowToggleAction(c, locales.SettingsSearchMatchPulse(), locales.SettingsSearchMatchPulseDetail(), &a.searchMatchPulse, func() {
-			a.setSearchMatchPulse(!a.searchMatchPulse)
-		})
-	})
+	assistantModels := make([]string, 0, len(a.aiModels))
+	for _, model := range a.aiModels {
+		assistantModels = append(assistantModels, model.ID)
+	}
+	return settingsui.ViewModel{
+		Page: settingsui.Page(a.settingsTab), Scroll: &a.settingsScroll,
+		Appearance: settingsui.Appearance{
+			Theme: mode, Accents: accents, AccentID: a.accentID,
+			Locale: a.localeSetting, LocaleConfigured: a.localeConfigured,
+			HeaderFade: a.headerFade, SmoothPageJumps: a.smoothPageJumps,
+		},
+		Editor: settingsui.Editor{
+			Keymap: a.activeNote.ModalCommands().Keymap(), SmartTypography: a.smartTypography,
+			FontSize: a.fontSize, LineHeight: a.lineHeight, HideMouseCursor: a.hideMouseCursor,
+			CursorFade: a.cursorFade, SmoothCursor: a.smoothCursor,
+			HeadingMarkerReveal: a.headingMarkerReveal, VimVirtualImageRows: a.vimVirtualImageRows,
+			VimYankFlash: a.vimYankFlash, SearchMatchPulse: a.searchMatchPulse,
+		},
+		Assistant: settingsui.Assistant{
+			Enabled: a.aiEnabled, Provider: a.ai.Provider, BaseURL: a.ai.BaseURL, APIKey: a.ai.APIKey,
+			Model: a.ai.Model, SystemPrompt: a.ai.System, AvailableModels: assistantModels,
+			ModelsLoading: a.aiModelsBusy, ModelsError: a.aiModelsErr,
+			Capabilities: settingsui.Capabilities{Browse: a.ai.Tools.Browse, Edit: a.ai.Tools.Edit, Manage: a.ai.Tools.Manage},
+			SettingsPath: config.AssistantSettingsPath(), CapabilitiesDetail: locales.AiCapabilitiesDetail(),
+		},
+	}
 }
 
-// settingsDivider draws the hairline between rows, never above the first or
-// below the last, as the platform's settings windows do.
-func (a *App) settingsDivider(c *ui.Context, between bool) {
-	if between {
-		ui.Box(c).FillWidth().Height(1).Background(c.Theme().Border)
+func (a *App) dispatchSettingsAction(action settingsui.Action) {
+	switch action.Kind {
+	case settingsui.SelectPage:
+		a.settingsTab = int(action.Page)
+	case settingsui.ThemeChanged:
+		mode := themeSystem
+		switch action.Theme {
+		case settingsui.ThemeLight:
+			mode = themeLight
+		case settingsui.ThemeDark:
+			mode = themeDark
+		}
+		a.setThemeMode(mode)
+	case settingsui.AccentChanged:
+		a.setAccent(action.AccentID)
+	case settingsui.LocaleChanged:
+		a.setLocale(action.Locale)
+	case settingsui.HeaderFadeChanged:
+		a.headerFade = action.Enabled
+		if err := a.saveNativePreferences(); err != nil {
+			a.notice(locales.CommonSettingSaveError(err.Error()))
+		}
+		a.invalidate()
+	case settingsui.SmoothPageJumpsChanged:
+		a.setSmoothPageJumps(action.Enabled)
+	case settingsui.KeymapChanged:
+		a.setEditorKeymap(action.Text)
+	case settingsui.SmartTypographyChanged:
+		a.setSmartTypography(action.Enabled)
+	case settingsui.FontSizeChanged:
+		a.fontSize = action.Number
+		a.configureActiveNote(0)
+		a.invalidate()
+	case settingsui.LineHeightChanged:
+		a.lineHeight = action.Number
+		a.configureActiveNote(0)
+		a.invalidate()
+	case settingsui.HideMouseCursorChanged:
+		a.setHideMouseCursor(action.Enabled)
+	case settingsui.CursorFadeChanged:
+		a.setCursorFade(action.Enabled)
+	case settingsui.SmoothCursorChanged:
+		a.setSmoothCursor(action.Enabled)
+	case settingsui.HeadingMarkerRevealChanged:
+		a.setHeadingMarkerReveal(action.Enabled)
+	case settingsui.VimVirtualImageRowsChanged:
+		a.setVimVirtualImageRows(action.Enabled)
+	case settingsui.VimYankFlashChanged:
+		a.setVimYankFlash(action.Enabled)
+	case settingsui.SearchMatchPulseChanged:
+		a.setSearchMatchPulse(action.Enabled)
+	case settingsui.AssistantEnabledChanged:
+		a.setAIEnabled(action.Enabled)
+	case settingsui.ProviderChanged:
+		a.setAIService(action.Text == config.AssistantProviderMagpie)
+	case settingsui.BaseURLChanged:
+		a.ai.BaseURL = action.Text
+	case settingsui.APIKeyChanged:
+		a.ai.APIKey = action.Text
+	case settingsui.ModelChanged:
+		a.ai.Model = action.Text
+	case settingsui.SystemPromptChanged:
+		a.ai.System = action.Text
+	case settingsui.CapabilityChanged:
+		switch action.Capability {
+		case settingsui.BrowseCapability:
+			a.ai.Tools.Browse = action.Enabled
+		case settingsui.EditCapability:
+			a.ai.Tools.Edit = action.Enabled
+		case settingsui.ManageCapability:
+			a.ai.Tools.Manage = action.Enabled
+		}
+		a.saveAITools()
+	case settingsui.FetchModels:
+		a.fetchAIModels()
+	case settingsui.SaveAssistant:
+		if err := config.SaveAssistantSettings(a.ai); err != nil {
+			a.notice(locales.CommonSaveFailed(err.Error()))
+		} else {
+			a.notice(locales.AiModelSettingsSaved())
+		}
+	case settingsui.Close:
+		a.settingsOpen = false
 	}
 }
 
@@ -3368,16 +3112,16 @@ func (a *App) settingsDivider(c *ui.Context, between bool) {
 
 // docDir is the folder images and links of the document resolve in.
 func (a *App) docDir() string {
-	if a.path != "" {
-		return filepath.Dir(a.path)
+	if a.documentPath() != "" {
+		return filepath.Dir(a.documentPath())
 	}
 	return a.root
 }
 
 // editorOptions are the editor's options, from the settings and the
 // document being edited.
-func (a *App) editorOptions() mdedit.Options {
-	return mdedit.Options{
+func (a *App) editorOptions() editorui.Options {
+	return editorui.Options{
 		DisableSmartTypography:  !a.smartTypography,
 		HeadingMarkerReveal:     a.headingMarkerReveal,
 		SoftBreaksAsSpaces:      false,
@@ -3399,9 +3143,8 @@ func (a *App) editorOptions() mdedit.Options {
 		BaseDir:                 a.docDir(),
 		Placeholder:             locales.DocumentStartWriting(),
 		Label:                   locales.DocumentDefaultLabel(),
-		Code:                    codeLanguage(a.path),
+		Code:                    codeLanguage(a.documentPath()),
 		Invalidate:              a.invalidate,
-		OnChange:                a.docChanged,
 		OnLink:                  a.openLink,
 		OnWikiLinkHover: func(target string, x, y float32, bounds ui.Rect) {
 			a.hoverWikiLinkAt(target, x, y, bounds)
@@ -3409,12 +3152,13 @@ func (a *App) editorOptions() mdedit.Options {
 		WikiLinkSuggestions:       a.wikiLinkSuggestions,
 		WikiLinkSuggestionDetails: a.wikiLinkSuggestionDetails,
 		ResolveWikiEmbed:          a.resolveWikiEmbed,
-		CurrentPath:               a.path,
+		CurrentPath:               a.documentPath(),
 		ResolveWikiLink:           a.resolveWikiLinkStyle,
 		LinkRevision:              a.editorLinkRevision(),
 		LinkContext:               a.editorLinkContext(),
 		AssetRoot:                 a.root,
 		ImageCacheStore:           a.imageCacheStore,
+		ImageLocalFiles:           a.imageLocalFiles,
 		ResolveImage:              a.resolveVaultImage,
 		OnImagePreview:            a.openImagePreview,
 		OnDiagramPreview: func(source string, model diagrams.Result) {
@@ -3433,6 +3177,65 @@ func (a *App) editorOptions() mdedit.Options {
 	}
 }
 
+func (a *App) configureActiveNote(topInset float32) {
+	if a.activeNote == nil {
+		return
+	}
+	opts := a.editorOptions()
+	opts.TopInset = topInset
+	_ = a.activeNote.Configure(noteeditor.PresentationSettings{
+		FontSize: opts.FontSize, LineHeight: opts.LineHeight,
+		DisableSmartTypography: opts.DisableSmartTypography,
+		HeadingMarkerReveal:    opts.HeadingMarkerReveal,
+		VimVirtualImageRows:    opts.VimVirtualImageRows,
+		CursorFade:             opts.CursorFade, SmoothCursor: opts.SmoothCursor,
+		HideMouseCursor: opts.HideMouseCursor, SmoothPageJumps: opts.SmoothPageJumps,
+		SearchMatchPulse: opts.SearchMatchPulse, VimYankFlash: opts.VimYankFlash,
+		TopInset: opts.TopInset, HeaderHeight: opts.HeaderHeight,
+		HideFrontmatter: opts.HideFrontmatter, BaseDir: opts.BaseDir,
+		AssetRoot: opts.AssetRoot, CurrentPath: opts.CurrentPath, Code: opts.Code,
+		LinkRevision: opts.LinkRevision, LinkContext: opts.LinkContext,
+	})
+}
+
+// createActiveNote creates the pane-owned document and editor session. The
+// production renderer attaches to that same session through window.Content.
+func (a *App) createActiveNote(note document.Note, cursorOffset int) error {
+	content, err := noteeditor.NewContent(
+		window.PaneID(a.focusedPane()), note,
+		cursorOffset,
+		noteeditor.Dependencies{
+			Documents: a.documentRepository,
+			Recovery:  a.documentRecovery,
+			History:   a.documentHistory,
+			Events:    a.documentEvents,
+		},
+		func(session *mdedit.Session, callbacks noteeditor.SurfaceOptions) window.Content {
+			opts := a.editorOptions()
+			opts.OnChange = func() {
+				callbacks.OnChange()
+			}
+			view := editorui.NewFromSession(session, opts)
+			view.SetKeymap(loadEditorSettings().Keymap)
+			return view
+		},
+		func(action noteeditor.Action) {
+			if action.Kind == noteeditor.DocumentChanged {
+				a.queueLinkIndexSnapshot()
+				a.refreshHeadings()
+				a.refreshSearch()
+				a.updateTitle()
+				a.invalidate()
+			}
+		},
+	)
+	if err != nil {
+		return err
+	}
+	a.activeNote = content
+	return nil
+}
+
 func (a *App) editorLinkRevision() uint64 {
 	if a.vault == nil || !a.vaultSnapshot.Ready {
 		return 0
@@ -3445,7 +3248,7 @@ func (a *App) editorLinkContext() string {
 	if a.vault != nil {
 		root = a.vaultSnapshot.Root
 	}
-	return filepath.Clean(root) + "\x00" + filepath.Clean(a.path)
+	return filepath.Clean(root) + "\x00" + filepath.Clean(a.documentPath())
 }
 
 func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTargetState {
@@ -3454,7 +3257,7 @@ func (a *App) resolveWikiLinkStyle(currentPath, target string) mdedit.LinkTarget
 	}
 	current := ""
 	if currentPath == "" {
-		currentPath = a.path
+		currentPath = a.documentPath()
 	}
 	if currentPath != "" {
 		if rel, err := filepath.Rel(a.vaultSnapshot.Root, currentPath); err == nil {
@@ -3515,40 +3318,29 @@ func codeLanguage(path string) string {
 // undo starts over. Windows line endings are kept as \n while editing and
 // written back as they were.
 func (a *App) loadDoc(src string) {
+	a.loadDocumentAt(a.documentPath(), src)
+}
+
+func (a *App) loadDocumentAt(path, src string) {
 	a.linkPreview = wikiLinkPreviewState{}
 	a.propertyOpenedAt = time.Now()
 	a.propertyEditKey, a.propertyEditLocation = "", ""
-	a.documentLoaded(src)
-	a.crlf = strings.Contains(src, "\r\n")
-	if a.crlf {
-		src = strings.ReplaceAll(src, "\r\n", "\n")
+	if a.activeNote != nil {
+		_ = a.activeNote.Open(document.NewNote(path, src, document.RevisionOf(src)), 0)
 	}
-	a.ed.SetOptions(a.editorOptions())
-	a.ed.SetSource(src)
-	a.source = src
+	a.configureActiveNote(0)
 	a.searchKey = [2]string{}
 	a.refreshHeadings()
 }
 
-// docChanged takes a change of the document from the editor: the user's
-// typing, or an edit the app made through it.
-func (a *App) docChanged() {
-	src := a.ed.Source()
-	if src == a.source {
-		return
-	}
-	a.source = src
-	a.dirty = true
-	a.documentChanged()
-	a.queueLinkIndexSnapshot()
-	a.refreshHeadings()
-	a.updateTitle()
-}
-
 // refreshHeadings reads the outline from the editor's parse.
 func (a *App) refreshHeadings() {
+	if a.activeNote == nil {
+		a.headings = nil
+		return
+	}
 	a.headings = a.headings[:0]
-	for _, h := range a.ed.Headings() {
+	for _, h := range a.activeNote.NavigationCommands().Headings() {
 		a.headings = append(a.headings, heading{level: h.Level, text: h.Text, offset: h.Offset})
 	}
 	if a.outlineRow >= len(a.headings) {
@@ -3559,18 +3351,21 @@ func (a *App) refreshHeadings() {
 // editDoc replaces the document with src as an edit the user can undo, as
 // the AI's tools change it.
 func (a *App) editDoc(src string) {
-	a.ed.ReplaceAll(src)
-	a.docChanged()
+	_ = a.activeNote.ReplaceUser(src)
 	a.invalidate()
 }
 
-// diskSource is the document as it is written to disk.
-func (a *App) diskSource() string {
-	if a.crlf {
-		return strings.ReplaceAll(a.source, "\n", "\r\n")
+func (a *App) documentSnapshot() noteeditor.Snapshot {
+	if a == nil || a.activeNote == nil {
+		return noteeditor.Snapshot{}
 	}
-	return a.source
+	return a.activeNote.Snapshot()
 }
+
+func (a *App) documentPath() string   { return a.documentSnapshot().Path }
+func (a *App) documentSource() string { return a.documentSnapshot().Source }
+func (a *App) documentDirty() bool    { return a.documentSnapshot().Dirty }
+func (a *App) diskSource() string     { return a.documentSnapshot().DiskSource }
 
 // openLink opens a link Cmd-clicked in the document: a heading of the
 // document by its anchor, a document of the workspace by its path, or a
@@ -3587,7 +3382,7 @@ func (a *App) openLink(href string) {
 		slug := strings.TrimPrefix(href, "#")
 		for _, h := range a.headings {
 			if headingSlug(h.text) == strings.ToLower(slug) {
-				a.ed.NavigateToOffset(h.offset, mdedit.PageJumpTopMargin)
+				a.activeNote.NavigationCommands().NavigateToOffset(h.offset)
 				return
 			}
 		}
@@ -3770,15 +3565,15 @@ func (a *App) nav(delta int) {
 	}
 	// Returning from an image to the still-open note must reveal its editor
 	// state, including unsaved edits, rather than reload the on-disk version.
-	if path == a.path {
+	if path == a.documentPath() {
 		a.navAt = target
 		a.closeImageDocument()
-		a.ed.Focus()
+		a.activeNote.FocusCommands().Focus()
 		a.updateTitle()
 		a.invalidate()
 		return
 	}
-	if a.dirty {
+	if a.documentDirty() {
 		if a.win == nil || a.busy {
 			return
 		}
@@ -3811,16 +3606,16 @@ func (a *App) docPath() string {
 		}
 		return path
 	}
-	if a.path == "" {
+	if a.documentPath() == "" {
 		return locales.DocumentUntitled()
 	}
 	if a.root == "" {
-		return a.path
+		return a.documentPath()
 	}
-	if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
+	if rel, err := filepath.Rel(a.root, a.documentPath()); err == nil && !strings.HasPrefix(rel, "..") {
 		return filepath.ToSlash(rel)
 	}
-	return a.path
+	return a.documentPath()
 }
 
 // tailPath cuts a path from its front until it fits width, keeping the end:
@@ -3854,18 +3649,18 @@ func (a *App) displayName() string {
 	if a.imageDocumentOpen() {
 		return filepath.Base(a.imageDocumentPath())
 	}
-	if a.path == "" {
+	if a.documentPath() == "" {
 		return locales.DocumentUntitled()
 	}
-	return filepath.Base(a.path)
+	return filepath.Base(a.documentPath())
 }
 
 func (a *App) location() string {
-	if a.path == "" {
+	if a.documentPath() == "" {
 		return locales.DocumentNotSaved()
 	}
 	if a.root != "" {
-		if rel, err := filepath.Rel(a.root, a.path); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(a.root, a.documentPath()); err == nil && !strings.HasPrefix(rel, "..") {
 			dir := filepath.Dir(rel)
 			if dir == "." {
 				return ""
@@ -3873,7 +3668,7 @@ func (a *App) location() string {
 			return filepath.ToSlash(dir)
 		}
 	}
-	return filepath.Dir(a.path)
+	return filepath.Dir(a.documentPath())
 }
 
 func (a *App) openSettings() {
@@ -3982,7 +3777,7 @@ func (a *App) updateTitle() {
 		return
 	}
 	name := a.displayName()
-	if a.dirty {
+	if a.documentDirty() {
 		name = "● " + name
 	}
 	a.win.SetTitle(name + " — " + locales.AppTitle())

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/platform/filesystem/imagefiles"
 )
 
 func writeWorkflowJPEG(t *testing.T) string {
@@ -37,11 +38,12 @@ func writeWorkflowJPEG(t *testing.T) string {
 func TestOpenImagePathShowsJPEGInEditorAndPreservesDirtyDraft(t *testing.T) {
 	path := writeWorkflowJPEG(t)
 	a := New()
-	a.path = filepath.Join(t.TempDir(), "unsaved.md")
+	a.imageLocalFiles = imagefiles.New()
+	setDocumentPathForTest(a, filepath.Join(t.TempDir(), "unsaved.md"))
 	a.loadDoc("# Unsaved note\n\nKeep this draft.\n")
-	a.dirty = true
+	a.activeNote.MarkDirty()
 	a.propertiesOpen = true
-	source := a.ed.Source()
+	source := a.activeNote.Source()
 
 	a.openPathNow(path)
 	tt := ui.NewTester(a.View, 1000, 700)
@@ -62,8 +64,8 @@ func TestOpenImagePathShowsJPEGInEditorAndPreservesDirtyDraft(t *testing.T) {
 	if a.displayName() != "photo.jpg" || a.docPath() != path {
 		t.Fatalf("image title path=%q display=%q", a.docPath(), a.displayName())
 	}
-	if a.path != filepath.Join(filepath.Dir(a.path), "unsaved.md") || a.ed.Source() != source || !a.dirty {
-		t.Fatalf("image open lost dirty note: path=%q source=%q dirty=%v", a.path, a.ed.Source(), a.dirty)
+	if a.documentPath() != filepath.Join(filepath.Dir(a.documentPath()), "unsaved.md") || a.activeNote.Source() != source || !a.documentDirty() {
+		t.Fatalf("image open lost dirty note: path=%q source=%q dirty=%v", a.documentPath(), a.activeNote.Source(), a.documentDirty())
 	}
 	if len(a.navHist) == 0 || a.navHist[len(a.navHist)-1] != path {
 		t.Fatalf("image path missing from navigation history: %v", a.navHist)
@@ -77,8 +79,8 @@ func TestOpenImagePathShowsJPEGInEditorAndPreservesDirtyDraft(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if !a.imageDocumentOpen() || a.ed.Source() != source || !a.dirty {
-		t.Fatalf("closing global preview state: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.activeNote.Source() != source || !a.documentDirty() {
+		t.Fatalf("closing global preview state: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.activeNote.Source(), a.documentDirty())
 	}
 }
 
@@ -89,19 +91,21 @@ func TestImageNavigationPreservesDirtyNoteAndRestoresImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
+	withDocumentPorts(t, a)
+	a.imageLocalFiles = imagefiles.New()
 	a.openPathNow(note)
-	a.ed.SetSource("unsaved draft")
-	a.dirty = true
+	a.loadDoc("unsaved draft")
+	a.activeNote.MarkDirty()
 	a.requestOpen(path)
-	if !a.imageDocumentOpen() || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("image open lost draft: open=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.activeNote.Source() != "unsaved draft" || !a.documentDirty() {
+		t.Fatalf("image open lost draft: open=%v source=%q dirty=%v", a.imageDocumentOpen(), a.activeNote.Source(), a.documentDirty())
 	}
 	a.nav(-1)
-	if a.imageDocumentOpen() || a.path != note || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("back navigation did not restore dirty note: imageOpen=%v path=%q source=%q dirty=%v", a.imageDocumentOpen(), a.path, a.ed.Source(), a.dirty)
+	if a.imageDocumentOpen() || a.documentPath() != note || a.activeNote.Source() != "unsaved draft" || !a.documentDirty() {
+		t.Fatalf("back navigation did not restore dirty note: imageOpen=%v path=%q source=%q dirty=%v", a.imageDocumentOpen(), a.documentPath(), a.activeNote.Source(), a.documentDirty())
 	}
 	a.nav(1)
-	if !a.imageDocumentOpen() || a.imageDocumentPath() != path || a.ed.Source() != "unsaved draft" || !a.dirty {
-		t.Fatalf("forward navigation did not restore image and draft: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.ed.Source(), a.dirty)
+	if !a.imageDocumentOpen() || a.imageDocumentPath() != path || a.activeNote.Source() != "unsaved draft" || !a.documentDirty() {
+		t.Fatalf("forward navigation did not restore image and draft: imageOpen=%v source=%q dirty=%v", a.imageDocumentOpen(), a.activeNote.Source(), a.documentDirty())
 	}
 }

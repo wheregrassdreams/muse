@@ -33,8 +33,8 @@ func TestQuickOpenFuzzyJump(t *testing.T) {
 	// Empty-query results use stable path order.
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if a.quickOpenOpen() || a.path != filepath.Join(dir, "aardvark.txt") {
-		t.Fatalf("empty query selected %q, open=%v", a.path, a.quickOpenOpen())
+	if a.quickOpenOpen() || a.documentPath() != filepath.Join(dir, "aardvark.txt") {
+		t.Fatalf("empty query selected %q, open=%v", a.documentPath(), a.quickOpenOpen())
 	}
 	a.openQuickOpen()
 	tt.Frame()
@@ -46,8 +46,8 @@ func TestQuickOpenFuzzyJump(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if a.quickOpenOpen() || a.path != filepath.Join(dir, "子", "笔记B.md") {
-		t.Fatalf("selected note was not opened: path=%q open=%v", a.path, a.quickOpenOpen())
+	if a.quickOpenOpen() || a.documentPath() != filepath.Join(dir, "子", "笔记B.md") {
+		t.Fatalf("selected note was not opened: path=%q open=%v", a.documentPath(), a.quickOpenOpen())
 	}
 }
 

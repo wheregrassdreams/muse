@@ -73,10 +73,10 @@ func TestOpenRejectsBinaryData(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
-	a.source = "keep"
+	a.loadDoc("keep")
 	a.openPathNow(path)
-	if a.source != "keep" {
-		t.Fatalf("source = %q", a.source)
+	if a.documentSource() != "keep" {
+		t.Fatalf("source = %q", a.documentSource())
 	}
 }
 
@@ -94,9 +94,9 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	}
 	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
-	a.path = "existing.md"
+	setDocumentPathForTest(a, "existing.md")
 	a.loadDoc("preserve me")
-	a.dirty = true
+	a.activeNote.MarkDirty()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !tt.HasText("photo.png") {
@@ -113,8 +113,8 @@ func TestFileTreeImageClickOpensImageDocumentAndKeepsDirtyNote(t *testing.T) {
 	if a.imagePreviewOpen() {
 		t.Fatal("opening image from file tree opened global preview")
 	}
-	if a.path != "existing.md" || a.ed.Source() != "preserve me" || !a.dirty {
-		t.Fatalf("opening image changed dirty editor document: path=%q source=%q dirty=%v", a.path, a.ed.Source(), a.dirty)
+	if a.documentPath() != "existing.md" || a.activeNote.Source() != "preserve me" || !a.documentDirty() {
+		t.Fatalf("opening image changed dirty editor document: path=%q source=%q dirty=%v", a.documentPath(), a.activeNote.Source(), a.documentDirty())
 	}
 	if a.displayName() != "photo.png" || a.docPath() != "photo.png" {
 		t.Fatalf("image title path=%q display=%q", a.docPath(), a.displayName())

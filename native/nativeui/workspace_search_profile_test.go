@@ -86,14 +86,14 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 	}
 
 	parseAt := time.Now()
-	if _, err := a.vault.Query("size", false, a.path, a.diskSource()); err != nil {
+	if _, err := a.vault.Query("size", false, a.documentPath(), a.diskSource()); err != nil {
 		t.Fatalf("start current-note overlay query: %v", err)
 	}
 	t.Logf("current-note overlay parse and search scheduling: %s (source=%d bytes)", time.Since(parseAt).Round(time.Microsecond), len(a.diskSource()))
 	for _, query := range []string{"size", "的"} {
 		for _, limit := range []int{100, 500} {
 			searchAt := time.Now()
-			if _, err := a.vault.Query(query, false, a.path, a.diskSource()); err != nil {
+			if _, err := a.vault.Query(query, false, a.documentPath(), a.diskSource()); err != nil {
 				t.Fatalf("Query: %v", err)
 			}
 			deadline := time.Now().Add(5 * time.Second)

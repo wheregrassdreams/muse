@@ -11,12 +11,12 @@ import (
 // needle in the document, as the user clicks the rendered text there.
 func clickSource(t *testing.T, a *App, tt *ui.Tester, needle string) {
 	t.Helper()
-	off := strings.Index(a.source, needle)
+	off := strings.Index(a.documentSource(), needle)
 	if off < 0 {
-		t.Fatalf("%q not in the document %q", needle, a.source)
+		t.Fatalf("%q not in the document %q", needle, a.documentSource())
 	}
 	tt.Frame()
-	x, y, ok := a.ed.WindowPoint(off)
+	x, y, ok := a.activeNote.NavigationCommands().WindowPoint(off)
 	if !ok {
 		t.Fatalf("no position for %q", needle)
 	}
@@ -33,7 +33,7 @@ func TestClickingTextDoesNotDirty(t *testing.T) {
 	clickSource(t, a, tt, "正文")
 	clickSource(t, a, tt, "标题")
 	clickSource(t, a, tt, "1 |")
-	if a.dirty {
+	if a.documentDirty() {
 		t.Fatal("clicking the document marked it dirty")
 	}
 }
@@ -47,10 +47,10 @@ func TestTypingDirties(t *testing.T) {
 	tt.Key(0, ui.KeyEnd)
 	tt.Type("！")
 	tt.Frame()
-	if !a.dirty {
+	if !a.documentDirty() {
 		t.Fatal("typing did not mark the document dirty")
 	}
-	if a.source != "# 标题\n\n正文！\n" {
-		t.Fatalf("source = %q", a.source)
+	if a.documentSource() != "# 标题\n\n正文！\n" {
+		t.Fatalf("source = %q", a.documentSource())
 	}
 }

@@ -23,12 +23,12 @@ func TestMouseWheelHomeFixtureImagesStayRendered(t *testing.T) {
 		if i == 10 {
 			runtimeShot(t, tt, "home-mouse-wheel-wiki-embeds")
 			if ink := contentInkPixels(tt.Image()); ink < 20_000 {
-				t.Fatalf("Home.md image content stayed blank after mouse wheel reached scroll %.1f: content ink pixels=%d", a.ed.ScrollY(), ink)
+				t.Fatalf("Home.md image content stayed blank after mouse wheel reached scroll %.1f: content ink pixels=%d", a.activeNote.NavigationCommands().ScrollY(), ink)
 			}
 		}
 	}
-	if a.ed.ScrollY() < 1200 {
-		t.Fatalf("mouse wheel stopped before the Home.md attachment image: scroll=%v", a.ed.ScrollY())
+	if a.activeNote.NavigationCommands().ScrollY() < 1200 {
+		t.Fatalf("mouse wheel stopped before the Home.md attachment image: scroll=%v", a.activeNote.NavigationCommands().ScrollY())
 	}
 }
 

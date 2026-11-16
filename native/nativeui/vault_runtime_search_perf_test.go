@@ -14,11 +14,11 @@ func TestVaultSessionLatestQueryWinsAndCapsResults(t *testing.T) {
 		notes[fmt.Sprintf("Notes/%04d.md", n)] = "oldqueueprobe latestqueueprobe"
 	}
 	a, tt, _ := runtimeFixtureWithNotes(t, notes)
-	if _, err := a.vault.Query("oldqueueprobe", true, a.path, a.diskSource()); err != nil {
+	if _, err := a.vault.Query("oldqueueprobe", true, a.documentPath(), a.diskSource()); err != nil {
 		t.Fatal(err)
 	}
 	oldToken := a.vault.Snapshot().Search.Token
-	if _, err := a.vault.Query("latestqueueprobe", true, a.path, a.diskSource()); err != nil {
+	if _, err := a.vault.Query("latestqueueprobe", true, a.documentPath(), a.diskSource()); err != nil {
 		t.Fatal(err)
 	}
 	if a.vault.Snapshot().Search.Token <= oldToken {

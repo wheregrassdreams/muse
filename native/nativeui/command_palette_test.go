@@ -51,7 +51,7 @@ func TestCommandPalette(t *testing.T) {
 		t.Fatal("运行后面板未关闭")
 	}
 	// 新建文档 = 重置为空文档（path/source 清空）
-	if a.path != "" || a.source != "" {
-		t.Fatalf("新建文档命令未执行: path=%q source=%q", a.path, a.source)
+	if a.documentPath() != "" || a.documentSource() != "" {
+		t.Fatalf("新建文档命令未执行: path=%q source=%q", a.documentPath(), a.documentSource())
 	}
 }

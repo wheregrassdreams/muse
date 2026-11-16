@@ -11,9 +11,12 @@ import (
 	applicationvault "muse/application/vault"
 	mdedit "muse/editor"
 	"muse/locales"
+	"muse/platform/filesystem/documentstore"
+	"muse/platform/filesystem/imagefiles"
 	"muse/platform/filesystem/vaultfiles"
 	vaultfilessource "muse/platform/filesystem/vaultfilessource"
 	vaultindexsource "muse/platform/filesystem/vaultindexsource"
+	vaultcatalog "muse/vault/files"
 	vaultindex "muse/vault/index"
 	"os"
 	"path/filepath"
@@ -31,25 +34,37 @@ func treeDragHandleLabel(name string) string {
 func newFileTreeTestApp(t testing.TB, root string) *App {
 	t.Helper()
 	a := New()
+	configureFileTreeTestApp(t, a, root)
+	return a
+}
+
+func configureFileTreeTestApp(t testing.TB, a *App, root string) {
+	t.Helper()
 	a.root = root
-	a.fileOperations = applicationvault.NewFileOperations(vaultfiles.New(func(path string) error {
+	fileOps := applicationvault.NewFileOperations(vaultfiles.New(func(path string) error {
 		return trashItem(path)
 	}))
-	session, err := applicationvault.NewSession(root, applicationvault.SessionDependencies{
-		NewIndex: func(root string) (applicationvault.IndexPort, error) {
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	a.SetDependencies(Dependencies{
+		Documents: store, Recovery: store, History: store,
+		FileOperations: fileOps, ImageLocalFiles: imagefiles.New(),
+		NewVaultIndex: func(root string) (applicationvault.IndexPort, error) {
 			source, err := vaultindexsource.New(root)
 			if err != nil {
 				return nil, err
 			}
 			return vaultindex.New(source), nil
 		},
-		NewCatalog: func(root string) (applicationvault.CatalogPort, error) {
+		NewVaultCatalog: func(root string) (applicationvault.CatalogPort, error) {
 			source, err := vaultfilessource.New(root)
 			if err != nil {
 				return nil, err
 			}
-			return vaultfiles.New(source), nil
+			return vaultcatalog.New(source), nil
 		},
+	})
+	session, err := applicationvault.NewSession(root, applicationvault.SessionDependencies{
+		NewIndex: a.newVaultIndex, NewCatalog: a.newVaultCatalog,
 		NewWatcher: func(string) (applicationvault.WatcherPort, error) { return nil, nil },
 	})
 	if err != nil {
@@ -66,7 +81,6 @@ func newFileTreeTestApp(t testing.TB, root string) *App {
 	a.vault = session
 	a.vaultSnapshot = session.Snapshot()
 	t.Cleanup(func() { _ = session.Close() })
-	return a
 }
 
 func clickTreeRow(t *testing.T, tt *ui.Tester, label string) {
@@ -98,14 +112,15 @@ func TestMoveTreeItemIntoFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newFileTreeTestApp(t, root)
-	a.root, a.path, a.selectedPath = root, source, source
+	a.root, a.selectedPath = root, source
+	setDocumentPathForTest(a, source)
 	a.moveTreeItem(source, destination)
 	moved := filepath.Join(destination, "note.md")
 	if got, err := os.ReadFile(moved); err != nil || string(got) != "body" {
 		t.Fatalf("moved file = %q, %v", got, err)
 	}
-	if a.path != moved || a.selectedPath != moved {
-		t.Fatalf("current paths = %q / %q", a.path, a.selectedPath)
+	if a.documentPath() != moved || a.selectedPath != moved {
+		t.Fatalf("current paths = %q / %q", a.documentPath(), a.selectedPath)
 	}
 }
 
@@ -124,12 +139,13 @@ func TestMoveTreeFolderRemapsOpenDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newFileTreeTestApp(t, root)
-	a.root, a.path, a.selectedPath = root, open, open
+	a.root, a.selectedPath = root, open
+	setDocumentPathForTest(a, open)
 	a.expanded[source] = true
 	a.moveTreeItem(source, destination)
 	moved := filepath.Join(destination, "Old", "note.md")
-	if a.path != moved || a.selectedPath != moved {
-		t.Fatalf("open descendant paths = %q / %q", a.path, a.selectedPath)
+	if a.documentPath() != moved || a.selectedPath != moved {
+		t.Fatalf("open descendant paths = %q / %q", a.documentPath(), a.selectedPath)
 	}
 }
 
@@ -183,7 +199,8 @@ func TestMoveTreeItemToCurrentParentIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newFileTreeTestApp(t, root)
-	a.root, a.path, a.selectedPath = root, path, path
+	a.root, a.selectedPath = root, path
+	setDocumentPathForTest(a, path)
 	beforeInfo, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -194,8 +211,8 @@ func TestMoveTreeItemToCurrentParentIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.path != path || a.selectedPath != path || beforeInfo.ModTime() != afterInfo.ModTime() || beforeOrder != strings.Join(a.children(root), "\n") {
-		t.Fatalf("drop to current parent changed path/order/metadata: path=%q selected=%q", a.path, a.selectedPath)
+	if a.documentPath() != path || a.selectedPath != path || beforeInfo.ModTime() != afterInfo.ModTime() || beforeOrder != strings.Join(a.children(root), "\n") {
+		t.Fatalf("drop to current parent changed path/order/metadata: path=%q selected=%q", a.documentPath(), a.selectedPath)
 	}
 }
 
@@ -477,7 +494,7 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.loadDoc("# Draft\n\n")
-	original := a.ed.Source()
+	original := a.activeNote.Source()
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	before, ok := tt.Find("note.md")
@@ -530,11 +547,11 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	if a.treeDragging {
 		t.Fatal("tree drag UI remained after release")
 	}
-	if !strings.Contains(a.ed.Source(), "[[note]]") {
-		t.Fatalf("editor drop did not insert wiki link: %q", a.ed.Source())
+	if !strings.Contains(a.activeNote.Source(), "[[note]]") {
+		t.Fatalf("editor drop did not insert wiki link: %q", a.activeNote.Source())
 	}
-	if !a.ed.Undo() || a.ed.Source() != original {
-		t.Fatalf("undo did not revert link insertion: %q", a.ed.Source())
+	if !a.activeNote.Undo() || a.activeNote.Source() != original {
+		t.Fatalf("undo did not revert link insertion: %q", a.activeNote.Source())
 	}
 }
 
@@ -1007,7 +1024,7 @@ func TestDraggingTreeImageShowsThumbnailAndHidesHoverPreview(t *testing.T) {
 	tt.Frame()
 	tt.Release(600, 360)
 	tt.Frame()
-	if !strings.Contains(a.ed.Source(), "![[photo.png]]") {
-		t.Fatalf("tree image drop did not insert embed syntax: %q", a.ed.Source())
+	if !strings.Contains(a.activeNote.Source(), "![[photo.png]]") {
+		t.Fatalf("tree image drop did not insert embed syntax: %q", a.activeNote.Source())
 	}
 }

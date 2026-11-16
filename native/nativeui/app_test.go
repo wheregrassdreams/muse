@@ -16,20 +16,33 @@ import (
 	"muse/platform/filesystem/recentstore"
 )
 
+func TestFocusedPaneFallsBackBeforeWindowManagerInitialization(t *testing.T) {
+	a := &App{}
+	if got := a.focusedPane(); got != "editor" {
+		t.Fatalf("focused pane before manager initialization = %q, want editor", got)
+	}
+}
+
 func TestNativeShellRendersMarkdown(t *testing.T) {
 	a := New()
 	a.loadDoc("# 标题\n\n正文 **加粗**。\n\n- 一\n- 二\n")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
+	if !a.windows.Contains(a.editorPaneHandle) {
+		t.Fatal("production editor was not registered as pane content")
+	}
+	if pane, ok := a.windows.FocusedPane("main"); !ok || pane != "editor" {
+		t.Fatalf("focused pane = %q, %v; want editor", pane, ok)
+	}
 	if len(a.headings) != 1 || a.headings[0].text != "标题" {
 		t.Fatalf("headings = %+v", a.headings)
 	}
 	// The document is drawn by the editor: each of its blocks has a place
 	// on the surface.
 	for _, want := range []string{"标题", "正文", "加粗", "一", "二"} {
-		off := strings.Index(a.source, want)
-		if _, _, ok := a.ed.WindowPoint(off); !ok {
+		off := strings.Index(a.documentSource(), want)
+		if _, _, ok := a.activeNote.NavigationCommands().WindowPoint(off); !ok {
 			t.Fatalf("%q has no place in the editor", want)
 		}
 	}
@@ -72,6 +85,20 @@ func TestWorkspaceSearchClosesOnBackdropClick(t *testing.T) {
 	tt.Frame()
 	if a.workspaceSearch {
 		t.Fatal("clicking outside the search dialog did not close it")
+	}
+}
+
+func TestOpenDialogsRenderIndependentlyOfKeyboardOwnership(t *testing.T) {
+	a := New()
+	a.openSettings()
+	a.openWorkspaceSearch()
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	if !tt.HasText("设置") || !tt.HasText("搜索笔记库") {
+		t.Fatalf("one open dialog was hidden by another: %q", tt.Texts())
+	}
+	if !a.settingsOpen || !a.workspaceSearch {
+		t.Fatalf("rendering changed dialog state: settings=%v search=%v", a.settingsOpen, a.workspaceSearch)
 	}
 }
 
@@ -187,7 +214,7 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a := New()
+	a := newFileTreeTestApp(t, dir)
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -195,11 +222,11 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 		t.Fatalf("file tree missing one.md; texts = %q", tt.Texts())
 	}
 	clickTreeRow(t, tt, "one.md")
-	if a.path != filepath.Join(dir, "one.md") {
-		t.Fatalf("opened %q, want one.md", a.path)
+	if a.documentPath() != filepath.Join(dir, "one.md") {
+		t.Fatalf("opened %q, want one.md", a.documentPath())
 	}
-	if a.source != "# One\n\nFirst.\n" {
-		t.Fatalf("source = %q", a.source)
+	if a.documentSource() != "# One\n\nFirst.\n" {
+		t.Fatalf("source = %q", a.documentSource())
 	}
 }
 
@@ -378,7 +405,7 @@ func TestDarkThemeRenders(t *testing.T) {
 	if !a.dark {
 		t.Fatal("the dark theme is not on")
 	}
-	if _, _, ok := a.ed.WindowPoint(strings.Index(a.source, "正文")); !ok {
+	if _, _, ok := a.activeNote.NavigationCommands().WindowPoint(strings.Index(a.documentSource(), "正文")); !ok {
 		t.Fatal("the document is not laid out in the dark theme")
 	}
 }

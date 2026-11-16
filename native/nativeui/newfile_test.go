@@ -25,17 +25,17 @@ func TestNewFileToolbarCreatesAndOpens(t *testing.T) {
 	if _, err := os.Stat(created); err != nil {
 		t.Fatalf("文件未创建: %v", err)
 	}
-	if a.path != created {
-		t.Fatalf("新文件未自动打开: path=%q", a.path)
+	if a.documentPath() != created {
+		t.Fatalf("新文件未自动打开: path=%q", a.documentPath())
 	}
-	doc := frontmatter.Parse(a.source)
+	doc := frontmatter.Parse(a.documentSource())
 	fields := map[string]frontmatter.Field{}
 	for _, f := range doc.Fields {
 		fields[f.Key] = f
 	}
 	for _, key := range []string{"type", "tags", "aliases", "created_at", "updated_at"} {
 		if _, ok := fields[key]; !ok {
-			t.Fatalf("新文件缺少核心字段 %q: %q", key, a.source)
+			t.Fatalf("新文件缺少核心字段 %q: %q", key, a.documentSource())
 		}
 	}
 	if fields["type"].Value != "note" || fields["created_at"].Value == "" || fields["updated_at"].Value != "" {

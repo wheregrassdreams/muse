@@ -17,9 +17,9 @@ type assistantWorkspaceStub struct {
 	root, path, source string
 }
 
-func (w *assistantWorkspaceStub) Root() string                          { return w.root }
-func (w *assistantWorkspaceStub) CurrentDocument() (string, string)     { return w.path, w.source }
-func (w *assistantWorkspaceStub) ReadFile(string) ([]byte, error)       { return nil, os.ErrNotExist }
+func (w *assistantWorkspaceStub) Root() string                                     { return w.root }
+func (w *assistantWorkspaceStub) CurrentDocument() (string, string)                { return w.path, w.source }
+func (w *assistantWorkspaceStub) ReadFile(string) ([]byte, error)                  { return nil, os.ErrNotExist }
 func (w *assistantWorkspaceStub) ReadDir(string) ([]applicationagent.Entry, error) { return nil, nil }
 func (w *assistantWorkspaceStub) ResolveWithinRoot(path string) (string, error) {
 	return filepath.Join(w.root, path), nil
@@ -40,9 +40,9 @@ func (w *assistantWorkspaceStub) Exists(string) (bool, error)           { return
 func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 	app := New()
 	app.root = t.TempDir()
-	app.path = filepath.Join(app.root, "note.md")
+	setDocumentPathForTest(app, filepath.Join(app.root, "note.md"))
 	app.loadDoc("# Title\n\nbody\n")
-	port := &assistantWorkspaceStub{root: app.root, path: app.path, source: app.source}
+	port := &assistantWorkspaceStub{root: app.root, path: app.documentPath(), source: app.documentSource()}
 	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
 		return port, nil
 	}
@@ -54,8 +54,8 @@ func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 	if out.Err != nil {
 		t.Fatalf("edit tool failed: %v", out.Err)
 	}
-	if app.source != "# Title\n\nupdated\n" || !app.dirty {
-		t.Fatalf("current document edit = %q, dirty=%v", app.source, app.dirty)
+	if app.documentSource() != "# Title\n\nupdated\n" || !app.documentDirty() {
+		t.Fatalf("current document edit = %q, dirty=%v", app.documentSource(), app.documentDirty())
 	}
 }
 
@@ -68,10 +68,10 @@ func TestAssistantPresenterAppliesTypedEffectsOnce(t *testing.T) {
 		Result: `{"kind":"insert_document","text":"new paragraph","position":"end"}`,
 	}}
 	presenter.applyEffect(app, part)
-	first := app.source
+	first := app.documentSource()
 	presenter.applyEffect(app, part)
-	if first == "# Note\n" || app.source != first {
-		t.Fatalf("typed effect was not applied exactly once: first=%q after=%q", first, app.source)
+	if first == "# Note\n" || app.documentSource() != first {
+		t.Fatalf("typed effect was not applied exactly once: first=%q after=%q", first, app.documentSource())
 	}
 }
 
@@ -106,9 +106,9 @@ func (*assistantToolClient) Abort() {}
 func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	app := New()
 	app.root = t.TempDir()
-	app.path = filepath.Join(app.root, "note.md")
+	setDocumentPathForTest(app, filepath.Join(app.root, "note.md"))
 	app.loadDoc("before\n")
-	port := &assistantWorkspaceStub{root: app.root, path: app.path, source: app.source}
+	port := &assistantWorkspaceStub{root: app.root, path: app.documentPath(), source: app.documentSource()}
 	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
 		return port, nil
 	}
@@ -127,8 +127,8 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := session.Snapshot()
-	if app.source != "after\n" || !app.dirty {
-		t.Fatalf("source=%q dirty=%v", app.source, app.dirty)
+	if app.documentSource() != "after\n" || !app.documentDirty() {
+		t.Fatalf("source=%q dirty=%v", app.documentSource(), app.documentDirty())
 	}
 	if len(snapshot.Messages) != 2 || len(snapshot.Messages[1].Parts) != 2 || snapshot.Messages[1].Parts[1].Text != "已完成修改" {
 		t.Fatalf("unexpected session transcript after tool turn: %+v", snapshot.Messages)

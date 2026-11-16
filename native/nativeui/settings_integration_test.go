@@ -123,7 +123,7 @@ func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
 	a := New()
 	a.applyNativePreferences(loadNativePreferences())
-	if a.smoothPageJumps || a.ed.Options().SmoothPageJumps {
+	if a.smoothPageJumps || a.activeNote.PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("smooth page jumps should default off")
 	}
 	a.openSettings()
@@ -135,12 +135,12 @@ func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
 	if err := tt.Click("页内跳转平滑滚动开关"); err != nil {
 		t.Fatalf("enable smooth page jumps: %v", err)
 	}
-	if !a.smoothPageJumps || !a.ed.Options().SmoothPageJumps {
+	if !a.smoothPageJumps || !a.activeNote.PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("setting did not update editor navigation options")
 	}
 	restarted := New()
 	restarted.applyNativePreferences(loadNativePreferences())
-	if !restarted.smoothPageJumps || !restarted.ed.Options().SmoothPageJumps {
+	if !restarted.smoothPageJumps || !restarted.activeNote.PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("smooth page jump setting did not persist")
 	}
 }

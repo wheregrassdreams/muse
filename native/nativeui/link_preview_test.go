@@ -161,7 +161,7 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
-		return ok && a.ed.Source() != ""
+		return ok && a.activeNote.Source() != ""
 	})
 	// runtimeFixtureCopy's 1200×800 canvas places the Home link around this
 	// point; move over the rendered label rather than the hidden source range.
@@ -170,7 +170,7 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 	tt.Move(x, y)
 	tt.Frame()
 	if a.linkPreview.target != "Projects/Atlas/Overview" || a.linkPreview.linkBounds.W <= 0 || !a.linkPreview.linkBounds.Contains(a.linkPreview.x, a.linkPreview.y) {
-		t.Fatalf("actual pointer hover did not report the visible link bounds: preview=%+v moved=(%.1f,%.1f) source=%q texts=%q", a.linkPreview, x, y, a.ed.Source(), tt.Texts())
+		t.Fatalf("actual pointer hover did not report the visible link bounds: preview=%+v moved=(%.1f,%.1f) source=%q texts=%q", a.linkPreview, x, y, a.activeNote.Source(), tt.Texts())
 	}
 	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
 	tt.Frame()
@@ -227,14 +227,14 @@ func TestWikiLinkClickUsesVaultIndexAndHeadingAnchor(t *testing.T) {
 	})
 	a.openPathNow(source)
 	a.openLink("wiki:Atlas/Target#Second heading")
-	waitDocument(t, tt, func() bool { return a.path == target })
-	if got, want := a.ed.Caret(), strings.Index(a.source, "Second heading")-len("## "); got != want {
+	waitDocument(t, tt, func() bool { return a.documentPath() == target })
+	if got, want := a.activeNote.NavigationCommands().Caret(), strings.Index(a.documentSource(), "Second heading")-len("## "); got != want {
 		t.Fatalf("wiki click caret = %d, want heading source offset %d", got, want)
 	}
-	current := a.path
+	current := a.documentPath()
 	a.openWiki("note#Missing heading")
-	if a.path != current {
-		t.Fatalf("unresolved heading fell back to opening note %q", a.path)
+	if a.documentPath() != current {
+		t.Fatalf("unresolved heading fell back to opening note %q", a.documentPath())
 	}
 }
 
@@ -254,7 +254,7 @@ func TestBacklinkListDisplaysAndNavigatesToNestedSource(t *testing.T) {
 	if err := tt.Click("Projects/Atlas/Source.md"); err != nil {
 		t.Fatalf("click backlink source: %v", err)
 	}
-	waitDocument(t, tt, func() bool { return filepath.Clean(a.path) == filepath.Clean(source) })
+	waitDocument(t, tt, func() bool { return filepath.Clean(a.documentPath()) == filepath.Clean(source) })
 }
 
 func TestFixtureBacklinksDisplayAndNavigateNestedVaultSource(t *testing.T) {
@@ -288,7 +288,7 @@ func TestFixtureBacklinksDisplayAndNavigateNestedVaultSource(t *testing.T) {
 	if err := tt.Click("Journal/2026-11-12.md（2 处）"); err != nil {
 		t.Fatalf("click nested fixture backlink: %v", err)
 	}
-	waitDocument(t, tt, func() bool { return a.path == filepath.Join(a.root, "Journal", "2026-11-12.md") })
+	waitDocument(t, tt, func() bool { return a.documentPath() == filepath.Join(a.root, "Journal", "2026-11-12.md") })
 }
 
 func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
@@ -314,11 +314,11 @@ func TestResolveWikiEmbedUsesIndexedVaultSource(t *testing.T) {
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok
 	})
-	path, source, ok := a.resolveWikiEmbed(a.path, "Atlas Overview")
+	path, source, ok := a.resolveWikiEmbed(a.documentPath(), "Atlas Overview")
 	if !ok || path != "Projects/Atlas/Overview.md" || !strings.Contains(source, "vaultfixturedeepsearchunique") {
 		t.Fatalf("resolved embedded note = %q, %v, %q", path, ok, source)
 	}
-	if path, source, ok := a.resolveWikiEmbed(a.path, "Missing note"); ok || path != "" || source != "" {
+	if path, source, ok := a.resolveWikiEmbed(a.documentPath(), "Missing note"); ok || path != "" || source != "" {
 		t.Fatalf("unresolved embedded note = %q, %v, %q", path, ok, source)
 	}
 }
@@ -330,9 +330,9 @@ func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 		return ok
 	})
 	a.loadDoc("![[Projects/Atlas/Overview]]")
-	hostSource := a.ed.Source()
+	hostSource := a.activeNote.Source()
 	tt.Frame()
-	if path, source, ok := a.resolveWikiEmbed(a.path, "Projects/Atlas/Overview"); !ok || path != "Projects/Atlas/Overview.md" || !strings.Contains(source, "vaultfixturedeepsearchunique") {
+	if path, source, ok := a.resolveWikiEmbed(a.documentPath(), "Projects/Atlas/Overview"); !ok || path != "Projects/Atlas/Overview.md" || !strings.Contains(source, "vaultfixturedeepsearchunique") {
 		t.Fatalf("embedded note resolver returned path=%q ok=%v source=%q", path, ok, source)
 	}
 	runtimeShot(t, tt, "wiki-note-embed")
@@ -340,8 +340,8 @@ func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 	tt.Frame()
 	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
 	tt.Frame()
-	if a.ed.Source() != hostSource || a.dirty {
-		t.Fatalf("read-only embedded content changed host source or dirty state: dirty=%v", a.dirty)
+	if a.activeNote.Source() != hostSource || a.documentDirty() {
+		t.Fatalf("read-only embedded content changed host source or dirty state: dirty=%v", a.documentDirty())
 	}
 	if a.linkPreview.target != "" {
 		t.Fatalf("embedded note opened a wiki hover preview for %q", a.linkPreview.target)
@@ -371,13 +371,13 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 	if resolved != filepath.Join(root, "Attachments", "diagram.png") {
 		t.Fatalf("vault-relative image target resolved to %q", resolved)
 	}
-	a.path = filepath.Join(root, "Projects", "Atlas", "Design Notes.md")
+	setDocumentPathForTest(a, filepath.Join(root, "Projects", "Atlas", "Design Notes.md"))
 	resolved = a.resolveWikiImageTarget("../../Attachments/landscape.webp")
 	if resolved != filepath.Join(root, "Attachments", "landscape.webp") {
 		t.Fatalf("note-relative image target resolved to %q", resolved)
 	}
-	a.path = filepath.Join(root, "Home.md")
-	if got := a.resolveWikiLinkStyle(a.path, "Attachments/diagram.png"); got != mdedit.LinkTargetValid {
+	setDocumentPathForTest(a, filepath.Join(root, "Home.md"))
+	if got := a.resolveWikiLinkStyle(a.documentPath(), "Attachments/diagram.png"); got != mdedit.LinkTargetValid {
 		t.Fatalf("attachment link style state = %v, want valid", got)
 	}
 	a.openLink("wiki:Attachments/diagram.png")

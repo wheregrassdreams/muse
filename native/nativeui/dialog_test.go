@@ -38,11 +38,11 @@ func TestOpenFileDialogReturnsImmediately(t *testing.T) {
 		t.Fatal("openFileDialog blocked")
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && a.path != file {
+	for time.Now().Before(deadline) && a.documentPath() != file {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if a.path != file {
-		t.Fatalf("path = %q, want %q", a.path, file)
+	if a.documentPath() != file {
+		t.Fatalf("path = %q, want %q", a.documentPath(), file)
 	}
 	if a.busy {
 		t.Fatal("busy stayed set")

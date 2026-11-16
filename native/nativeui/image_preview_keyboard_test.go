@@ -10,7 +10,7 @@ import (
 
 func TestImagePreviewOwnsEscapeBeforeFileTreeActions(t *testing.T) {
 	root := keyTestWorkspace(t)
-	a := New()
+	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.focusPanel(interactions.PanelIDFiles)
 	a.openImagePreview(filepath.Join(root, "missing.png"))

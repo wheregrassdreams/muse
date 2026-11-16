@@ -61,13 +61,98 @@ type SurfaceOptions struct {
 	OnClose  func()
 }
 
+type Heading struct {
+	Level  int
+	Text   string
+	Offset int
+}
+
+type TextRange struct{ Start, End int }
+
+// Command ports are intentionally grouped by behavior. A concrete renderer
+// may implement only the capabilities it supports; document/session behavior
+// remains on Content itself.
+type FocusCommands interface {
+	Focus()
+	Focused() bool
+}
+
+type ModalCommands interface {
+	Keymap() string
+	SetKeymap(string)
+	ModeLabel() string
+	AcceptsTextInput() bool
+}
+
+type NavigationCommands interface {
+	Caret() int
+	SelectionRange() TextRange
+	Select(start, end int)
+	ScrollY() float32
+	ScrollToOffset(offset int)
+	NavigateToOffset(offset int)
+	NavigateToRange(start, end int)
+	Headings() []Heading
+	WindowPoint(offset int) (x, y float32, ok bool)
+}
+
+type SearchCommands interface {
+	SetHighlights(ranges []TextRange, current int)
+}
+
+type ClipboardCommands interface {
+	SelectedText() string
+	CopyImageObject(path string)
+}
+
+type FormattingCommands interface {
+	AppendBlock(text string)
+	PrependBlock(text string)
+	ToggleBold()
+	ToggleItalic()
+	ToggleUnderline()
+	ToggleStrike()
+	ToggleCode()
+	ToggleHighlight()
+	ToggleQuote()
+	ToggleList(marker string)
+	SetHeading(level int)
+	InsertCodeBlock()
+	InsertMathBlock()
+	InsertTable(rows, columns int)
+	InsertRule()
+	InsertLink()
+}
+
+type PresentationSettings struct {
+	FontSize, LineHeight     float32
+	DisableSmartTypography   bool
+	HeadingMarkerReveal      bool
+	VimVirtualImageRows      bool
+	CursorFade, SmoothCursor bool
+	HideMouseCursor          bool
+	SmoothPageJumps          bool
+	SearchMatchPulse         bool
+	VimYankFlash             bool
+	TopInset, HeaderHeight   float32
+	HideFrontmatter          bool
+	BaseDir, AssetRoot       string
+	CurrentPath, Code        string
+	LinkRevision             uint64
+	LinkContext              string
+}
+
+type PresentationCommands interface {
+	Configure(PresentationSettings)
+	Settings() PresentationSettings
+}
+
 // SurfaceFactory adapts a backend-neutral editor session to generic window
 // content. Composition injects the concrete MyGo component adapter.
 type SurfaceFactory func(*editor.Session, SurfaceOptions) window.Content
 
 type Content struct {
 	paneID    workspace.PaneID
-	path      string
 	crlf      bool
 	dirty     bool
 	session   *editor.Session
@@ -76,6 +161,101 @@ type Content struct {
 	onAction  func(Action)
 	closed    bool
 	closeSent bool
+	mutating  bool
+}
+
+func (c *Content) FocusCommands() FocusCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(FocusCommands)
+	return commands
+}
+
+func (c *Content) ModalCommands() ModalCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(ModalCommands)
+	return commands
+}
+
+func (c *Content) NavigationCommands() NavigationCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(NavigationCommands)
+	return commands
+}
+
+func (c *Content) SearchCommands() SearchCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(SearchCommands)
+	return commands
+}
+
+func (c *Content) ClipboardCommands() ClipboardCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(ClipboardCommands)
+	return commands
+}
+
+func (c *Content) FormattingCommands() FormattingCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(FormattingCommands)
+	return commands
+}
+
+func (c *Content) PresentationCommands() PresentationCommands {
+	if c == nil {
+		return nil
+	}
+	commands, _ := c.surface.(PresentationCommands)
+	return commands
+}
+
+func (c *Content) Configure(settings PresentationSettings) bool {
+	commands := c.PresentationCommands()
+	if commands == nil || c.closed {
+		return false
+	}
+	commands.Configure(settings)
+	return true
+}
+
+func (c *Content) Source() string { return c.Snapshot().Source }
+
+func (c *Content) Undo() bool {
+	if c == nil || c.closed {
+		return false
+	}
+	commands, ok := c.surface.(interface{ Undo() bool })
+	return ok && commands.Undo()
+}
+
+func (c *Content) Replace(start, end int, value string) error {
+	if err := c.ensureOpen(); err != nil {
+		return err
+	}
+	selection := c.session.Selection()
+	var err error
+	c.mutateSession(func() {
+		_, err = c.session.ApplyTransaction(editor.Transaction{
+			Before: selection,
+			After:  editor.Selection{Anchor: start + len(value), Head: start + len(value)},
+			Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: start, End: end}, Text: value}},
+		})
+	})
+	if err == nil {
+		c.editorChanged()
+	}
+	return err
 }
 
 // NewContent creates the durable and editing session for one workspace pane.
@@ -107,7 +287,7 @@ func NewContent(
 		return nil, err
 	}
 	content := &Content{
-		paneID: paneID, path: note.Path, crlf: crlf,
+		paneID: paneID, crlf: crlf,
 		session: session, document: doc, onAction: onAction,
 	}
 	content.surface = factory(session, SurfaceOptions{OnChange: content.editorChanged, OnClose: content.surfaceClosed})
@@ -157,7 +337,7 @@ func (c *Content) Snapshot() Snapshot {
 	selection := c.session.Selection()
 	state := c.document.Snapshot()
 	return Snapshot{
-		PaneID: c.paneID, Path: c.path, Source: source,
+		PaneID: c.paneID, Path: state.Path, Source: source,
 		DiskSource: c.diskSource(source), Revision: state.Revision,
 		CursorOffset: selection.Head, Dirty: c.dirty,
 	}
@@ -165,6 +345,65 @@ func (c *Content) Snapshot() Snapshot {
 
 func (c *Content) PersistenceState() documentapp.SessionState { return c.document.Snapshot() }
 func (c *Content) SessionFrame() editor.Frame                 { return c.session.Frame() }
+
+// MemorySnapshot forwards renderer-owned resource estimates through the
+// backend-neutral editor model contract.
+func (c *Content) MemorySnapshot() editor.MemorySnapshot {
+	if c == nil || c.surface == nil {
+		return editor.MemorySnapshot{}
+	}
+	provider, ok := c.surface.(interface{ MemorySnapshot() editor.MemorySnapshot })
+	if !ok {
+		return editor.MemorySnapshot{}
+	}
+	return provider.MemorySnapshot()
+}
+
+func (c *Content) ListDrafts() ([]document.Draft, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
+	return c.document.ListDrafts()
+}
+
+func (c *Content) ReadDraft(key string) (document.Draft, error) {
+	if err := c.ensureOpen(); err != nil {
+		return document.Draft{}, err
+	}
+	return c.document.ReadDraft(key)
+}
+
+func (c *Content) ListHistory(path string) ([]document.HistoryEntry, error) {
+	if err := c.ensureOpen(); err != nil {
+		return nil, err
+	}
+	return c.document.ListHistory(path)
+}
+
+func (c *Content) ReadHistory(path, id string) (document.Note, error) {
+	if err := c.ensureOpen(); err != nil {
+		return document.Note{}, err
+	}
+	return c.document.ReadHistory(path, id)
+}
+
+func (c *Content) BaseSource() string { return c.PersistenceState().BaseSource }
+
+func (c *Content) AutosaveState() documentapp.SessionState { return c.PersistenceState() }
+
+func (c *Content) DestinationRevision(path string, expected document.Revision) (document.Revision, error) {
+	if err := c.ensureOpen(); err != nil {
+		return "", err
+	}
+	return c.document.DestinationRevision(path, c.document.Snapshot().Path, expected)
+}
+
+func (c *Content) DeleteDraft(path string) error {
+	if err := c.ensureOpen(); err != nil {
+		return err
+	}
+	return c.document.DeleteDraft(path)
+}
 
 func (c *Content) SetSelection(selection editor.Selection) error {
 	if err := c.ensureOpen(); err != nil {
@@ -177,7 +416,9 @@ func (c *Content) Dispatch(event editor.InputEvent) (editor.DispatchResult, erro
 	if err := c.ensureOpen(); err != nil {
 		return editor.DispatchResult{}, err
 	}
-	result, err := c.session.Dispatch(event)
+	var result editor.DispatchResult
+	var err error
+	c.mutateSession(func() { result, err = c.session.Dispatch(event) })
 	if err == nil && result.Changed {
 		c.editorChanged()
 	}
@@ -189,7 +430,8 @@ func (c *Content) DispatchKey(event editor.KeyEvent) bool {
 		return false
 	}
 	beforeSource, beforeSelection := c.session.Source(), c.session.Selection()
-	handled := c.session.DispatchKey(event)
+	var handled bool
+	c.mutateSession(func() { handled = c.session.DispatchKey(event) })
 	if handled && (c.session.Source() != beforeSource || c.session.Selection() != beforeSelection) {
 		c.editorChanged()
 	}
@@ -200,7 +442,9 @@ func (c *Content) ApplyTransaction(tx editor.Transaction) (editor.DispatchResult
 	if err := c.ensureOpen(); err != nil {
 		return editor.DispatchResult{}, err
 	}
-	result, err := c.session.ApplyTransaction(tx)
+	var result editor.DispatchResult
+	var err error
+	c.mutateSession(func() { result, err = c.session.ApplyTransaction(tx) })
 	if err == nil && result.Changed {
 		c.editorChanged()
 	}
@@ -217,15 +461,24 @@ func (c *Content) ReplaceUser(source string) error {
 		return nil
 	}
 	selection := c.session.Selection()
-	_, err := c.session.ApplyTransaction(editor.Transaction{
-		Before: selection,
-		After:  editor.Selection{Anchor: len(source), Head: len(source)},
-		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: 0, End: len(before)}, Text: source}},
+	var err error
+	c.mutateSession(func() {
+		_, err = c.session.ApplyTransaction(editor.Transaction{
+			Before: selection,
+			After:  editor.Selection{Anchor: len(source), Head: len(source)},
+			Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: 0, End: len(before)}, Text: source}},
+		})
 	})
 	if err == nil {
 		c.editorChanged()
 	}
 	return err
+}
+
+func (c *Content) MarkDirty() {
+	if c != nil && !c.closed {
+		c.editorChanged()
+	}
 }
 
 // ReplaceSystem applies a system change while preserving the normal editor
@@ -238,7 +491,7 @@ func (c *Content) ReplaceSystem(source string) error {
 		return nil
 	}
 	c.document.SetApplyingMetadata(true)
-	c.session.ReplaceSource(source)
+	c.mutateSession(func() { c.session.ReplaceSource(source) })
 	c.document.SetApplyingMetadata(false)
 	c.editorChanged()
 	return nil
@@ -249,11 +502,30 @@ func (c *Content) Open(note document.Note, cursorOffset int) error {
 		return err
 	}
 	source, crlf := normalizeDiskSource(note.Source)
-	c.session.ReplaceSource(source)
-	c.path, c.crlf, c.dirty = note.Path, crlf, false
+	c.mutateSession(func() { c.session.ReplaceSource(source) })
+	c.crlf, c.dirty = crlf, false
 	c.document.Open(note.Path, note.Source)
 	cursorOffset = clampOffset(source, cursorOffset)
 	return c.session.SetSelection(editor.Selection{Anchor: cursorOffset, Head: cursorOffset})
+}
+
+// Relocate changes the document's durable identity after a vault move while
+// keeping its active buffer and selection. If the destination differs from
+// the saved source, the current buffer remains a dirty draft against the new
+// destination baseline.
+func (c *Content) Relocate(note document.Note) error {
+	if err := c.ensureOpen(); err != nil {
+		return err
+	}
+	current := c.session.Source()
+	_, crlf := normalizeDiskSource(note.Source)
+	c.crlf = crlf
+	c.document.Open(note.Path, note.Source)
+	c.dirty = c.diskSource(current) != note.Source
+	if c.dirty {
+		c.document.Changed(time.Now())
+	}
+	return nil
 }
 
 func (c *Content) Load(path string, cursorOffset int) error {
@@ -324,7 +596,6 @@ func (c *Content) SaveNow(path string, expected document.Revision) (document.Not
 		return document.Note{}, err
 	}
 	if path != snapshot.Path {
-		c.path = path
 		c.document.Open(path, snapshot.DiskSource)
 	}
 	c.dirty = false
@@ -349,7 +620,11 @@ func (c *Content) Rebase(path string, revision document.Revision, source string)
 	if c == nil || c.closed {
 		return false
 	}
-	return c.document.Rebase(path, revision, source)
+	if !c.document.Rebase(path, revision, source) {
+		return false
+	}
+	c.dirty = c.diskSource(c.session.Source()) != source
+	return true
 }
 
 func (c *Content) ClearAutosave() {
@@ -358,8 +633,17 @@ func (c *Content) ClearAutosave() {
 	}
 }
 
+func (c *Content) ClearMetadataDeadline() {
+	if c != nil && !c.closed {
+		c.document.ClearMetadataDeadline()
+	}
+}
+
 func (c *Content) editorChanged() {
 	if c == nil || c.closed {
+		return
+	}
+	if c.mutating {
 		return
 	}
 	c.dirty = true
@@ -367,6 +651,19 @@ func (c *Content) editorChanged() {
 	if c.onAction != nil {
 		c.onAction(Action{Kind: DocumentChanged, PaneID: c.paneID, Snapshot: c.Snapshot()})
 	}
+}
+
+// mutateSession suppresses the renderer's OnChange callback while Content is
+// applying a semantic operation. The operation reports one change after it
+// returns, so persistence and App subscribers receive exactly one notification.
+func (c *Content) mutateSession(apply func()) {
+	if c == nil || apply == nil {
+		return
+	}
+	wasMutating := c.mutating
+	c.mutating = true
+	defer func() { c.mutating = wasMutating }()
+	apply()
 }
 
 func (c *Content) surfaceClosed() {

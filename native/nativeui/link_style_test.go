@@ -37,7 +37,7 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	}
 	firstContext, revision := opts.LinkContext, opts.LinkRevision
 
-	a.path = filepath.Join(root, "two/current.md")
+	setDocumentPathForTest(a, filepath.Join(root, "two/current.md"))
 	opts = a.editorOptions()
 	if opts.LinkContext == firstContext || opts.LinkRevision != revision {
 		t.Fatalf("document context changed incorrectly: %+v", opts)

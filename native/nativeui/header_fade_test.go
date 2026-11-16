@@ -38,12 +38,12 @@ func fadeShot(t *testing.T, img *image.RGBA, name string) {
 func fadeApp(t *testing.T, scroll int) (*App, *ui.Tester, ui.Rect) {
 	t.Helper()
 	a := New()
-	a.ed.SetSource(fadeDoc)
+	a.loadDoc(fadeDoc)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
 	if scroll > 0 {
-		a.ed.ScrollToOffset(scroll)
+		a.activeNote.NavigationCommands().ScrollToOffset(scroll)
 		tt.Frame()
 		tt.Frame()
 	}
@@ -163,8 +163,8 @@ func TestHeaderFadeStartsAtTheTopOfTheDocument(t *testing.T) {
 	tt.Frame()
 	off := tt.Image()
 
-	if a.ed.ScrollY() != 0 {
-		t.Fatalf("scrolled at rest: %v", a.ed.ScrollY())
+	if a.activeNote.NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("scrolled at rest: %v", a.activeNote.NavigationCommands().ScrollY())
 	}
 	for y := int(editorHeaderH) + 4; y < 220; y += 4 {
 		if a, b := bandOf(on, ed, y), bandOf(off, ed, y); a != b {
@@ -195,17 +195,17 @@ func TestHeaderFadeOffCoversTheHeader(t *testing.T) {
 // leaves the source, the caret and the scroll where they were.
 func TestHeaderFadeKeepsTheDocument(t *testing.T) {
 	a, tt, _ := fadeApp(t, 900)
-	caret, src := a.ed.Caret(), a.ed.Source()
-	y := a.ed.ScrollY()
+	caret, src := a.activeNote.NavigationCommands().Caret(), a.activeNote.Source()
+	y := a.activeNote.NavigationCommands().ScrollY()
 	a.headerFade = false
 	tt.Frame()
 	tt.Frame()
 	a.headerFade = true
 	tt.Frame()
 	tt.Frame()
-	if a.ed.Caret() != caret || a.ed.Source() != src || a.ed.ScrollY() != y {
+	if a.activeNote.NavigationCommands().Caret() != caret || a.activeNote.Source() != src || a.activeNote.NavigationCommands().ScrollY() != y {
 		t.Fatalf("toggling moved the document: caret %d→%d, scroll %v→%v, source %d→%d",
-			caret, a.ed.Caret(), y, a.ed.ScrollY(), len(src), len(a.ed.Source()))
+			caret, a.activeNote.NavigationCommands().Caret(), y, a.activeNote.NavigationCommands().ScrollY(), len(src), len(a.activeNote.Source()))
 	}
 }
 
@@ -214,11 +214,11 @@ func TestHeaderFadeKeepsTheDocument(t *testing.T) {
 func TestHeaderFadeDark(t *testing.T) {
 	a := New()
 	a.themeMode = 1
-	a.ed.SetSource(fadeDoc)
+	a.loadDoc(fadeDoc)
 	tt := ui.NewTester(a.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
-	a.ed.ScrollToOffset(1300)
+	a.activeNote.NavigationCommands().ScrollToOffset(1300)
 	tt.Frame()
 	tt.Frame()
 	ed, ok := tt.Find("文档")
@@ -250,18 +250,18 @@ func TestHeaderFadeDark(t *testing.T) {
 func TestHeaderFadeIsTransparent(t *testing.T) {
 	body := strings.Repeat("> callout 的一行内容，用来把整页铺满重点色。\n>\n", 100)
 	a := New()
-	a.ed.SetSource("> [!NOTE] 提示\n>\n" + body)
+	a.loadDoc("> [!NOTE] 提示\n>\n" + body)
 	tt := ui.NewTester(a.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
-	a.ed.ScrollToOffset(len(body) / 2)
+	a.activeNote.NavigationCommands().ScrollToOffset(len(body) / 2)
 	tt.Frame()
 	tt.Frame()
 	ed, ok := tt.Find("文档")
 	if !ok {
 		t.Fatal("no editor")
 	}
-	if a.ed.ScrollY() <= 0 {
+	if a.activeNote.NavigationCommands().ScrollY() <= 0 {
 		t.Fatal("not scrolled")
 	}
 	img := tt.Image()

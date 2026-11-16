@@ -39,29 +39,37 @@ func waitDocument(t *testing.T, tt *ui.Tester, check func() bool) {
 	t.Fatal("document service did not reach expected state")
 }
 
+// setDocumentPathForTest opens the current test buffer under a different file
+// identity without reaching into App's former document mirror fields.
+func setDocumentPathForTest(a *App, path string) {
+	a.loadDocumentAt(path, a.documentSource())
+}
+
 func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
 	a, tt, _ := runtimeFixture(t)
-	a.ed.ReplaceAll("a changed note")
-	if a.documentSession.Snapshot().MetadataDue.IsZero() {
+	if err := a.activeNote.ReplaceUser("a changed note"); err != nil {
+		t.Fatal(err)
+	}
+	if a.activeNote.PersistenceState().MetadataDue.IsZero() {
 		t.Fatal("content edit did not schedule updated_at")
 	}
-	a.documentSession.Changed(time.Now().Add(-documentsave.MetadataUpdateDelay - time.Second))
+	time.Sleep(documentsave.MetadataUpdateDelay + 10*time.Millisecond)
 	tt.Frame()
-	doc := frontmatter.Parse(a.source)
+	doc := frontmatter.Parse(a.documentSource())
 	fields := map[string]frontmatter.Field{}
 	for _, f := range doc.Fields {
 		fields[f.Key] = f
 	}
 	for _, key := range []string{"type", "tags", "aliases", "created_at", "updated_at"} {
 		if _, ok := fields[key]; !ok {
-			t.Fatalf("managed metadata update omitted %q: %q", key, a.source)
+			t.Fatalf("managed metadata update omitted %q: %q", key, a.documentSource())
 		}
 	}
 	if fields["updated_at"].Value == "" {
-		t.Fatalf("updated_at was not set after debounce: %q", a.source)
+		t.Fatalf("updated_at was not set after debounce: %q", a.documentSource())
 	}
-	if !a.ed.Undo() || a.ed.Source() != "original" {
-		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.ed.Source())
+	if !a.activeNote.Undo() || a.activeNote.Source() != "original" {
+		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.activeNote.Source())
 	}
 }
 
@@ -75,10 +83,12 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	a := New()
 	a.navIconStore, _ = applicationvault.NewIconPreferences(&memoryNavIconRepository{values: make(map[string]map[string]string)})
 	withDocumentPorts(t, a)
-	a.path = path
+	setDocumentPathForTest(a, path)
 	a.enableDocumentServices()
 	a.loadDoc(base)
-	a.ed.ReplaceAll("local line one\nline two\nline three\n")
+	if err := a.activeNote.ReplaceUser("local line one\nline two\nline three\n"); err != nil {
+		t.Fatal(err)
+	}
 	external := "line one\nline two\nexternal line three\n"
 	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
 		t.Fatal(err)
@@ -91,8 +101,8 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.dirty {
-		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.dirty, data)
+	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.documentDirty() {
+		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.documentDirty(), data)
 	}
 }
 
@@ -250,41 +260,43 @@ func runtimeFixtureCopy(t *testing.T, sourceRoot string) (*App, *ui.Tester, stri
 }
 func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	a.ed.SetSource("edited 中文")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("edited 中文"); err != nil {
+		t.Fatal(err)
+	}
 	expireAutosave(a)
-	waitDocument(t, tt, func() bool { return !a.dirty })
+	waitDocument(t, tt, func() bool { return !a.documentDirty() })
 	data, _ := os.ReadFile(path)
 	if string(data) != "edited 中文" {
 		t.Fatalf("saved %q", data)
 	}
-	history, err := a.documentSession.ListHistory(path)
+	history, err := a.activeNote.ListHistory(path)
 	if err != nil || len(history) == 0 {
 		t.Fatalf("history %v %v", history, err)
 	}
-	d, err := a.documentSession.ReadHistory(path, history[0].ID)
+	d, err := a.activeNote.ReadHistory(path, history[0].ID)
 	if err != nil || d.Source != "original" {
 		t.Fatalf("history content %v %v", d, err)
 	}
 }
 func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	a.ed.SetSource("my unsaved edits")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("my unsaved edits"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte("external content"), 0640); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
-	waitDocument(t, tt, func() bool { return a.documentSession.Snapshot().ConflictPath != "" })
+	waitDocument(t, tt, func() bool { return a.activeNote.PersistenceState().ConflictPath != "" })
 	runtimeShot(t, tt, "document-conflict")
 	data, _ := os.ReadFile(path)
 	if string(data) != "external content" {
 		t.Fatalf("overwritten %q", data)
 	}
-	if a.source != "my unsaved edits" || !a.dirty {
+	if a.documentSource() != "my unsaved edits" || !a.documentDirty() {
 		t.Fatal("lost current edits")
 	}
-	draft, err := a.documentSession.ReadDraft(path)
+	draft, err := a.activeNote.ReadDraft(path)
 	if err != nil || draft.Text != "my unsaved edits" {
 		t.Fatalf("recovery %v %v", draft, err)
 	}
@@ -300,18 +312,18 @@ func TestCleanExternalEditReloadsAndIndexFindsIt(t *testing.T) {
 	if err := os.WriteFile(path, []byte("external UNIQUE123"), 0640); err != nil {
 		t.Fatal(err)
 	}
-	waitDocument(t, tt, func() bool { return a.source == "external UNIQUE123" })
-	if a.dirty {
+	waitDocument(t, tt, func() bool { return a.documentSource() == "external UNIQUE123" })
+	if a.documentDirty() {
 		t.Fatal("external reload marked dirty")
 	}
-	if _, err := a.vault.Query("UNIQUE123", false, a.path, a.diskSource()); err != nil {
+	if _, err := a.vault.Query("UNIQUE123", false, a.documentPath(), a.diskSource()); err != nil {
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
 	if len(a.vaultSnapshot.Search.Hits) != 1 {
 		t.Fatal("index did not refresh")
 	}
-	if a.documentSession.Snapshot().Revision != document.RevisionOf(a.diskSource()) {
+	if a.activeNote.PersistenceState().Revision != document.RevisionOf(a.diskSource()) {
 		t.Fatal("baseline stale")
 	}
 }
@@ -320,11 +332,15 @@ func TestUntitledDraftSurvivesRecreatingApp(t *testing.T) {
 	a := New()
 	withDocumentPorts(t, a)
 	a.enableDocumentServices()
-	a.ed.SetSource("unsaved untitled")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("unsaved untitled"); err != nil {
+		t.Fatal(err)
+	}
 	expireAutosave(a)
 	tt := ui.NewTester(a.View, 1200, 800)
-	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
+	waitDocument(t, tt, func() bool {
+		state := a.activeNote.PersistenceState()
+		return !state.Saving && state.AutosaveDue.IsZero()
+	})
 	b := New()
 	withDocumentPorts(t, b)
 	b.enableDocumentServices()
@@ -341,18 +357,18 @@ func withDocumentPorts(t *testing.T, a *App) {
 }
 
 func expireAutosave(a *App) {
-	a.documentSession.Changed(time.Now().Add(-documentsave.AutosaveDelay - time.Second))
+	time.Sleep(documentsave.AutosaveDelay + 10*time.Millisecond)
 }
 
 func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	a.ed.SetSource("unsaved-buffer-only")
-	a.dirty = true
+	if err := a.activeNote.ReplaceUser("unsaved-buffer-only"); err != nil {
+		t.Fatal(err)
+	}
 	if doc, ok := a.vault.Document("note.md"); !ok || doc.Source != "original" {
 		t.Fatalf("editor buffer leaked into persistent metadata snapshot: %#v", doc)
 	}
-	a.ed.SetSource("original")
-	a.dirty = false
+	a.loadDoc("original")
 	target := filepath.Join(filepath.Dir(path), "target.md")
 	if err := os.WriteFile(target, []byte("---\naliases: [Second]\n---\n# Section\n\nneedle-unique-abc\n"), 0644); err != nil {
 		t.Fatal(err)
@@ -373,12 +389,12 @@ func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	tt.Key(0, ui.KeyDown)
 	tt.Frame()
 	tt.Key(0, ui.KeyEnter)
-	waitDocument(t, tt, func() bool { return a.path == target })
-	if a.path != target {
-		t.Fatalf("search opened %q", a.path)
+	waitDocument(t, tt, func() bool { return a.documentPath() == target })
+	if a.documentPath() != target {
+		t.Fatalf("search opened %q", a.documentPath())
 	}
 	a.openPathNow(path)
-	if !a.indexedLink("Second#Section") || a.path != target {
+	if !a.indexedLink("Second#Section") || a.documentPath() != target {
 		t.Fatal("alias/heading link did not navigate")
 	}
 }
@@ -428,8 +444,9 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 
 func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	a.ed.SetSource("updated")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("updated"); err != nil {
+		t.Fatal(err)
+	}
 	a.save()
 	a.openHistory()
 	tt.Frame()
@@ -440,8 +457,8 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.path != "" || a.source != "original" || !a.dirty {
-		t.Fatalf("restore path=%q source=%q dirty=%v", a.path, a.source, a.dirty)
+	if a.documentPath() != "" || a.documentSource() != "original" || !a.documentDirty() {
+		t.Fatalf("restore path=%q source=%q dirty=%v", a.documentPath(), a.documentSource(), a.documentDirty())
 	}
 	data, _ := os.ReadFile(path)
 	if string(data) != "updated" {
@@ -450,13 +467,17 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 }
 func TestPausedAutosaveKeepsBaseline(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	revision := a.documentSession.Snapshot().Revision
-	a.documentSession.SetConflict(path)
-	a.ed.SetSource("local edits")
-	a.docChanged()
+	revision := a.activeNote.PersistenceState().Revision
+	a.activeNote.SetConflict(path)
+	if err := a.activeNote.ReplaceUser("local edits"); err != nil {
+		t.Fatal(err)
+	}
 	expireAutosave(a)
-	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
-	if a.documentSession.Snapshot().Revision != revision || !a.dirty {
+	waitDocument(t, tt, func() bool {
+		state := a.activeNote.PersistenceState()
+		return !state.Saving && state.AutosaveDue.IsZero()
+	})
+	if a.activeNote.PersistenceState().Revision != revision || !a.documentDirty() {
 		t.Fatal("paused save changed baseline/dirty state")
 	}
 	data, _ := os.ReadFile(path)
@@ -506,29 +527,33 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.path != path {
+	if a.documentPath() != path {
 		t.Fatal("backlink did not navigate")
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) && a.documentSession.Snapshot().ConflictPath != path {
+	for time.Now().Before(deadline) && a.activeNote.PersistenceState().ConflictPath != path {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
-	if a.documentSession.Snapshot().ConflictPath != path {
-		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q vault=%+v", a.documentSession.Snapshot().ConflictPath, a.path, a.vault.Snapshot())
+	if a.activeNote.PersistenceState().ConflictPath != path {
+		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q vault=%+v", a.activeNote.PersistenceState().ConflictPath, a.documentPath(), a.vault.Snapshot())
 	}
 	a.documents.ConflictOpen = false
-	a.ed.SetSource("keep after deletion")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("keep after deletion"); err != nil {
+		t.Fatal(err)
+	}
 	expireAutosave(a)
-	waitDocument(t, tt, func() bool { state := a.documentSession.Snapshot(); return !state.Saving && state.AutosaveDue.IsZero() })
+	waitDocument(t, tt, func() bool {
+		state := a.activeNote.PersistenceState()
+		return !state.Saving && state.AutosaveDue.IsZero()
+	})
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("autosave recreated externally deleted file")
 	}
-	d, err := a.documentSession.ReadDraft(path)
+	d, err := a.activeNote.ReadDraft(path)
 	if err != nil || d.Text != "keep after deletion" {
 		t.Fatal("deleted document draft missing")
 	}
@@ -536,14 +561,16 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 
 func TestEditorChangesUpdateSharedBacklinkIndex(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Target.md": "# Target\n"})
-	a.ed.SetSource("[[Target]]")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("[[Target]]"); err != nil {
+		t.Fatal(err)
+	}
 	waitDocument(t, tt, func() bool {
 		return len(a.vault.Backlinks("Target.md")) == 1
 	})
 
-	a.ed.SetSource("No internal link")
-	a.docChanged()
+	if err := a.activeNote.ReplaceUser("No internal link"); err != nil {
+		t.Fatal(err)
+	}
 	waitDocument(t, tt, func() bool {
 		return len(a.vault.Backlinks("Target.md")) == 0
 	})
@@ -564,15 +591,15 @@ func TestIndexedCRLFHeadingOffsets(t *testing.T) {
 		t.Fatal("link did not resolve")
 	}
 	tt.Frame()
-	want := strings.Index(a.source, "## Second")
-	if a.ed.Caret() != want {
-		t.Fatalf("caret=%d want=%d", a.ed.Caret(), want)
+	want := strings.Index(a.documentSource(), "## Second")
+	if a.activeNote.NavigationCommands().Caret() != want {
+		t.Fatalf("caret=%d want=%d", a.activeNote.NavigationCommands().Caret(), want)
 	}
 	// The same target in the active CRLF buffer must use the same conversion.
-	a.ed.Select(0, 0)
+	a.activeNote.NavigationCommands().Select(0, 0)
 	a.indexedLink("#Second")
 	tt.Frame()
-	if a.ed.Caret() != want {
+	if a.activeNote.NavigationCommands().Caret() != want {
 		t.Fatal("same-file CRLF offset drift")
 	}
 }

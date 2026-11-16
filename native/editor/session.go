@@ -59,6 +59,20 @@ type Frame struct {
 	Rendered  *render.Document
 }
 
+// MemorySnapshot is an immutable estimate of document and rendered resource
+// memory. UI adapters may add their layout and decoded asset accounting while
+// keeping the value independent of a display backend.
+type MemorySnapshot struct {
+	SourceBytes          int
+	Leaves               int
+	VirtualLayout        bool
+	ImageCandidateLeaves int
+	ImageAssetViews      int
+	ImageAssets          int
+	LoadedImageAssets    int
+	ImagePixelBytes      int64
+}
+
 func (f Frame) snapshot() Frame {
 	doc := markdown.Clone(f.Document)
 	var rendered *render.Document
