@@ -26,6 +26,14 @@ if rg -n 'ProductionContent|documentSession|^[[:space:]]*ed[[:space:]]+\*editoru
   fail "temporary production-editor bridge or duplicate App editor owner remains"
 fi
 
+if [ -d native/editor/internal/parser ] && find native/editor/internal/parser -type f -name '*.go' -print -quit | grep -q .; then
+  fail "legacy editor parser-source implementation remains beside editor/source"
+fi
+
+if rg -n 'type[[:space:]]+parserSource|\*parserSource' native/editor native/nativeui/components/editor --glob '*.go'; then
+  fail "editor component retains a parser-source owner instead of editor/source"
+fi
+
 if rg -n '"(muse/(nativeui|platform|cmd)/|github\.com/egoist/mygo)' \
   native/document native/editor native/markdown native/search native/vault \
   --glob '*.go' --glob '!**/*_test.go'; then
