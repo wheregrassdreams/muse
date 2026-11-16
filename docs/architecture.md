@@ -17,6 +17,7 @@ native/
 ├── cmd/muse-native/               # thin executable entry point
 ├── application/                   # cross-module user use cases
 │   ├── document/                  # open/save/export note workflows
+│   ├── config/                    # typed settings persistence port
 │   ├── vault/                     # open/switch/refresh vault workflows
 │   └── workspace/                 # restore and persist session workflows
 ├── events/                        # minimal typed in-process event contract
@@ -92,6 +93,7 @@ native/
 │   ├── cachepath/                  # OS/XDG cache-root policy
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
+│       ├── configstore/           # user settings JSON files and config-root policy
 │       ├── imagecache/            # atomic image cache persistence
 │       ├── naviconstore/          # concrete per-vault icon preference persistence
 │       ├── recentstore/           # concrete recent-document persistence
@@ -133,6 +135,22 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 
 `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component.
 
+### Editor UI component extraction map
+
+`nativeui/components/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint, so those files must not be moved wholesale into child packages. Extract in this order, introducing narrow immutable frames or typed host interfaces before a package boundary:
+
+| Target package | Owns | Candidate current files / required seam |
+|---|---|---|
+| `components/editor` | Editor host, session synchronization, construction, lifecycle and composition of UI adapters | Keep `Editor`, source-to-leaf synchronization, and orchestration here; do not export broad mutable state to make extraction easier |
+| `components/editor/inputadapter` | MyGo event normalization into `editor/input` events | Pure event translation from `production_input.go`; stateful dispatch stays at the host until it consumes typed commands/capabilities |
+| `components/editor/ime` | MyGo text-composition lifecycle and UTF-16 range conversion | `ime.go` after introducing a narrow text/selection session interface |
+| `components/editor/blocks/table` | Table-only menus, drag/resize affordances, and presentation/input adapters | `table_cell_menu.go`, `table_edges.go`, `table_reorder.go`, and the UI part of `table_host.go`; consume `editor/blocks/table` state through a typed host |
+| `components/editor/blocks/media` | Image, math, and diagram controls/presentation and UI resource lifetime | `image_controls.go`, `math_preview.go`, and `diagram_preview.go`; resolve leaf/source access through a typed media host |
+| `components/editor/render` | MyGo painting and view composition from an immutable visible-block frame | `paint.go`, `display.go`, `production_view.go` only after `leaf`/`leafView` cease to be shared mutable implementation details |
+| `components/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
+
+The candidate map is staged by contract strength: pure event conversion and block-specific adapters can move before the main renderer; the render package is last because it currently has the widest private-state reach. Split oversized files within the current package first where they share invariants; create a subpackage only when its public inputs/outputs are narrower than the state it replaces. The semantic `editor/blocks/*` packages remain the source of behavior; these UI packages only translate host events and present their state.
+
 `markdown/syntax` owns Markdown parsing and AST values. `markdown/render` maps parsed values to rendered blocks. `images`, `math`, and `diagrams` own their bounded media/rendering pipelines and caches; they expose results to the renderer without depending on the editor session. The root `markdown` package is the stable entry point for common parse/render operations.
 
 `search/quickopen` owns fuzzy matching across candidate path, title, and aliases, including rank and rune-based highlight positions. The Quick Open surface owns only its query/selection view state and input presentation; it consumes ranked candidates and returns typed actions. It does not scan or rank the full catalog itself. Mermaid parsing and diagram models remain in `markdown`; the Mermaid Preview surface owns only its transient viewport state and rendering host integration.
@@ -150,6 +168,25 @@ The sidebar `panels` are distinct from window surfaces. Each panel package owns 
 `nativeui/components/doctypes` owns the backend-neutral registry of openable document kinds, extension matching, parse selection, and editable-file policy. It must not import MyGo widgets or Markdown presentation. The composition root binds a document type to a concrete surface/view adapter; reusable dialogs and file-tree panels consume the registry's stable type metadata and policies.
 
 For the panel boundary, App-specific adapters and integration tests that need `nativeui.App` private state live in `nativeui` itself. Child panel packages own view models, typed actions, and rendering; the root adapter maps those actions into application use cases. A directory name alone does not establish a package boundary, and a child directory may not declare `package nativeui`.
+
+### NativeUI root extraction map
+
+The root `nativeui` package is still larger than its target responsibility. Keep App construction, cross-surface routing, and narrow adapters that genuinely coordinate multiple modules there; move feature view state/rendering into the existing panel/surface packages and move business policy into its owning module. Do not use a callback that exposes `*App` as a substitute for a capability boundary.
+
+| Current root files / behavior | Target owner | Root package keeps |
+|---|---|---|
+| `command_palette.go`: query/selection state and palette rendering | `panels/commandpalette` | Command registration and dispatch to application use cases |
+| `vault_home.go`, settings and nav-icon picker rendering/state | `panels/vaulthome`, `panels/settings`, `panels/naviconpicker` | Injected repositories and application capability adapters |
+| `assistant_panel_adapter.go`: assistant panel rendering and tool-policy rules | `panels/agent` for presentation; `agent` / `application/agent` for policy and workflows | Tool capability wiring at composition time |
+| `filetree_panel.go`, `file_tree_keys.go`: tree rendering, view state, tree-local commands | `panels/filetree`; shared focus/key routing in `interactions` | Typed action dispatch to `application/vault` |
+| `properties_panel_adapter.go`: property editing rules, metadata updates, persistence | `panels/properties` for presentation; `document` / `application/document` for metadata and workflows | Repository/use-case injection and action routing |
+| `vault_lifecycle.go`: backlink grouping/resolution and search-result policy | `vault/links`, `search`, and `application/vault` | Watch/index lifecycle coordination and opening the selected document |
+| `workspace_search_policy.go`: search scheduling/coalescing | `search` or a focused `application/search` workflow | UI query input and dispatch |
+| `file_creation.go` and file-operation branches in `app.go` | `application/vault` for create/move/overwrite/root-boundary policy | Dialog/drop event translation and typed use-case calls |
+| `link_preview.go`: hover state/rendering and wiki target resolution | `components/linkpreview` for presentation; `vault/links` for resolution | Surface lifecycle and resolver injection |
+| `document_header.go` and settings/assistant panel renderers | `surfaces/noteeditor` or their owning panel/shared component | Composition only |
+
+This is a migration map, not permission to move whole files blindly: first define a view snapshot, typed actions, or consumer-owned capability where needed, then move the cohesive behavior and its tests. A helper may remain in root only when it is app orchestration; a feature rule does not become orchestration just because it currently reads private `App` fields. Resolve that dependency by moving state behind the owning module's API. UI-only shell visuals and window/surface open-close adapters may remain in `nativeui` when they have no feature policy or duplicated feature state.
 
 Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/components/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/components/markdown` paints the neutral Markdown model for both editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
@@ -208,7 +245,7 @@ flowchart TD
 - Domain packages do not import `nativeui`, MyGo widget packages, `platform`, or executable packages.
 - `markdown` never imports `editor`; editor consumes parsed structures and owns edits.
 - `search` owns the corpus/query contracts; `vault/index` implements the corpus contract without exposing its storage layout. `vault/index` also projects parsed link structure through an immutable narrow contract; `vault/links` owns path/title/alias resolution, outgoing links, backlinks, and their derived caches.
-- Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. `workspace` owns its snapshot repository contract; `platform/filesystem/workspacestore` implements it. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
+- Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. `workspace` owns its snapshot repository contract; `platform/filesystem/workspacestore` implements it. `application/config` owns the typed user-configuration persistence port; `config` owns schemas, defaults, validation and pure JSON value conversion, while `platform/filesystem/configstore` resolves OS configuration paths and persists the JSON files. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
 - `app` is the only composition root that selects concrete implementations and registers extension contributions.
 - `nativeui/window` owns live window/pane/overlay hosting; `workspace` owns the portable descriptors that can be restored. Feature surfaces keep their state private behind opaque handles.
 - No cycles, package-level mutable service locator, or broad `common`, `model`, `strategy`, or `utils` packages.
