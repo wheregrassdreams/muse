@@ -83,8 +83,12 @@ native/
 │   │   ├── agent/
 │   │   └── settings/
 │   ├── components/
+│   │   ├── documentdialogs/       # reusable document dialogs and export presentation
+│   │   ├── linkpreview/           # wiki-link hover preview state and rendering
+│   │   └── windowcontrols/        # platform-specific window button presentation
 │   └── interactions/
 ├── platform/                      # OS/runtime adapters
+│   ├── externalopener/            # open URLs/files with the host system
 │   ├── cachepath/                  # OS/XDG cache-root policy
 │   └── filesystem/
 │       ├── documentstore/         # concrete note/recovery persistence
