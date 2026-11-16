@@ -2,6 +2,20 @@ package paragraph
 
 import "sort"
 
+// HeadingContentStart advances a parser-projected heading block end past its
+// optional CR and LF line-ending bytes. The returned value is a source byte
+// offset suitable as FoldSection.ContentStart.
+func HeadingContentStart(source string, blockEnd int) int {
+	blockEnd = min(max(blockEnd, 0), len(source))
+	if blockEnd < len(source) && source[blockEnd] == '\r' {
+		blockEnd++
+	}
+	if blockEnd < len(source) && source[blockEnd] == '\n' {
+		blockEnd++
+	}
+	return blockEnd
+}
+
 // HeadingRange is the parser-derived source geometry required to compute a
 // heading's fold section. ContentStart is the first byte after the heading
 // line and its line ending.
@@ -25,6 +39,11 @@ type FoldSection struct {
 	HeadingEnd   int
 	From, To     int
 	HasContent   bool
+}
+
+// Hides reports whether a folded section hides the given source offset.
+func (section FoldSection) Hides(folded bool, offset int) bool {
+	return folded && offset >= section.From && offset < section.To
 }
 
 // FoldOperation is a paragraph-owned folding intent. Input keymaps may
@@ -89,7 +108,7 @@ func BuildFoldSections(sourceLength int, headings []HeadingRange, blocks []Block
 // FoldedContains reports whether a source offset belongs to a folded section.
 func FoldedContains(sections []FoldSection, foldedHeadingStarts []int, offset int) bool {
 	for _, section := range sections {
-		if containsOffset(foldedHeadingStarts, section.HeadingStart) && offset >= section.From && offset < section.To {
+		if containsOffset(foldedHeadingStarts, section.HeadingStart) && section.Hides(true, offset) {
 			return true
 		}
 	}
