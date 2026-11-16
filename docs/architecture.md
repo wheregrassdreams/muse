@@ -291,6 +291,10 @@ The refactor is not complete merely because the code compiles. Before closing th
 5. No migration aliases, duplicate implementations, temporary package shells, stale architecture reference tree, or TODO-based transition path remains.
 6. Focused package tests, full native tests, build, and architecture/import-boundary checks pass after all moves and wiring are complete.
 
+## Refactor execution order
+
+Complete the target file/package layout before doing further production wiring. First make a layout pass across the documented feature and UI boundaries: place implementations and their tests under their owning directories, remove obsolete source locations, and commit the moves in reviewable functional batches. Keep that pass limited to file ownership and package placement; do not add compatibility aliases or parallel implementations to keep the old imports compiling. Once the full tree matches this document, make a separate wiring pass for package declarations, imports, typed APIs, composition, and behavior. The final acceptance checks run after wiring is complete; the temporary layout checkpoint is not a release state.
+
 ## Architecture decisions during implementation
 
 - 2026-11-16: GoRex is adopted as a behavioral reference for tab/pane focus and split-layout interactions, not as a package architecture to copy. Muse separates durable layout (`workspace`), generic live hosting (`nativeui/window`), and toolkit layout presentation (`nativeui/workspacepresenter`). A pane's note/editor composition belongs to `nativeui/surfaces/noteeditor`; recent pane focus used for runtime close fallback is session policy and is not serialized as durable document content.
