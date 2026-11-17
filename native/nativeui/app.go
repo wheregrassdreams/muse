@@ -49,6 +49,7 @@ import (
 	filetree "muse/nativeui/workbench/features/explorer"
 	imagepreviewui "muse/nativeui/workbench/features/imagepreview"
 	linkpreview "muse/nativeui/workbench/features/linkpreview"
+	markdownui "muse/nativeui/workbench/features/markdown"
 	"muse/nativeui/workbench/features/mermaidpreview"
 	naviconpicker "muse/nativeui/workbench/features/naviconpicker"
 	outlineui "muse/nativeui/workbench/features/outline"
@@ -193,7 +194,7 @@ type App struct {
 	quickOpen                 *quickopenui.Controller
 	mermaidPreviewHandle      window.Handle
 	backlinksHandle           window.Handle
-	linkPreviewHandle         linkpreview.Handle
+	linkPreview               *linkpreview.Controller
 	navIconStore              *applicationvault.IconPreferences
 	navIconPicker             *naviconpicker.Controller
 
@@ -371,7 +372,6 @@ func New() *App {
 		outlinePanel:         outlineui.NewHandle(),
 		workspaceSearch:      searchui.NewHandle(),
 		commandPalette:       commandpalette.NewHandle(),
-		linkPreviewHandle:    linkpreview.NewHandle(),
 		fontSize:             16,
 		lineHeight:           1.7,
 		smartTypography:      true,
@@ -414,6 +414,7 @@ func New() *App {
 		},
 		OnClose: a.invalidate,
 	})
+	a.linkPreview = linkpreview.NewController(linkpreview.ControllerOptions{Ports: a.linkPreviewPorts()})
 	if err := a.createActiveNote(document.NewNote("", "", document.RevisionOf("")), 0); err != nil {
 		panic(err)
 	}
@@ -617,6 +618,165 @@ func (a *App) imagePreviewLabel(source string) string {
 		return filepath.ToSlash(relative)
 	}
 	return filepath.ToSlash(source)
+}
+
+// The composition root adapts vault, image, and viewport capabilities to the
+// link-preview feature. Hover and view state remain inside its controller.
+func (a *App) linkPreviewPorts() linkpreview.Ports {
+	return linkpreview.Ports{
+		Suppressed: func() bool { return a.imagePreviewOpen() || a.workspaceSearch.IsOpen() },
+		ResolveImage: func(target string) (string, bool) {
+			path := a.resolveWikiImageTarget(target)
+			return path, path != ""
+		},
+		ResolveNote: a.resolveWikiPreviewNote,
+		LoadImage: func(path string) *markdownui.ImageAsset {
+			return markdownui.LoadImageAssetWithLocalFiles(path, "", a.imageLocalFiles, a.imageCacheStore, nil, a.invalidate)
+		},
+		Anchor: func(c *ui.Context, state linkpreview.Snapshot) ui.Rect { return a.wikiPreviewAnchor(c, state) },
+		MarkdownOptions: func(note linkpreview.NoteTarget) markdownui.Options {
+			return markdownui.Options{
+				BodyFontSize: 12, Padding: 0, ContentWidth: 346,
+				ImageCacheStore: a.imageCacheStore, LocalFiles: a.imageLocalFiles,
+				ResolveImage: a.resolveVaultImage, OnAsync: a.invalidate,
+				OnImagePreview: func(src string) {
+					base := filepath.Join(note.Root, filepath.Dir(note.Path))
+					if resolved := a.resolveVaultImage(src, base, note.Root); resolved != "" {
+						a.openImagePreview(resolved)
+					}
+				},
+			}
+		},
+	}
+}
+
+func (a *App) hoverWikiLink(target string, x, y float32) {
+	a.hoverWikiLinkAt(target, x, y, ui.Rect{})
+}
+
+func (a *App) hoverWikiLinkAt(target string, x, y float32, bounds ui.Rect) {
+	if a == nil || a.linkPreview == nil {
+		return
+	}
+	a.linkPreview.Hover(strings.TrimSpace(target), x, y, bounds)
+	a.invalidate()
+}
+
+func (a *App) wikiLinkPreviewDialog(c *ui.Context) {
+	if a != nil && a.linkPreview != nil {
+		a.linkPreview.Render(c)
+	}
+}
+
+func (a *App) resolveVaultImage(src, base, root string) string {
+	if a.vault != nil {
+		return markdownui.ResolveImageSourceWithLocalFilesAndLookup(src, base, root, a.imageLocalFiles, a.vault.FindImage)
+	}
+	// Avoid a fallback WalkDir during the first frame while the vault catalog
+	// is loading. Local and root-relative image references still resolve.
+	return markdownui.ResolveImageSourceWithLocalFilesAndLookup(src, base, root, a.imageLocalFiles, nil)
+}
+
+func (a *App) wikiSuggestionSnapshot() []vaultlinks.Suggestion {
+	if a == nil || a.vault == nil || !a.vaultSnapshot.Ready {
+		return nil
+	}
+	return a.vault.WikiSuggestions()
+}
+
+func (a *App) wikiLinkSuggestions(_ string) []string {
+	suggestions := a.wikiSuggestionSnapshot()
+	items := make([]string, len(suggestions))
+	for i, suggestion := range suggestions {
+		items[i] = suggestion.Target
+	}
+	return items
+}
+
+func (a *App) wikiLinkSuggestionDetails(_ string) []vaultlinks.Suggestion {
+	return a.wikiSuggestionSnapshot()
+}
+
+func (a *App) clearWikiSuggestionCache() {
+	if a != nil && a.vault != nil {
+		a.vault.ClearWikiSuggestions()
+	}
+}
+
+func (a *App) resolveWikiImageTarget(target string) string {
+	return a.resolveWikiImageTargetFrom(a.documentPath(), target)
+}
+
+func (a *App) resolveWikiImageTargetFrom(currentPath, target string) string {
+	if a.vault == nil || !a.vaultSnapshot.Ready || a.vaultSnapshot.Root == "" {
+		return ""
+	}
+	path, ok := a.vault.ResolveImageTarget(currentPath, target)
+	if !ok {
+		return ""
+	}
+	path = markdownui.ResolveImageSourceWithLocalFilesAndLookup(path, "", a.vaultSnapshot.Root, a.imageLocalFiles, nil)
+	if path == "" || a.imageLocalFiles == nil {
+		return ""
+	}
+	info, err := a.imageLocalFiles.Stat(path)
+	if err != nil || info == nil || info.IsDir() {
+		return ""
+	}
+	return path
+}
+
+func (a *App) resolveWikiEmbed(currentPath, target string) (path, source string, ok bool) {
+	if a.vault == nil || !a.vaultSnapshot.Ready {
+		return "", "", false
+	}
+	current := ""
+	if rel, err := filepath.Rel(a.vaultSnapshot.Root, currentPath); err == nil {
+		current = filepath.ToSlash(rel)
+	}
+	location, ok := a.vault.ResolveLink(current, target)
+	if !ok {
+		return "", "", false
+	}
+	_, source, ok = a.vault.NoteContent(location.Path)
+	if !ok {
+		return "", "", false
+	}
+	return location.Path, source, true
+}
+
+func (a *App) resolveWikiPreviewNote(target string) (linkpreview.NoteTarget, bool) {
+	if a.vault == nil || !a.vaultSnapshot.Ready || a.vaultSnapshot.Root == "" {
+		return linkpreview.NoteTarget{}, false
+	}
+	current := ""
+	if rel, err := filepath.Rel(a.vaultSnapshot.Root, a.documentPath()); err == nil {
+		current = filepath.ToSlash(rel)
+	}
+	location, ok := a.vault.ResolveLink(current, target)
+	if !ok {
+		return linkpreview.NoteTarget{}, false
+	}
+	title, source, ok := a.vault.NoteContent(location.Path)
+	if !ok {
+		return linkpreview.NoteTarget{}, false
+	}
+	return linkpreview.NoteTarget{
+		Title: title, Path: location.Path, Source: source,
+		Offset: location.Offset, Root: a.vaultSnapshot.Root,
+	}, true
+}
+
+func (a *App) wikiPreviewAnchor(c *ui.Context, preview linkpreview.Snapshot) ui.Rect {
+	ox, oy := float32(0), float32(0)
+	if !a.flat {
+		ox = a.canvasLeft(c) + cardBorder + a.panelW
+		oy = float32(canvasPadding+cardBorder) + a.headerH(c)
+	}
+	if preview.LinkBounds.W > 0 && preview.LinkBounds.H > 0 {
+		return ui.Rect{X: ox + preview.LinkBounds.X, Y: oy + preview.LinkBounds.Y, W: preview.LinkBounds.W, H: preview.LinkBounds.H}
+	}
+	return ui.Rect{X: ox + preview.X, Y: oy + preview.Y, W: 1, H: 1}
 }
 
 const (
@@ -3107,7 +3267,7 @@ func (a *App) loadDoc(src string) {
 }
 
 func (a *App) loadDocumentAt(path, src string) {
-	a.linkPreviewHandle.Clear()
+	a.linkPreview.Clear()
 	a.propertiesPanel.SetOpenedAt(time.Now())
 	a.propertiesPanel.CancelEdit()
 	if a.noteEditor() != nil {
@@ -3195,7 +3355,7 @@ func (a *App) launchExternal(target string) {
 
 // openWiki opens a `[[wiki link]]` by its target (see resolveWiki).
 func (a *App) openWiki(target string) {
-	a.linkPreviewHandle.Clear()
+	a.linkPreview.Clear()
 	if imagePath := a.resolveWikiImageTarget(target); imagePath != "" {
 		a.pendingWiki = ""
 		a.openImagePreview(imagePath)

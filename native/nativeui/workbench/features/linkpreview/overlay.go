@@ -14,11 +14,10 @@ const (
 	LeaveDelay = 220 * time.Millisecond
 )
 
-// Handle is an opaque reference to one link-preview component instance. The
-// hover lifecycle and decoded thumbnail stay inside the component package.
-type Handle struct{ state *state }
+// handle is the private state reference owned by Controller.
+type handle struct{ state *state }
 
-func NewHandle() Handle { return Handle{state: &state{}} }
+func newHandle() handle { return handle{state: &state{}} }
 
 // Snapshot is a detached read-only view for UI integration and diagnostics.
 type Snapshot struct {
@@ -33,7 +32,7 @@ type Snapshot struct {
 	HasImageAsset  bool
 }
 
-func (h Handle) Snapshot() Snapshot {
+func (h handle) Snapshot() Snapshot {
 	if h.state == nil {
 		return Snapshot{}
 	}
@@ -45,23 +44,23 @@ func (h Handle) Snapshot() Snapshot {
 	}
 }
 
-func (h Handle) Hover(target string, x, y float32, bounds ui.Rect, now time.Time) {
+func (h handle) Hover(target string, x, y float32, bounds ui.Rect, now time.Time) {
 	if h.state != nil {
 		h.state.Hover(target, x, y, bounds, now, LeaveDelay)
 	}
 }
 
-func (h Handle) Clear() {
+func (h handle) Clear() {
 	if h.state != nil {
 		h.state.Clear()
 	}
 }
 
-func (h Handle) SetOverlayHovered(hovered bool, now time.Time) {
+func (h handle) SetOverlayHovered(hovered bool, now time.Time) {
 	h.setOverlayHoveredAt(hovered, now)
 }
 
-func (h Handle) AdvanceImage(now time.Time) (time.Duration, *ui.Bitmap) {
+func (h handle) AdvanceImage(now time.Time) (time.Duration, *ui.Bitmap) {
 	if h.state == nil {
 		return 0, nil
 	}
@@ -70,7 +69,7 @@ func (h Handle) AdvanceImage(now time.Time) (time.Duration, *ui.Bitmap) {
 
 // Tick advances the dwell and leave-grace lifecycle. It returns whether the
 // preview remains active and the delay until the next lifecycle check.
-func (h Handle) Tick(now time.Time) (bool, time.Duration) {
+func (h handle) Tick(now time.Time) (bool, time.Duration) {
 	if h.state == nil || h.state.Target == "" {
 		return false, 0
 	}
@@ -109,7 +108,7 @@ type Ports struct {
 
 // RenderActive renders one hover preview using application-provided vault,
 // image, viewport, and navigation capabilities.
-func (h Handle) RenderActive(c *ui.Context, ports Ports) {
+func (h handle) RenderActive(c *ui.Context, ports Ports) {
 	if c == nil || h.state == nil {
 		return
 	}
@@ -171,11 +170,11 @@ func (h Handle) RenderActive(c *ui.Context, ports Ports) {
 	})
 }
 
-func (h Handle) setOverlayHovered(hovered bool) {
+func (h handle) setOverlayHovered(hovered bool) {
 	h.setOverlayHoveredAt(hovered, time.Now())
 }
 
-func (h Handle) setOverlayHoveredAt(hovered bool, now time.Time) {
+func (h handle) setOverlayHoveredAt(hovered bool, now time.Time) {
 	if h.state == nil {
 		return
 	}
