@@ -101,6 +101,9 @@ func (a *App) SetDependencies(dependencies Dependencies) {
 	if a.configRepository != nil {
 		settings, _ := applicationconfig.NewService(a.configRepository).LoadAssistantSettings()
 		a.ai = settings
+		if a.assistant != nil {
+			a.assistant.SetSettings(settings)
+		}
 		a.applyEditorSettings(a.loadEditorSettings())
 	}
 	a.setEventDispatchers(dependencies.WorkspaceEvents, dependencies.DocumentEvents)
@@ -389,13 +392,6 @@ func workspaceActiveTab(state workspace.State) (workspace.Tab, bool) {
 func (a *App) closeLifecycle() {
 	if a == nil {
 		return
-	}
-	if a.assistantModelCancel != nil {
-		a.assistantModelCancel()
-		a.assistantModelCancel = nil
-	}
-	if a.aiModelCatalog != nil {
-		a.aiModelCatalog.Reset()
 	}
 	if a.assistant != nil {
 		a.assistant.Close()

@@ -9,7 +9,7 @@ import (
 
 	documentapp "muse/application/document"
 	applicationvault "muse/application/vault"
-	"muse/nativeui/workbench/features/dialogs/document"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 )
 
 func (a *App) vaultCoreMetadataCandidates(session *applicationvault.Session) []documentapp.CoreMetadataCandidate {
@@ -104,15 +104,7 @@ func (a *App) coreMetadataMigrationDialog(c *ui.Context) {
 		model.Summary = migrationPreviewSummary(a.coreMigration)
 		model.HasChanges = len(a.coreMigration.Changes) > 0
 	}
-	documentdialogs.RenderCoreMigration(c, a.documents, model, func(action documentdialogs.Action) {
-		switch action.Kind {
-		case documentdialogs.ApplyCoreMigration:
-			a.applyCoreMetadataMigration()
-		case documentdialogs.CloseCoreMigration:
-			a.documents.CloseCoreMigration()
-			a.invalidate()
-		}
-	})
+	a.migrationDialog.Render(c, model)
 }
 
 func migrationPreviewSummary(p *documentapp.CoreMetadataPlan) string {

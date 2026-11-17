@@ -61,22 +61,6 @@ func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 	}
 }
 
-func TestAssistantPresenterAppliesTypedEffectsOnce(t *testing.T) {
-	app := New()
-	app.loadDoc("# Note\n")
-	presenter := newAssistantPanel(app).(*assistantPanel)
-	part := conversation.Part{Kind: conversation.ToolPart, Tool: conversation.ToolPartState{
-		ID: "insert-1", Name: "insert_into_document", Status: conversation.PartSucceeded,
-		Result: `{"kind":"insert_document","text":"new paragraph","position":"end"}`,
-	}}
-	presenter.applyEffect(part)
-	first := app.documentSource()
-	presenter.applyEffect(part)
-	if first == "# Note\n" || app.documentSource() != first {
-		t.Fatalf("typed effect was not applied exactly once: first=%q after=%q", first, app.documentSource())
-	}
-}
-
 func TestAssistantMarkdownReceivesInjectedLocalImageFiles(t *testing.T) {
 	app := New()
 	files := imagefiles.New()
@@ -114,15 +98,14 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
 		return port, nil
 	}
-	presenter := &assistantPanel{settings: config.AssistantSettings{Tools: config.AssistantTools{Edit: true}}}
-	session := applicationagent.NewSession(presenter.settings, &assistantToolClient{}, applicationagent.Capabilities{
+	settings := aicommandSettingsForTest()
+	session := applicationagent.NewSession(settings, &assistantToolClient{}, applicationagent.Capabilities{
 		Tools:  applicationagent.Executor{Operations: applicationagent.DynamicWorkspaceOperations{Provider: appAssistantWorkspaceProvider{app: app}}},
 		Policy: applicationagent.DefaultToolPolicy{},
 	})
 	if err := session.SetPermission(applicationagent.AllowChanges); err != nil {
 		t.Fatal(err)
 	}
-	presenter.session = session
 	if err := session.Send("把 before 改成 after"); err != nil {
 		t.Fatal(err)
 	}
@@ -141,4 +124,10 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	if got := snapshot.Messages[1].Parts[0].Tool.Status; got != conversation.PartSucceeded {
 		t.Fatalf("tool status = %v", got)
 	}
+}
+
+func aicommandSettingsForTest() config.AssistantSettings {
+	settings := config.DefaultAssistantSettings()
+	settings.Tools.Edit = true
+	return settings
 }

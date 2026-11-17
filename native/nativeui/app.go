@@ -41,12 +41,15 @@ import (
 	componenticons "muse/nativeui/components/icons"
 	commands "muse/nativeui/workbench/commands"
 	"muse/nativeui/workbench/dragdrop"
+	agentui "muse/nativeui/workbench/features/agent"
 	"muse/nativeui/workbench/features/commandpalette"
+	dialogsui "muse/nativeui/workbench/features/dialogs"
 	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 	editorui "muse/nativeui/workbench/features/editor"
 	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 	noteeditor "muse/nativeui/workbench/features/editor/surface"
 	filetree "muse/nativeui/workbench/features/explorer"
+	imagedocumentui "muse/nativeui/workbench/features/imagedocument"
 	imagepreviewui "muse/nativeui/workbench/features/imagepreview"
 	linkpreview "muse/nativeui/workbench/features/linkpreview"
 	markdownui "muse/nativeui/workbench/features/markdown"
@@ -173,6 +176,8 @@ type App struct {
 	workspaceSession          *workspaceapp.Session
 	workspaceSubscription     *events.Subscription
 	documents                 *documentdialogs.Handle
+	migrationDialog           *documentdialogs.MigrationController
+	exportMenu                *dialogsui.ExportController
 	vault                     *applicationvault.Session
 	vaultSnapshot             applicationvault.Snapshot
 	vaultResultNavigation     chan vaultNavigationResult
@@ -190,7 +195,7 @@ type App struct {
 	editorPaneHandle          window.Handle
 	workspacePaneHandles      map[window.PaneID]window.Handle
 	imagePreview              *imagepreviewui.Controller
-	imageDocumentHandle       window.Handle
+	imageDocument             *imagedocumentui.Controller
 	quickOpen                 *quickopenui.Controller
 	mermaidPreviewHandle      window.Handle
 	backlinksHandle           window.Handle
@@ -297,14 +302,11 @@ type App struct {
 	vimYankFlash           bool
 
 	// AI
-	ai                       config.AssistantSettings
-	assistantProvider        applicationagent.ProviderManagement
-	assistantStream          applicationagent.StreamClient
-	assistantModelCancel     context.CancelFunc
-	assistantModelGeneration uint64
-	assistant                assistantController
-	newAgentWorkspace        func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error)
-	aiModelCatalog           *applicationagent.ModelCatalog
+	ai                config.AssistantSettings
+	assistantProvider applicationagent.ProviderManagement
+	assistantStream   applicationagent.StreamClient
+	assistant         *agentui.Controller
+	newAgentWorkspace func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error)
 
 	// outline rows
 
@@ -376,14 +378,20 @@ func New() *App {
 		lineHeight:           1.7,
 		smartTypography:      true,
 		ai:                   config.DefaultAssistantSettings(),
-		aiModelCatalog:       &applicationagent.ModelCatalog{},
 		activeLinkIndex:      &applicationvault.ActiveLinkIndex{},
 		documents:            documentdialogs.NewHandle(),
 		workspacePresenter:   workspacepresenter.New(),
 		workspaceSession:     newWorkspaceSession(nil),
 		workspacePaneHandles: make(map[window.PaneID]window.Handle),
 	}
-	a.assistant = newAssistantPanel(a)
+	a.assistant = newAssistantController(a)
+	a.exportMenu = dialogsui.NewExportController(func(action dialogsui.ExportAction) {
+		a.exportDocument(action.Format)
+	})
+	a.migrationDialog = documentdialogs.NewMigrationController(a.documents, documentdialogs.MigrationActions{
+		Apply: a.applyCoreMetadataMigration,
+		Close: a.invalidate,
+	})
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
 	s := a.loadEditorSettings()
 	a.applyEditorSettings(s)
@@ -394,6 +402,7 @@ func New() *App {
 			}
 		}
 	})
+	a.imageDocument = newImageDocumentController(a)
 	a.propertiesPanel = propertypanel.NewController(propertypanel.ControllerPorts{
 		Document: func() propertypanel.DocumentSnapshot {
 			path := a.documentPath()
@@ -2392,9 +2401,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		more := a.smallIconTint(c, componenticons.More(), locales.DocumentMore(), nil, tint)
 		more.Menu(func(m *ui.Menu) {
 			if !a.imageDocumentOpen() && doctypes.IsMarkdownPath(a.documentPath()) {
-				documentdialogs.AddExportMenu(m, func(format documentdialogs.ExportFormat) {
-					a.exportDocument(format)
-				})
+				a.exportMenu.AddMenu(m)
 				m.Separator()
 			}
 			if m.Item(locales.DocumentHistoryMenu()).Chosen() {
@@ -3100,7 +3107,7 @@ func (a *App) settingsViewModel() settingsui.ViewModel {
 	for _, preset := range appearance.Presets {
 		accents = append(accents, settingsui.Accent{ID: preset.ID, Label: settingsui.LocalizedAccentName(preset.ID), Color: preset.Color})
 	}
-	modelCatalog := a.aiModelCatalog.Snapshot()
+	modelCatalog := a.assistant.ModelCatalogSnapshot()
 	assistantModels := make([]string, 0, len(modelCatalog.Models))
 	for _, model := range modelCatalog.Models {
 		assistantModels = append(assistantModels, model.ID)

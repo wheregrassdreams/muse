@@ -11,11 +11,11 @@ import (
 	"github.com/egoist/mygo/i18n"
 	documentapp "muse/application/document"
 	"muse/locales"
-	"muse/nativeui/workbench/features/dialogs/document"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 )
 
-// The menu choice belongs to the document dialog presentation. The adapter
-// translates it to the application use case's export format at the boundary.
+// The menu choice belongs to document-dialog presentation. The composition
+// root translates it to the application use case's export format.
 type noteExportFormat = documentdialogs.ExportFormat
 
 const (
