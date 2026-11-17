@@ -23,7 +23,7 @@ func TestSessionReadyInvalidatesEmptyTreeCachedBeforeVaultStartup(t *testing.T) 
 	// Opening the workspace happens before vaultTick starts its asynchronous
 	// catalog build. This first read must not remain cached after SessionReady.
 	a.setWorkspace(root)
-	if got := a.children(root); got != nil {
+	if got := a.children(root); len(got) != 0 {
 		t.Fatalf("children before vault startup = %v, want cached empty result", got)
 	}
 
