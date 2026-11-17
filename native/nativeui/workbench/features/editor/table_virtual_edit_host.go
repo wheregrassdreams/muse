@@ -55,10 +55,19 @@ func (e *Editor) resolveTableVirtualEdit() (*leaf, tableVirtualEditState, bool) 
 		if l.kind != kTable || l.lineStart != s.lineStart || l.tab == nil || len(l.tab.rows) == 0 {
 			continue
 		}
-		if s.row < 0 || s.row >= len(l.tab.rows) || s.col < 0 || s.col >= len(l.tab.rows[s.row]) {
+		row, col := s.row, s.col
+		if s.postDelete {
+			// Structural deletion can remove the row that held a virtual caret.
+			// Keep the semantic insertion target attached to the remaining edge
+			// row instead of dropping to source-level block paste.
+			row = max(0, min(row, len(l.tab.rows)-1))
+			col = max(0, min(col, len(l.tab.rows[row])-1))
+		} else if row < 0 || row >= len(l.tab.rows) || col < 0 || col >= len(l.tab.rows[row]) {
 			return nil, tableVirtualEditState{}, false
 		}
-		return l, *s, true
+		resolved := *s
+		resolved.row, resolved.col = row, col
+		return l, resolved, true
 	}
 	return nil, tableVirtualEditState{}, false
 }
