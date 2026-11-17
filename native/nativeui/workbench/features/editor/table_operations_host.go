@@ -224,6 +224,11 @@ func (e *Editor) applyTableSelection(op string) bool {
 		e.vimController().SetLinewise(false)
 		e.setSessionInclusive(false)
 		e.setSessionLinewise(false)
+		if op == "d" {
+			e.tableSelection, e.tableBridge, e.tableDocumentRegion = nil, nil, nil
+			e.resetTableNavigation()
+		}
+		e.Session.UpdateLastHistoryAfter()
 		return true
 	}
 	lines := e.tableLines(t)
@@ -275,6 +280,11 @@ func (e *Editor) applyTableSelection(op string) bool {
 		e.vimController().SetLinewise(false)
 		e.setSessionInclusive(false)
 		e.setSessionLinewise(false)
+		if op == "d" {
+			e.tableSelection, e.tableBridge, e.tableDocumentRegion = nil, nil, nil
+			e.resetTableNavigation()
+		}
+		e.Session.UpdateLastHistoryAfter()
 		return true
 	}
 	if s.axis == tableColumns {
@@ -375,6 +385,8 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 			if ok && e.replaceTableCellRegion(t, region, matrix) {
 				e.tableSelection = nil
 				e.tableBridge = nil
+				e.tableDocumentRegion = nil
+				e.Session.UpdateLastHistoryAfter()
 				return true
 			}
 		}
@@ -488,6 +500,8 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 		} else {
 			e.clearTableVirtualEdit()
 		}
+		e.tableSelection, e.tableBridge, e.tableDocumentRegion = nil, nil, nil
+		e.Session.UpdateLastHistoryAfter()
 		return true
 	}
 	if r.axis == tableColumns {
@@ -519,6 +533,8 @@ func (e *Editor) pasteTableRegister(before bool) bool {
 		} else {
 			e.clearTableVirtualEdit()
 		}
+		e.tableSelection, e.tableBridge, e.tableDocumentRegion = nil, nil, nil
+		e.Session.UpdateLastHistoryAfter()
 		return true
 	}
 	return false
