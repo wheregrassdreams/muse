@@ -2,7 +2,6 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/input"
 	"muse/editor/input/vim"
@@ -184,12 +183,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		focus := e.selectionFocus()
 		if wasInsert {
 			inserted := e.previousGraphemeBoundary(focus)
-			if e.vimInsertStopIsParagraphIndent(inserted, focus) {
-				// Leading whitespace is real source content that Markdown omits
-				// from the paragraph's inline range. Keep Vim on that inserted
-				// character instead of normalizing it to the previous block row.
-				focus = inserted
-			} else if focus > lineStartAt(e.Source(), focus) {
+			if focus > lineStartAt(e.Source(), focus) {
 				focus = e.normalize(inserted, -1)
 			}
 		}
@@ -256,17 +250,6 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		return e.modalText("j")
 	}
 	return false
-}
-
-func (e *Editor) vimInsertStopIsParagraphIndent(inserted, focus int) bool {
-	source := e.Source()
-	line := e.leafAt(focus)
-	if line == nil || line.kind != kPara ||
-		!paragraph.CaretAfterLeadingIndent(source, line.lineStart, line.start, focus) ||
-		inserted < line.lineStart || inserted >= focus {
-		return false
-	}
-	return source[inserted] == ' ' || source[inserted] == '\t'
 }
 func (e *Editor) modalLine(at int) (int, int) {
 	return e.sourceLineRange(at)

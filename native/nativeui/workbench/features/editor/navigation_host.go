@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"muse/editor/blocks/paragraph"
 	"muse/editor/navigation"
 	syntax "muse/markdown/syntax"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
@@ -367,6 +368,11 @@ func (e *Editor) edgeStop(l *leaf, end bool) (int, bool) {
 		return l.start, true
 	}
 	off := l.start
+	if !end && l.kind == kPara {
+		if start, _, ok := paragraph.SourcePrefix(e.Source(), l.lineStart, l.start); ok {
+			off = start
+		}
+	}
 	if end {
 		off = l.end
 	}
@@ -468,6 +474,12 @@ func (e *Editor) stepWithWordMode(off, dir int, word, bigWord bool) int {
 		return u.infoEndOffset()
 	}
 	if u.isLine() {
+		// A source-backed blank line can contain literal whitespace. Move
+		// through its mapped source stops before treating the row as a single
+		// structural position; an empty row still falls through to its neighbor.
+		if s, ok := e.stopStepIn(u, off, dir); ok {
+			return s
+		}
 		// Out of a line of its own: the edge of the neighbour it faces. That
 		// edge may be the phantom's own offset — the same source shown
 		// on the neighbour's line — so the phantom goes either way.

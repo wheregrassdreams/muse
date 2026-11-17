@@ -49,6 +49,54 @@ func TestNativeShellRendersMarkdown(t *testing.T) {
 	}
 }
 
+func TestVimEscapeReachesEditorWhenNoHostedModalIsOpen(t *testing.T) {
+	a := New()
+	a.loadDoc("# Start\n")
+	a.noteEditor().ModalCommands().SetKeymap("vim")
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	a.noteEditor().FocusCommands().Focus()
+	tt.Frame()
+	tt.Type("i")
+	tt.Frame()
+	if got := a.noteEditor().ModalCommands().ModeLabel(); !strings.Contains(strings.ToLower(got), "insert") {
+		t.Fatalf("Vim did not enter insert mode: %q", got)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if got := a.noteEditor().ModalCommands().ModeLabel(); !strings.Contains(strings.ToLower(got), "normal") {
+		t.Fatalf("Escape was swallowed by the workbench: mode=%q", got)
+	}
+}
+
+func TestBlankLineSpaceSurvivesRealPaneNavigation(t *testing.T) {
+	a := New()
+	a.loadDoc("alpha\n\nbeta")
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	note := a.noteEditor()
+	note.FocusCommands().Focus()
+	tt.Frame()
+	nav := note.NavigationCommands()
+	nav.Select(len("alpha\n"), len("alpha\n"))
+	tt.Type(" ")
+	tt.Frame()
+	want := "alpha\n \nbeta"
+	if got := note.Source(); got != want {
+		t.Fatalf("source after typing on blank line = %q, want %q", got, want)
+	}
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
+	if got := note.Source(); got != want {
+		t.Fatalf("source after moving away and back = %q, want %q", got, want)
+	}
+	if _, _, ok := nav.WindowPoint(len("alpha\n")); !ok {
+		t.Fatal("blank-line source position lost its display geometry after navigation")
+	}
+}
+
 func TestWorkspaceSearchModalFocusAndEscape(t *testing.T) {
 	a := New()
 	tt := ui.NewTester(a.View, 1200, 800)

@@ -1,18 +1,16 @@
 package paragraph
 
-// CaretAfterLeadingIndent reports whether the caret is positioned after one
-// or more literal indentation characters that the Markdown parser excludes
-// from a paragraph's inline content. Such characters remain ordinary source
-// text for editing, even though block commands normally treat ContentStart as
-// the paragraph's structural start.
-func CaretAfterLeadingIndent(source string, lineStart, contentStart, caret int) bool {
-	if lineStart < 0 || contentStart <= lineStart || contentStart > len(source) || caret <= lineStart || caret > contentStart {
-		return false
+// SourcePrefix returns the literal whitespace range before a paragraph's
+// parsed content. The parser may omit this range from inline nodes, but it is
+// still part of the document source and must keep ordinary source positions.
+func SourcePrefix(source string, lineStart, contentStart int) (int, int, bool) {
+	if lineStart < 0 || contentStart <= lineStart || contentStart > len(source) {
+		return 0, 0, false
 	}
-	for i := lineStart; i < caret; i++ {
+	for i := lineStart; i < contentStart; i++ {
 		if source[i] != ' ' && source[i] != '\t' {
-			return false
+			return 0, 0, false
 		}
 	}
-	return true
+	return lineStart, contentStart, true
 }

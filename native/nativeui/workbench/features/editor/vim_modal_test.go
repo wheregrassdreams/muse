@@ -51,6 +51,31 @@ func TestVimAppendEscapeLeavesCursorOnInsertedCharacter(t *testing.T) {
 	}
 }
 
+func TestVimLeadingSpaceEscapeKeepsFocusAndCaretVisible(t *testing.T) {
+	e := New("alpha\n\nbeta", Options{})
+	e.SetKeymap("vim")
+	tester := ui.NewTester(func(c *ui.Context) { e.View(c).Fill() }, 640, 480)
+	tester.Frame()
+	tester.Frame()
+	e.Focus()
+	tester.Frame()
+	e.Select(len("alpha\n\n"), len("alpha\n\n"))
+	tester.Type("i")
+	tester.Type(" ")
+	tester.KeyDown(ui.KeyEscape)
+	tester.Frame()
+
+	if got, want := e.Source(), "alpha\n\n beta"; got != want {
+		t.Fatalf("source after Vim insert and Escape = %q, want %q", got, want)
+	}
+	if !e.Focused() {
+		t.Fatal("Vim Escape after leading space dropped editor focus")
+	}
+	if _, ok := e.caretRect(e.Caret()); !ok {
+		t.Fatalf("Vim caret after Escape has no visible geometry: offset=%d", e.Caret())
+	}
+}
+
 func TestModalEditingSequence(t *testing.T) {
 	e := New("alpha beta\n中文", Options{})
 	e.SetKeymap("vim")

@@ -175,12 +175,12 @@ func TestBareAutolinksShowAsLinks(t *testing.T) {
 	}
 }
 
-func TestCodeSpanOverLinesHidesPrefixes(t *testing.T) {
+func TestCodeSpanOverLinesHidesPrefixesAndParagraphIndentIsVisible(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{"> `跨行\n> 代码` 在引用里", "«code:跨行\n代码» 在引用里"},
 		{"- `跨行\n  代码` 在列表里", "«code:跨行\n代码» 在列表里"},
 		{"- a\n - b\n  - c\n   - d\n    - e", "d\n- e"},
-		{"para\n    indented continuation", "para\nindented continuation"},
+		{"para\n    indented continuation", "para\n    indented continuation"},
 	} {
 		got := shown(t, c.src)
 		if got[len(got)-1] != c.want {

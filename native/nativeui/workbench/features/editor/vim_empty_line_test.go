@@ -109,6 +109,15 @@ func TestLeadingSpaceAtParagraphStartIsVisibleWhileEditing(t *testing.T) {
 			if got := line.view.disp.text; !strings.Contains(got, " beta") {
 				t.Fatalf("paragraph display = %q, want leading space visible", got)
 			}
+			h.caretAt(0)
+			h.e.layoutIfNeeded()
+			line = h.e.leafAt(len(tc.prefix) + 1)
+			if line == nil || line.kind != kPara || line.view == nil {
+				t.Fatalf("paragraph view after moving caret away: leaf=%+v", line)
+			}
+			if got := line.view.disp.text; !strings.Contains(got, " beta") {
+				t.Fatalf("paragraph display after moving caret away = %q, want source indentation preserved", got)
+			}
 		})
 	}
 }
@@ -157,6 +166,14 @@ func TestVimEscapeAfterLeadingSpaceStaysOnInsertedLine(t *testing.T) {
 			h.key(0, ui.KeyEscape)
 			if got, want := lineStartAt(h.e.Source(), h.e.Caret()), tc.start; got != want {
 				t.Fatalf("Vim Escape moved cursor to line starting at %d, want %d (caret=%d source=%q)", got, want, h.e.Caret(), h.e.Source())
+			}
+			sendVim(h, "l")
+			if got, want := h.e.Caret(), tc.start+1; got != want {
+				t.Fatalf("Vim l skipped leading space: caret=%d, want %d", got, want)
+			}
+			sendVim(h, "h")
+			if got, want := h.e.Caret(), tc.start; got != want {
+				t.Fatalf("Vim h could not return to leading space: caret=%d, want %d", got, want)
 			}
 		})
 	}

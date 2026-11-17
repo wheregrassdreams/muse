@@ -953,6 +953,11 @@ func insertPhantom(leaves []*leaf, p *phantom) []*leaf {
 // leafLo returns the first offset the caret can take in a leaf: a fenced
 // code block's info string comes before its lines.
 func leafLo(e *Editor, l *leaf) int {
+	if l.kind == kPara {
+		if start, _, ok := paragraph.SourcePrefix(e.Source(), l.lineStart, l.start); ok {
+			return start
+		}
+	}
 	if s, _, ok := containerPrefixRange(l); ok {
 		return s
 	}

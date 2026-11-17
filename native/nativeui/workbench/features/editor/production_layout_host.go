@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"muse/editor/blocks/paragraph"
 	syntax "muse/markdown/syntax"
 
 	"muse/editor/layout"
@@ -540,12 +541,12 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		}
 		inlineStart := l.start
 		// CommonMark parsers omit leading indentation from a paragraph's inline
-		// range. Put that source prefix back into the display while the caret is
-		// editing it; otherwise a newly typed leading space has no caret stop or
-		// visible glyph until the line is rewritten as another block type.
-		if l.kind == kPara && at >= l.lineStart && at <= l.start &&
-			strings.Trim(e.Source()[l.lineStart:l.start], " \t") == "" {
-			inlineStart = l.lineStart
+		// range. Keep that source prefix in the display at all times so source
+		// whitespace stays visible and retains its own caret stops.
+		if l.kind == kPara {
+			if prefixStart, _, ok := paragraph.SourcePrefix(e.Source(), l.lineStart, l.start); ok {
+				inlineStart = prefixStart
+			}
 		}
 		b.inlines(ins, inlineStart, l.end, st)
 		if l.kind == kHeading && e.isFoldedHeading(l) {

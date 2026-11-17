@@ -459,9 +459,8 @@ func (b *builder) walk(ins []syntax.IncrementalInline, i, end int, st istyle) {
 				}
 			}
 			// The parser folds indentation after a line ending into the break's
-			// source range. Reveal that indentation when the caret is on it, so
-			// paragraph-leading spaces remain editable and visible. Away from the
-			// caret keep the normal Markdown projection.
+			// source range. Keep the source prefix as visible text in the editor
+			// projection even though it is omitted from the parsed inline value.
 			newlineEnd := in.Start
 			for newlineEnd < in.End && b.src[newlineEnd] != '\n' && b.src[newlineEnd] != '\r' {
 				newlineEnd++
@@ -472,8 +471,10 @@ func (b *builder) walk(ins []syntax.IncrementalInline, i, end int, st istyle) {
 					newlineEnd++
 				}
 			}
-			revealIndent := newlineEnd < end && b.reveal >= newlineEnd && b.reveal <= end
-			if revealIndent {
+			continuation := b.e.leafAt(newlineEnd)
+			plainIndent := newlineEnd < end && continuation != nil && continuation.kind == kPara && len(continuation.conts) == 0
+			revealPrefix := b.reveal >= newlineEnd && b.reveal <= end
+			if plainIndent || revealPrefix {
 				b.atom(in.Start, newlineEnd, text, st, nil)
 				b.textRun(newlineEnd, end, st)
 			} else {
