@@ -151,9 +151,10 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && a.noteEditor().Source() != ""
 	})
-	// runtimeFixtureCopy's 1200×800 canvas places the Home link around this
-	// point; move over the rendered label rather than the hidden source range.
-	x, y := float32(540), float32(331)
+	// runtimeFixtureCopy's 1200×800 canvas and compact property header place
+	// the visible Home link around this point; target the rendered label rather
+	// than the hidden source range.
+	x, y := float32(540), float32(405)
 	runtimeShot(t, tt, "wiki-preview-actual-link-before")
 	tt.Move(x, y)
 	tt.Frame()

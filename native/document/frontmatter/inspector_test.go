@@ -40,7 +40,7 @@ func TestProjectInspectorGroupsCoreManagedAndUserFields(t *testing.T) {
 	if got, want := fieldKeys(projection.Hidden), []string{"updated_at", "last_opened", "custom"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("hidden keys = %v, want %v", got, want)
 	}
-	if got, want := fieldKeys(projection.Summary), []string{"tags", "status", "aliases", "created_at", "updated_at"}; !reflect.DeepEqual(got, want) {
+	if got, want := fieldKeys(projection.Summary), []string{"tags", "status", "aliases", "created_at"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("summary keys = %v, want %v", got, want)
 	}
 }

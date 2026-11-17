@@ -60,21 +60,21 @@ type ScrollPort struct {
 // SystemFields are already selected by the caller; the panel only lays them
 // out and reports user intent.
 type ViewModel struct {
-	Title, Error, EmptyMessage string
-	DocumentType               string
-	Fields, HiddenFields       []Field
-	SystemFields               []Field
-	Summary                    []Field
-	Backlinks                  []Backlink
-	EditingKey, Draft          string
-	AddOpen                    bool
-	AddDraft                   AddDraft
-	HiddenOpen                 bool
-	SourceMode                 bool
-	SourceDraft                string
-	BacklinkCount              int
-	MoreCount                  int
-	Scroll                     ScrollPort
+	Title, Error, EmptyMessage         string
+	DocumentType                       string
+	Fields, HiddenFields               []Field
+	SystemFields                       []Field
+	Summary                            []Field
+	Backlinks                          []Backlink
+	EditingKey, EditingLocation, Draft string
+	AddOpen                            bool
+	AddDraft                           AddDraft
+	HiddenOpen                         bool
+	SourceMode                         bool
+	SourceDraft                        string
+	BacklinkCount                      int
+	MoreCount                          int
+	Scroll                             ScrollPort
 }
 
 type ActionKind uint8
@@ -108,6 +108,7 @@ const (
 type Action struct {
 	Kind     ActionKind
 	FieldKey string
+	Location string
 	Value    string
 	AddDraft AddDraft
 	Backlink Backlink
@@ -144,7 +145,11 @@ func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatc
 	}
 	t := c.Theme()
 	quiet := t.TextMuted
-	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).ObserveInput(func(event ui.InputEvent) {
+		if model.EditingLocation == "summary" && event.Kind == ui.InputKeyDown && event.Key == ui.KeyEscape {
+			dispatchAction(dispatch, Action{Kind: CancelEdit, FieldKey: model.EditingKey})
+		}
+	}).Children(func() {
 		if model.DocumentType != "" {
 			ui.Text(c, model.DocumentType).FontSize(13).TextColor(quiet)
 		}
@@ -167,12 +172,23 @@ func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatc
 			}
 			field := field
 			if field.Editable {
-				b := ui.ButtonBase(c).Height(32).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label(field.Label)
-				if b.Hovered() {
-					b.Background(t.SurfaceHover)
+				if model.EditingKey == field.Key && model.EditingLocation == "summary" {
+					draft := model.Draft
+					input := ui.TextInput(c.Key("property-summary-edit-"+field.Key), &draft).MinWidth(150).MaxWidth(260).
+						Placeholder(locales.PropertyListPlaceholder()).Label(field.Label).AutoFocus().
+						OnSubmit(func() { dispatchAction(dispatch, Action{Kind: SaveEdit, FieldKey: field.Key, Value: draft}) })
+					_ = input
+					if draft != model.Draft {
+						dispatchAction(dispatch, Action{Kind: DraftChanged, FieldKey: field.Key, Value: draft})
+					}
+				} else {
+					b := ui.ButtonBase(c).Height(32).MinWidth(0).MaxWidth(260).Padding(0, 1).Radius(5).Label(locales.PropertyEditLabel(field.Key))
+					if b.Hovered() {
+						b.Background(t.SurfaceHover)
+					}
+					b.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: field.Key, Location: "summary"}) })
+					b.Children(func() { renderFieldValue(c, field, true) })
 				}
-				b.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: field.Key}) })
-				b.Children(func() { renderFieldValue(c, field, true) })
 			} else {
 				renderFieldValue(c, field, true)
 			}
@@ -394,7 +410,8 @@ func renderBacklinks(c *ui.Context, backlinks []Backlink, dispatch func(Action))
 			if backlink.Count > 1 {
 				label += locales.VaultBacklinkCountSuffix(backlink.Count)
 			}
-			b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).Label(label)
+			b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).
+				Label(locales.CorePropertyBacklinkLabel(backlink.Path))
 			b.OnClick(func() { dispatchAction(dispatch, Action{Kind: OpenBacklink, Backlink: backlink}) })
 			b.Children(func() { ui.Text(c, label).FontSize(14).TextColor(t.Text).SingleLine().Ellipsis("…") })
 		}

@@ -104,7 +104,7 @@ func TestPropertySummaryEditsInPlaceAndCanCancel(t *testing.T) {
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if a.propertiesPanel.EditingKey() != "" || a.noteEditor().Source() != saved {
-		t.Fatal("Escape did not cancel metadata editing")
+		t.Fatalf("Escape did not cancel metadata editing: key=%q source=%q want=%q", a.propertiesPanel.EditingKey(), a.noteEditor().Source(), saved)
 	}
 }
 

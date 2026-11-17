@@ -58,6 +58,7 @@ func (e *editorSurfaceAdapter) SetHighlights(ranges []TextRange, current int) {
 
 func (e *editorSurfaceAdapter) Configure(settings PresentationSettings) {
 	options := e.Editor.Options()
+	options.Header = settings.Header
 	options.FontSize = settings.FontSize
 	options.LineHeight = settings.LineHeight
 	options.DisableSmartTypography = settings.DisableSmartTypography
@@ -84,6 +85,7 @@ func (e *editorSurfaceAdapter) Configure(settings PresentationSettings) {
 func (e *editorSurfaceAdapter) Settings() PresentationSettings {
 	options := e.Editor.Options()
 	return PresentationSettings{
+		Header:   options.Header,
 		FontSize: options.FontSize, LineHeight: options.LineHeight,
 		DisableSmartTypography: options.DisableSmartTypography,
 		HeadingMarkerReveal:    options.HeadingMarkerReveal,

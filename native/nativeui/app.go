@@ -1123,7 +1123,7 @@ func (a *App) View(c *ui.Context) {
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
 	closedManagedSurface := false
-	if c.Shortcut(0, ui.KeyEscape) && a.windows != nil && a.windows.HandleEscape() {
+	if a.windows != nil && a.windows.HasModal() && c.Shortcut(0, ui.KeyEscape) && a.windows.HandleEscape() {
 		closedManagedSurface = true
 		a.invalidate()
 	}
@@ -3335,6 +3335,7 @@ func (a *App) configureActiveNote(topInset float32) {
 	opts := a.editorOptions()
 	opts.TopInset = topInset
 	_ = a.noteEditor().Configure(noteeditor.PresentationSettings{
+		Header:   opts.Header,
 		FontSize: opts.FontSize, LineHeight: opts.LineHeight,
 		DisableSmartTypography: opts.DisableSmartTypography,
 		HeadingMarkerReveal:    opts.HeadingMarkerReveal,

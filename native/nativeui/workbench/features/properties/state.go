@@ -226,6 +226,7 @@ func clonePreferences(source map[string]FieldPreference) map[string]FieldPrefere
 
 func (s *state) project(model ViewModel) ViewModel {
 	model.EditingKey = s.editingKey
+	model.EditingLocation = s.editLocation
 	model.Draft = s.draft
 	model.AddOpen = s.addOpen
 	model.AddDraft = s.addDraft

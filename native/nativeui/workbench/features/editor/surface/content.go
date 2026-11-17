@@ -140,6 +140,7 @@ type FormattingCommands interface {
 }
 
 type PresentationSettings struct {
+	Header                   func(*ui.Context)
 	FontSize, LineHeight     float32
 	DisableSmartTypography   bool
 	HeadingMarkerReveal      bool

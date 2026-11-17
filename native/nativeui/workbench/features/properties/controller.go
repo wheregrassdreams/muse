@@ -142,6 +142,7 @@ func (c *Controller) Document() frontmatter.Document {
 		return frontmatter.Document{}
 	}
 	doc := c.document()
+	c.loadPreferences(doc.Path)
 	return c.state.Document(doc.Path, doc.Source)
 }
 
@@ -176,18 +177,7 @@ func (c *Controller) ViewModel() ViewModel {
 	}
 	c.refreshSystemProperties()
 	doc := c.document()
-	if c.state.PreferencesPath() != doc.Path {
-		var preferences map[string]FieldPreference
-		if c.ports.Preferences != nil && doc.Path != "" {
-			loaded, err := c.ports.Preferences.Load(doc.Path)
-			if err != nil {
-				c.state.SetError(err.Error())
-			} else {
-				preferences = loaded
-			}
-		}
-		c.state.SetPreferences(doc.Path, preferences)
-	}
+	c.loadPreferences(doc.Path)
 	parsed := c.state.Document(doc.Path, doc.Source)
 	input := ProjectionInput{Title: locales.PropertyTitle()}
 	if !doc.Markdown {
@@ -211,6 +201,22 @@ func (c *Controller) ViewModel() ViewModel {
 	return c.state.project(ProjectViewModel(input))
 }
 
+func (c *Controller) loadPreferences(path string) {
+	if c == nil || c.state == nil || c.state.PreferencesPath() == path {
+		return
+	}
+	var preferences map[string]FieldPreference
+	if c.ports.Preferences != nil && path != "" {
+		loaded, err := c.ports.Preferences.Load(path)
+		if err != nil {
+			c.state.SetError(err.Error())
+		} else {
+			preferences = loaded
+		}
+	}
+	c.state.SetPreferences(path, preferences)
+}
+
 func (c *Controller) Dispatch(action Action) {
 	if c == nil || c.state == nil {
 		return
@@ -219,7 +225,11 @@ func (c *Controller) Dispatch(action Action) {
 	switch action.Kind {
 	case BeginEdit:
 		if field, ok := c.field(action.FieldKey); ok && field.Editable {
-			c.state.BeginEdit(field.Key, "sidebar", field.Value)
+			location := action.Location
+			if location == "" {
+				location = "sidebar"
+			}
+			c.state.BeginEdit(field.Key, location, field.Value)
 		}
 	case SaveEdit:
 		if err := c.setProperty(action.FieldKey, action.Value); err != nil {

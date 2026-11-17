@@ -76,9 +76,7 @@ func ProjectInspector(fields []Field, preferences map[string]FieldPreference) In
 		if OmitFromPropertySummary(field.Key) || strings.EqualFold(field.Key, "type") || preferences[field.Key].Hidden {
 			continue
 		}
-		// updated_at is collapsed in the full inspector, but remains useful in
-		// the compact document summary. last_opened stays secondary everywhere.
-		if IsSecondaryProperty(field.Key) && CanonicalKey(field.Key) != "updated_at" {
+		if IsSecondaryProperty(field.Key) {
 			continue
 		}
 		if field.Kind != "structure" && strings.TrimSpace(field.Value) == "" {
