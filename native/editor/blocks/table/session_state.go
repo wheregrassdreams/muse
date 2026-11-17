@@ -36,6 +36,7 @@ type ContentBridge struct {
 	Index           int
 	SelectionAnchor int
 	Origin          SelectionOrigin
+	Resume          string
 }
 
 // VirtualEdge identifies the side of a cell at which a structural edit has

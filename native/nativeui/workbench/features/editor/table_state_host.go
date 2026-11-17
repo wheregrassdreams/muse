@@ -158,7 +158,7 @@ func tableBridgeSnapshot(s *tableContentBridge) *tablemodel.ContentBridge {
 	return &tablemodel.ContentBridge{
 		LineStart: s.lineStart, Axis: tablemodel.Axis(s.axis), Row: s.row, Col: s.col,
 		Direction: s.dir, Index: s.index,
-		SelectionAnchor: s.selectionAnchor, Origin: s.origin,
+		SelectionAnchor: s.selectionAnchor, Origin: s.origin, Resume: s.resume,
 	}
 }
 
@@ -169,7 +169,7 @@ func tableBridgeFromSnapshot(s *tablemodel.ContentBridge) *tableContentBridge {
 	return &tableContentBridge{
 		lineStart: s.LineStart, axis: tableAxis(s.Axis), row: s.Row, col: s.Col,
 		dir: s.Direction, index: s.Index,
-		selectionAnchor: s.SelectionAnchor, origin: s.Origin,
+		selectionAnchor: s.SelectionAnchor, origin: s.Origin, resume: s.Resume,
 	}
 }
 

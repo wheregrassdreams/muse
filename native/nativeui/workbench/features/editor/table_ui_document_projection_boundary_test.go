@@ -1,24 +1,41 @@
 package editor
 
-import "testing"
+import (
+	"testing"
+	"unicode/utf8"
+)
 
 func TestMixedDocumentRangeProjectsOnlyTableIntersection(t *testing.T) {
 	h := newHarness(t, documentTable)
 	h.e.layoutIfNeeded()
 	table := documentTestTable(t, h.e)
 	end := blockEnd(h.e.Source(), table)
+	firstCell := table.tab.rows[0][0]
+	insideFirstCell := firstCell.start + len("左")
+	lastRow := table.tab.rows[len(table.tab.rows)-1]
+	lastCell := lastRow[len(lastRow)-1]
+	source := h.e.Source()
 	for _, tc := range []struct {
 		name          string
 		anchor, caret int
 		wantRegion    bool
 	}{
-		{name: "enters from before", anchor: 0, caret: table.lineStart + 4, wantRegion: true},
-		{name: "leaves after", anchor: table.lineStart + 4, caret: len(h.e.Source()), wantRegion: true},
-		{name: "starts at table boundary", anchor: table.lineStart, caret: table.lineStart + 4},
-		{name: "ends at table boundary", anchor: end - 4, caret: end},
+		{name: "enters from before", anchor: 0, caret: insideFirstCell, wantRegion: true},
+		{name: "leaves after", anchor: insideFirstCell, caret: len(h.e.Source()), wantRegion: true},
+		{name: "starts at table boundary", anchor: table.lineStart, caret: firstCell.start},
+		{name: "ends at table boundary", anchor: lastCell.start, caret: end},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			for _, offset := range []int{tc.anchor, tc.caret} {
+				if offset < 0 || offset > len(source) || offset < len(source) && !utf8.RuneStart(source[offset]) {
+					t.Fatalf("fixture offset %d is not a UTF-8 source boundary", offset)
+				}
+			}
 			h.e.setSessionSelection(tc.anchor, tc.caret)
+			selection := h.e.Session.Selection()
+			if selection.Anchor != tc.anchor || selection.Head != tc.caret {
+				t.Fatalf("fixture selection rejected: got [%d,%d), want [%d,%d)", selection.Anchor, selection.Head, tc.anchor, tc.caret)
+			}
 			h.e.tableSelection = nil
 			h.e.tableBridge = nil
 			got := h.e.tableStructureSelection(table)

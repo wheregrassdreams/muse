@@ -11,7 +11,7 @@ func TestSnapshotCloneOwnsSelectionValues(t *testing.T) {
 		Mode:          "Visual",
 		TextSelection: editor.Selection{Anchor: 3, Head: 9},
 		Selection:     &Selection{LineStart: 2, Anchor: Cell{Row: 0, Col: 1}, Focus: Cell{Row: 2, Col: 3}, Axis: Cells},
-		Bridge:        &ContentBridge{LineStart: 2, Axis: Columns, Col: 1, Direction: 1},
+		Bridge:        &ContentBridge{LineStart: 2, Axis: Columns, Col: 1, Direction: 1, Resume: "Visual"},
 	}
 	clone := Clone(snapshot)
 	if !Equal(snapshot, clone) {
