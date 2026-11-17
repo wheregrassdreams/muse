@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
 	syntax "muse/markdown/syntax"
@@ -125,10 +126,10 @@ func (e *Editor) typeText(text string) {
 		e.phantom = nil
 		at := p.at
 		ins, c := text, len(text)
-		if block, k, ok := blockFor(text, phantomPrefix(p.conts)); ok {
+		if block, k, ok := paragraph.BlockShortcut(text, phantomPrefix(p.conts)); ok {
 			ins, c = block, k
 		} else if r := []rune(text); len(r) == 1 {
-			if closeCh, ok := autoPairs[r[0]]; ok {
+			if closeCh, ok := inlineblock.PairFor(r[0], false); ok {
 				ins = text + string(closeCh)
 			}
 		}
@@ -239,29 +240,13 @@ var wrapPairs = map[rune]rune{
 	'（': '）', '【': '】', '《': '》', '“': '”', '‘': '’', '「': '」',
 }
 
-// autoPairs are the brackets typing an opener closes.
-var autoPairs = map[rune]rune{'(': ')', '[': ']', '{': '}', '"': '"', '（': '）', '【': '】', '《': '》', '“': '”', '「': '」'}
-
 // autoPair types an opening bracket and its closer, the caret between
 // them, where nothing but space or a closer follows. It reports whether
 // it did.
 func (e *Editor) autoPair(ch rune, inCode bool) bool {
-	closeCh, ok := autoPairs[ch]
-	if !ok && !(inCode && (ch == '\'' || ch == '`')) {
-		return false
-	}
+	closeCh, ok := inlineblock.PlanAutoPair(ch, e.runeAfter(e.Caret()), isWordRune(e.runeBefore(e.Caret())), inCode)
 	if !ok {
-		closeCh = ch
-	}
-	next := e.runeAfter(e.Caret())
-	if next != 0 && next != ' ' && next != '\n' && next != '\t' && !strings.ContainsRune(")]}>\"'`）】》”」", next) {
 		return false
-	}
-	if ch == '"' || ch == '\'' || ch == '`' {
-		// A quote after a word is an apostrophe or a closing quote.
-		if prev := e.runeBefore(e.Caret()); isWordRune(prev) {
-			return false
-		}
 	}
 	e.begin(stepTyping)
 	s := string(ch) + string(closeCh)
@@ -274,16 +259,11 @@ func (e *Editor) autoPair(ch rune, inCode bool) bool {
 // skipCloser moves the caret over the closer typed right before it. It
 // reports whether it did.
 func (e *Editor) skipCloser(ch rune) bool {
-	if !strings.ContainsRune(")]}\"'`）】》”」", ch) || e.runeAfter(e.Caret()) != ch {
+	if e.runeAfter(e.Caret()) != ch {
 		return false
 	}
-	// Only a closer that a pair opened: the text before has its opener.
 	before := e.Source()[lineStartAt(e.Source(), e.Caret()):e.Caret()]
-	open := map[rune]rune{')': '(', ']': '[', '}': '{', '）': '（', '】': '【', '》': '《', '”': '“', '」': '「'}[ch]
-	if open != 0 && strings.Count(before, string(open)) <= strings.Count(before, string(ch)) {
-		return false
-	}
-	if open == 0 && strings.Count(before, string(ch))%2 == 0 {
+	if !inlineblock.ShouldSkipCloser(before, ch) {
 		return false
 	}
 	e.breakCoalescing()
@@ -334,7 +314,7 @@ func (e *Editor) blockShortcut(u *leaf, text string) bool {
 		return false
 	}
 	cont := e.contPrefix(u)
-	block, c, ok := blockFor(content+text, cont)
+	block, c, ok := paragraph.BlockShortcut(content+text, cont)
 	if !ok {
 		return false
 	}
@@ -343,19 +323,6 @@ func (e *Editor) blockShortcut(u *leaf, text string) bool {
 	e.replace(start, e.Caret()+len(rest), block)
 	e.commit(start+c, start+c)
 	return true
-}
-
-// blockFor returns the block that text typed alone on a line opens, with
-// its closing fence, and where the caret goes in it: ``` and ~~~ a block
-// of code (the caret in its info string), $$ a block of math.
-func blockFor(text, cont string) (string, int, bool) {
-	switch text {
-	case "```", "~~~":
-		return text + "\n" + cont + "\n" + cont + text, len(text), true
-	case "$$":
-		return "$$\n" + cont + "\n" + cont + "$$", 3 + len(cont), true
-	}
-	return "", 0, false
 }
 
 // ---------------------------------------------------------------------------
