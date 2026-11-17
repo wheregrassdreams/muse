@@ -43,7 +43,7 @@ func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	tt.Frame()
 	tt.Frame()
 	caret := a.noteEditor().NavigationCommands().Caret()
-	if err := a.propertySet("title", "Manual title"); err != nil {
+	if err := a.propertiesPanel.SetProperty("title", "Manual title"); err != nil {
 		t.Fatal(err)
 	}
 	if frontmatter.Title(a.noteEditor().Source(), a.documentPath()) != "default-name" || a.documentPath() != "/tmp/default-name.md" {
@@ -52,13 +52,13 @@ func TestPropertyTitleOverrideUndoAndUserFields(t *testing.T) {
 	if !a.noteEditor().Undo() || a.noteEditor().Source() != src || a.noteEditor().NavigationCommands().Caret() != caret {
 		t.Fatal("property edit did not undo with original body caret")
 	}
-	if err := a.propertySet("path", "new user value"); err != nil {
+	if err := a.propertiesPanel.SetProperty("path", "new user value"); err != nil {
 		t.Fatal("user YAML property incorrectly treated as system metadata", err)
 	}
-	if err := a.propertySet("title", "Override"); err != nil {
+	if err := a.propertiesPanel.SetProperty("title", "Override"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.propertyDelete("title"); err != nil {
+	if err := a.propertiesPanel.DeleteProperty("title"); err != nil {
 		t.Fatal(err)
 	}
 	if frontmatter.Title(a.noteEditor().Source(), a.documentPath()) != "default-name" {
@@ -126,7 +126,7 @@ func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 	if got := a.noteEditor().NavigationCommands().Headings(); len(got) != 1 || got[0].Text != "Body H1" {
 		t.Fatalf("body H1 was changed: %+v", got)
 	}
-	a.openProperties()
+	a.propertiesPanel.Open()
 	tt.Frame()
 	tt.Frame()
 	if tt.HasText("Legacy metadata title") || !tt.HasText("Type") || !tt.HasText("Note") {
@@ -144,16 +144,16 @@ func TestPropertyDisplayPreferencesPersistOutsideMarkdown(t *testing.T) {
 	setDocumentPathForTest(a, "/tmp/preferences-note.md")
 	src := "---\ntags: [one]\nstatus: draft\n---\nBody\n"
 	a.loadDoc(src)
-	a.propertyDocument()
-	a.dispatchPropertyAction(propertypanel.Action{Kind: propertypanel.ToggleHidden, FieldKey: "tags"})
-	a.moveProperty("status", -1)
+	a.propertiesPanel.Document()
+	a.propertiesPanel.Dispatch(propertypanel.Action{Kind: propertypanel.ToggleHidden, FieldKey: "tags"})
+	a.propertiesPanel.MoveProperty("status", -1)
 	if a.noteEditor().Source() != src {
 		t.Fatal("display preferences changed YAML")
 	}
 	b := newConfigTestApp()
 	setDocumentPathForTest(b, a.documentPath())
 	b.loadDoc(src)
-	d := b.propertyDocument()
+	d := b.propertiesPanel.Document()
 	if !b.propertiesPanel.Preference("tags").Hidden {
 		t.Fatal("hidden preference not restored on document open")
 	}
@@ -167,14 +167,14 @@ func TestPropertyYAMLSourceCannotOverwriteBody(t *testing.T) {
 	a := newConfigTestApp()
 	setDocumentPathForTest(a, "/tmp/source.md")
 	a.loadDoc("---\ntitle: Old\n---\n# Keep body\n")
-	if err := a.applyPropertyYAMLSource("---\ntitle: New\n---"); err != nil {
+	if err := a.propertiesPanel.ApplyYAMLSource("---\ntitle: New\n---"); err != nil {
 		t.Fatal(err)
 	}
 	want := "---\ntitle: New\n---\n# Keep body\n"
 	if a.noteEditor().Source() != want {
 		t.Fatalf("YAML source merged incorrectly: %q", a.noteEditor().Source())
 	}
-	if err := a.applyPropertyYAMLSource("---\ntitle: Bad\n---\nreplacing body"); err == nil {
+	if err := a.propertiesPanel.ApplyYAMLSource("---\ntitle: Bad\n---\nreplacing body"); err == nil {
 		t.Fatal("source form accepted body content")
 	}
 	if a.noteEditor().Source() != want {

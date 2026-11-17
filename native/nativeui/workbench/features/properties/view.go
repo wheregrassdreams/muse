@@ -113,11 +113,11 @@ type Action struct {
 	Backlink Backlink
 }
 
-func Render(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
+func renderPanel(c *ui.Context, handle *state, model ViewModel, dispatch func(Action)) {
 	if handle == nil {
 		return
 	}
-	model = handle.state.project(model)
+	model = handle.project(model)
 	t := c.Theme()
 	title := model.Title
 	if title == "" {
@@ -138,9 +138,9 @@ func Render(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action
 
 // RenderSummary draws the compact document metadata row above the editor.
 // It emits navigation and editing intent without looking up document state.
-func RenderSummary(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
+func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatch func(Action)) {
 	if handle != nil {
-		model = handle.state.project(model)
+		model = handle.project(model)
 	}
 	t := c.Theme()
 	quiet := t.TextMuted

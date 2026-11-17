@@ -64,7 +64,7 @@ func Run(dependencies Dependencies) {
 		// TEMP capture hook
 		switch os.Getenv("MUSE_PANEL") {
 		case "properties":
-			app.openProperties()
+			app.propertiesPanel.Open()
 		case "vault-search":
 			app.openWorkspaceSearch()
 			app.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: os.Getenv("MUSE_SEARCH_QUERY")})

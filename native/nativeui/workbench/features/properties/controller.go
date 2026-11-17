@@ -50,17 +50,63 @@ type ControllerPorts struct {
 }
 
 // Controller owns the inspector lifecycle, document projection cache, field
-// preferences, and action policy. The embedded handle preserves the small
-// state capability used by adjacent UI surfaces during composition migration.
+// preferences, and action policy. The state handle is private; callers receive
+// only the lifecycle and snapshot operations needed by the composition root.
 type Controller struct {
-	*Handle
+	state        *state
 	ports        ControllerPorts
 	systemPath   string
 	systemSource string
 }
 
 func NewController(ports ControllerPorts) *Controller {
-	return &Controller{Handle: NewHandle(), ports: ports}
+	return &Controller{state: &state{}, ports: ports}
+}
+
+func (c *Controller) IsOpen() bool {
+	return c != nil && c.state != nil && c.state.IsOpen()
+}
+
+func (c *Controller) IsSourceMode() bool {
+	return c != nil && c.state != nil && c.state.IsSourceMode()
+}
+
+func (c *Controller) EditingKey() string {
+	if c == nil || c.state == nil {
+		return ""
+	}
+	return c.state.EditingKey()
+}
+
+func (c *Controller) HasTransientUI() bool {
+	return c != nil && c.state != nil && c.state.HasTransientUI()
+}
+
+func (c *Controller) CancelEdit() {
+	if c != nil && c.state != nil {
+		c.state.CancelEdit()
+	}
+}
+
+func (c *Controller) ReturnToProperties() {
+	if c != nil && c.state != nil {
+		c.state.ReturnToProperties()
+		c.invalidate()
+	}
+}
+
+func (c *Controller) Preference(key string) FieldPreference {
+	if c == nil || c.state == nil {
+		return FieldPreference{}
+	}
+	return c.state.Preference(key)
+}
+
+func (c *Controller) Preferences() map[string]FieldPreference {
+	if c == nil || c.state == nil {
+		return nil
+	}
+	return c.state.Preferences()
 }
 
 func (c *Controller) Enabled() bool {
@@ -68,35 +114,35 @@ func (c *Controller) Enabled() bool {
 }
 
 func (c *Controller) Open() {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return
 	}
-	c.Handle.Open()
+	c.state.Open()
 	c.refreshSystemProperties()
 	c.invalidate()
 }
 
 func (c *Controller) Close() {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return
 	}
-	c.Handle.Close()
+	c.state.Close()
 	c.invalidate()
 }
 
 func (c *Controller) SetOpenedAt(at time.Time) {
-	if c != nil && c.Handle != nil {
-		c.Handle.SetOpenedAt(at)
+	if c != nil && c.state != nil {
+		c.state.SetOpenedAt(at)
 	}
 }
 
 // Document returns the cached frontmatter projection for the current source.
 func (c *Controller) Document() frontmatter.Document {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return frontmatter.Document{}
 	}
 	doc := c.document()
-	return c.Handle.Document(doc.Path, doc.Source)
+	return c.state.Document(doc.Path, doc.Source)
 }
 
 // RenderSidebar presents the full inspector and dispatches typed user actions
@@ -108,7 +154,7 @@ func (c *Controller) RenderSidebar(ctx *ui.Context) {
 	t := ctx.Theme()
 	ui.Column(ctx).Key("properties-sidebar").Width(340).Shrink(0).FillHeight().
 		BorderWidth(0, 0, 0, 1).BorderColor(t.Border).Background(t.Background).Children(func() {
-		Render(ctx, c.Handle, c.ViewModel(), c.Dispatch)
+		renderPanel(ctx, c.state, c.ViewModel(), c.Dispatch)
 	})
 }
 
@@ -120,66 +166,66 @@ func (c *Controller) RenderSummary(ctx *ui.Context) {
 	}
 	ui.Column(ctx).FillWidth().Children(func() {
 		ui.Box(ctx).Height(100).Shrink(0)
-		RenderSummary(ctx, c.Handle, c.ViewModel(), c.Dispatch)
+		renderMetadataHeader(ctx, c.state, c.ViewModel(), c.Dispatch)
 	})
 }
 
 func (c *Controller) ViewModel() ViewModel {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return ViewModel{}
 	}
 	c.refreshSystemProperties()
 	doc := c.document()
-	if c.Handle.PreferencesPath() != doc.Path {
+	if c.state.PreferencesPath() != doc.Path {
 		var preferences map[string]FieldPreference
 		if c.ports.Preferences != nil && doc.Path != "" {
 			loaded, err := c.ports.Preferences.Load(doc.Path)
 			if err != nil {
-				c.Handle.SetError(err.Error())
+				c.state.SetError(err.Error())
 			} else {
 				preferences = loaded
 			}
 		}
-		c.Handle.SetPreferences(doc.Path, preferences)
+		c.state.SetPreferences(doc.Path, preferences)
 	}
-	parsed := c.Handle.Document(doc.Path, doc.Source)
+	parsed := c.state.Document(doc.Path, doc.Source)
 	input := ProjectionInput{Title: locales.PropertyTitle()}
 	if !doc.Markdown {
 		return ProjectViewModel(input)
 	}
 	if parsed.Err != nil {
 		input.Error = parsed.Err.Error()
-		return c.Handle.state.project(ProjectViewModel(input))
+		return c.state.project(ProjectViewModel(input))
 	}
 	input.DocumentType = DocumentType(parsed)
-	input.Preferences = c.Handle.Preferences()
+	input.Preferences = c.state.Preferences()
 	input.Projection = ProjectFields(parsed.Fields, input.Preferences)
-	input.System = c.Handle.SystemProperties()
-	openedAt := c.Handle.OpenedAt()
+	input.System = c.state.SystemProperties()
+	openedAt := c.state.OpenedAt()
 	if !openedAt.IsZero() && !frontmatter.HasField(parsed, "last_opened") {
 		input.LastOpened = locales.PropertyDateTime(openedAt.Local())
 	}
 	if c.ports.Backlinks != nil {
 		input.Backlinks = append([]BacklinkSource(nil), c.ports.Backlinks()...)
 	}
-	return c.Handle.state.project(ProjectViewModel(input))
+	return c.state.project(ProjectViewModel(input))
 }
 
 func (c *Controller) Dispatch(action Action) {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return
 	}
-	c.Handle.Apply(action)
+	c.state.Apply(action)
 	switch action.Kind {
 	case BeginEdit:
 		if field, ok := c.field(action.FieldKey); ok && field.Editable {
-			c.Handle.BeginEdit(field.Key, "sidebar", field.Value)
+			c.state.BeginEdit(field.Key, "sidebar", field.Value)
 		}
 	case SaveEdit:
 		if err := c.setProperty(action.FieldKey, action.Value); err != nil {
-			c.Handle.SetError(err.Error())
+			c.state.SetError(err.Error())
 		} else {
-			c.Handle.ClearEdit()
+			c.state.ClearEdit()
 			c.refreshSystemProperties()
 		}
 	case AddField:
@@ -188,11 +234,11 @@ func (c *Controller) Dispatch(action Action) {
 			break
 		}
 		if err := c.ports.Metadata.AddProperty(action.AddDraft.Key, action.AddDraft.Value, action.AddDraft.Kind); err != nil {
-			c.Handle.SetError(err.Error())
+			c.state.SetError(err.Error())
 			break
 		}
 		c.documentChanged()
-		c.Handle.ClearAddedField()
+		c.state.ClearAddedField()
 		c.refreshSystemProperties()
 	case DeleteField:
 		if c.ports.Metadata == nil {
@@ -200,7 +246,7 @@ func (c *Controller) Dispatch(action Action) {
 			break
 		}
 		if err := c.ports.Metadata.DeleteProperty(action.FieldKey); err != nil {
-			c.Handle.SetError(err.Error())
+			c.state.SetError(err.Error())
 			break
 		}
 		c.documentChanged()
@@ -226,21 +272,21 @@ func (c *Controller) Dispatch(action Action) {
 			c.ports.OpenMigration()
 		}
 	case OpenSource:
-		c.Handle.OpenSource(frontmatter.YAMLSource(c.document().Source))
+		c.state.OpenSource(frontmatter.YAMLSource(c.document().Source))
 	case ReturnToProperties:
-		c.Handle.ReturnToProperties()
+		c.state.ReturnToProperties()
 	case ApplySource:
 		if c.ports.Metadata == nil {
 			c.setError(ErrDocumentUnavailable)
 			break
 		}
 		if err := c.ports.Metadata.ReplaceYAML(action.Value); err != nil {
-			c.Handle.SetError(err.Error())
+			c.state.SetError(err.Error())
 			break
 		}
 		c.documentChanged()
-		c.Handle.ReturnToProperties()
-		c.Handle.ClearError()
+		c.state.ReturnToProperties()
+		c.state.ClearError()
 		c.refreshSystemProperties()
 	case ClosePanel:
 		c.invalidate()
@@ -309,13 +355,13 @@ func (c *Controller) document() DocumentSnapshot {
 
 func (c *Controller) field(key string) (frontmatter.Field, bool) {
 	doc := c.document()
-	parsed := c.Handle.Document(doc.Path, doc.Source)
+	parsed := c.state.Document(doc.Path, doc.Source)
 	for _, field := range parsed.Fields {
 		if field.Key == key {
 			return field, true
 		}
 	}
-	for _, field := range ProjectFields(parsed.Fields, c.Handle.Preferences()).Core {
+	for _, field := range ProjectFields(parsed.Fields, c.state.Preferences()).Core {
 		if field.Key == key {
 			return field, true
 		}
@@ -336,8 +382,8 @@ func (c *Controller) setProperty(key, value string) error {
 
 func (c *Controller) moveField(key string, delta int) {
 	doc := c.document()
-	parsed := c.Handle.Document(doc.Path, doc.Source)
-	if parsed.Err != nil || !c.Handle.MoveField(key, delta, parsed.Fields) {
+	parsed := c.state.Document(doc.Path, doc.Source)
+	if parsed.Err != nil || !c.state.MoveField(key, delta, parsed.Fields) {
 		return
 	}
 	c.savePreferences()
@@ -348,18 +394,18 @@ func (c *Controller) savePreferences() {
 		return
 	}
 	doc := c.document()
-	if err := c.ports.Preferences.Save(doc.Path, c.Handle.Preferences()); err != nil {
-		c.Handle.SetError(err.Error())
+	if err := c.ports.Preferences.Save(doc.Path, c.state.Preferences()); err != nil {
+		c.state.SetError(err.Error())
 	}
 }
 
 func (c *Controller) documentChanged() {
-	c.Handle.InvalidateDocument()
+	c.state.InvalidateDocument()
 	c.systemPath, c.systemSource = "", ""
 }
 
 func (c *Controller) refreshSystemProperties() {
-	if c == nil || c.Handle == nil {
+	if c == nil || c.state == nil {
 		return
 	}
 	doc := c.document()
@@ -368,15 +414,15 @@ func (c *Controller) refreshSystemProperties() {
 	}
 	c.systemPath, c.systemSource = doc.Path, doc.Source
 	if c.ports.SystemProperties == nil {
-		c.Handle.SetSystemProperties(nil)
+		c.state.SetSystemProperties(nil)
 		return
 	}
-	c.Handle.SetSystemProperties(c.ports.SystemProperties(doc))
+	c.state.SetSystemProperties(c.ports.SystemProperties(doc))
 }
 
 func (c *Controller) setError(err error) {
 	if err != nil {
-		c.Handle.SetError(err.Error())
+		c.state.SetError(err.Error())
 	}
 }
 

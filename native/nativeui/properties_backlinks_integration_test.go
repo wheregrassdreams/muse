@@ -9,7 +9,7 @@ func TestPropertyBacklinksUseSharedSourceProjection(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{
 		"Source.md": "first [[note]] and later [[note]]",
 	})
-	a.openProperties()
+	a.propertiesPanel.Open()
 	tt.Frame()
 
 	sources := a.documentBacklinkSources()
@@ -31,7 +31,7 @@ func TestPropertyBacklinksUseSharedSourceProjection(t *testing.T) {
 	}
 	// Keep the original target selected while checking live index updates below.
 	setDocumentPathForTest(a, targetPath)
-	a.openProperties()
+	a.propertiesPanel.Open()
 	tt.Frame()
 
 	if err := a.vault.ApplyActiveDocument(filepath.Join(a.root, "Source.md"), "link changed to [[another-note]]"); err != nil {

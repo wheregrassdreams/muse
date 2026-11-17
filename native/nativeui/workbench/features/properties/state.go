@@ -32,13 +32,6 @@ type state struct {
 	document        frontmatter.Document
 }
 
-// Handle is the opaque panel capability retained by the composition root.
-// Its embedded state stays private while the panel's semantic operations are
-// exposed as methods.
-type Handle struct{ state }
-
-func NewHandle() *Handle { return &Handle{} }
-
 func (s *state) IsOpen() bool       { return s.open }
 func (s *state) Open()              { s.open = true; s.sourceMode = false; s.errorMessage = "" }
 func (s *state) Close()             { s.open = false }

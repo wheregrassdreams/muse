@@ -28,7 +28,6 @@ import (
 	workspaceapp "muse/application/workspace"
 	"muse/config"
 	"muse/document"
-	"muse/document/frontmatter"
 	doctypes "muse/document/types"
 	editormodel "muse/editor"
 	"muse/editor/findreplace"
@@ -570,56 +569,6 @@ func formatPropertySize(size int64) string {
 		return fmt.Sprintf("%d B", size)
 	}
 	return fmt.Sprintf("%.1f KB", float64(size)/1024)
-}
-
-func (a *App) propertiesEnabled() bool {
-	return a != nil && a.propertiesPanel != nil && a.propertiesPanel.Enabled()
-}
-
-func (a *App) openProperties() {
-	if a != nil && a.propertiesPanel != nil {
-		a.propertiesPanel.Open()
-	}
-}
-
-func (a *App) dispatchPropertyAction(action propertypanel.Action) {
-	if a != nil && a.propertiesPanel != nil {
-		a.propertiesPanel.Dispatch(action)
-	}
-}
-
-func (a *App) propertyDocument() frontmatter.Document {
-	if a == nil || a.propertiesPanel == nil {
-		return frontmatter.Document{}
-	}
-	return a.propertiesPanel.Document()
-}
-
-func (a *App) propertySet(key, value string) error {
-	if a == nil || a.propertiesPanel == nil {
-		return propertypanel.ErrDocumentUnavailable
-	}
-	return a.propertiesPanel.SetProperty(key, value)
-}
-
-func (a *App) propertyDelete(key string) error {
-	if a == nil || a.propertiesPanel == nil {
-		return propertypanel.ErrDocumentUnavailable
-	}
-	return a.propertiesPanel.DeleteProperty(key)
-}
-
-func (a *App) applyPropertyYAMLSource(draft string) error {
-	if a == nil || a.propertiesPanel == nil {
-		return propertypanel.ErrDocumentUnavailable
-	}
-	return a.propertiesPanel.ApplyYAMLSource(draft)
-}
-
-func (a *App) moveProperty(key string, delta int) {
-	if a != nil && a.propertiesPanel != nil {
-		a.propertiesPanel.MoveProperty(key, delta)
-	}
 }
 
 func (a *App) documentBacklinkSources() []vaultlinks.BacklinkSource {
@@ -2422,7 +2371,7 @@ func (a *App) editorHeader(c *ui.Context) {
 			a.smallIcon(c, componenticons.Save(), locales.MenuSave(), func() { a.save() })
 		}
 		if a.propertiesPanel.Enabled() {
-			a.smallIconTint(c, componenticons.Info(), locales.DocumentInfo(), func() { a.openProperties() }, tint)
+			a.smallIconTint(c, componenticons.Info(), locales.DocumentInfo(), func() { a.propertiesPanel.Open() }, tint)
 		} else {
 			info := a.smallIconTint(c, componenticons.Info(), locales.DocumentInfo(), nil, tint)
 			info.Menu(func(m *ui.Menu) {

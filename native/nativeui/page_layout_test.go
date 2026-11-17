@@ -49,7 +49,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 			a.setWorkspace(root)
 			a.openPathNow(notePath)
 			waitDocument(t, tt, func() bool { return a.vaultSnapshot.Ready && a.documentSource() == referencePage })
-			a.openProperties()
+			a.propertiesPanel.Open()
 			tt.Frame()
 			tt.Advance(time.Second)
 			tt.Frame()
@@ -65,7 +65,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 				t.Fatal("secondary properties should start collapsed")
 			}
 			runtimeShot(t, tt, "reference-page-"+name)
-			a.dispatchPropertyAction(propertypanel.Action{Kind: propertypanel.ToggleHiddenSection})
+			a.propertiesPanel.Dispatch(propertypanel.Action{Kind: propertypanel.ToggleHiddenSection})
 			tt.Frame()
 			if !tt.HasText(locales.PropertyModifiedDate()) || !tt.HasText(locales.PropertyLastOpenedDate()) {
 				t.Fatal("expanded section did not expose real document timestamps")
@@ -84,7 +84,7 @@ func TestReferenceInspectorTypeEditPreservesBodyAndUndo(t *testing.T) {
 	setDocumentPathForTest(a, "/tmp/note.md")
 	const src = "# Actual H1\n\nBody text.\n"
 	a.loadDoc(src)
-	a.openProperties()
+	a.propertiesPanel.Open()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
