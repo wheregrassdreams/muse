@@ -73,9 +73,11 @@ func TestMarkdownLinkCodeAndMarkColorsFollowAccent(t *testing.T) {
 		var links, inks, codeBGs, marks = map[ui.Color]bool{}, map[ui.Color]bool{}, map[ui.Color]bool{}, map[ui.Color]bool{}
 		for _, accent := range []ui.Color{ui.Hex("#c99a18"), ui.Hex("#3979d1")} {
 			palette := appearance.From(accent, dark)
+			codeBG, codeInk := markdownui.InlineCodeColorsFor(accent, dark)
 			lk := look{
 				dark: dark, accent: accent, text: markdownui.BodyTextColor(dark),
-				muted: ui.Hex("#777777"), codeBg: ui.RGBA(0, 0, 0, 14), codeText: palette.Ink,
+				link: palette.Link, linkHover: palette.Hover,
+				muted: ui.Hex("#777777"), codeBg: codeBG, codeText: codeInk,
 				markBg: palette.Soft.Alpha(2.1), mono: "monospace",
 			}
 			if regular := lk.span(istyle{}, 16); regular.Weight != 0 || regular.Color != markdownui.BodyTextColor(dark) {
