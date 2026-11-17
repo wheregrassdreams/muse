@@ -14,7 +14,7 @@ import (
 // screenshots, independently of each worker's focused regression fixtures.
 func playgroundParagraph(t *testing.T, prefix string) string {
 	t.Helper()
-	b, err := os.ReadFile("../testdata/playground.md")
+	b, err := os.ReadFile(editorTestdataPath("playground.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

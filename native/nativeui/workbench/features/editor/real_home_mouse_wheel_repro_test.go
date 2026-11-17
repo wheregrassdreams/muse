@@ -12,7 +12,7 @@ import (
 // fixture path with the animated mouse-wheel event used by the app, rather
 // than changing Editor.scroll directly or using touchpad-style Scroll events.
 func TestRealHomeMouseWheelRoundTripKeepsImagesAndTextShaped(t *testing.T) {
-	root, err := filepath.Abs(filepath.Join("..", "testdata", "vault-fixture"))
+	root, err := filepath.Abs(editorTestdataPath("vault-fixture"))
 	if err != nil {
 		t.Fatal(err)
 	}

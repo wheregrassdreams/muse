@@ -47,7 +47,7 @@ func renderCorpus(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	files, _ := filepath.Glob("../**/*.md")
-	files = append(files, "../../../testdata/all-syntax.md", "../../../testdata/playground.md")
+	files = append(files, editorTestdataPath("all-syntax.md"), editorTestdataPath("playground.md"))
 	for _, f := range files {
 		if b, err := os.ReadFile(f); err == nil && len(b) < 200<<10 {
 			out[filepath.Base(f)] = string(b)

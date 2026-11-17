@@ -8,7 +8,6 @@ package editor
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,8 +15,7 @@ import (
 )
 
 func TestFullSyntaxFixture(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "testdata", "all-syntax.md")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(editorTestdataPath("all-syntax.md"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
