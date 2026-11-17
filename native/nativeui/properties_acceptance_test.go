@@ -1,10 +1,12 @@
 package nativeui
 
 import (
+	"testing"
+
 	"github.com/egoist/mygo/ui"
 	"muse/document/frontmatter"
+	"muse/locales"
 	propertypanel "muse/nativeui/workbench/features/properties"
-	"testing"
 )
 
 func TestPropertiesInspectorKeepsFileSidebarAndSource(t *testing.T) {
@@ -129,8 +131,8 @@ func TestDocumentUsesBodyH1AndPreservesLegacyTitle(t *testing.T) {
 	a.propertiesPanel.Open()
 	tt.Frame()
 	tt.Frame()
-	if tt.HasText("Legacy metadata title") || !tt.HasText("Type") || !tt.HasText("Note") {
-		t.Fatal("inspector has a legacy title or lacks the default Type")
+	if tt.HasText("Legacy metadata title") || !tt.HasText(locales.PropertyTypeFieldLabel()) || !tt.HasText(locales.PropertyDefaultNoteType()) {
+		t.Fatalf("inspector has a legacy title or lacks the localized default Type: %q", tt.Texts())
 	}
 	if a.noteEditor().Source() != src {
 		t.Fatal("hiding title UI changed existing YAML or body")

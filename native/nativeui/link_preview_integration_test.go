@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 	linkpreview "muse/nativeui/workbench/features/linkpreview"
+	vaultlinks "muse/vault/links"
 )
 
 func TestWikiLinkHoverPreviewDelayAndDismissal(t *testing.T) {
@@ -253,7 +254,7 @@ func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Projects/Atlas/Note.md": "---\naliases: [Quick Tag]\n---\n# Display title\n\nnested"})
 	waitDocument(t, tt, func() bool {
 		_, ok := a.vault.Document("Projects/Atlas/Note.md")
-		return ok
+		return ok && a.vaultSnapshot.Ready
 	})
 	want := []string{"Projects/Atlas/Note", "note"}
 	got := a.wikiLinkSuggestions("Not")
@@ -261,8 +262,15 @@ func TestWikiLinkSuggestionsUseVaultRelativePaths(t *testing.T) {
 		t.Fatalf("wiki suggestion targets = %#v, want %#v", got, want)
 	}
 	details := a.wikiLinkSuggestionDetails("Quick Tag")
-	if len(details) != 1 || details[0].Target != "Projects/Atlas/Note" || details[0].Title != "Display title" || len(details[0].Aliases) != 1 || details[0].Aliases[0] != "Quick Tag" {
-		t.Fatalf("wiki suggestion details = %#v", details)
+	var alias *vaultlinks.Suggestion
+	for i := range details {
+		if details[i].Target == "Projects/Atlas/Note" {
+			alias = &details[i]
+			break
+		}
+	}
+	if alias == nil || alias.Title != "Display title" || len(alias.Aliases) != 1 || alias.Aliases[0] != "Quick Tag" {
+		t.Fatalf("wiki suggestion details omitted the vault-relative alias projection: %#v", details)
 	}
 }
 

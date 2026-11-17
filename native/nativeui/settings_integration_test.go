@@ -133,6 +133,8 @@ func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
 	if !tt.HasText("页内跳转平滑滚动") {
 		t.Fatal("missing appearance option for smooth in-page navigation")
 	}
+	tt.Scroll(800, 500, 0, 1000)
+	tt.Frame()
 	if err := tt.Click("页内跳转平滑滚动开关"); err != nil {
 		t.Fatalf("enable smooth page jumps: %v", err)
 	}

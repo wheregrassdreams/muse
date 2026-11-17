@@ -505,8 +505,11 @@ func (s *Session) WikiSuggestions() []vaultlinks.Suggestion {
 	paths := s.Paths()
 	documents := make([]vaultlinks.Document, 0, len(paths))
 	for _, path := range paths {
-		rel, err := filepath.Rel(snapshot.Root, path)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// Catalog paths are slash-separated and vault-relative. Do not feed
+		// them to filepath.Rel with the absolute vault root: that rejects all
+		// relative inputs and silently produces an empty suggestion list.
+		rel := filepath.Clean(filepath.FromSlash(path))
+		if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
 		rel = filepath.ToSlash(rel)
