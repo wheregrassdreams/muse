@@ -14,6 +14,15 @@ import (
 	vaultfiles "muse/vault/files"
 )
 
+func (a *App) setTreeDragOperationDisplay(kind filetree.DragOperationKind, targetLabel string) {
+	if a == nil || a.fileTreeState == nil {
+		return
+	}
+	a.fileTreeState.SetDragOperationDisplay(filetree.DragOperationDisplay{
+		Kind: kind, TargetLabel: targetLabel,
+	})
+}
+
 // fileTreePanelView supplies catalog and host facts to Explorer and dispatches
 // typed effects back into application use cases. Tree rendering and transient
 // presentation policy live in the Explorer feature.

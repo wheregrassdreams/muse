@@ -8,7 +8,6 @@
 package nativeui
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +27,7 @@ import (
 	workspaceapp "muse/application/workspace"
 	"muse/config"
 	"muse/document"
+	"muse/document/frontmatter"
 	doctypes "muse/document/types"
 	editormodel "muse/editor"
 	"muse/editor/findreplace"

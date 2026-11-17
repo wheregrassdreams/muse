@@ -9,14 +9,14 @@ import (
 	"muse/locales"
 	"muse/markdown/images"
 	imagedocumentui "muse/nativeui/workbench/features/imagedocument"
-	"muse/nativeui/workbench/hosting"
+	window "muse/nativeui/workbench/hosting"
 )
 
 func newImageDocumentController(a *App) *imagedocumentui.Controller {
 	return imagedocumentui.NewController(imagedocumentui.Ports{
 		Host: a.windows,
-		Placement: func() hosting.Placement {
-			return hosting.Placement{Host: "main", Pane: a.focusedPane(), Layer: hosting.PaneContent}
+		Placement: func() window.Placement {
+			return window.Placement{Host: "main", Pane: a.focusedPane(), Layer: window.PaneContent}
 		},
 		Cache: func() images.CacheStore { return a.imageCacheStore },
 		Files: func() images.LocalFiles { return a.imageLocalFiles },

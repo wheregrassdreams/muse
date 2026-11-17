@@ -8,13 +8,11 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	conversation "muse/agent"
 	applicationagent "muse/application/agent"
 	applicationconfig "muse/application/config"
 	applicationvault "muse/application/vault"
 	"muse/config"
 	"muse/document"
-	doctypes "muse/document/types"
 	"muse/locales"
 	mdoc "muse/markdown"
 	componenticons "muse/nativeui/components/icons"
