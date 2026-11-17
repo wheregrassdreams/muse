@@ -2,15 +2,12 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"github.com/go-text/typesetting/segmenter"
-	"muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/input"
 	"muse/editor/input/vim"
 	"muse/editor/navigation"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 	"muse/nativeui/workbench/features/editor/inputadapter"
-	"strconv"
 	"strings"
 )
 
@@ -27,8 +24,11 @@ func (e *Editor) VimViewState() vim.ViewState {
 }
 
 func (e *Editor) DispatchVimCommand(command vim.Command) {
-	mode := e.vimController().Mode()
-	visual := mode == vim.ModeVisual || mode == vim.ModeSelect || mode == vim.ModeBlockVisual
+	if operation, ok := vim.OperationForCommand(command); ok {
+		e.ApplyOperation(operation)
+		return
+	}
+	visual := e.vimController().Mode() == vim.ModeVisual || e.vimController().Mode() == vim.ModeSelect || e.vimController().Mode() == vim.ModeBlockVisual
 	switch command.Kind {
 	case vim.CommandFirstLine:
 		off := 0
@@ -44,38 +44,6 @@ func (e *Editor) DispatchVimCommand(command vim.Command) {
 		for range max(1, command.Count) {
 			e.nativeVertical(command.Direction, visual)
 		}
-	case vim.CommandScrollLine:
-		placement := input.CaretLineCenter
-		switch command.Placement {
-		case vim.ScrollTop:
-			placement = input.CaretLineTop
-		case vim.ScrollBottom:
-			placement = input.CaretLineBottom
-		}
-		e.ApplyOperation(input.Operation{Kind: input.OperationScrollCaretLine, Placement: placement})
-	case vim.CommandFold:
-		fold := paragraph.FoldToggle
-		switch command.Fold {
-		case vim.FoldClose:
-			fold = paragraph.FoldClose
-		case vim.FoldCloseRecursive:
-			fold = paragraph.FoldCloseRecursive
-		case vim.FoldOpen:
-			fold = paragraph.FoldOpen
-		case vim.FoldOpenRecursive:
-			fold = paragraph.FoldOpenRecursive
-		case vim.FoldToggleRecursive:
-			fold = paragraph.FoldToggleRecursive
-		}
-		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: fold})
-	case vim.CommandFoldAll:
-		fold := paragraph.FoldCloseAll
-		if command.Fold == vim.FoldOpenAll {
-			fold = paragraph.FoldOpenAll
-		}
-		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAll, Fold: fold})
-	case vim.CommandReveal:
-		e.ApplyOperation(input.Operation{Kind: input.OperationRevealCaret})
 	}
 }
 
@@ -103,19 +71,7 @@ func (e *Editor) Keymap() string {
 	return e.vimController().Keymap()
 }
 func (e *Editor) ModeLabel() string {
-	if e.Keymap() == "default" {
-		return ""
-	}
-	state := e.VimViewState()
-	label := e.Keymap() + " " + string(state.Mode)
-	if state.OperatorCount > 0 {
-		label += " " + strconv.Itoa(state.OperatorCount)
-	}
-	label += state.Pending
-	if state.Count > 0 {
-		label += strconv.Itoa(state.Count)
-	}
-	return label
+	return e.VimViewState().ModeLabel()
 }
 
 // ModalAcceptsText must guard all native composition/replacement entry points.
@@ -355,16 +311,6 @@ func (e *Editor) setVimTableRegister(reg *tableRegister) {
 	}
 }
 
-func linewiseRegisterPayload(text string, count int) string {
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	count = max(1, count)
-	var repeated []string
-	for range count {
-		repeated = append(repeated, lines...)
-	}
-	return strings.Join(repeated, "\n")
-}
-
 func (e *Editor) putRegister(before bool, count int) bool {
 	m := &e.modal
 	register := e.vimController().View()
@@ -384,7 +330,7 @@ func (e *Editor) putRegister(before bool, count int) bool {
 		at := e.Caret()
 		value := strings.Repeat(register.Register, count)
 		if register.RegisterLine {
-			value = linewiseRegisterPayload(register.Register, count)
+			value = vim.LinewiseRegisterPayload(register.Register, count)
 			if before {
 				at, _ = e.modalLine(at)
 				value += "\n"
@@ -413,21 +359,6 @@ func (e *Editor) putRegister(before bool, count int) bool {
 	return true
 }
 
-// modalGrapheme returns the first extended grapheme in a text event. A
-// character command may legitimately receive multiple runes (for example a
-// base letter followed by a combining mark), while all other printable
-// commands remain single-rune text events.
-func modalGrapheme(s string) string {
-	var seg segmenter.Segmenter
-	_ = seg.InitWithBytes([]byte(s))
-	it := seg.GraphemeIterator()
-	if !it.Next() {
-		return ""
-	}
-	g := it.Grapheme()
-	return s[g.OffsetInBytes : g.OffsetInBytes+g.LengthInBytes]
-}
-
 func (e *Editor) modalStartSearch(dir int) {
 	e.clearVimSearchHighlights()
 	e.modalSetMode(vim.ModeNormal)
@@ -451,7 +382,7 @@ func (e *Editor) modalCancelSearch() {
 
 func (e *Editor) modalSearchBackspace() {
 	if text := e.compositionText(); text != "" {
-		e.setComposition(trimLastGrapheme(text), ui.TextInputRange{Start: e.compositionSelection().Start, End: e.compositionSelection().End})
+		e.setComposition(vim.TrimLastGrapheme(text), ui.TextInputRange{Start: e.compositionSelection().Start, End: e.compositionSelection().End})
 		e.invalidate()
 		return
 	}
@@ -459,25 +390,10 @@ func (e *Editor) modalSearchBackspace() {
 	if q == "" {
 		return
 	}
-	query := trimLastGrapheme(q)
+	query := vim.TrimLastGrapheme(q)
 	e.vimController().UpdateSearchQuery(query)
 	e.modalRefreshSearchPreview()
 	e.invalidate()
-}
-
-func trimLastGrapheme(s string) string {
-	if s == "" {
-		return ""
-	}
-	var seg segmenter.Segmenter
-	_ = seg.InitWithBytes([]byte(s))
-	it := seg.GraphemeIterator()
-	end := 0
-	for it.Next() {
-		g := it.Grapheme()
-		end = g.OffsetInBytes
-	}
-	return s[:end]
 }
 
 func (e *Editor) modalSubmitSearch() {
@@ -578,7 +494,7 @@ func (e *Editor) modalFind(char string, dir int, till bool, count int) (int, boo
 }
 
 func (e *Editor) modalReplace(count int, replacement string) {
-	replacement = modalGrapheme(replacement)
+	replacement = vim.FirstGrapheme(replacement)
 	if replacement == "" {
 		e.vimController().ClearPending()
 		return

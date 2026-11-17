@@ -11,6 +11,62 @@ type WikiLink struct {
 	Embed              bool
 }
 
+// LinkCandidate is a parser-projected inline that may act as a navigable
+// target. A host supplies candidates from its authoritative Markdown parser;
+// this package resolves pointer source offsets without owning that parser.
+type LinkCandidate struct {
+	Kind        LinkCandidateKind
+	Start, End  int
+	Destination string
+}
+
+type LinkCandidateKind uint8
+
+const (
+	LinkCandidateText LinkCandidateKind = iota + 1
+	LinkCandidateLink
+	LinkCandidateImage
+)
+
+// LinkTargetAt returns a navigable destination under a source offset. Wiki
+// embeds are excluded because their click behavior belongs to media embeds.
+func LinkTargetAt(source string, candidates []LinkCandidate, offset int) (string, bool) {
+	for _, candidate := range candidates {
+		switch candidate.Kind {
+		case LinkCandidateLink, LinkCandidateImage:
+			if candidate.Start <= offset && offset <= candidate.End {
+				return candidate.Destination, candidate.Destination != ""
+			}
+		case LinkCandidateText:
+			for _, link := range ParseWikiLinks(source, candidate.Start, candidate.End) {
+				if link.From <= offset && offset <= link.To && !link.Embed {
+					return "wiki:" + link.Target, link.Target != ""
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// LinkRangeAt returns the source range of a navigable link under an offset.
+func LinkRangeAt(source string, candidates []LinkCandidate, offset int) (int, int, bool) {
+	for _, candidate := range candidates {
+		switch candidate.Kind {
+		case LinkCandidateLink:
+			if candidate.Start <= offset && offset <= candidate.End {
+				return candidate.Start, candidate.End, true
+			}
+		case LinkCandidateText:
+			for _, link := range ParseWikiLinks(source, candidate.Start, candidate.End) {
+				if link.From <= offset && offset <= link.To && !link.Embed {
+					return link.From, link.To, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // ParseWikiLinks finds Muse wiki-link syntax in a source range. This is a
 // Muse inline extension, not a second Markdown parser; callers should pass
 // the smallest parser-owned text range that can contain these constructs.

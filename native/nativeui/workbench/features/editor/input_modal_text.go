@@ -3,7 +3,6 @@ package editor
 import (
 	"time"
 
-	"muse/editor/input"
 	"muse/editor/input/vim"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
@@ -32,6 +31,10 @@ func (e *Editor) modalText(text string) bool {
 // DispatchVimIntent implements the Vim host boundary. Keymap parsing remains
 // in editor/input/vim; document and selection effects resolve here.
 func (e *Editor) DispatchVimIntent(intent vim.Intent) {
+	if operation, ok := vim.OperationForIntent(intent); ok {
+		e.ApplyOperation(operation)
+		return
+	}
 	switch intent.Kind {
 	case vim.IntentPrefix, vim.IntentConsumed:
 		return
@@ -40,31 +43,6 @@ func (e *Editor) DispatchVimIntent(intent vim.Intent) {
 		return
 	case vim.IntentSearchText:
 		e.modalRefreshSearchPreview()
-		return
-	case vim.IntentFindCharacter:
-		if intent.Character == "" {
-			e.ApplyOperation(input.Operation{Kind: input.OperationBeginCharacterFind, Direction: intent.Direction, Till: intent.Till, Count: intent.Count})
-		} else {
-			e.ApplyOperation(input.Operation{Kind: input.OperationFindCharacter, Character: intent.Character, Direction: intent.Direction, Till: intent.Till, Count: intent.Count})
-		}
-		return
-	case vim.IntentBeginReplace:
-		e.ApplyOperation(input.Operation{Kind: input.OperationBeginReplace, Count: intent.Count})
-		return
-	case vim.IntentReplaceCharacter:
-		e.ApplyOperation(input.Operation{Kind: input.OperationReplaceCharacter, Count: intent.Count, Character: intent.Character})
-		return
-	case vim.IntentRepeatCharacterFind:
-		e.ApplyOperation(input.Operation{Kind: input.OperationRepeatCharacterFind, Reverse: intent.Reverse, Count: intent.Count})
-		return
-	case vim.IntentBeginSearch:
-		e.ApplyOperation(input.Operation{Kind: input.OperationBeginSearch, Direction: intent.Direction})
-		return
-	case vim.IntentRepeatSearch:
-		e.ApplyOperation(input.Operation{Kind: input.OperationRepeatSearch, Reverse: intent.Reverse, Count: intent.Count})
-		return
-	case vim.IntentPutRegister:
-		e.ApplyOperation(input.Operation{Kind: input.OperationPutRegister, Count: intent.Count, Before: intent.Before})
 		return
 	case vim.IntentUndo:
 		e.Undo()

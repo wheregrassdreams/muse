@@ -351,77 +351,65 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 
 // shortcut runs the editor's own shortcut of Cmd (Ctrl) with key.
 func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
-	if alt {
-		// Cmd+Alt (Ctrl+Alt): the blocks, and strikethrough as Typora's
-		// Alt+Shift+5.
-		switch {
-		case key == editorinput.KeyX && !shift:
-			e.ToggleList("- [ ]")
-		case key == editorinput.KeyC && !shift:
-			e.InsertCodeBlock()
-		case key == editorinput.KeyT && !shift:
-			e.InsertTable(3, 3)
-		case key == editorinput.Key5 && shift:
-			e.ToggleStrike()
-		default:
-			return false
-		}
-		return true
-	}
-	switch {
-	case key == editorinput.KeyZ && !shift:
-		e.Undo()
-	case key == editorinput.KeyZ && shift, key == editorinput.KeyY && !isMac:
-		e.Redo()
-	case key == editorinput.KeyA && !shift:
-		e.SelectAll()
-	case key == editorinput.KeyC && !shift:
-		e.Copy()
-	case key == editorinput.KeyX && !shift:
-		e.Cut()
-	case key == editorinput.KeyV:
-		e.Paste(shift)
-	case key == editorinput.KeyB && !shift:
-		e.ToggleBold()
-	case key == editorinput.KeyI && !shift:
-		e.ToggleItalic()
-	case key == editorinput.KeyU && !shift:
-		e.ToggleUnderline()
-	case key == editorinput.KeyE && !shift, key == editorinput.KeyBackquote && shift:
-		e.ToggleCode()
-	case key == editorinput.KeyX && shift:
+	command := inputadapter.Shortcut(key, shift, alt, isMac)
+	switch command {
+	case inputadapter.ShortcutNone:
+		return false
+	case inputadapter.ShortcutToggleTask:
+		e.ToggleList("- [ ]")
+	case inputadapter.ShortcutInsertCodeBlock:
+		e.InsertCodeBlock()
+	case inputadapter.ShortcutInsertTable:
+		e.InsertTable(3, 3)
+	case inputadapter.ShortcutToggleStrike:
 		e.ToggleStrike()
-	case key == editorinput.KeyH && shift:
+	case inputadapter.ShortcutUndo:
+		e.Undo()
+	case inputadapter.ShortcutRedo:
+		e.Redo()
+	case inputadapter.ShortcutSelectAll:
+		e.SelectAll()
+	case inputadapter.ShortcutCopy:
+		e.Copy()
+	case inputadapter.ShortcutCut:
+		e.Cut()
+	case inputadapter.ShortcutPaste:
+		e.Paste(shift)
+	case inputadapter.ShortcutToggleBold:
+		e.ToggleBold()
+	case inputadapter.ShortcutToggleItalic:
+		e.ToggleItalic()
+	case inputadapter.ShortcutToggleUnderline:
+		e.ToggleUnderline()
+	case inputadapter.ShortcutToggleCode:
+		e.ToggleCode()
+	case inputadapter.ShortcutToggleHighlight:
 		e.ToggleHighlight()
-	case key == editorinput.KeyK && !shift:
+	case inputadapter.ShortcutInsertLink:
 		e.InsertLink()
-	case key == editorinput.KeyD && !shift:
+	case inputadapter.ShortcutSelectWord:
 		a, z := e.wordRangeAt(e.Caret())
 		e.Select(a, z)
-	case key >= editorinput.Key0 && key <= editorinput.Key6 && !shift:
+	case inputadapter.ShortcutSetHeading:
 		e.SetHeading(int(key - editorinput.Key0))
-	case key == editorinput.KeyEqual && !shift:
+	case inputadapter.ShortcutShiftHeadingUp:
 		e.ShiftHeading(1)
-	case key == editorinput.KeyMinus && !shift:
+	case inputadapter.ShortcutShiftHeadingDown:
 		e.ShiftHeading(-1)
-	case key == editorinput.KeyQ && shift:
+	case inputadapter.ShortcutToggleQuote:
 		e.ToggleQuote()
-	case key == editorinput.KeyBracketLeft && shift:
+	case inputadapter.ShortcutToggleOrderedList:
 		e.ToggleList("1.")
-	case key == editorinput.KeyBracketRight && shift:
+	case inputadapter.ShortcutToggleUnorderedList:
 		e.ToggleList("-")
-	case key == editorinput.KeyK && shift:
-		e.InsertCodeBlock()
-	case key == editorinput.KeyM && shift:
+	case inputadapter.ShortcutInsertMathBlock:
 		e.InsertMathBlock()
-	case key == editorinput.KeyEnter && !shift:
-		if t, r, c := e.cellPos(e.Caret()); t != nil {
-			_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: r, Focus: tablemodel.Cell{Col: c}})
-		} else {
+	case inputadapter.ShortcutInsertTableRow:
+		t, r, c := e.cellPos(e.Caret())
+		if t == nil {
 			return false
 		}
-	default:
-		return false
+		_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.InsertRowAfter, LineStart: t.lineStart, First: r, Focus: tablemodel.Cell{Col: c}})
 	}
 	return true
 }
@@ -981,7 +969,7 @@ func (e *Editor) dragDiagramPan(x float32) {
 	v := d.leaf.view
 	box, contentW := e.diagramBox(d.leaf, v, 0, 0)
 	maxOff := max(contentW-box.W, 0)
-	v.diagX = min(max(d.from-(x-d.start), 0), maxOff)
+	v.diagX = media.DiagramPanOffset(d.from, d.start, x, maxOff)
 	e.invalidate()
 }
 
@@ -989,12 +977,7 @@ func (e *Editor) dragDiagramPan(x float32) {
 // thumb under the pointer first when the press missed it.
 func (e *Editor) pressDiagramBar(l *leaf, v *leafView, box ui.Rect, contentW float32, x, y float32) {
 	track, thumb := diagramBarRects(box, contentW, v.diagX)
-	if !thumb.Contains(x, y) {
-		if travel := track.W - thumb.W; travel > 0 {
-			at := min(max((x-track.X-thumb.W/2)/travel, 0), 1)
-			v.diagX = at * (contentW - box.W)
-		}
-	}
+	v.diagX = media.DiagramBarPressOffset(v.diagX, x, track.X, track.W, thumb.X, thumb.W, contentW-box.W, thumb.Contains(x, y))
 	e.diagDrag = &diagDrag{leaf: l, start: x, from: v.diagX}
 	e.invalidate()
 }
@@ -1012,9 +995,7 @@ func (e *Editor) dragDiagramBar(x float32) {
 		return
 	}
 	track, thumb := diagramBarRects(box, contentW, v.diagX)
-	if travel := track.W - thumb.W; travel > 0 {
-		v.diagX = min(max(d.from+(x-d.start)*maxOff/travel, 0), maxOff)
-	}
+	v.diagX = media.DiagramBarDragOffset(d.from, d.start, x, maxOff, track.W, thumb.W)
 	e.invalidate()
 }
 
@@ -1033,7 +1014,7 @@ func (e *Editor) scrollDiagram(ev ui.InputEvent) bool {
 	if dx == 0 {
 		return false
 	}
-	v.diagX = min(max(v.diagX+dx, 0), contentW-box.W)
+	v.diagX = media.DiagramScrollOffset(v.diagX, dx, contentW-box.W)
 	e.invalidate()
 	return true
 }
@@ -1085,24 +1066,8 @@ func (e *Editor) linkAt(off int) string {
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return ""
 	}
-	for _, in := range e.p.Parser().Inlines(u.id) {
-		switch in.Kind {
-		case syntax.IncrementalLink, syntax.IncrementalImage:
-			if in.Start <= off && off <= in.End {
-				return in.Dest
-			}
-		case syntax.IncrementalText:
-			for _, w := range inlineblock.ParseWikiLinks(e.Source(), in.Start, in.End) {
-				if w.From <= off && off <= w.To {
-					if w.Embed {
-						return ""
-					}
-					return "wiki:" + w.Target
-				}
-			}
-		}
-	}
-	return ""
+	target, _ := inlineblock.LinkTargetAt(e.Source(), e.inlineLinkCandidates(u), off)
+	return target
 }
 
 func (e *Editor) linkRangeAt(off int) (Range, bool) {
@@ -1110,19 +1075,33 @@ func (e *Editor) linkRangeAt(off int) (Range, bool) {
 	if u == nil || u.id < 0 || !(u.kind == kPara || u.kind == kHeading) {
 		return Range{}, false
 	}
-	for _, in := range e.p.Parser().Inlines(u.id) {
-		if in.Kind == syntax.IncrementalLink && in.Start <= off && off <= in.End {
-			return Range{Start: in.Start, End: in.End}, true
-		}
-		if in.Kind == syntax.IncrementalText {
-			for _, w := range inlineblock.ParseWikiLinks(e.Source(), in.Start, in.End) {
-				if !w.Embed && w.From <= off && off <= w.To {
-					return Range{Start: w.From, End: w.To}, true
-				}
-			}
-		}
+	start, end, ok := inlineblock.LinkRangeAt(e.Source(), e.inlineLinkCandidates(u), off)
+	return Range{Start: start, End: end}, ok
+}
+
+func (e *Editor) inlineLinkCandidates(u *leaf) []inlineblock.LinkCandidate {
+	if u == nil || u.id < 0 || e.p.Parser() == nil {
+		return nil
 	}
-	return Range{}, false
+	inlines := e.p.Parser().Inlines(u.id)
+	candidates := make([]inlineblock.LinkCandidate, 0, len(inlines))
+	for _, in := range inlines {
+		var kind inlineblock.LinkCandidateKind
+		switch in.Kind {
+		case syntax.IncrementalText:
+			kind = inlineblock.LinkCandidateText
+		case syntax.IncrementalLink:
+			kind = inlineblock.LinkCandidateLink
+		case syntax.IncrementalImage:
+			kind = inlineblock.LinkCandidateImage
+		default:
+			continue
+		}
+		candidates = append(candidates, inlineblock.LinkCandidate{
+			Kind: kind, Start: in.Start, End: in.End, Destination: in.Dest,
+		})
+	}
+	return candidates
 }
 
 func (e *Editor) pointInLink(x, y float32, link Range) bool {

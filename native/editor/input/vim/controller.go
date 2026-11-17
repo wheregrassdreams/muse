@@ -201,6 +201,23 @@ func (c *Controller) View() ViewState {
 	return c.state.Clone()
 }
 
+// ModeLabel formats the detached keymap state for a compact editor status
+// label. Presentation decides whether to show the label at all.
+func (s ViewState) ModeLabel() string {
+	if s.Keymap == "" || s.Keymap == "default" {
+		return ""
+	}
+	label := s.Keymap + " " + string(s.Mode)
+	if s.OperatorCount > 0 {
+		label += " " + strconv.Itoa(s.OperatorCount)
+	}
+	label += s.Pending
+	if s.Count > 0 {
+		label += strconv.Itoa(s.Count)
+	}
+	return label
+}
+
 func (c *Controller) SetKeymap(keymap string) {
 	if c == nil {
 		return
