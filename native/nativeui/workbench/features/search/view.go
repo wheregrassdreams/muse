@@ -239,7 +239,11 @@ func renderRecent(c *ui.Context, state *state, view View, dispatch func(Action))
 
 func renderResultRow(c *ui.Context, result Result, selected bool, query string, fileIcon *ui.SVG, iconTint ui.Color, open func()) {
 	t := c.Theme()
-	row := ui.ButtonBase(c).Label(locales.WorkspaceSearchResultLabel(result.Path)).FillWidth().Height(72).Shrink(0).Padding(8)
+	pathLabel := result.PathLabel
+	if pathLabel == "" {
+		pathLabel = result.Path
+	}
+	row := ui.ButtonBase(c).Label(locales.WorkspaceSearchResultLabel(pathLabel)).FillWidth().Height(72).Shrink(0).Padding(8)
 	if selected || row.Hovered() {
 		row.Background(t.SurfaceHover)
 	}
