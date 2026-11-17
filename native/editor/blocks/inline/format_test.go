@@ -45,6 +45,28 @@ func TestWrapSelectionPlansSourceEdits(t *testing.T) {
 	}
 }
 
+func TestWrapAtCaretSelectsOnlyEligibleWords(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		source     string
+		caret      int
+		word       Range
+		wantSelect Range
+	}{
+		{name: "letter word", source: "hello world", caret: 2, word: Range{0, 5}, wantSelect: Range{2, 7}},
+		{name: "punctuation does not become a word", source: "... rest", caret: 2, word: Range{0, 3}, wantSelect: Range{4, 4}},
+		{name: "whitespace does not become a word", source: "   rest", caret: 2, word: Range{0, 3}, wantSelect: Range{4, 4}},
+		{name: "unicode word", source: "中文 x", caret: 3, word: Range{0, len("中文")}, wantSelect: Range{2, len("中文") + 2}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, ok := WrapAtCaret(test.source, Range{Start: test.caret, End: test.caret}, test.word, "**", "**")
+			if !ok || plan.Selection != test.wantSelect {
+				t.Fatalf("WrapAtCaret() = %+v, %v; selection want %+v", plan, ok, test.wantSelect)
+			}
+		})
+	}
+}
+
 func TestMarkerLengthsForVariableDelimiters(t *testing.T) {
 	tests := []struct {
 		name        string

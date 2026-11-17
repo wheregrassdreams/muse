@@ -223,11 +223,7 @@ func (e *Editor) repairOrphanTable(text string) bool {
 // them, where nothing but space or a closer follows. It reports whether
 // it did.
 func (e *Editor) autoPair(ch rune, inCode bool) bool {
-	lineStart := lineStartAt(e.Source(), e.Caret())
-	closeCh, ok := inlineblock.PlanAutoPair(inlineblock.AutoPairInput{
-		Open: ch, Next: e.runeAfter(e.Caret()), PreviousWord: isWordRune(e.runeBefore(e.Caret())),
-		InCode: inCode, InInlineCode: oddBacktickRun(e.Source()[lineStart:e.Caret()]),
-	})
+	closeCh, ok := inlineblock.PlanAutoPairAt(e.Source(), e.Caret(), ch, inCode)
 	if !ok {
 		return false
 	}
@@ -242,8 +238,7 @@ func (e *Editor) autoPair(ch rune, inCode bool) bool {
 // skipCloser moves the caret over the closer typed right before it. It
 // reports whether it did.
 func (e *Editor) skipCloser(ch rune) bool {
-	before := e.Source()[lineStartAt(e.Source(), e.Caret()):e.Caret()]
-	if !inlineblock.ShouldSkipCloser(before, e.runeAfter(e.Caret()), ch) {
+	if !inlineblock.ShouldSkipCloserAt(e.Source(), e.Caret(), ch) {
 		return false
 	}
 	e.breakCoalescing()
@@ -262,46 +257,29 @@ func (e *Editor) runeAfter(off int) rune {
 	return r[0]
 }
 
-func (e *Editor) runeBefore(off int) rune {
-	if off <= 0 {
-		return 0
-	}
-	s := e.Source()[max(0, off-4):off]
-	r := []rune(s)
-	if len(r) == 0 {
-		return 0
-	}
-	return r[len(r)-1]
-}
-
 // blockShortcut turns what is typed at the start of an empty paragraph
 // into a block, as it is typed, so that the rest of the document is never
 // a block of code or math for a moment: a third ` or ~ opens a fenced
 // block of code, a second $ a block of math, with its closing fence. It
 // reports whether it did.
 func (e *Editor) blockShortcut(u *leaf, text string) bool {
-	if u == nil || !u.isText() || u.kind == kHeading && !u.pending {
+	if u == nil {
 		return false
 	}
 	ls := lineStartAt(e.Source(), e.Caret())
-	rest := e.Source()[e.Caret():lineEndAt(e.Source(), e.Caret())]
-	if strings.TrimSpace(rest) != "" || u.start > e.Caret() {
-		return false
-	}
-	content := e.Source()[max(u.start, ls):e.Caret()]
-	prefix := e.Source()[ls : e.Caret()-len(content)]
-	if strings.Trim(prefix, " \t>") != "" && !u.opensItem() {
-		return false
-	}
-	cont := e.contPrefix(u)
-	block, c, ok := paragraph.BlockShortcut(content+text, cont)
+	contentStart := max(u.start, ls)
+	plan, ok := paragraph.PlanBlockShortcut(paragraph.BlockShortcutInput{
+		Source: e.Source(), Typed: text, LineStart: ls, ContentStart: contentStart,
+		Caret: e.Caret(), LineEnd: lineEndAt(e.Source(), e.Caret()),
+		ContainerPrefix: e.contPrefix(u), TextUnit: u.isText() && !(u.kind == kHeading && !u.pending),
+		OpeningListItem: u.opensItem(),
+	})
 	if !ok {
 		return false
 	}
-	start := e.Caret() - len(content)
 	e.begin(stepEdit)
-	e.replace(start, e.Caret()+len(rest), block)
-	e.commit(start+c, start+c)
+	e.replace(plan.Start, plan.End, plan.Text)
+	e.commit(plan.Caret, plan.Caret)
 	return true
 }
 

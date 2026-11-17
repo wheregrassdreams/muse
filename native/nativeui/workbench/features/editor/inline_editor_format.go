@@ -77,14 +77,11 @@ func (e *Editor) wrapInline(open, close string) {
 	}
 	a, z := e.selection()
 	word := inline.Range{}
-	useWord := false
 	if a == z {
 		wa, wz := e.wordRangeAt(a)
-		if wa < wz && wa <= a && a <= wz && strings.TrimSpace(e.Source()[wa:wz]) != "" && isWordRune(firstRune(e.Source()[wa:wz])) {
-			word, useWord = inline.Range{Start: wa, End: wz}, true
-		}
+		word = inline.Range{Start: wa, End: wz}
 	}
-	plan, ok := inline.WrapSelection(e.Source(), inline.Range{Start: a, End: z}, word, useWord, open, close)
+	plan, ok := inline.WrapAtCaret(e.Source(), inline.Range{Start: a, End: z}, word, open, close)
 	if !ok {
 		return
 	}
@@ -97,13 +94,6 @@ func (e *Editor) applyInlinePlan(plan inline.FormatPlan) {
 		e.replace(edit.Start, edit.End, edit.Text)
 	}
 	e.commit(plan.Selection.Start, plan.Selection.End)
-}
-
-func firstRune(s string) rune {
-	for _, r := range s {
-		return r
-	}
-	return 0
 }
 
 // ToggleBold, ToggleItalic, ToggleStrike, ToggleCode and ToggleUnderline
@@ -222,18 +212,9 @@ func (e *Editor) headingLevel() int {
 
 // ShiftHeading raises (dir > 0) or lowers the heading level at the caret.
 func (e *Editor) ShiftHeading(dir int) {
-	lv := e.headingLevel()
-	switch {
-	case lv == 0 && dir > 0:
-		e.SetHeading(6)
-	case lv == 0:
-		return
-	case dir > 0 && lv > 1:
-		e.SetHeading(lv - 1)
-	case dir < 0 && lv < 6:
-		e.SetHeading(lv + 1)
-	case dir < 0:
-		e.SetHeading(0)
+	level, changed := paragraph.ShiftHeadingLevel(e.headingLevel(), dir)
+	if changed {
+		e.SetHeading(level)
 	}
 }
 

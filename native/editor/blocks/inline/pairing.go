@@ -1,6 +1,11 @@
 package inline
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+
+	"muse/editor/navigation"
+)
 
 var autoPairClosers = map[rune]rune{
 	'(': ')', '[': ']', '{': '}', '"': '"',
@@ -70,6 +75,25 @@ func PlanAutoPair(in AutoPairInput) (rune, bool) {
 	return close, true
 }
 
+// PlanAutoPairAt derives the source facts for an auto-pair decision and then
+// applies the inline typing policy. caret is a UTF-8 byte offset; inCode is a
+// parser-projected host fact for fenced or code-like blocks.
+func PlanAutoPairAt(source string, caret int, open rune, inCode bool) (rune, bool) {
+	if caret < 0 || caret > len(source) || caret < len(source) && !utf8.RuneStart(source[caret]) {
+		return 0, false
+	}
+	lineStart := strings.LastIndexByte(source[:caret], '\n') + 1
+	previous, _ := utf8.DecodeLastRuneInString(source[:caret])
+	var next rune
+	if caret < len(source) {
+		next, _ = utf8.DecodeRuneInString(source[caret:])
+	}
+	return PlanAutoPair(AutoPairInput{
+		Open: open, Next: next, PreviousWord: navigation.IsWordRune(previous),
+		InCode: inCode, InInlineCode: oddBacktickRun(source[lineStart:caret]),
+	})
+}
+
 // ShouldSkipCloser reports whether typing closer at the caret should move
 // over an already inserted closer instead of adding another character. The
 // next source rune is supplied by the editor host as a source fact.
@@ -94,4 +118,32 @@ func ShouldSkipCloser(lineBefore string, next, closer rune) bool {
 		return false
 	}
 	return true
+}
+
+// ShouldSkipCloserAt derives line and lookahead facts from a source snapshot
+// before applying the closer-skip rule.
+func ShouldSkipCloserAt(source string, caret int, closer rune) bool {
+	if caret < 0 || caret > len(source) || caret < len(source) && !utf8.RuneStart(source[caret]) {
+		return false
+	}
+	lineStart := strings.LastIndexByte(source[:caret], '\n') + 1
+	next, _ := utf8.DecodeRuneInString(source[caret:])
+	return ShouldSkipCloser(source[lineStart:caret], next, closer)
+}
+
+func oddBacktickRun(source string) bool {
+	count := 0
+	for i := 0; i < len(source); {
+		if source[i] != '`' {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(source) && source[j] == '`' {
+			j++
+		}
+		count++
+		i = j
+	}
+	return count%2 == 1
 }

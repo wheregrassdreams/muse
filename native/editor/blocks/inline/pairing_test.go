@@ -64,6 +64,24 @@ func TestPlanAutoPairRespectsFollowingAndPreviousText(t *testing.T) {
 	}
 }
 
+func TestPlanAutoPairAtDerivesUnicodeAndInlineCodeContext(t *testing.T) {
+	if got, ok := PlanAutoPairAt("x", 1, '"', false); ok || got != 0 {
+		t.Fatalf("quote after word = %q, %v; want no pair", got, ok)
+	}
+	if got, ok := PlanAutoPairAt("👩‍💻 ", len("👩‍💻 "), '(', false); !ok || got != ')' {
+		t.Fatalf("pair after multibyte source = %q, %v", got, ok)
+	}
+	if got, ok := PlanAutoPairAt("`code", len("`code"), '[', false); ok || got != 0 {
+		t.Fatalf("link opener inside inline code = %q, %v; want no pair", got, ok)
+	}
+	if _, ok := PlanAutoPairAt("é", len("é"), '(', false); !ok {
+		t.Fatal("valid UTF-8 boundary was rejected")
+	}
+	if _, ok := PlanAutoPairAt("é", 1, '(', false); ok {
+		t.Fatal("mid-rune caret was accepted")
+	}
+}
+
 func TestShouldSkipCloserOnlyWhenItsPairIsOpen(t *testing.T) {
 	for _, tc := range []struct {
 		before string
@@ -85,5 +103,14 @@ func TestShouldSkipCloserOnlyWhenItsPairIsOpen(t *testing.T) {
 	}
 	if ShouldSkipCloser("(", 'x', ')') {
 		t.Fatal("ShouldSkipCloser accepted a different next rune")
+	}
+}
+
+func TestShouldSkipCloserAtReadsSourceContext(t *testing.T) {
+	if !ShouldSkipCloserAt("(x)", len("(x"), ')') {
+		t.Fatal("open pair did not skip the existing closer")
+	}
+	if ShouldSkipCloserAt("(x)", len("(x)"), ')') {
+		t.Fatal("caret after closer incorrectly skipped")
 	}
 }

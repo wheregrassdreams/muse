@@ -11,6 +11,28 @@ const (
 	SetextHeading
 )
 
+// ShiftHeadingLevel returns the next Markdown heading level for a keyboard
+// shift command. Direction > 0 promotes and direction < 0 demotes; body text
+// promotes to level six, while demoting level six returns it to body text.
+func ShiftHeadingLevel(level, direction int) (int, bool) {
+	switch {
+	case level < 0 || level > 6 || direction == 0:
+		return level, false
+	case level == 0 && direction > 0:
+		return 6, true
+	case level == 0:
+		return level, false
+	case direction > 0 && level > 1:
+		return level - 1, true
+	case direction < 0 && level < 6:
+		return level + 1, true
+	case direction < 0:
+		return 0, true
+	default:
+		return level, false
+	}
+}
+
 // HeadingInput contains parser/layout facts needed to turn a paragraph into
 // an ATX heading. Positions are UTF-8 byte offsets in Source.
 type HeadingInput struct {

@@ -3,6 +3,8 @@ package inline
 import (
 	"strings"
 	"unicode/utf8"
+
+	"muse/editor/navigation"
 )
 
 // Edit is a source replacement in original UTF-8 byte coordinates.
@@ -54,6 +56,26 @@ func WrapSelection(source string, selection, word Range, useWord bool, open, clo
 		},
 		Selection: Range{Start: a + len(open), End: z + len(open)},
 	}, true
+}
+
+// WrapAtCaret selects the word under a collapsed caret when it is a valid
+// inline word target; otherwise it places the caret between the markers.
+// The caller supplies the word range projected by its navigation model.
+func WrapAtCaret(source string, selection, word Range, open, close string) (FormatPlan, bool) {
+	a, z := selection.Start, selection.End
+	if a > z {
+		a, z = z, a
+	}
+	useWord := a == z && validRange(source, word) && word.Start < word.End && word.Start <= a && a <= word.End &&
+		strings.TrimSpace(source[word.Start:word.End]) != "" && navigation.IsWordRune(firstRune(source[word.Start:word.End]))
+	return WrapSelection(source, selection, word, useWord, open, close)
+}
+
+func firstRune(source string) rune {
+	for _, r := range source {
+		return r
+	}
+	return 0
 }
 
 // MarkerKind selects source marker rules for inline syntax with variable

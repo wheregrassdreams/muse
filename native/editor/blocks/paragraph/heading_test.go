@@ -42,6 +42,29 @@ func TestPlanHeading(t *testing.T) {
 	}
 }
 
+func TestShiftHeadingLevel(t *testing.T) {
+	for _, test := range []struct {
+		level, direction int
+		want             int
+		changed          bool
+	}{
+		{0, 1, 6, true},
+		{0, -1, 0, false},
+		{1, 1, 1, false},
+		{2, 1, 1, true},
+		{5, -1, 6, true},
+		{6, -1, 0, true},
+		{6, 1, 5, true},
+		{7, 1, 7, false},
+		{2, 0, 2, false},
+	} {
+		got, changed := ShiftHeadingLevel(test.level, test.direction)
+		if got != test.want || changed != test.changed {
+			t.Errorf("ShiftHeadingLevel(%d, %d) = %d, %v; want %d, %v", test.level, test.direction, got, changed, test.want, test.changed)
+		}
+	}
+}
+
 func TestPlanHeadingRejectsInvalidRangesAndLevels(t *testing.T) {
 	for _, input := range []HeadingInput{
 		{Source: "x", Caret: 2, Level: 1, InsertAt: 0},
