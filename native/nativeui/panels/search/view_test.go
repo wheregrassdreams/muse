@@ -9,7 +9,7 @@ import (
 
 func TestRenderRecentClickEmitsOpenRecent(t *testing.T) {
 	state := newState()
-	state.open()
+	state.show()
 	var actions []Action
 	view := View{Recent: []RecentItem{{Path: "notes/recent.md", Title: "Recent note", PathLabel: "notes/recent.md"}}}
 	tester := ui.NewTester(func(c *ui.Context) {
@@ -29,7 +29,7 @@ func TestRenderRecentClickEmitsOpenRecent(t *testing.T) {
 
 func TestRenderQueryModeAndResultActions(t *testing.T) {
 	state := newState()
-	state.open()
+	state.show()
 	state.setQuery("needle")
 	var actions []Action
 	view := View{
@@ -62,7 +62,7 @@ func TestRenderQueryModeAndResultActions(t *testing.T) {
 
 func TestRenderQueryInputAndDismissAreTypedActions(t *testing.T) {
 	state := newState()
-	state.open()
+	state.show()
 	var actions []Action
 	view := View{Availability: VaultRequired}
 	tester := ui.NewTester(func(c *ui.Context) {
@@ -89,7 +89,7 @@ func TestRenderQueryInputAndDismissAreTypedActions(t *testing.T) {
 
 func TestRenderAvailabilityAndModePresentation(t *testing.T) {
 	state := newState()
-	state.open()
+	state.show()
 	state.setQuery("query")
 	view := View{Availability: IndexBuilding}
 	tester := ui.NewTester(func(c *ui.Context) { render(c, &state, view, nil) }, 900, 700)
