@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -30,7 +31,12 @@ type specExample struct {
 
 func loadSpec(t *testing.T) []specExample {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "testdata", "commonmark", "spec.json"))
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate CommonMark conformance test source")
+	}
+	path := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "testdata", "commonmark", "spec.json")
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read spec: %v", err)
 	}
