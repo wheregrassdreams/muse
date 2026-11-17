@@ -43,18 +43,20 @@ fi
 
 # The editor's nested directories are actual package boundaries, not filing
 # locations that share the parent package. Host-coupled integration tests stay
-# in components/editor; feature behavior belongs to these child packages.
+# in workbench/features/editor; feature behavior belongs to these child packages.
 for package in \
-  native/nativeui/components/editor/inputadapter \
-  native/nativeui/components/editor/ime \
-  native/nativeui/components/editor/blocks/inline \
-  native/nativeui/components/editor/blocks/paragraph \
-  native/nativeui/components/editor/blocks/table \
-  native/nativeui/components/editor/blocks/media \
-  native/nativeui/components/editor/render \
-  native/nativeui/components/editor/navigationrail \
-  native/nativeui/components/editor/feedback \
-  native/nativeui/components/editor/textlayout; do
+  native/nativeui/workbench/features/editor/inputadapter \
+  native/nativeui/workbench/features/editor/ime \
+  native/nativeui/workbench/features/editor/blocks/inline \
+  native/nativeui/workbench/features/editor/blocks/paragraph \
+  native/nativeui/workbench/features/editor/blocks/table \
+  native/nativeui/workbench/features/editor/blocks/media \
+  native/nativeui/workbench/features/editor/render \
+  native/nativeui/workbench/features/editor/navigation \
+  native/nativeui/workbench/features/editor/navigationrail \
+  native/nativeui/workbench/features/editor/feedback \
+  native/nativeui/workbench/features/editor/session \
+  native/nativeui/workbench/features/editor/textlayout; do
   if rg -n '^package editor$' "$package" --glob '*.go'; then
     fail "editor host package files remain inside child package: $package"
   fi
@@ -64,7 +66,7 @@ for package in \
 done
 
 if rg -n 'ProductionContent|documentSession|^[[:space:]]*ed[[:space:]]+\*editorui\.Editor' \
-  native/nativeui/app.go native/nativeui/components/editor --glob '*.go'; then
+  native/nativeui/app.go native/nativeui/workbench/features/editor --glob '*.go'; then
   fail "temporary production-editor bridge or duplicate App editor owner remains"
 fi
 
@@ -72,7 +74,7 @@ if [ -d native/editor/internal/parser ] && find native/editor/internal/parser -t
   fail "legacy editor parser-source implementation remains beside editor/source"
 fi
 
-if rg -n 'type[[:space:]]+parserSource|\*parserSource' native/editor native/nativeui/components/editor --glob '*.go'; then
+if rg -n 'type[[:space:]]+parserSource|\*parserSource' native/editor native/nativeui/workbench/features/editor --glob '*.go'; then
   fail "editor component retains a parser-source owner instead of editor/source"
 fi
 
@@ -166,31 +168,42 @@ for package in \
   native/ui/scrollbar \
   native/ui/iconlibrary \
   native/nativeui \
-  native/nativeui/components/editor \
-  native/nativeui/components/editor/textlayout \
-  native/nativeui/components/markdown \
-  native/nativeui/components/windowcontrols \
-  native/nativeui/components/doctypes \
-  native/nativeui/components/documentdialogs \
-  native/nativeui/components/linkpreview \
-  native/nativeui/window \
-  native/nativeui/workspacepresenter \
-  native/nativeui/surfaces/noteeditor \
-  native/nativeui/surfaces/backlinks \
-  native/nativeui/surfaces/imagepreview \
-  native/nativeui/surfaces/imagedocument \
-  native/nativeui/surfaces/mermaidpreview \
-  native/nativeui/surfaces/quickopen \
-  native/nativeui/interactions \
-  native/nativeui/panels/filetree \
-  native/nativeui/panels/outline \
-  native/nativeui/panels/search \
-  native/nativeui/panels/commandpalette \
-  native/nativeui/panels/naviconpicker \
-  native/nativeui/panels/vaulthome \
-  native/nativeui/panels/properties \
-  native/nativeui/panels/agent \
-  native/nativeui/panels/settings \
+  native/nativeui/workbench/commands \
+  native/nativeui/workbench/context \
+  native/nativeui/workbench/focus \
+  native/nativeui/workbench/keybindings \
+  native/nativeui/workbench/dragdrop \
+  native/nativeui/workbench/diagnostics \
+  native/nativeui/workbench/hosting \
+  native/nativeui/workbench/workspace \
+  native/nativeui/workbench/shell/windowcontrols \
+  native/nativeui/workbench/features/editor \
+  native/nativeui/workbench/features/editor/session \
+  native/nativeui/workbench/features/editor/navigation \
+  native/nativeui/workbench/features/editor/textlayout \
+  native/nativeui/workbench/features/editor/inputadapter/vim \
+  native/nativeui/workbench/features/editor/settings \
+  native/nativeui/workbench/features/markdown \
+  native/nativeui/workbench/features/dialogs/document \
+  native/nativeui/workbench/features/linkpreview \
+  native/nativeui/workbench/features/editor/surface \
+  native/nativeui/workbench/features/backlinks \
+  native/nativeui/workbench/features/imagepreview \
+  native/nativeui/workbench/features/imagedocument \
+  native/nativeui/workbench/features/mermaidpreview \
+  native/nativeui/workbench/features/quickopen \
+  native/nativeui/workbench/features/explorer \
+  native/nativeui/workbench/features/outline \
+  native/nativeui/workbench/features/search \
+  native/nativeui/workbench/features/commandpalette \
+  native/nativeui/workbench/features/naviconpicker \
+  native/nativeui/workbench/features/workspace \
+  native/nativeui/workbench/features/properties \
+  native/nativeui/workbench/features/agent \
+  native/nativeui/workbench/features/settings \
+  native/nativeui/workbench/features/vault \
+  native/nativeui/workbench/features/dialogs \
+  native/nativeui/workbench/features/dialogs/document \
   native/platform/filesystem/documentstore \
   native/platform/filesystem/configstore \
   native/platform/filesystem/agentworkspace \

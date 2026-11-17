@@ -9,6 +9,61 @@ Status: target architecture for the modular-monolith refactor. This document is 
 - Keep document editing and Markdown rendering fast: avoid copies across package APIs, avoid per-frame global events, and keep caches/resource lifetimes with their owning feature.
 - Complete the migration in one target architecture. Compatibility packages, duplicate implementations, old import paths, and temporary forwarding layers are not an acceptable end state.
 
+## Reference basis
+
+The UI architecture uses VS Code Workbench's separation between shell/core and feature-owned code as a structural reference. The stated 75% is an explicit 9-of-12 mapping of relevant source rules below, not a claim of source-code or visual similarity. It replaces the previous mixed `panels` / `surfaces` / `components` top-level taxonomy. Muse uses `workbench/features/<feature>` because these are ordinary first-party application modules; it does not adopt VS Code's contribution/extension registration model, dynamic extension host, Electron process model, or decorator-based service injection.
+
+The remaining references are deliberately limited by concern:
+
+- Joplin informs the separation between user-facing frontends and shared application services/models/storage, including reuse by desktop, mobile, and CLI. Muse's `application`, domain modules, and `platform` adapters own those layers.
+- CodeMirror and ProseMirror inform the editor's internal state, view, command, and transaction boundaries. They do not define the overall NativeUI tree.
+- GoRex informs MyGo-specific tab, split, pane-focus, and layout behavior. Its package layout is not copied wholesale.
+- Anytype and Logseq are note-product comparisons for block presentation and document/UI state coordination. Anytype's published desktop source guide describes global `component`, `lib`, `store`, `model`, and `interface` areas with MobX stores and a gRPC middleware boundary; Logseq describes feature/function-oriented frontend code with document state in DataScript and UI state in atoms. These are useful product-specific examples, but they do not provide the same feature-boundary model as the primary reference. Anytype's desktop repository identifies its license as Any Source Available License 1.0.
+
+The resulting NativeUI rule is: the root package is the composition root; `workbench` owns shell composition, generic pane-host contracts, workspace presentation, command and focus contracts, and shared UI lifecycle; `workbench/features/<feature>` owns each feature's UI state, views, actions, and narrow application adapters. A feature may contain a panel, pane surface, dialog, or more than one of these; those are roles inside the feature, not competing top-level package taxonomies. `components` is reserved for small, genuinely reusable visual primitives. Feature packages expose a narrow public API and do not exchange private state. Workbench core does not import feature implementations; the composition root wires them explicitly. There is no generic service locator, contribution registry, or dynamic plugin loader in this refactor.
+
+### VS Code rule-to-package mapping
+
+The source of the primary reference is Microsoft's published [source organization contract](https://github.com/microsoft/vscode/wiki/Source-Code-Organization/1a0b37e98b7c941127d4482f7ab8f51f95b15eeb), backed by the repository's [layer/contribution instructions](https://github.com/microsoft/vscode/blob/main/.github/instructions/source-code-organization.instructions.md). For a reproducible comparison, this table enumerates twelve relevant structural properties from those documents. Nine are adopted or translated to Muse's runtime; three are deliberately omitted, giving the approximate 9/12 (75%) figure.
+
+| VS Code source structure/rule | Muse target | Treatment |
+|---|---|---|
+| `src/vs/base` and `src/vs/platform` separate general UI building blocks from shared platform services | `ui` and `platform` | Adopt: toolkit-neutral primitives and OS/runtime implementations stay below NativeUI |
+| `src/vs/editor` is independent of Electron/Node runtime layers | `editor` and `markdown` | Adopt: editing and Markdown models remain independent of MyGo presentation |
+| `src/vs/workbench` is the application workbench layer | `nativeui/workbench` | Adopt: shared shell, pane-host contracts, commands, focus routing and workspace projection live here |
+| `src/vs/workbench/services` contains workbench-wide services | `nativeui/workbench/hosting`, `commands`, `focus` | Adapt: only genuinely cross-feature UI services belong here; feature-only services remain with their feature |
+| `src/vs/workbench/contrib/<feature>` groups feature-owned implementations | `nativeui/workbench/features/<feature>` | Adapt the ownership boundary; Muse uses ordinary feature packages and explicit composition, not VS Code contribution registration |
+| Feature APIs limit cross-feature reach-through | `<feature>/api.go` where another feature needs a stable seam | Adopt the boundary principle; expose APIs only when there is a real consumer |
+| Code outside a feature cannot depend on its private internals | Workbench core imports no feature packages | Adopt directly |
+| Features do not reach into another feature's internals | Cross-feature access through a narrow API or application use case | Adopt directly |
+| Feature-only services stay feature-local | Feature-local constructors and dependencies | Adopt the ownership principle; no global service locator |
+| Runtime-specific `common/browser/electron-*` package split | No corresponding package split | Omit: Muse has one MyGo native UI runtime, with OS-specific code in `platform` |
+| Dynamic VS Code extension host/contribution ecosystem | No dynamic loader in this refactor | Omit: features are statically linked; a plugin runtime is a separate future capability |
+| Decorator/service-identifier dependency injection | Explicit Go constructors and typed ports | Omit the mechanism; retain constructor injection without a global container |
+
+The nine adopted/adapted rows define the approximate 75% reference correspondence; the last three state explicit non-correspondences. This ratio is a review aid for architecture choices, not a universal mathematical measure of codebase similarity.
+
+### `hosting` and interaction responsibilities
+
+Neither `hosting` nor a generic `interactions` package is a one-to-one VS Code package mapping. VS Code separates editor opening/activation (`IEditorService`), editor groups (`IEditorGroupsService`), editor-area presentation (`EditorPart`), and view placement (`ViewsService`). Muse's `workbench/hosting` is a Muse-specific adapter seam that unifies only the live pane/window slot contract needed by its generic pane manager; it owns stable host handles, placement, focus ownership and lifecycle, and must not own a feature's view state. Durable tabs/splits remain in `workspace`; MyGo layout translation remains in `workbench/workspace`; feature content and its transient state remain in `features/<feature>`. GoRex is a behavioral analogue for tab/split/pane state and presentation, but keeps these responsibilities in its app package rather than defining a generic host package; its `host.go` is specifically a machine-information popover.
+
+`interactions` is intentionally not a package in the target tree. VS Code does not group all input behavior under such an umbrella: command registration/dispatch and keybinding resolution are separate infrastructure, context keys expose enablement/focus state, and feature-specific handlers live with their features. Muse follows that division: shared command contracts/dispatch go in `workbench/commands`, ordered panel-focus movement goes in `workbench/focus`, pane focus ownership goes in `workbench/hosting`, and feature-specific pointer/key/drag behavior stays with its feature. A shared drag/drop protocol would warrant a package only after multiple features demonstrably share that contract; it is not a generic interactions bucket.
+
+`workbench/focus` owns ordered panel focus movement. `workbench/context` is a separate, deliberately small UI-condition model inspired by VS Code's context-key expressions and Zed's nested key contexts. A context scope contributes facts; a resolved immutable snapshot overlays scopes from workspace to pane to focused control, with the nearest scope winning. Features own and name their keys (for example `explorer.hasSelection`, `editor.mode`, `search.open`); the shared package owns typed key/value access, snapshot composition, and pure rules (`equals`, `not`, `all`, `any`).
+
+Commands and keybindings may reference the same pure rule so menus, enablement, and input routing agree. Evaluating a rule is side-effect free; dispatch still checks availability before running the action. Action-specific arguments remain separate from context facts. Start with typed in-process keys and rules; add a text parser, user-configurable context names, change-event bus, or dynamic registration only when a product feature needs them. This is not Go's `context.Context`, an application state store, or a replacement for domain rules. `focus` produces/updates focus facts, `hosting` performs native focus transitions, and feature-owned state produces its own context facts.
+
+### Complementary references and exact scope
+
+| Reference | Source structure or rule | Muse mapping |
+|---|---|---|
+| Joplin | [Frontend is separate from shared services, models, and database; desktop/mobile/CLI use the shared backend](https://joplinapp.org/help/dev/spec/architecture/) | `nativeui` calls `application` and domain APIs; `cmd/muse-cli` can use the same application layer without NativeUI |
+| CodeMirror / ProseMirror | [State and view are separate](https://codemirror.net/docs/guide/); [model, state, view, and transform are separate packages](https://prosemirror.net/docs/guide/) | `editor` owns session/transactions/commands; `nativeui/workbench/features/editor` owns MyGo presentation and host adaptation |
+| GoRex | [`state.go` owns tabs/split/persistence; `view.go`, `tabs.go`, and `commands.go` present pane behavior](https://github.com/egoist/gorex); `host.go` is the machine-information popover, not a generic pane host | `workspace` and `nativeui/workbench/workspace` follow its state/presentation split; Muse's `workbench/hosting` has no direct GoRex package counterpart |
+| Zed | [Active key contexts form a Workspace → Pane/Panel → Editor tree with boolean and ancestor-match expressions](https://zed.dev/docs/key-bindings#contexts); [GPUI attaches actions and key contexts to element subtrees](https://github.com/zed-industries/zed/blob/main/crates/gpui/docs/key_dispatch.md) | Use scoped context composition and context-aware action resolution as the reference for `workbench/context`; do not copy GPUI's Rust entity/context runtime |
+| Anytype | [Published frontend layout separates `component`, `lib`, `store`, `model`, and `interface`](https://github.com/anyproto/anytype-ts/blob/develop/docs/src/ts/README.md); [gRPC API is the frontend/middleware boundary](https://github.com/anyproto/anytype-ts/blob/develop/docs/src/ts/lib/api/README.md) | Compare block/document presentation and API boundary only; do not copy the global technical-category tree. The client identifies itself as open code under ASAL 1.0. |
+| Logseq | [Frontend components/handlers/workers and document DB vs UI state](https://github.com/logseq/logseq/blob/master/CODEBASE_OVERVIEW.md) | Compare document/UI state coordination and worker ownership; it does not define Muse's NativeUI feature boundary |
+
 ## Target package tree
 
 ```text
@@ -67,38 +122,37 @@ native/
 ├── ui/                            # reusable UI primitives
 │   ├── scrollbar/
 │   └── iconlibrary/
-├── nativeui/                      # Muse panels and presentation composition
-│   ├── window/                     # generic window, pane and overlay hosting/lifecycle
-│   ├── surfaces/                   # feature-owned window content implementations
-│   │   ├── backlinks/               # backlink overlay content and scroll presentation
-│   │   ├── noteeditor/              # compose each pane's document/editor session
-│   │   ├── imagepreview/
-│   │   ├── imagedocument/
-│   │   ├── mermaidpreview/
-│   │   └── quickopen/
-│   ├── workspacepresenter/         # project workspace tabs/split tree into pane slots
-│   ├── panels/
-│   │   ├── filetree/
-│   │   ├── outline/
-│   │   ├── search/
-│   │   ├── findreplace/             # current-document find/replace view state and typed actions
-│   │   ├── commandpalette/
-│   │   ├── naviconpicker/
-│   │   ├── vaulthome/
-│   │   ├── properties/
-│   │   ├── agent/
-│   │   └── settings/
-│   ├── components/
-│   │   ├── icons/                  # MyGo adapter for the UI-independent ui/iconlibrary catalog
-│   │   ├── windowcontrols/         # native window shell controls
-│   │   ├── editor/                  # MyGo editor host, adapter subsystems, and composition
-│   │   │   └── textlayout/           # MyGo-backed shaping helpers used by the editor view
-│   │   ├── markdown/                # MyGo painter over neutral Markdown models
-│   │   ├── doctypes/                # backend-neutral document type registry/open policy
-│   │   ├── documentdialogs/       # reusable document dialogs and export presentation
-│   │   └── linkpreview/           # wiki-link hover preview state and rendering
-│   └── interactions/              # shared focus, keyboard routing and drag/drop behavior
-│       └── dragpayload/           # typed payloads shared by filetree and editor surfaces
+├── nativeui/                      # static UI composition root; no feature policy or duplicate feature state
+│   ├── workbench/
+│       ├── shell/                 # app chrome and overall workbench layout
+│       ├── hosting/               # Muse-specific live pane host contract, focus and lifecycle
+│       ├── workspace/             # MyGo projection of tabs/split tree to hosted pane slots
+│       ├── commands/              # typed command registration/dispatch contracts
+│       ├── context/               # scoped UI facts and composable command conditions
+│       ├── focus/                 # ordered panel focus movement, independent of toolkit handles
+│       ├── keybindings/           # platform-neutral key strokes and sequence matching
+│       ├── dragdrop/              # typed payloads shared across feature modules
+│       ├── diagnostics/           # opt-in runtime and resource diagnostics
+│       └── features/              # first-party feature-owned UI modules
+│           ├── editor/            # note editor surface and its UI-specific subsystems
+│           ├── explorer/          # file tree and vault navigation view
+│           ├── vault/             # UI coordination for vault lifecycle and refresh
+│           ├── outline/
+│           ├── search/            # workspace search and current-document find/replace views
+│           ├── quickopen/         # transient file chooser surface; matching stays in search/quickopen
+│           ├── backlinks/
+│           ├── imagedocument/     # image opened as a workspace document
+│           ├── imagepreview/      # transient image preview pane
+│           ├── mermaidpreview/    # transient Mermaid preview pane
+│           ├── linkpreview/       # transient wiki/link preview
+│           ├── properties/
+│           ├── commandpalette/
+│           ├── settings/
+│           ├── agent/
+│           └── dialogs/           # feature-owned or shared dialog presentations
+│               ├── document/      # conflict, recovery, and metadata migration dialogs
+│               └── export_adapter.go
+│   └── components/                # only low-level, cross-feature visual primitives
 ├── platform/                      # OS/runtime adapters
 │   ├── agent/                      # external AI provider HTTP adapters and wire protocol
 │   ├── externalopener/            # open URLs/files with the host system
@@ -124,6 +178,41 @@ native/
 └── locales/                       # localization data and generated catalog
 ```
 
+Each feature is a regular Go package. The composition root wires the feature explicitly; it may expose a narrow API when other modules need one. Its internal organization follows the feature's needs, for example:
+
+```text
+nativeui/workbench/features/editor/
+├── surface/            # one editor instance hosted in a workspace pane
+├── inputadapter/       # MyGo event adaptation and host-side input routing
+│   └── vim/             # Vim-specific host and prompt adapters
+├── navigation/         # editor-host navigation integration
+├── ime/                # text composition and IME host lifecycle
+├── session/            # transaction and history integration
+├── render/             # rich-text projection and MyGo painting
+├── blocks/             # inline, paragraph, table, and media UI adapters
+├── navigationrail/     # heading rail presentation
+├── textlayout/         # MyGo-backed shaping and layout cache
+├── settings/           # editor-specific settings projection
+└── feedback/           # transient cursor/search/yank visuals
+```
+
+The role is not to force every feature into the same subdirectory template. The invariant is ownership: a feature keeps its state, UI, commands, and feature-only services together; a narrow API is added when needed. Shared workbench code may define host contracts, but it may not import feature implementations.
+
+| Existing NativeUI area | Target feature/core owner |
+|---|---|
+| `panels/filetree`, `filetree_panel.go`, and tree-local state in `app.go` | `workbench/features/explorer` |
+| `panels/outline` | `workbench/features/outline` |
+| `panels/search` and `panels/findreplace` | `workbench/features/search` (query and replacement semantics stay in `search` / `editor/findreplace`) |
+| `surfaces/noteeditor` and `components/editor` | `workbench/features/editor` |
+| `surfaces/quickopen` | `workbench/features/quickopen` (candidate matching remains in `search/quickopen`) |
+| `surfaces/backlinks` | `workbench/features/backlinks` (resolution remains in `vault/links`) |
+| `surfaces/imagepreview`, `surfaces/imagedocument`, `surfaces/mermaidpreview` | Separate `workbench/features/imagepreview`, `imagedocument`, and `mermaidpreview` features |
+| `panels/properties`, `panels/commandpalette`, `panels/settings`, `panels/agent`, `panels/naviconpicker`, `panels/vaulthome` | Corresponding feature modules; shared settings/vault policy stays in its owning application/domain module |
+| `components/markdown`, `components/linkpreview` | `workbench/features/markdown`, `workbench/features/linkpreview` |
+| `window`, `workspacepresenter` | `workbench/hosting` for live pane contracts; `workbench/workspace` for MyGo layout projection |
+| `components/doctypes` | `document/types` for document-kind policy; UI-specific renderer selection remains in the owning feature |
+| `components/icons`, `components/windowcontrols` | `components/icons`, `workbench/shell/windowcontrols` |
+
 The child entries in this tree are real Go package boundaries, not merely folders used to group files. `editor` and `markdown` are public facades; they should compose focused subsystems rather than retain the current large implementation bodies. A subsystem may stay in its parent package only when it shares private invariants that cannot yet be expressed through a narrow typed contract. Do not create one-file packages or empty forwarding shells just to match the tree.
 
 ### Editor extraction map
@@ -140,66 +229,61 @@ The child entries in this tree are real Go package boundaries, not merely folder
 | `editor/navigation` | Source-position movement, grapheme boundaries, and structural navigation policy | `nav.go`, `comment_nav.go`, `editor_grapheme.go`, and movement policy currently mixed into Vim/navigation files |
 | `editor/findreplace` | Case-insensitive current-buffer matching, source ranges and safe single/all replacement planning | Current-document `findHits`, snippet/range generation, and replacement planning in `nativeui.App` |
 | `editor/layout` | Backend-neutral block and viewport geometry, visible-range indexing, virtualization, and scrolling policy | Geometry and virtualization portions of `layout.go`; horizontal offset/reveal/bar geometry and virtual-row policy from `horizontal_scroll.go` and `vim_virtual_image_rows.go` |
-| `editor/blocks/inline` | Inline formatting, pair insertion/skip rules, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go`; auto-pair and closer-skip policy from `nativeui/components/editor/editor_edit.go` |
-| `editor/blocks/paragraph` | Heading/list/fold/break behavior, typed block shortcuts, and paragraph transactions | `folding.go`, `typed_breaks.go`, `paragraph`/heading/list portions of editor commands; fenced-code/math shortcut construction from `nativeui/components/editor/editor_edit.go` |
+| `editor/blocks/inline` | Inline formatting, pair insertion/skip rules, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go`; auto-pair and closer-skip policy from `nativeui/workbench/features/editor/editor_edit.go` |
+| `editor/blocks/paragraph` | Heading/list/fold/break behavior, typed block shortcuts, and paragraph transactions | `folding.go`, `typed_breaks.go`, `paragraph`/heading/list portions of editor commands; fenced-code/math shortcut construction from `nativeui/workbench/features/editor/editor_edit.go` |
 | `editor/blocks/table` | Table selection model, hit testing, grid geometry, and row/column operations | Semantic portions of `table_document_selection.go`, `table_region_*.go`, `table_virtual_edit.go`, and `table_visual_modes.go` |
-| `nativeui/components/editor` | MyGo input/render adapter, editing interaction orchestration, IME, painting, scroll event translation, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go`; host scroll input/indicator adapters |
+| `nativeui/workbench/features/editor` | MyGo input/render adapter, editing interaction orchestration, IME, painting, scroll event translation, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go`; host scroll input/indicator adapters |
 
 The table entries are responsibility guides, not mechanical move lists: files that combine model behavior and UI must be split before their owners change. Tests move with the package that owns the tested behavior; Vim mode/command tests belong with `editor/input/vim`, movement semantics belong with `editor/navigation`, UI/input adapter tests belong with the component adapter, and transaction tests stay with the core. A package is justified when it has a coherent contract and more than a forwarding file.
 
+An `_adapter.go` filename does not itself establish a module boundary. Keep an adapter when it translates between a consumer-owned contract and a concrete toolkit, operating-system, or host capability. The adapter should have one clear direction and no duplicate feature state. A `*Editor` receiver that reads private state may stay in the component root as a narrow host bridge, but rendering policy and feature behavior stay with their owning package. Forward-only compatibility shims and duplicate implementations are migration leftovers and must be removed before completion.
+
 Vim remains a selectable editor input strategy, not a second editor core. Its state machine owns mode transitions, command prefixes/counts, register selection, and key-to-intent mapping. It sends typed intents through a narrow Host callback; the host resolves source/selection context and dispatches editor operations without exposing `Editor` fields or buffer/history to Vim. `editor/navigation` implements movement semantics, `editor/blocks/*` implements block operations, and `editor/internal/core` commits edits. The UI adapter translates MyGo events to neutral input events and renders the current mode label/command prompt from an immutable Vim view state.
 
-Text shaping needs an explicit backend boundary. `editor/layout` owns neutral block, viewport, scrolling, and virtualization policy. MyGo scroll event translation and indicator lifecycle stay in the `nativeui/components/editor` host. The current shaping implementation imports MyGo and therefore belongs under `nativeui/components/editor/textlayout`; it must not stay under `editor` or `editor/internal`. If a backend-neutral shaping algorithm is extracted later, it can live behind that component package's narrow input/output contract without depending on MyGo.
+Text shaping needs an explicit backend boundary. `editor/layout` owns neutral block, viewport, scrolling, and virtualization policy. MyGo scroll event translation and indicator lifecycle stay in the editor feature host. The current shaping implementation imports MyGo and therefore belongs under `nativeui/workbench/features/editor/textlayout`; it must not stay under `editor` or `editor/internal`. If a backend-neutral shaping algorithm is extracted later, it can live behind that feature package's narrow input/output contract without depending on MyGo.
 
-The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/components/editor` must be able to consume it without violating Go's `internal` import boundary.
+The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/workbench/features/editor` must be able to consume it without violating Go's `internal` import boundary.
 
-`editor.Session.Frame` is a neutral source snapshot containing only revision, source text, and selection. It must not carry a Markdown AST, rendered block tree, toolkit object, or cache. `editor/source` owns the source-to-syntax projection; Markdown parsing and render models remain in `markdown`. `nativeui/components/editor` may keep a separate immutable viewport frame containing only visible UI blocks and presentation resources.
+`editor.Session.Frame` is a neutral source snapshot containing only revision, source text, and selection. It must not carry a Markdown AST, rendered block tree, toolkit object, or cache. `editor/source` owns the source-to-syntax projection; Markdown parsing and render models remain in `markdown`. `nativeui/workbench/features/editor` may keep a separate immutable viewport frame containing only visible UI blocks and presentation resources.
 
 `editor/blocks/*` owns the behavior and session state of each block subsystem; table syntax and parsed structure remain in Markdown, while table selection and edits belong to `editor/blocks/table` and table painting/input belongs to the editor UI component. Rich-text input rules such as auto-pairing, Markdown block shortcuts, list continuation, structural Enter/Backspace behavior, and semantic table selection are editor policy, not UI behavior. UI adapters may inspect parser-projected geometry and translate toolkit events, but must ask the owning editor or block subsystem for the resulting operation/transaction.
 
 ### Editor UI component extraction map
 
-`nativeui/components/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint. In the layout phase, place files under the target responsibility directories without changing their bodies; these paths are only a skeleton and are not usable package boundaries yet. In the later wiring phase, split mixed implementations and introduce narrow immutable frames or typed host interfaces before changing package declarations and imports.
+`nativeui/workbench/features/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint. In the layout phase, place files under the target responsibility directories without changing their bodies; these paths are only a skeleton and are not usable package boundaries yet. In the later wiring phase, split mixed implementations and introduce narrow immutable frames or typed host interfaces before changing package declarations and imports.
 
 | Target package | Owns | Candidate current files / required seam |
 |---|---|---|
-| `components/editor` | Editor host, construction, lifecycle, scroll event translation, and composition of UI adapters | Keep the host lifecycle, MyGo scroll input/indicator handling, and orchestration here; do not keep input policy or semantic edit/selection rules here, and do not export broad mutable state to make extraction easier |
-| `components/editor/session` | Presentation-to-session synchronization and history participation | `session_adapter.go`, `editor_transaction.go`, `history.go`, and `history_participant.go`; the domain `editor.Session` remains authoritative for source, selection, revision, and edit history |
-| `components/editor/inputadapter` | MyGo key/text normalization and presentation-side adaptation of Vim intents to editor host actions | `production_input.go`, `modal_text.go`, and `modal_vim_adapter.go`; key grammar and command meaning stay in `editor/input/vim`, while this adapter resolves host-dependent facts and applies the resulting actions |
-| `components/editor/ime` | MyGo text-composition lifecycle, UTF-16 range conversion, and Editor-host composition bridge | `ime.go` and `ime_host.go`; the client owns composition state and text-session contracts, while the host bridge supplies document edits and geometry |
-| `components/editor/blocks/inline` | Inline-link suggestion/hover UI and host-side inline actions | Move wiki suggestion popup state and link interaction adapters here; consume `editor/blocks/inline` source ranges and typed actions |
-| `components/editor/blocks/inline` | Inline formatting command adapter over the source-level inline subsystem | `editor_format.go`; keep delimiter/range policy in `editor/blocks/inline` and limit the component adapter to host facts and applying returned edits |
-| `components/editor/blocks/paragraph` | Fold affordances, fold host state, and paragraph-specific interactions | `folding_host.go` and `typed_breaks_host.go` with fold-chevron and typed-break UI adapters; heading/source policies remain in `editor/blocks/paragraph` |
-| `components/editor/blocks/table` | Table-only menus, drag/resize affordances, selection projection, and presentation/input adapters | `table_cell_menu.go`, `table_edges.go`, `table_reorder.go`, `document_selection_adapter.go`, and the UI part of `table_host.go`; consume `editor/blocks/table` state through a typed host |
-| `components/editor/blocks/media` | Image, math, and diagram controls/presentation and UI resource lifetime | `image_controls.go`, `math_preview.go`, and `diagram_preview.go`; resolve leaf/source access through a typed media host |
-| `components/editor/render` | MyGo painting, rich-text block projection, syntax-token styling, and view composition from an immutable visible-block frame | `document.go`, `paint.go`, `display.go`, `production_view.go`, `production_layout_host.go`, `source_reveal.go`, `source_highlight.go`, HTML/callout/wiki-embed presentation; object projection/painter invariant tests such as `object_size_test.go`. Keep tests coupled to the editor host in the component root until the renderer contract is wired. |
-| `components/editor/navigation` | Visible-text/source coordinate projection, grapheme boundary adaptation, and host-side movement integration | `editor_nav.go`, `vim_native_commands.go`, `editor_grapheme.go`, `block_caret.go`, and `navigationrail_adapter.go`; convert display and toolkit positions to source positions, then delegate source movement policy to `editor/navigation` |
-| `components/editor/inputadapter` | MyGo key/text normalization and presentation-side adaptation of input and Vim intents to editor host actions | `production_input.go`, `editor_edit.go`, `modal_state.go`, `modal_text.go`, `modal_vim_adapter.go`, `operations_host.go`, and `rectangle.go`; key grammar and command meaning stay in `editor/input/vim`, while this adapter resolves host-dependent facts and applies the resulting actions. Split block-specific behavior into its owner modules during wiring |
-| `components/editor/navigationrail` | Heading-rail rendering, hover/preview presentation, and interaction state | `navigation_rail.go`, `navigation_rail_model.go`; source-position snapshots and heading-jump policy move to `editor/navigation` when the host seam is wired |
-| `components/editor/feedback` | Transient visual feedback and animation state | `smooth_cursor.go`, `search_match_pulse.go`, `vim_yank_flash.go`; keep source selection and movement authoritative in `editor` |
-| `components/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
+| `workbench/features/editor` | Editor host, construction, lifecycle, scroll event translation, and narrow host bridges for child components | Keep the host lifecycle, MyGo scroll input/indicator handling, orchestration, and methods that must read private `Editor` state to implement child-owned capabilities; keep feature view/state/policy in child packages and do not export broad mutable state |
+| `workbench/features/editor/session` | Applying a validated editor transaction through the authoritative domain session | `transaction.go` accepts a domain `Session` and value transaction; parser synchronization and feature-owned history snapshots stay in the feature host because they require private presentation state |
+| `workbench/features/editor/input` | Pure MyGo key/text normalization into `editor/input` values | `key_event.go`; keymap interpretation and stateful `Editor` dispatch stay with their owners, while the Vim prompt view consumes a narrow presentation host |
+| `workbench/features/editor/ime` | MyGo text-composition lifecycle, UTF-16 range conversion, and text-input client contract | `client.go`, `state.go`, and `index.go`; the feature-root IME host implements narrow source-edit and geometry capabilities |
+| `workbench/features/editor/blocks/inline` | Inline-link suggestion/hover UI and host-side inline actions | Move wiki suggestion popup state and link interaction adapters here; consume `editor/blocks/inline` source ranges and typed actions |
+| `workbench/features/editor/blocks/inline` | Inline formatting command adapter over the source-level inline subsystem | `editor_format.go`; keep delimiter/range policy in `editor/blocks/inline` and limit the feature adapter to host facts and applying returned edits |
+| `workbench/features/editor/blocks/paragraph` | Fold affordances, fold host state, and paragraph-specific interactions | `folding_host.go` and `typed_breaks_host.go` with fold-chevron and typed-break UI adapters; heading/source policies remain in `editor/blocks/paragraph` |
+| `workbench/features/editor/blocks/table` | Table-only menus, drag/resize affordances, selection projection, and presentation/input adapters | `table_cell_menu.go`, `table_edges.go`, `table_reorder.go`, `document_selection_adapter.go`, and the UI part of `table_host.go`; consume `editor/blocks/table` state through a typed host |
+| `workbench/features/editor/blocks/media` | Image, math, and diagram controls/presentation and UI resource lifetime | `image_controls.go`, `math_preview.go`, and `diagram_preview.go`; resolve leaf/source access through a typed media host |
+| `workbench/features/editor/render` | MyGo painting, rich-text block projection, syntax-token styling, and view composition from an immutable visible-block frame | `document.go`, `paint.go`, `display.go`, `production_view.go`, `production_layout_host.go`, `source_reveal.go`, `source_highlight.go`, HTML/callout/wiki-embed presentation; object projection/painter invariant tests such as `object_size_test.go`. Keep tests coupled to the editor host in the feature root until the renderer contract is wired. |
+| `workbench/features/editor/navigation` | Reusable visible-text/source coordinate mapping with no editor or toolkit state | `mapping.go`; editor movement and layout-aware host resolution stay in the feature host and delegate source-position policy to `editor/navigation` |
+| `workbench/features/editor/navigationrail` | Heading-rail rendering, hover/preview presentation, and interaction state | `view.go` and `policy.go`; it consumes an immutable heading frame and typed preview/jump callbacks, never an `Editor` or source model |
+| `workbench/features/editor/feedback` | Transient visual feedback and animation state | `smooth_cursor.go`, `search_match_pulse.go`, `vim_yank_flash.go`; keep source selection and movement authoritative in `editor` |
+| `workbench/features/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
 
-The candidate map records the final owners, not an instruction to change dependencies during the layout pass. During layout-only moves, keep file bodies and package declarations unchanged even when they temporarily depend on the old shared package; the later wiring phase splits mixed implementations and introduces narrow typed contracts. The renderer currently has the widest private-state reach, so its package API will need special care during wiring. Semantic editing behavior remains in `editor`, `editor/navigation`, and `editor/blocks/*`; these UI packages translate host events, supply toolkit facts such as hit-tested source ranges, apply returned transactions through the editor session, and present resulting state. `components/editor/navigation` owns display-to-source adaptation only; the meaning of movement remains in `editor/navigation` and the relevant block subsystem.
+The candidate map records the final owners, not an instruction to change dependencies during the layout pass. During layout-only moves, keep file bodies and package declarations unchanged even when they temporarily depend on the old shared package; the later wiring phase splits mixed implementations and introduces narrow typed contracts. The renderer currently has the widest private-state reach, so its package API will need special care during wiring. Semantic editing behavior remains in `editor`, `editor/navigation`, and `editor/blocks/*`; these UI packages translate host events, supply toolkit facts such as hit-tested source ranges, apply returned transactions through the editor session, and present resulting state. The editor feature's navigation adapter owns display-to-source mapping only; source movement semantics remain in `editor/navigation` and the relevant block subsystem. The feature root produces revision-tagged heading snapshots and passes values plus typed callbacks to the navigation rail, which never receives an `Editor` handle.
 
 `markdown/syntax` owns Markdown parsing and AST values. `markdown/render` maps parsed values to rendered blocks. `images`, `math`, and `diagrams` own their bounded media/rendering pipelines and caches; they expose results to the renderer without depending on the editor session. The root `markdown` package is the stable entry point for common parse/render operations.
 
-For very large Base64 image destinations, the exact Markdown recognition and synthetic inline-token fast path belong to `markdown/syntax`: it must preserve canonical parse token kinds and byte ranges and must not decode image bytes. A source-revision cache belongs with the editor's source projection, while decoding, pixel budgets and decoded-resource caching stay in `markdown/images`; MyGo image placement and controls stay in `nativeui/components/editor/blocks/media`. Do not let this parser optimization become a second Markdown grammar or a UI-owned syntax rule.
+For very large Base64 image destinations, the exact Markdown recognition and synthetic inline-token fast path belong to `markdown/syntax`: it must preserve canonical parse token kinds and byte ranges and must not decode image bytes. A source-revision cache belongs with the editor's source projection, while decoding, pixel budgets and decoded-resource caching stay in `markdown/images`; MyGo image placement and controls stay in `nativeui/workbench/features/editor/blocks/media`. Do not let this parser optimization become a second Markdown grammar or a UI-owned syntax rule.
 
-`search/quickopen` owns fuzzy matching across candidate path, title, and aliases, including rank and rune-based highlight positions. The Quick Open surface owns only its query/selection view state and input presentation; it consumes ranked candidates and returns typed actions. It does not scan or rank the full catalog itself. Mermaid parsing and diagram models remain in `markdown`; the Mermaid Preview surface owns only its transient viewport state and rendering host integration.
+`search/quickopen` owns fuzzy matching across candidate path, title, and aliases, including rank and rune-based highlight positions. `nativeui/workbench/features/quickopen` owns the chooser's transient query/selection view state and presentation; it consumes ranked candidates and returns typed actions. Mermaid parsing and diagram models remain in `markdown`; `nativeui/workbench/features/mermaidpreview` owns transient viewport state and MyGo presentation.
 
-`nativeui/window` owns the generic runtime contract for opening, closing, focusing and placing windows, panes and overlays. It exposes stable IDs, generic descriptors and lifecycle operations; it does not expose a feature's concrete state type. Feature constructors take their own typed inputs and return a generic hosted-content interface plus an opaque handle. The manager owns host placement, z-order, focus and lifecycle; the hosted content owns its state, rendering and feature actions. Image preview owns zoom/pan/decode state, Quick Open owns query/selection state, Mermaid Preview owns its diagram view state, and Backlinks owns its list/scroll presentation behind that generic handle. `vault/links` owns backlink data and resolution; the Backlinks surface owns only its presentation and navigation actions. `workspace` owns durable document/pane descriptors, while transient overlays such as Quick Open and previews are not restored unless a product requirement explicitly says so. Persisted layout never contains bitmaps, widgets or feature-private state.
+`nativeui/workbench/hosting` owns Muse's generic runtime host contract for windows and panes: stable handles, placement, focus ownership, and content lifecycle. It does not attempt to reproduce VS Code's separate editor-group, editor-area, and view-container services as one implementation, and it never imports a feature package or exposes concrete feature state. `workspace` owns durable tabs, active documents and split descriptors; `nativeui/workbench/workspace` translates them into MyGo layout and emits typed actions. This follows GoRex's observable division of split state from its view/host code, while keeping Muse's durable layout model out of UI packages.
 
-The runtime manager exposes `FocusedPane(host)` as a feature-neutral routing context, including while an overlay owns keyboard focus. It can activate and render one generic content handle per pane, but does not own tab presentation or split geometry: `workspace` persists tab order, active document per pane, and the split tree; `nativeui/workspacepresenter` maps that model to pane slots and asks the window manager to render each slot's active content. The presenter owns MyGo rows/columns, dividers, resize gestures, and focus requests; it emits typed workspace actions instead of editing workspace state itself. Pane focus and content focus remain separate so modal and transient surfaces do not change the active document pane.
+Each package under `nativeui/workbench/features/<feature>` owns the state and presentation for that feature. Add an `api.go` only when another module needs a supported seam. The root `nativeui.App` is the composition root that wires concrete feature implementations. Workbench core depends only on contracts and shared components; it does not import feature implementations. Cross-feature calls use the callee's public API or an application use case, never private state. Feature policy stays in `application`, `vault`, `search`, `document`, `editor`, or `agent`.
 
-The MyGo-native [GoRex implementation](https://github.com/egoist/gorex) is a useful reference for the layer above MyGo's window and element APIs. GoRex keeps a per-tab split tree, focused/zoomed pane, and recent-focus order in app state; its view recursively maps split nodes to MyGo rows/columns and divider elements. Pane focus is updated from the focused terminal element, and directional focus uses the rendered pane bounds. Its persistence serializes tab order, split ratios, active tab, and each tab's focused pane. Muse should follow the same ownership split: `workspace` owns the durable tab/layout/focus model, `nativeui/workspacepresenter` owns MyGo layout and focus requests, and `nativeui/window` owns generic content placement/lifecycle. MyGo supplies the native window and UI primitives; the application builds the tabs/split behavior.
+The editor feature composes one pane's document workflow and `editor.Session` into hosted content. It owns its editor instance and transient cursor/view state; `workspace` owns portable restore descriptors. The app routes pane commands using `FocusedPane` and typed capabilities rather than retaining parallel editor state. Persisted workspace data contains no widgets, bitmaps, or feature-private state.
 
-The sidebar `panels` are distinct from window surfaces. Each panel package owns a view model and typed actions, receives data and capabilities through its public API, and returns actions to the root controller for use-case dispatch. Panel packages must not declare `package nativeui` in a child directory or reach the root `App`'s private fields. `surfaces/noteeditor` composes one pane's `application/document` workflow and `editor.Session` into generic hosted content through `components/editor`; its source, dirty/save state, cursor, and editor instance are private to that pane surface. The `App` routes typed commands to the pane surface and does not keep parallel document or editor state. `components` owns reusable UI pieces such as document-type presentations and shared primitives; icon assets and lookup live in `ui/iconlibrary`. `interactions` owns shared focus, keyboard routing and drag/drop mechanics when more than one panel consumes them. Feature-specific policy remains in `application`, `vault`, `search`, `document`, or `agent` rather than in a panel package.
-
-`nativeui.App` constructs a feature surface with that feature's typed constructor, opens it through the generic manager, and holds only opaque handles or generic descriptors—not fields such as `imagepreview.State`, `quickopen.State` or `diagramPreviewState`. The main editor is also a pane content surface: App asks `nativeui/surfaces/noteeditor` to compose the pane's document workflow, editor session and `nativeui/components/editor` adapter, then registers that generic content for the active workspace pane. `nativeui/workspacepresenter` renders each pane through `RenderPane`. App routes pane-scoped commands using `FocusedPane` plus typed feature-owned capabilities; it does not reach into editor/widget state. A surface maps generic open/close/focus lifecycle to its private session. The manager handles host placement and lifecycle only; it does not interpret image, document, search or editor behavior. If descriptor-based restore later needs factories, the composition root registers factories by stable kind and passes only portable descriptors; the concrete state remains private. Avoid a universal mutable state bag or a global service locator.
-
-`nativeui/components/doctypes` owns the backend-neutral registry of openable document kinds, extension matching, parse selection, and editable-file policy. It must not import MyGo widgets or Markdown presentation. The composition root binds a document type to a concrete surface/view adapter; reusable dialogs and file-tree panels consume the registry's stable type metadata and policies.
-
-For the panel boundary, App-specific adapters and integration tests that need `nativeui.App` private state live in `nativeui` itself. Child panel packages own view models, typed actions, and rendering; the root adapter maps those actions into application use cases. A directory name alone does not establish a package boundary, and a child directory may not declare `package nativeui`.
+Openable document-kind policy belongs in `document/types`, not a UI component package. A feature may expose a renderer through its public API; renderer selection must not make document policy depend on MyGo or Markdown presentation.
 
 ### NativeUI root extraction map
 
@@ -207,25 +291,26 @@ The root `nativeui` package is still larger than its target responsibility. Keep
 
 | Current root files / behavior | Target owner | Root package keeps |
 |---|---|---|
-| `command_palette.go`: query/selection state and palette rendering | `panels/commandpalette` | Command registration and dispatch to application use cases |
-| `vault_home.go`, settings and nav-icon picker rendering/state | `panels/vaulthome`, `panels/settings`, `panels/naviconpicker` | Injected repositories and application capability adapters |
-| `assistant_panel_adapter.go`: assistant panel rendering and tool-policy rules | `panels/agent` for presentation; `agent` / `application/agent` for policy and workflows | Tool capability wiring at composition time |
-| `filetree_panel.go`, `file_tree_keys.go`: tree rendering, view state, tree-local commands | `panels/filetree`; shared focus/key routing in `interactions` | Typed action dispatch to `application/vault` |
-| `app.go`: flattened visible tree rows, selection projection and create-target choice coupled to expansion/selection state | `panels/filetree` projection state and typed handle methods | Supply catalog child/directory lookups and invalidate after vault catalog changes |
+| `command_palette.go`: query/selection state and palette rendering | `workbench/features/commandpalette` | Command registration and dispatch to application use cases |
+| `vault_home.go`, settings and nav-icon picker rendering/state | `workbench/features/workspace`, `workbench/features/settings`, `workbench/features/naviconpicker` | Injected repositories and application capability adapters |
+| `assistant_panel_adapter.go`: assistant panel rendering and tool-policy rules | `workbench/features/agent` for presentation; `agent` / `application/agent` for policy and workflows | Tool capability wiring at composition time |
+| `filetree_panel.go`, `file_tree_keys.go`: tree rendering, view state, tree-local commands | `workbench/features/explorer`; shared command and focus contracts in `workbench/commands` and `workbench/focus` | Typed action dispatch to `application/vault` |
+| `app.go`: flattened visible tree rows, selection projection and create-target choice coupled to expansion/selection state | `workbench/features/explorer` projection state and typed feature API | Supply catalog child/directory lookups and invalidate after vault catalog changes |
 | `app.go`: Markdown heading fragment slug generation | `markdown/syntax` | Resolve the active note heading and navigate its source offset |
-| `app.go`: file-extension language selection and rich-Markdown path classification | `components/editor` for MyGo language IDs; `components/doctypes` for Markdown type policy | Supply the path and use the returned language/parser classification |
-| `properties_panel_adapter.go`: property view preferences, parsed-document cache, system-property snapshot and display projection | `panels/properties` | Config repository load/save adapter and typed metadata-workflow dispatch to `application/document` |
+| `app.go`: file-extension language selection and rich-Markdown path classification | `workbench/features/editor` for MyGo language IDs; `document/types` for Markdown type policy | Supply the path and use the returned language/parser classification |
+| `properties_panel_adapter.go`: property view preferences, parsed-document cache, system-property snapshot and display projection | `workbench/features/properties` | Config repository load/save adapter and typed metadata-workflow dispatch to `application/document` |
 | `vault_lifecycle.go`: backlink grouping/resolution and search-result policy | `vault/links`, `search`, and `application/vault` | Watch/index lifecycle coordination and opening the selected document |
 | `workspace_search_policy.go`: search scheduling/coalescing | `search` or a focused `application/search` workflow | UI query input and dispatch |
-| `app.go`: current-document find/replace query, hit cache, selection, scrolling and rendering | `panels/findreplace` for presentation; `editor/findreplace` for matching/ranges/replacement planning | Route typed actions to the active note editor and apply resulting transactions |
+| `app.go`: current-document find/replace query, hit cache, selection, scrolling and rendering | `workbench/features/search` for presentation; `editor/findreplace` for matching/ranges/replacement planning | Route typed actions to the active note editor and apply resulting transactions |
 | `file_creation.go` and file-operation branches in `app.go` | `application/vault` for create/move/overwrite/root-boundary policy | Dialog/drop event translation and typed use-case calls |
-| `link_preview.go`: hover state/rendering and wiki target resolution | `components/linkpreview` for presentation; `vault/links` for resolution | Surface lifecycle and resolver injection |
-| `document_header.go` and settings/assistant panel renderers | `surfaces/noteeditor` or their owning panel/shared component | Composition only |
-| `icons.go`, `window_controls.go`, `header_fade.go` | `components/icons` adapts catalog assets; `components/windowcontrols` owns native shell buttons; evaluate `header_fade.go` as shell visual behavior | App shell composition |
+| `link_preview.go`: hover state/rendering and wiki target resolution | `workbench/features/linkpreview` for presentation; `vault/links` for resolution | Feature registration and resolver injection |
+| `migration_adapter.go` and `components/documentdialogs` | `workbench/features/dialogs/document` | Keep migration policy and document workflows in `application/document` |
+| `document_header.go` and settings/assistant panel renderers | `workbench/features/editor` or their owning feature module | Composition only |
+| `icons.go`, `window_controls.go`, `header_fade.go` | `components/icons` adapts catalog assets; `workbench/shell/windowcontrols` owns native shell buttons; `header_fade.go` belongs to shell presentation | App shell composition |
 
-During the layout phase, move the files and tests into these owner directories without changing implementation or package wiring; mixed files may temporarily make the skeleton uncompilable. During the wiring phase, split mixed files, define view snapshots/typed actions/consumer-owned capabilities, and remove direct `*App` dependencies from panels. A helper may remain in root only when it is app orchestration; a feature rule does not become orchestration just because it currently reads private `App` fields. UI-only shell visuals and window/surface open-close adapters may remain in `nativeui` when they have no feature policy or duplicated feature state.
+During the layout phase, move files and tests into the feature modules and workbench packages named above. During wiring, split mixed files, define view snapshots/typed actions/consumer-owned capabilities, and remove direct `*App` dependencies from feature packages. A helper may remain at the root only when it is app assembly or cross-feature orchestration; reading `App` private fields does not turn a feature rule into orchestration. Shell visuals belong in `workbench/shell`; generic pane lifecycle belongs in `workbench/hosting`.
 
-Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/components/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/components/markdown` paints the neutral Markdown model for both editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
+Source-position text navigation belongs to `editor/navigation`; MyGo event translation, focus, painting, text measurement, and viewport geometry stay in `nativeui/workbench/features/editor`. `editor.Session` exposes backend-neutral input intents, transactions, and immutable revision frames. `nativeui/workbench/features/markdown` paints the neutral Markdown model for editor and standalone preview callers. `platform/cachepath` owns OS/XDG cache-root policy, while feature modules receive cache storage through consumer-owned ports. Media decoding/cache policy remains with the feature that owns it, and concrete filesystem access remains in platform adapters.
 
 ## Ownership and model boundaries
 
@@ -262,8 +347,8 @@ flowchart TD
   DesktopCmd[cmd/muse-native] --> App[app module assembly]
   CLIFuture[cmd/muse-cli future] -.-> App
   DesktopCmd --> UI[nativeui desktop adapter]
-  UI --> WindowHost[nativeui/window generic host]
-  WindowHost --> Surfaces[feature-owned surfaces]
+  UI --> WindowHost[nativeui/workbench/hosting]
+  WindowHost --> Features[nativeui/workbench/features features]
   UI --> UseCases[application use cases]
   App --> UseCases
   App --> Platform[platform adapters]
@@ -285,8 +370,8 @@ flowchart TD
 - `markdown` never imports `editor`; editor consumes parsed structures and owns edits.
 - `search` owns the corpus/query contracts; `vault/index` implements the corpus contract without exposing its storage layout. `vault/index` also projects parsed link structure through an immutable narrow contract; `vault/links` owns path/title/alias resolution, outgoing links, backlinks, and their derived caches.
 - Ports are declared by the module/use case that needs the capability. `document` owns note/recovery repository contracts and domain errors; `platform/filesystem/documentstore` implements them. `workspace` owns its snapshot repository contract; `platform/filesystem/workspacestore` implements it. `application/config` owns the typed user-configuration persistence port; `config` owns schemas, defaults, validation and pure JSON value conversion, while `platform/filesystem/configstore` resolves OS configuration paths and persists the JSON files. Concrete filesystem, dialogs, clipboard, clock, image/font access and persistence implementations live in adapters.
-- `app` is the only composition root that selects concrete implementations and registers extension contributions.
-- `nativeui/window` owns live window/pane/overlay hosting; `workspace` owns the portable descriptors that can be restored. Feature surfaces keep their state private behind opaque handles.
+- `app` is the only composition root that selects concrete implementations and wires first-party feature modules.
+- `nativeui/workbench/hosting` owns Muse's live window/pane host contract; `workspace` owns the portable descriptors that can be restored. Feature modules keep their state private behind opaque handles.
 - No cycles, package-level mutable service locator, or broad `common`, `model`, `strategy`, or `utils` packages.
 
 ## Future capability seams
@@ -295,11 +380,11 @@ The target should make later capabilities fit through existing module APIs witho
 
 | Future capability | Existing seam | Boundary to preserve |
 |---|---|---|
-| First-party and third-party extensions | Feature-owned typed contributions, validated and registered by `app` | Keep extension contracts in public feature APIs; never expose `internal` packages, `nativeui.App`, filesystem paths, or global service locators as plugin APIs. Add dynamic loading, permissions and compatibility/version negotiation only when an actual plugin runtime is in scope. |
+| First-party and third-party extensions | Feature-owned typed APIs, wired by `app` | Keep extension contracts in public feature APIs; never expose `internal` packages, `nativeui.App`, filesystem paths, or global service locators as plugin APIs. Add dynamic loading, permissions and compatibility/version negotiation only when an actual plugin runtime is in scope. |
 | CRDT-backed collaboration with Markdown files retained as the durable format | `editor` transactions, `document.Repository`, and application save/session workflows | Keep CRDT state out of widgets and filesystem adapters. Treat the current path identity and disk revision as today's storage contract, not as a permanent collaboration identity or CRDT version. A future stable document ID and change/revision contract must be introduced deliberately; materialized Markdown remains an adapter concern. |
 | Headless operation | `application` use cases and domain models have no UI or MyGo dependency | Use cases must be callable without creating a window, UI event loop, or desktop singleton. Background work and lifetimes must be explicit and cancellable. |
 | CLI | Separate command adapter over the same application APIs and ports | A CLI command should parse arguments, call application use cases, and format results. It must not invoke nativeui rendering or duplicate vault/search/document rules. Keep the desktop executable similarly thin. |
-| Generic window and pane hosting | `nativeui/window` manager plus feature-owned surface factories | The manager exposes IDs, descriptors, placement, focus and lifecycle only. It must not leak concrete state such as image preview zoom/bitmap state; the owning surface keeps typed state private. Durable workspace snapshots store portable descriptors, not renderer objects. |
+| Generic window and pane hosting | `nativeui/workbench/hosting` contract plus feature-owned content factories | The host exposes IDs, descriptors, placement, focus and lifecycle only. It must not leak concrete state such as image preview zoom/bitmap state; the owning feature keeps typed state private. Durable workspace snapshots store portable descriptors, not renderer objects. |
 
 `app` assembles feature modules and platform capabilities; command packages select the runtime surface. The native desktop command connects that module assembly to `nativeui`. A future CLI command connects it to terminal input/output. If launching a headless workflow requires constructing a MyGo window or importing `nativeui`, the composition boundary has drifted and must be corrected before adding the CLI.
 
@@ -313,7 +398,7 @@ Headless and CLI readiness also constrains initialization: feature packages must
 
 - `search` supports explicit typed field/operator/scorer registrations. Query parsing produces a validated AST; planning compiles it before execution. Metadata source belongs to `document`/`vault`; query semantics and ranking belong to `search`.
 - `editor` block capabilities are explicit and typed. Block operations produce editor transactions; table selection/view state is scoped to its editor session.
-- Registration IDs are unique and validated at application assembly. Do not add runtime plugin loading or a universal contribution framework until an actual third-party extension requirement exists.
+- Registration IDs are unique and validated at application assembly. Do not add runtime plugin loading or a universal feature registry until an actual third-party extension requirement exists.
 - Domain event types are owned by the module that changes state (`document.DocumentSaved{Path, Revision}`, `workspace.WorkspaceRestored`). The application dispatches them to independent consumers; add a vault event only when a real independent subscriber needs one. Never publish per keystroke.
 - Direct calls remain the default for a single workflow. Events are for independent subscribers; hooks are only for deliberate synchronous customization (e.g. a scorer or query operator).
 - Coalesce editor changes by transaction/revision. Never broadcast per-frame layout, pointer movement, or every keystroke to a global bus.
@@ -332,11 +417,19 @@ The refactor is not complete merely because the code compiles. Before closing th
 
 ## Refactor execution order
 
-Complete the target file/package layout before doing further production wiring. First make a layout pass across the documented feature and UI boundaries: place implementations and their tests under their owning directories, remove obsolete source locations, and commit the moves in reviewable functional batches. Keep that pass limited to file ownership and package placement; do not add compatibility aliases or parallel implementations to keep the old imports compiling. Once the full tree matches this document, make a separate wiring pass for package declarations, imports, typed APIs, composition, and behavior. The final acceptance checks run after wiring is complete; the temporary layout checkpoint is not a release state.
+Complete one repository-wide target file/package layout pass before further production wiring. Move every implementation and its tests to its final owner directory, remove obsolete source locations, and checkpoint the path-only batches. During this pass, do not change file bodies, package declarations, imports, APIs, or behavior to make the intermediate tree compile; it is expected to be non-compiling until wiring. Do not add new implementations or compatibility aliases. Verify the completed layout against the target tree and confirm moved-file contents are unchanged (renames are path changes, not source additions). Only after every target directory is populated and every obsolete implementation directory is empty may wiring begin. Then wire one module boundary at a time: change package declarations/imports, define the narrow API, integrate its composition, and run the focused checks before moving to the next boundary. Finish with whole-repository build, test, and architecture checks; the layout checkpoint is not a release state.
+
+The NativeUI root intentionally keeps app-composition tests that need `App`'s private state, shared root test helpers, or `TestMain`. Do not move these tests solely to reduce the root file count; moving them into a feature package changes their Go package boundary and is part of wiring/test-seam design, not a path-only layout operation. Likewise, editor-feature root may retain host-coupled integration tests that assert private editor invariants; tests owned by a child subsystem should live with that subsystem.
+
+### Source-size audit
+
+The refactor is intended to reduce duplicated ownership and make shared behavior reusable; package count or directory movement alone is not evidence of that outcome. Record baseline and current Go production/test line counts against the selected `main` commit. Path-only moves must add no source lines. For each wiring batch, classify production-line growth as (a) newly duplicated implementation, (b) required public contract/composition, or (c) behavior actually in scope; remove category (a), and justify each nonzero category (b)/(c) in the batch summary. Do not bulk-copy a former monolithic implementation into a new package while retaining the old copy. The final review must account for the net source-size delta and show that feature ownership has not created duplicate implementations.
+
+Measured during the layout checkpoint: baseline `main` at `c250b054` has 68,289 production Go lines and 38,819 test Go lines (107,108 total); the current dirty worktree has 92,283 production and 49,346 test Go lines (141,629 total), a net increase of 23,994 production and 10,527 test lines. This is a warning to investigate, not an accepted refactor cost. Re-measure after each wiring batch, and explain the baseline-to-final delta by feature; no claim of completion is valid while the production increase remains unaccounted for.
 
 ## Architecture decisions during implementation
 
-- 2026-11-16: GoRex is adopted as a behavioral reference for tab/pane focus and split-layout interactions, not as a package architecture to copy. Muse separates durable layout (`workspace`), generic live hosting (`nativeui/window`), and toolkit layout presentation (`nativeui/workspacepresenter`). A pane's note/editor composition belongs to `nativeui/surfaces/noteeditor`; recent pane focus used for runtime close fallback is session policy and is not serialized as durable document content.
+- 2026-11-16: GoRex is adopted as a behavioral reference for tab/pane focus and split-layout interactions, not as a package architecture to copy. Muse separates durable layout (`workspace`), its adapted live host contract (`nativeui/workbench/hosting`), and toolkit layout presentation (`nativeui/workbench/workspace`). A pane's note/editor composition belongs to `nativeui/workbench/features/editor`; recent pane focus used for runtime close fallback is session policy and is not serialized as durable document content.
 - 2026-11-17: Provider-specific HTTP and wire-format code belongs to `platform/agent`; provider-neutral conversation values belong to `agent`, while `application/agent` owns session/permission workflows and the consumer-owned stream/provider ports. The composition root constructs concrete provider adapters and injects their ports. This keeps network protocols and credentials out of UI and application policy.
 - 2026-11-16: Refactor execution is layout-first. First relocate implementation and test files to the target package tree without changing package declarations, imports, APIs, or behavior; then perform package/API wiring against that completed tree. The layout-only intermediate may not compile, so do not use build success as its acceptance criterion. The completed wiring phase must remove all migration shells and satisfy the full completion gate above.
 
