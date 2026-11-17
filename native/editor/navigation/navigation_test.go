@@ -102,6 +102,34 @@ func TestNavigationAndTargetQuery(t *testing.T) {
 	}
 }
 
+func TestGraphemeBoundaryMovementAtAndInsideClusters(t *testing.T) {
+	source := "a👩‍💻e\u0301z"
+	clusterStart := len("a")
+	clusterEnd := len("a👩‍💻")
+	combiningEnd := len("a👩‍💻e\u0301")
+	for _, tc := range []struct {
+		name string
+		off  int
+		next int
+		prev int
+	}{
+		{"at start", 0, len("a"), 0},
+		{"inside emoji", clusterStart + 1, clusterEnd, len("a")},
+		{"at emoji end", clusterEnd, len("a👩‍💻e\u0301"), len("a")},
+		{"inside combining cluster", clusterEnd + 1, combiningEnd, clusterEnd},
+		{"at end", len(source), len(source), combiningEnd},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NextGraphemeBoundary(source, tc.off); got != tc.next {
+				t.Errorf("NextGraphemeBoundary(%d) = %d, want %d", tc.off, got, tc.next)
+			}
+			if got := PreviousGraphemeBoundary(source, tc.off); got != tc.prev {
+				t.Errorf("PreviousGraphemeBoundary(%d) = %d, want %d", tc.off, got, tc.prev)
+			}
+		})
+	}
+}
+
 func TestConcurrentDefaultProviderReads(t *testing.T) {
 	_ = New("中文分词")
 	const workers = 12

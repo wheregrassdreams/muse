@@ -94,8 +94,8 @@ type Command struct {
 	Kind      CommandKind
 	Direction int
 	Count     int
-	Placement uint8
-	Fold      uint8
+	Placement ScrollPlacement
+	Fold      FoldAction
 }
 
 // IntentKind is the result of parsing one printable keymap event. It names
@@ -162,21 +162,25 @@ type Intent struct {
 	Command   Command
 }
 
-// Host is the narrow effect boundary for keymap commands. Implementations
-// translate these values into editor operations without exposing editor
-// state to the Vim controller.
+// Host receives typed keymap intents. Implementations resolve source positions
+// and dispatch editor operations without exposing editor state to the
+// controller.
 type Host interface {
-	DispatchVimCommand(Command)
+	DispatchVimIntent(Intent)
 }
 
+type ScrollPlacement uint8
+
 const (
-	ScrollTop uint8 = iota + 1
+	ScrollTop ScrollPlacement = iota + 1
 	ScrollCenter
 	ScrollBottom
 )
 
+type FoldAction uint8
+
 const (
-	FoldClose uint8 = iota + 1
+	FoldClose FoldAction = iota + 1
 	FoldCloseRecursive
 	FoldOpen
 	FoldOpenRecursive
@@ -279,11 +283,11 @@ func (c *Controller) Sequence() input.Sequence {
 	return input.Sequence{Count: s.Count, OperatorCount: s.OperatorCount, Pending: s.Pending, Linewise: s.Linewise}
 }
 
-// FeedSequenceText interprets count digits and Vim's g/z prefix commands.
+// feedSequenceText interprets count digits and Vim's g/z prefix commands.
 // It returns handled=true when the text belongs to the prefix grammar. The
 // host executes the returned typed command; editor state and UI effects stay
 // outside this package.
-func (c *Controller) FeedSequenceText(text string, now time.Time) (command Command, handled bool) {
+func (c *Controller) feedSequenceText(text string, now time.Time) (command Command, handled bool) {
 	if c == nil || len([]rune(text)) != 1 {
 		return Command{}, false
 	}
@@ -350,22 +354,20 @@ func (c *Controller) FeedSequenceText(text string, now time.Time) (command Comma
 	return Command{}, false
 }
 
-// HandleText advances the sequence state and dispatches any completed typed
-// command. Count and pending-prefix events are consumed without host effects.
-func (c *Controller) HandleText(text string, now time.Time, host Host) (CommandKind, bool) {
-	command, handled := c.FeedSequenceText(text, now)
-	if !handled {
-		return CommandNone, false
+// InterpretText interprets printable text once, then passes the resulting typed
+// intent to the host. The returned intent is a detached value for host-side
+// transient presentation decisions such as cursor animation.
+func (c *Controller) InterpretText(text string, now time.Time, host Host) (Intent, bool) {
+	intent, handled := c.interpretText(text, now)
+	if handled && host != nil {
+		host.DispatchVimIntent(intent)
 	}
-	if command.Kind != CommandNone && command.Kind != CommandCountPrefix && command.Kind != CommandPendingPrefix && host != nil {
-		host.DispatchVimCommand(command)
-	}
-	return command.Kind, true
+	return intent, handled
 }
 
-// InterpretText owns printable-key grammar for Vim and Helix. It only emits
+// interpretText owns printable-key grammar for Vim and Helix. It only emits
 // typed intents; document, selection, and UI effects remain host-owned.
-func (c *Controller) InterpretText(text string, now time.Time) (Intent, bool) {
+func (c *Controller) interpretText(text string, now time.Time) (Intent, bool) {
 	if c == nil || c.Keymap() == "default" {
 		return Intent{}, false
 	}
@@ -393,7 +395,7 @@ func (c *Controller) InterpretText(text string, now time.Time) (Intent, bool) {
 	if len([]rune(text)) != 1 {
 		return Intent{Kind: IntentConsumed}, true
 	}
-	command, handled := c.FeedSequenceText(text, now)
+	command, handled := c.feedSequenceText(text, now)
 	if handled {
 		if command.Kind == CommandCountPrefix || command.Kind == CommandPendingPrefix {
 			return Intent{Kind: IntentPrefix}, true

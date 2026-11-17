@@ -3,7 +3,10 @@
 package findreplace
 
 import (
+	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Match identifies a non-overlapping match in UTF-8 byte offsets and carries
@@ -24,10 +27,8 @@ func Find(source, query string) []Match {
 		return nil
 	}
 
-	haystack, needle := source, query
-	if lowered := strings.ToLower(source); len(lowered) == len(source) {
-		haystack, needle = lowered, strings.ToLower(query)
-	}
+	haystack, sourceOffsets := foldWithSourceOffsets(source)
+	needle := strings.ToLower(query)
 
 	matches := make([]Match, 0)
 	for from := 0; len(matches) < MaxMatches && from <= len(haystack); {
@@ -35,10 +36,18 @@ func Find(source, query string) []Match {
 		if i < 0 {
 			break
 		}
-		start := from + i
-		end := start + len(needle)
-		matches = append(matches, Match{Start: start, End: end, Snippet: snippet(source, start, end)})
-		from = end
+		foldedStart := from + i
+		foldedEnd := foldedStart + len(needle)
+		start, startOK := sourceOffsetAt(haystack, sourceOffsets, foldedStart)
+		end, endOK := sourceOffsetAt(haystack, sourceOffsets, foldedEnd)
+		if startOK && endOK && end >= start {
+			matches = append(matches, Match{Start: start, End: end, Snippet: snippet(source, start, end)})
+			from = foldedEnd
+			continue
+		}
+		// A folded match must begin and end on original rune boundaries. Skip
+		// partial matches inside a rune whose lowercase encoding uses more bytes.
+		from = foldedStart + 1
 	}
 	return matches
 }
@@ -66,16 +75,58 @@ func ReplaceAll(source string, matches []Match, replacement string) (string, int
 
 // SnippetParts splits a snippet at its first case-insensitive query match.
 func SnippetParts(value, query string) (before, match, after string) {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
 		return value, "", ""
 	}
-	lowered := strings.ToLower(value)
-	index := strings.Index(lowered, query)
+	folded, sourceOffsets := foldWithSourceOffsets(value)
+	index := strings.Index(folded, needle)
 	if index < 0 {
 		return value, "", ""
 	}
-	return value[:index], value[index : index+len(query)], value[index+len(query):]
+	start, startOK := sourceOffsetAt(folded, sourceOffsets, index)
+	end, endOK := sourceOffsetAt(folded, sourceOffsets, index+len(needle))
+	if !startOK || !endOK || end < start {
+		return value, "", ""
+	}
+	return value[:start], value[start:end], value[end:]
+}
+
+type offsetShift struct {
+	folded int
+	source int
+}
+
+// foldWithSourceOffsets lowercases one rune at a time and records the
+// byte-offset shifts at runes whose lowercase UTF-8 width changes. This keeps
+// matching compact for ordinary text while preserving valid source ranges for
+// characters such as U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE.
+func foldWithSourceOffsets(source string) (string, []offsetShift) {
+	var folded strings.Builder
+	folded.Grow(len(source))
+	var shifts []offsetShift
+	for start, r := range source {
+		foldedStart := folded.Len()
+		folded.WriteRune(unicode.ToLower(r))
+		_, sourceRuneSize := utf8.DecodeRuneInString(source[start:])
+		foldedEnd := folded.Len()
+		sourceEnd := start + sourceRuneSize
+		if foldedEnd-foldedStart != sourceRuneSize {
+			shifts = append(shifts, offsetShift{folded: foldedEnd, source: sourceEnd})
+		}
+	}
+	return folded.String(), shifts
+}
+
+func sourceOffsetAt(folded string, shifts []offsetShift, offset int) (int, bool) {
+	if offset < 0 || offset > len(folded) || offset < len(folded) && !utf8.RuneStart(folded[offset]) {
+		return 0, false
+	}
+	i := sort.Search(len(shifts), func(i int) bool { return shifts[i].folded > offset }) - 1
+	if i < 0 {
+		return offset, true
+	}
+	return offset + shifts[i].source - shifts[i].folded, true
 }
 
 func snippet(source string, start, end int) string {

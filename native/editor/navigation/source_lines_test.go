@@ -37,7 +37,7 @@ func TestLineStartSkipsOnlyLeadingSpacesAndTabsWithinLine(t *testing.T) {
 	if got, want := LineStart(source, 2, true), len(" \t "); got != want {
 		t.Fatalf("LineStart first-nonspace = %d, want %d", got, want)
 	}
-	blankStart := len(" \t甲\n")
+	blankStart := len(" \t 甲\n")
 	if got, want := LineStart(source, blankStart, true), blankStart+len(" \t"); got != want {
 		t.Fatalf("blank-line first-nonspace = %d, want %d", got, want)
 	}

@@ -5,31 +5,31 @@ import (
 	"time"
 )
 
-type commandHost struct{ commands []Command }
+type intentHost struct{ intents []Intent }
 
-func (h *commandHost) DispatchVimCommand(command Command) { h.commands = append(h.commands, command) }
+func (h *intentHost) DispatchVimIntent(intent Intent) { h.intents = append(h.intents, intent) }
 
 func TestSequenceCommands(t *testing.T) {
 	c := New()
 	c.SetKeymap("vim")
 	now := time.Now()
 
-	if got, ok := c.FeedSequenceText("2", now); !ok || got.Kind != CommandCountPrefix || c.Sequence().Count != 2 {
+	if got, ok := c.feedSequenceText("2", now); !ok || got.Kind != CommandCountPrefix || c.Sequence().Count != 2 {
 		t.Fatalf("count prefix = (%+v, %v), state=%+v", got, ok, c.View())
 	}
 	_, _ = c.ConsumeCounts()
-	if got, ok := c.FeedSequenceText("g", now); !ok || got.Kind != CommandPendingPrefix {
+	if got, ok := c.feedSequenceText("g", now); !ok || got.Kind != CommandPendingPrefix {
 		t.Fatalf("g prefix = (%+v, %v)", got, ok)
 	}
-	if got, ok := c.FeedSequenceText("j", now); !ok || got.Kind != CommandVertical || got.Direction != 1 {
+	if got, ok := c.feedSequenceText("j", now); !ok || got.Kind != CommandVertical || got.Direction != 1 {
 		t.Fatalf("gj command = (%+v, %v)", got, ok)
 	}
 	if c.Pending() != "" {
 		t.Fatalf("pending prefix after gj = %q", c.Pending())
 	}
 
-	_, _ = c.FeedSequenceText("z", now)
-	got, ok := c.FeedSequenceText("C", now.Add(time.Millisecond))
+	_, _ = c.feedSequenceText("z", now)
+	got, ok := c.feedSequenceText("C", now.Add(time.Millisecond))
 	if !ok || got.Kind != CommandFold || got.Fold != FoldCloseRecursive {
 		t.Fatalf("zC command = (%+v, %v)", got, ok)
 	}
@@ -39,8 +39,8 @@ func TestExpiredPrefixFallsThroughAndStateViewIsDetached(t *testing.T) {
 	c := New()
 	c.SetKeymap("vim")
 	now := time.Now()
-	_, _ = c.FeedSequenceText("z", now)
-	if got, handled := c.FeedSequenceText("x", now.Add(time.Second)); handled || got.Kind != CommandNone {
+	_, _ = c.feedSequenceText("z", now)
+	if got, handled := c.feedSequenceText("x", now.Add(time.Second)); handled || got.Kind != CommandNone {
 		t.Fatalf("expired prefix = (%+v, %v)", got, handled)
 	}
 
@@ -52,18 +52,18 @@ func TestExpiredPrefixFallsThroughAndStateViewIsDetached(t *testing.T) {
 	}
 }
 
-func TestHandleTextDispatchesTypedCommandThroughHost(t *testing.T) {
+func TestInterpretTextPassesTypedIntentsThroughHost(t *testing.T) {
 	c := New()
 	c.SetKeymap("vim")
-	host := &commandHost{}
+	host := &intentHost{}
 	now := time.Now()
-	if kind, handled := c.HandleText("z", now, host); !handled || kind != CommandPendingPrefix || len(host.commands) != 0 {
-		t.Fatalf("prefix should be consumed without a host command: %+v", host.commands)
+	if intent, handled := c.InterpretText("z", now, host); !handled || intent.Kind != IntentPrefix || len(host.intents) != 1 {
+		t.Fatalf("prefix should reach the host as a typed intent: %+v", host.intents)
 	}
-	if kind, handled := c.HandleText("M", now.Add(time.Millisecond), host); !handled || kind != CommandFoldAll || len(host.commands) != 1 {
-		t.Fatalf("fold-all command was not dispatched: %+v", host.commands)
+	if intent, handled := c.InterpretText("M", now.Add(time.Millisecond), host); !handled || intent.Kind != IntentCommand || len(host.intents) != 2 {
+		t.Fatalf("fold-all command was not dispatched as an intent: %+v", host.intents)
 	}
-	if got := host.commands[0]; got.Kind != CommandFoldAll || got.Fold != FoldCloseAll {
-		t.Fatalf("dispatched command = %+v", got)
+	if got := host.intents[1]; got.Kind != IntentCommand || got.Command.Kind != CommandFoldAll || got.Command.Fold != FoldCloseAll {
+		t.Fatalf("dispatched intent = %+v", got)
 	}
 }

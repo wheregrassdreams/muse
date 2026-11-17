@@ -74,10 +74,9 @@ func Search(source, query string, from int, direction Direction, count int) (int
 	return NewTextSearch(source).Search(query, from, direction, count)
 }
 
-// Search moves to the count-th query match from a byte offset, wrapping once
-// at the source boundary for each match. Forward search begins strictly after
-// from; backward search begins strictly before it. Non-positive counts act as
-// one, matching the editor's Vim command behavior.
+// Search searches a precomputed source snapshot, reusing its grapheme
+// boundaries across multiple queries. Its movement and wrapping semantics
+// match the package-level Search function.
 func (s TextSearch) Search(query string, from int, direction Direction, count int) (int, bool) {
 	source, edges := s.source, s.edges
 	if query == "" || source == "" {
@@ -118,10 +117,9 @@ func Find(source, query string, from int, direction Direction, till bool, count 
 	return NewTextSearch(source).Find(query, from, direction, till, count)
 }
 
-// Find searches for one grapheme on the current source line. Direction.Forward
-// starts after from; all other values search backward, preserving the editor's
-// existing direction convention. Till returns the adjacent grapheme boundary
-// immediately before (forward) or after (backward) the found grapheme.
+// Find searches a precomputed source snapshot for one grapheme on the current
+// line, reusing its boundaries across multiple queries. Its movement semantics
+// match the package-level Find function.
 func (s TextSearch) Find(query string, from int, direction Direction, till bool, count int) (int, bool) {
 	source, edges := s.source, s.edges
 	if query == "" || from < 0 || from > len(source) {

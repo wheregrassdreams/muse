@@ -77,7 +77,7 @@ func NextGraphemeBoundary(source string, offset int) int {
 	return edges[i]
 }
 
-// PreviousGraphemeBoundary returns the last grapheme boundary at or before
+// PreviousGraphemeBoundary returns the last grapheme boundary strictly before
 // offset, clamped to the source start.
 func PreviousGraphemeBoundary(source string, offset int) int {
 	offset = min(max(offset, 0), len(source))
