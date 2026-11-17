@@ -162,7 +162,7 @@ func TestWikiNoteEmbedInvalidTargetFallsBackToLinkLabel(t *testing.T) {
 
 func TestWikiNoteEmbedResolvesNestedLinksFromEmbeddedPath(t *testing.T) {
 	h := newHarness(t, "Host.\n\n![[Target]]\n")
-	var resolvedPath, resolvedTarget string
+	var nestedLinkPath string
 	opts := h.e.Options()
 	opts.CurrentPath = "/vault/Host.md"
 	opts.AssetRoot = "/vault"
@@ -170,7 +170,9 @@ func TestWikiNoteEmbedResolvesNestedLinksFromEmbeddedPath(t *testing.T) {
 		return "Projects/Target.md", "Nested [[Reference]]", true
 	}
 	opts.ResolveWikiLink = func(currentPath, target string) inlineui.LinkTargetState {
-		resolvedPath, resolvedTarget = currentPath, target
+		if target == "Reference" {
+			nestedLinkPath = currentPath
+		}
 		if currentPath == "/vault/Projects/Target.md" && target == "Reference" {
 			return inlineui.LinkTargetValid
 		}
@@ -182,8 +184,8 @@ func TestWikiNoteEmbedResolvesNestedLinksFromEmbeddedPath(t *testing.T) {
 	if embed == nil || embed.embed == nil {
 		t.Fatalf("embedded target missing: %#v", embed)
 	}
-	if resolvedPath != "/vault/Projects/Target.md" || resolvedTarget != "Reference" {
-		t.Fatalf("nested link resolver context=(%q,%q)", resolvedPath, resolvedTarget)
+	if embed.embed.opts.CurrentPath != "/vault/Projects/Target.md" || nestedLinkPath != embed.embed.opts.CurrentPath {
+		t.Fatalf("nested link resolver path=%q child path=%q", nestedLinkPath, embed.embed.opts.CurrentPath)
 	}
 	if got := linkStyleAt(t, embed.embed, strings.Index(embed.embed.Source(), "Reference")); got.DottedUnderline {
 		t.Fatalf("nested wiki link was resolved against the host path: %+v", got)
