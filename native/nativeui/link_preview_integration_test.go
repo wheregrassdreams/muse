@@ -152,10 +152,20 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && a.noteEditor().Source() != ""
 	})
-	// runtimeFixtureCopy's 1200×800 canvas and compact property header place
-	// the visible Home link around this point; target the rendered label rather
-	// than the hidden source range.
-	x, y := float32(540), float32(405)
+	// Resolve the visible label's current location from the editor layout. The
+	// document's first-frame caret must not add a phantom row that shifts this
+	// hit target away from the link.
+	labelOffset := strings.Index(a.noteEditor().Source(), "the Atlas overview") + 2
+	if labelOffset < 2 {
+		t.Fatal("fixture is missing the visible Home wiki-link label")
+	}
+	_, y, ok := a.noteEditor().NavigationCommands().WindowPoint(labelOffset)
+	if !ok {
+		t.Fatal("editor did not report the visible wiki-link label position")
+	}
+	// Keep the fixture's in-label x coordinate, while deriving its row from the
+	// current editor layout so first-frame geometry changes do not stale it.
+	x := float32(540)
 	runtimeShot(t, tt, "wiki-preview-actual-link-before")
 	tt.Move(x, y)
 	tt.Frame()
