@@ -104,13 +104,6 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 	documentEvents := events.New[document.DocumentSaved]()
 	assistantProvider := platformagent.NewProvider()
 	assistantStream := platformagent.NewProviderClient(assistantProvider)
-	newVaultIndex := func(root string) (applicationvault.IndexPort, error) {
-		source, err := vaultindexsource.New(root)
-		if err != nil {
-			return nil, err
-		}
-		return vaultindex.New(source), nil
-	}
 	searchWorker := vaultsearchindexer.New(searchStore, newVaultIndex)
 	return &Runtime{
 		Configuration:             configuration,
@@ -153,6 +146,30 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 		},
 		vaultSearchWorker: searchWorker,
 	}, nil
+}
+
+// RebuildVaultSearchIndex constructs only the ports required by the headless
+// indexer command. It deliberately avoids desktop settings, AI providers,
+// window services, and image caches so background indexing remains a narrow
+// application entry point.
+func RebuildVaultSearchIndex(root string) error {
+	cacheRoot, err := cachepath.Root()
+	if err != nil {
+		return err
+	}
+	store, err := vaultsearchstore.New(cacheRoot)
+	if err != nil {
+		return err
+	}
+	return vaultsearchindexer.New(store, newVaultIndex).Rebuild(root)
+}
+
+func newVaultIndex(root string) (applicationvault.IndexPort, error) {
+	source, err := vaultindexsource.New(root)
+	if err != nil {
+		return nil, err
+	}
+	return vaultindex.New(source), nil
 }
 
 // RebuildVaultSearchIndex performs the child-process indexing operation.

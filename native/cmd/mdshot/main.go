@@ -15,7 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/markdown"
-	markdownui "muse/nativeui/components/markdown"
+	markdownui "muse/nativeui/workbench/features/markdown"
 	"muse/platform/filesystem/imagefiles"
 )
 

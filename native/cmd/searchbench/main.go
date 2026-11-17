@@ -125,7 +125,6 @@ func main() {
 	}()
 
 	r.Build = measure(func() error { return idx.Reconcile(ctx, docs) })
-	var err error
 	r.IndexDiskBytesAfterBuild, err = diskBytes(*indexDir)
 	must(err)
 
