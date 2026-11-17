@@ -2,33 +2,33 @@ package settings
 
 import "testing"
 
-func TestHandleOwnsTransientPageAndScrollState(t *testing.T) {
-	handle := NewHandle()
-	if handle.IsOpen() || handle.Page() != AppearancePage || handle.ScrollOffset() != 0 {
-		t.Fatalf("new handle = open:%v page:%v scroll:%v", handle.IsOpen(), handle.Page(), handle.ScrollOffset())
+func TestControllerOwnsTransientPageAndScrollState(t *testing.T) {
+	controller := NewController()
+	if controller.IsOpen() || controller.Page() != AppearancePage || controller.ScrollOffset() != 0 {
+		t.Fatalf("new controller = open:%v page:%v scroll:%v", controller.IsOpen(), controller.Page(), controller.ScrollOffset())
 	}
 
-	handle.OpenAt(AssistantPage)
-	handle.SetScrollOffset(84)
-	if !handle.IsOpen() || handle.Page() != AssistantPage || handle.ScrollOffset() != 84 {
-		t.Fatalf("opened handle = open:%v page:%v scroll:%v", handle.IsOpen(), handle.Page(), handle.ScrollOffset())
+	controller.OpenAt(AssistantPage)
+	controller.SetScrollOffset(84)
+	if !controller.IsOpen() || controller.Page() != AssistantPage || controller.ScrollOffset() != 84 {
+		t.Fatalf("opened controller = open:%v page:%v scroll:%v", controller.IsOpen(), controller.Page(), controller.ScrollOffset())
 	}
 
-	handle.Apply(Action{Kind: SelectPage, Page: EditorPage})
-	if handle.Page() != EditorPage {
-		t.Fatalf("page after typed action = %v, want %v", handle.Page(), EditorPage)
+	controller.Apply(Action{Kind: SelectPage, Page: EditorPage})
+	if controller.Page() != EditorPage {
+		t.Fatalf("page after typed action = %v, want %v", controller.Page(), EditorPage)
 	}
-	handle.Apply(Action{Kind: Close})
-	if handle.IsOpen() {
+	controller.Apply(Action{Kind: Close})
+	if controller.IsOpen() {
 		t.Fatal("close action left the settings panel open")
 	}
 }
 
-func TestZeroHandleCanOpenAndApplyActions(t *testing.T) {
-	var handle Handle
-	handle.OpenAt(EditorPage)
-	handle.Apply(Action{Kind: Close})
-	if handle.IsOpen() || handle.Page() != EditorPage {
-		t.Fatalf("zero handle = open:%v page:%v", handle.IsOpen(), handle.Page())
+func TestZeroControllerCanOpenAndApplyActions(t *testing.T) {
+	var controller Controller
+	controller.OpenAt(EditorPage)
+	controller.Apply(Action{Kind: Close})
+	if controller.IsOpen() || controller.Page() != EditorPage {
+		t.Fatalf("zero controller = open:%v page:%v", controller.IsOpen(), controller.Page())
 	}
 }

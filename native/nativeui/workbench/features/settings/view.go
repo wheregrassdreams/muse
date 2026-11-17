@@ -136,11 +136,11 @@ type Action struct {
 	Enabled    bool
 }
 
-func Render(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
-	if handle == nil || handle.state == nil {
+func Render(c *ui.Context, controller *Controller, model ViewModel, dispatch func(Action)) {
+	if controller == nil || controller.state == nil {
 		return
 	}
-	state := handle.state
+	state := controller.state
 	t := c.Theme()
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c).Width(164).Shrink(0).Padding(8, 8, 8, 10).Gap(3).Children(func() {

@@ -278,7 +278,7 @@ type App struct {
 	activeLinkIndex *applicationvault.ActiveLinkIndex
 
 	// settings
-	settingsPanel          settingsui.Handle
+	settingsPanel          *settingsui.Controller
 	localeSetting          string
 	localeConfigured       bool
 	aiEnabled              bool
@@ -367,7 +367,7 @@ func New() *App {
 		directoryCatalog:     applicationvault.NewDirectoryCatalog(),
 		navigationHistory:    workspaceapp.NewDocumentHistory(),
 		fileTreeState:        filetree.NewHandle(),
-		settingsPanel:        settingsui.NewHandle(),
+		settingsPanel:        settingsui.NewController(),
 		findReplace:          findreplaceui.NewHandle(),
 		outlinePanel:         outlineui.NewHandle(),
 		workspaceSearch:      searchui.NewHandle(),
@@ -3098,7 +3098,7 @@ func (a *App) settingsViewModel() settingsui.ViewModel {
 	}
 	accents := make([]settingsui.Accent, 0, len(appearance.Presets))
 	for _, preset := range appearance.Presets {
-		accents = append(accents, settingsui.Accent{ID: preset.ID, Label: accentLocalizedName(preset.ID), Color: preset.Color})
+		accents = append(accents, settingsui.Accent{ID: preset.ID, Label: settingsui.LocalizedAccentName(preset.ID), Color: preset.Color})
 	}
 	modelCatalog := a.aiModelCatalog.Snapshot()
 	assistantModels := make([]string, 0, len(modelCatalog.Models))

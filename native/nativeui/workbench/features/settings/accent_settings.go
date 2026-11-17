@@ -1,23 +1,11 @@
-package nativeui
+package settings
 
 import (
 	"muse/locales"
-	appearance "muse/theme"
 )
 
-func (a *App) setAccent(id string) {
-	id = appearance.Normalize(id)
-	if appearance.Normalize(a.accentID) == id {
-		return
-	}
-	a.accentID = id
-	if err := a.saveNativePreferences(); err != nil {
-		a.notice(locales.CommonSettingSaveError(err.Error()))
-	}
-	a.invalidate()
-}
-
-func accentLocalizedName(id string) string {
+// LocalizedAccentName projects the display label for an accent preset.
+func LocalizedAccentName(id string) string {
 	switch id {
 	case "orange":
 		return locales.AccentOrange()

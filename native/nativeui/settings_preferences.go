@@ -4,11 +4,13 @@ import (
 	applicationconfig "muse/application/config"
 	"muse/config"
 	"muse/locales"
-	"muse/theme"
+	appearance "muse/theme"
 
 	"github.com/egoist/mygo"
 )
 
+// These values are presentation state used by NativeUI to adapt the system
+// surfaces. The persisted preference itself uses config.ThemeMode.
 const (
 	themeLight = iota
 	themeDark
@@ -17,6 +19,9 @@ const (
 
 type nativePreferences = config.Preferences
 
+// loadNativePreferences and applyNativePreferences are composition-root
+// adapters: the settings feature receives a view model, while NativeUI owns
+// persistence and effects on the app, editor, and platform locale.
 func (a *App) loadNativePreferences() nativePreferences {
 	p, _ := applicationconfig.NewService(a.configRepository).LoadPreferences()
 	return p
@@ -33,7 +38,7 @@ func (a *App) applyNativePreferences(p config.Preferences) {
 	if a.noteEditor() != nil {
 		a.configureActiveNote(0)
 	}
-	a.accentID = theme.Normalize(p.Accent)
+	a.accentID = appearance.Normalize(p.Accent)
 	switch p.Theme {
 	case config.ThemeLight:
 		a.themeMode = themeLight
@@ -47,7 +52,7 @@ func (a *App) applyNativePreferences(p config.Preferences) {
 func (a *App) saveNativePreferences() error {
 	p := config.Preferences{
 		AIEnabled: a.aiEnabled, SmoothPageJumps: a.smoothPageJumps,
-		Accent: theme.Normalize(a.accentID), Locale: a.localeSetting,
+		Accent: appearance.Normalize(a.accentID), Locale: a.localeSetting,
 		LocaleConfigured: a.localeConfigured,
 	}
 	switch a.themeMode {
@@ -79,6 +84,18 @@ func (a *App) setThemeMode(mode int) {
 	}
 	a.themeMode = mode
 	a.themeApplied = -1
+	if err := a.saveNativePreferences(); err != nil {
+		a.notice(locales.CommonSettingSaveError(err.Error()))
+	}
+	a.invalidate()
+}
+
+func (a *App) setAccent(id string) {
+	id = appearance.Normalize(id)
+	if appearance.Normalize(a.accentID) == id {
+		return
+	}
+	a.accentID = id
 	if err := a.saveNativePreferences(); err != nil {
 		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}

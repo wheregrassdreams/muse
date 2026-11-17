@@ -12,46 +12,46 @@ type state struct {
 	scroll ui.ScrollState
 }
 
-// Handle is the opaque presentation state retained by the composition root.
+// Controller owns settings navigation and dialog-local presentation state.
 // Persisted preferences remain application data supplied as a ViewModel.
-type Handle struct{ state *state }
+type Controller struct{ state *state }
 
-func NewHandle() Handle { return Handle{state: &state{page: AppearancePage}} }
+func NewController() *Controller { return &Controller{state: &state{page: AppearancePage}} }
 
-func (h *Handle) ensureState() *state {
+func (h *Controller) ensureState() *state {
 	if h.state == nil {
 		h.state = &state{page: AppearancePage}
 	}
 	return h.state
 }
 
-func (h *Handle) OpenAt(page Page) {
+func (h *Controller) OpenAt(page Page) {
 	s := h.ensureState()
 	s.open = true
 	s.page = page
 	s.drag = ui.Point{}
 }
 
-func (h *Handle) Close() { h.ensureState().open = false }
-func (h Handle) IsOpen() bool {
+func (h *Controller) Close() { h.ensureState().open = false }
+func (h *Controller) IsOpen() bool {
 	return h.state != nil && h.state.open
 }
-func (h Handle) Page() Page {
+func (h *Controller) Page() Page {
 	if h.state == nil {
 		return AppearancePage
 	}
 	return h.state.page
 }
-func (h *Handle) SetPage(page Page)         { h.ensureState().page = page }
-func (h *Handle) SetScrollOffset(y float32) { h.ensureState().scroll.Y = y }
-func (h Handle) ScrollOffset() float32 {
+func (h *Controller) SetPage(page Page)         { h.ensureState().page = page }
+func (h *Controller) SetScrollOffset(y float32) { h.ensureState().scroll.Y = y }
+func (h *Controller) ScrollOffset() float32 {
 	if h.state == nil {
 		return 0
 	}
 	return h.state.scroll.Y
 }
 
-func (h *Handle) Apply(action Action) {
+func (h *Controller) Apply(action Action) {
 	s := h.ensureState()
 	switch action.Kind {
 	case SelectPage:
@@ -63,7 +63,7 @@ func (h *Handle) Apply(action Action) {
 
 // RenderDialog owns the dialog's local drag and scroll behavior while the
 // caller supplies current persisted settings and handles preference actions.
-func (h *Handle) RenderDialog(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func (h *Controller) RenderDialog(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	if h == nil || h.state == nil || !h.state.open {
 		return
 	}
