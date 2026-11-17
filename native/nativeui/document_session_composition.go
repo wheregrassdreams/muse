@@ -2,6 +2,7 @@ package nativeui
 
 import (
 	"errors"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -23,8 +24,32 @@ func (p noteEditorWorkflowPort) Snapshot() documentapp.EditingSnapshot {
 	return documentapp.EditingSnapshot{
 		Path: snapshot.Path, Source: snapshot.Source, DiskSource: snapshot.DiskSource,
 		BaseSource: persistence.BaseSource, Revision: snapshot.Revision, Dirty: snapshot.Dirty,
-		Saving: persistence.Saving,
+		Saving: persistence.Saving, InFlight: persistence.InFlight, HasInFlight: persistence.HasInFlight,
 	}
+}
+
+func (p noteEditorWorkflowPort) PersistenceState() documentapp.SessionState {
+	if p.editor == nil {
+		return documentapp.SessionState{}
+	}
+	return p.editor.PersistenceState()
+}
+
+func (p noteEditorWorkflowPort) BeginSave(now time.Time) (documentapp.SaveRequest, bool) {
+	if p.editor == nil {
+		return documentapp.SaveRequest{}, false
+	}
+	return p.editor.BeginSave(now)
+}
+
+func (p noteEditorWorkflowPort) StartSave(request documentapp.SaveRequest) {
+	if p.editor != nil {
+		p.editor.StartSave(request)
+	}
+}
+
+func (p noteEditorWorkflowPort) CompleteSave(result documentapp.SaveResult) bool {
+	return p.editor != nil && p.editor.CompleteSave(result)
 }
 
 func (p noteEditorWorkflowPort) DestinationRevision(path string, expected document.Revision) (document.Revision, error) {
@@ -37,15 +62,37 @@ func (p noteEditorWorkflowPort) DestinationRevision(path string, expected docume
 func (p noteEditorWorkflowPort) Rebase(path string, revision document.Revision, source string) bool {
 	return p.editor != nil && p.editor.Rebase(path, revision, source)
 }
+func (p noteEditorWorkflowPort) DeferExternal(note document.Note) bool {
+	return p.editor != nil && p.editor.DeferExternal(note)
+}
+func (p noteEditorWorkflowPort) TakeDeferredExternal() (document.Note, bool) {
+	if p.editor == nil {
+		return document.Note{}, false
+	}
+	return p.editor.TakeDeferredExternal()
+}
 func (p noteEditorWorkflowPort) ReplaceUser(source string) error {
 	if p.editor == nil {
 		return documentapp.ErrWorkflowUnavailable
 	}
 	return p.editor.ReplaceUser(source)
 }
+
+func (p noteEditorWorkflowPort) ReplaceSystem(source string) error {
+	if p.editor == nil {
+		return documentapp.ErrWorkflowUnavailable
+	}
+	return p.editor.ReplaceSystem(source)
+}
 func (p noteEditorWorkflowPort) ClearAutosave() {
 	if p.editor != nil {
 		p.editor.ClearAutosave()
+	}
+}
+
+func (p noteEditorWorkflowPort) ClearMetadataDeadline() {
+	if p.editor != nil {
+		p.editor.ClearMetadataDeadline()
 	}
 }
 func (p noteEditorWorkflowPort) SetConflict(path string) {
@@ -76,8 +123,6 @@ func (a *App) documentWorkflows() documentapp.SessionWorkflows {
 		Recovery:   a.documentRecovery,
 		History:    a.documentHistory,
 		Editing:    active,
-		FlushTime:  a.flushManagedTimestamp,
-		UpdateTime: a.updateManagedTimestamp,
 		Replace: func(path, source string, dirty bool) error {
 			if a.noteEditor() == nil {
 				return documentapp.ErrWorkflowUnavailable

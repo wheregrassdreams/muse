@@ -316,8 +316,8 @@ type App struct {
 	statusAt time.Time
 
 	// blocking dialog guard: one native dialog at a time, never on the UI thread
-	busy    bool
-	closing bool
+	busy       bool
+	closeState closeConfirmationState
 
 	// inline rename dialog
 	renameOpen  bool

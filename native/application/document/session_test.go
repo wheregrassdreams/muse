@@ -3,6 +3,7 @@ package document
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,12 @@ func TestSessionDebouncesAutosaveAndTracksGeneration(t *testing.T) {
 	if _, ok := session.BeginSave("notes/a.md", "after", true, now.Add(AutosaveDelay-time.Nanosecond)); ok {
 		t.Fatal("save started before debounce deadline")
 	}
-	request, ok := session.BeginSave("notes/a.md", "after", true, now.Add(AutosaveDelay))
+	if _, ok := session.BeginSave("notes/a.md", "after", true, now.Add(AutosaveDelay)); ok {
+		t.Fatal("autosave started before its managed metadata patch settled")
+	}
+	session.ClearMetadataDeadline()
+	session.MetadataChanged(now.Add(MetadataUpdateDelay))
+	request, ok := session.BeginSave("notes/a.md", "after with metadata", true, now.Add(MetadataUpdateDelay+time.Nanosecond))
 	if !ok {
 		t.Fatal("save did not start at debounce deadline")
 	}
@@ -31,7 +37,7 @@ func TestSessionDebouncesAutosaveAndTracksGeneration(t *testing.T) {
 		t.Fatal("a second save started while the first was in flight")
 	}
 	session.Open("notes/b.md", "new session")
-	if session.CompleteSave(SaveResult{Request: request}, "notes/a.md", "after") {
+	if session.CompleteSave(SaveResult{Request: request}, "notes/a.md") {
 		t.Fatal("stale save completion was accepted after switching documents")
 	}
 	if got := session.Snapshot(); got.Saving {
@@ -39,17 +45,42 @@ func TestSessionDebouncesAutosaveAndTracksGeneration(t *testing.T) {
 	}
 }
 
-func TestSessionMetadataUpdatesDoNotRescheduleMetadata(t *testing.T) {
+func TestSessionMetadataPatchPreservesPendingAutosaveDeadline(t *testing.T) {
 	session := NewSession(nil, nil, nil, nil)
 	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
-	session.SetApplyingMetadata(true)
 	session.Changed(now)
+	due := session.Snapshot().AutosaveDue
+	session.ClearMetadataDeadline()
+	session.MetadataChanged(now.Add(MetadataUpdateDelay))
 	state := session.Snapshot()
 	if !state.MetadataDue.IsZero() {
-		t.Fatalf("metadata system edit scheduled another timestamp update: %v", state.MetadataDue)
+		t.Fatalf("metadata patch left another timestamp update scheduled: %v", state.MetadataDue)
 	}
-	if !state.AutosaveDue.Equal(now.Add(AutosaveDelay)) {
-		t.Fatalf("autosave deadline = %v", state.AutosaveDue)
+	if !state.AutosaveDue.Equal(due) {
+		t.Fatalf("metadata patch moved pending autosave from %v to %v", due, state.AutosaveDue)
+	}
+}
+
+func TestSessionMetadataPatchDuringSaveQueuesOneFollowup(t *testing.T) {
+	session := NewSession(nil, nil, nil, nil)
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	session.Open("notes/a.md", "before")
+	session.Changed(now)
+	if _, ok := session.BeginSave("notes/a.md", "user edit", true, now.Add(AutosaveDelay)); ok {
+		t.Fatal("initial autosave started before metadata update")
+	}
+	session.ClearMetadataDeadline()
+	request, ok := session.BeginSave("notes/a.md", "user edit with metadata", true, now.Add(MetadataUpdateDelay))
+	if !ok {
+		t.Fatal("autosave did not start after the metadata deadline cleared")
+	}
+	session.Changed(now.Add(MetadataUpdateDelay + time.Second))
+	session.ClearMetadataDeadline()
+	session.MetadataChanged(now.Add(2 * time.Second))
+	state := session.Snapshot()
+	want := now.Add(MetadataUpdateDelay + time.Second + AutosaveDelay)
+	if !state.AutosaveDue.Equal(want) || !state.Saving || !state.HasInFlight || state.InFlight != request {
+		t.Fatalf("system patch during save state = %+v, want one follow-up at %v", state, want)
 	}
 }
 
@@ -63,6 +94,8 @@ func TestSessionPublishesAsyncSaveResults(t *testing.T) {
 	session.Open(path, "before")
 	now := time.Now()
 	session.Changed(now)
+	session.ClearMetadataDeadline()
+	session.MetadataChanged(now.Add(MetadataUpdateDelay))
 	request, ok := session.BeginSave(path, "after", true, now.Add(AutosaveDelay))
 	if !ok {
 		t.Fatal("save request was not claimed")
@@ -73,7 +106,7 @@ func TestSessionPublishesAsyncSaveResults(t *testing.T) {
 		if result.Err != nil || result.Note.Source != "after" || result.Note.Path != path {
 			t.Fatalf("save result = %+v", result)
 		}
-		if !session.CompleteSave(result, path, "after") {
+		if !session.CompleteSave(result, path) {
 			t.Fatal("current save result was rejected")
 		}
 		state := session.Snapshot()
@@ -82,6 +115,36 @@ func TestSessionPublishesAsyncSaveResults(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("session did not publish the asynchronous save result")
+	}
+}
+
+func TestSessionAcceptsSaveCompletionWhenBufferAdvancedInFlight(t *testing.T) {
+	session := NewSession(nil, nil, nil, nil)
+	path := "notes/a.md"
+	session.Open(path, "before")
+	now := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	session.Changed(now)
+	session.ClearMetadataDeadline()
+	request, ok := session.BeginSave(path, "saved revision", true, now.Add(AutosaveDelay))
+	if !ok {
+		t.Fatal("save request was not claimed")
+	}
+	// This is the source currently in the editor after the write was issued.
+	session.Changed(now.Add(AutosaveDelay + time.Millisecond))
+
+	result := SaveResult{
+		Request: request,
+		Note:    domain.NewNote(path, request.Source, domain.RevisionOf(request.Source)),
+	}
+	if !session.CompleteSave(result, path) {
+		t.Fatal("matching save completion was rejected after the buffer advanced")
+	}
+	state := session.Snapshot()
+	if state.Saving || state.Revision != result.Note.Revision || state.BaseSource != request.Source {
+		t.Fatalf("completed state did not advance the durable baseline: %+v", state)
+	}
+	if state.AutosaveDue.IsZero() {
+		t.Fatal("completion discarded the follow-up autosave deadline for the newer edit")
 	}
 }
 
@@ -144,7 +207,7 @@ func TestSessionLoadReadsCurrentRepositoryRevisionWithoutChangingSession(t *test
 	if err != nil || note.Source != "current on disk" || note.Revision != domain.RevisionOf(note.Source) {
 		t.Fatalf("loaded note=%+v error=%v", note, err)
 	}
-	if after := session.Snapshot(); after != before {
+	if after := session.Snapshot(); !reflect.DeepEqual(after, before) {
 		t.Fatalf("read-only load changed persistence session: before=%+v after=%+v", before, after)
 	}
 }
@@ -187,6 +250,8 @@ func TestSessionCloseInvalidatesClaimedSave(t *testing.T) {
 	session.Open(path, "before")
 	now := time.Now()
 	session.Changed(now)
+	session.ClearMetadataDeadline()
+	session.MetadataChanged(now.Add(MetadataUpdateDelay))
 	request, ok := session.BeginSave(path, "after", true, now.Add(AutosaveDelay))
 	if !ok {
 		t.Fatal("save request was not claimed")

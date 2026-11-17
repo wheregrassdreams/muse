@@ -79,6 +79,13 @@ func TestInternalSaveWatcherAcknowledgesInFlightRevisionWhileBufferContinues(t *
 	if err := a.noteEditor().ReplaceUser("second internal edit"); err != nil {
 		t.Fatal(err)
 	}
+	// A watcher snapshot can be stale by the time its event is reconciled.
+	// Hold one such observation behind the active save and verify completion
+	// accepts the write, drains the invalidation, then rereads the repository.
+	a.reconcileExternalNote(document.NewNote(path, "stale watcher snapshot", document.RevisionOf("stale watcher snapshot")))
+	if !a.noteEditor().PersistenceState().HasDeferred {
+		t.Fatal("non-matching watcher snapshot was not deferred during the in-flight save")
+	}
 	a.notice("sentinel")
 	waitDocument(t, tester, func() bool {
 		indexed, ok := a.vault.Document("note.md")
@@ -103,7 +110,7 @@ func TestInternalSaveWatcherAcknowledgesInFlightRevisionWhileBufferContinues(t *
 	}
 	waitDocument(t, tester, func() bool {
 		state := a.noteEditor().PersistenceState()
-		return !state.Saving && state.Revision == event.Revision && a.noteEditor().Source() == "second internal edit" && a.documentDirty()
+		return !state.Saving && !state.HasDeferred && state.Revision == event.Revision && a.noteEditor().Source() == "second internal edit" && a.documentDirty()
 	})
 	if a.noteEditor().PersistenceState().ConflictPath != "" || a.documents.IsConflictOpen() {
 		t.Fatalf("completion of internal save opened a conflict: state=%+v", a.noteEditor().PersistenceState())

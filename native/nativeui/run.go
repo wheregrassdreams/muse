@@ -138,26 +138,28 @@ func (a *App) openWindow() {
 	// the system's snap). Redraw when it does.
 	a.win.OnMaximize(a.invalidate)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
-		if !a.documentDirty() {
+		switch a.closeRequest(a.documentDirty()) {
+		case closeProceed:
 			a.persistWorkspaceState()
 			a.closeVaultSessionNow()
 			return
-		}
-		e.PreventDefault()
-		if a.closing || a.busy {
+		case closePrevent:
+			e.PreventDefault()
 			return
+		case closeConfirm:
+			e.PreventDefault()
 		}
-		a.closing = true
 		a.startBusy()
 		// Message dialogs block on the main loop; ask from a goroutine and
 		// hop back only to close the window.
 		go func() {
 			ok := a.confirmDiscardOffUI()
 			mygo.RunOnMain(func() {
-				a.closing = false
-				a.busy = false
+				a.finishCloseConfirmation(ok)
 				if ok {
-					a.persistWorkspaceState()
+					// Keep closing=true as a one-shot permit. Window.Close emits
+					// OnClose again; closeRequest consumes that permit instead of
+					// prompting again while the discarded document stays dirty.
 					a.win.Close()
 					return
 				}
@@ -186,6 +188,56 @@ func (a *App) openWindow() {
 			}
 			mygo.App.Exit(0)
 		}()
+	}
+}
+
+type closeDisposition uint8
+
+const (
+	closeProceed closeDisposition = iota
+	closePrevent
+	closeConfirm
+)
+
+type closeConfirmationState uint8
+
+const (
+	closeIdle closeConfirmationState = iota
+	closeConfirmationPending
+	closeConfirmedOnce
+)
+
+// closeRequest separates a normal close, an in-progress confirmation, and the
+// one permitted close after the user has confirmed a dirty-document choice.
+// A close approval is a one-shot permit. It lets the native window emit its
+// second close event after the user has resolved the dirty-document prompt.
+func (a *App) closeRequest(dirty bool) closeDisposition {
+	switch a.closeState {
+	case closeConfirmationPending:
+		return closePrevent
+	case closeConfirmedOnce:
+		a.closeState = closeIdle
+		return closeProceed
+	}
+	if !dirty {
+		return closeProceed
+	}
+	if a.busy {
+		return closePrevent
+	}
+	a.closeState = closeConfirmationPending
+	return closeConfirm
+}
+
+// finishCloseConfirmation releases the in-flight dialog. On approval,
+// closing remains set until the next OnClose consumes it; on cancellation,
+// there is no permit and a later close request must ask again.
+func (a *App) finishCloseConfirmation(approved bool) {
+	a.busy = false
+	if approved {
+		a.closeState = closeConfirmedOnce
+	} else {
+		a.closeState = closeIdle
 	}
 }
 

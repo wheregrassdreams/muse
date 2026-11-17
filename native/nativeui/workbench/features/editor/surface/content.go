@@ -736,7 +736,7 @@ func (c *Content) CompleteSave(result documentapp.SaveResult) bool {
 		return false
 	}
 	snapshot := c.Snapshot()
-	current := c.document.CompleteSave(result, snapshot.Path, snapshot.DiskSource)
+	current := c.document.CompleteSave(result, snapshot.Path)
 	if current && result.Err == nil {
 		// A conflict save writes a recovery draft instead of changing the
 		// durable note. Keep the live document dirty so the conflict remains

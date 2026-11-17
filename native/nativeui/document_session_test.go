@@ -8,6 +8,7 @@ import (
 	applicationvault "muse/application/vault"
 	"muse/document"
 	"muse/document/frontmatter"
+	"muse/locales"
 	"muse/nativeui/workbench/features/dialogs/document"
 	searchui "muse/nativeui/workbench/features/search"
 	"muse/platform/filesystem/documentstore"
@@ -70,8 +71,58 @@ func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
 	if fields["updated_at"].Value == "" {
 		t.Fatalf("updated_at was not set after debounce: %q", a.documentSource())
 	}
+	if due := a.noteEditor().PersistenceState().MetadataDue; !due.IsZero() {
+		t.Fatalf("managed timestamp scheduled another metadata update: %v", due)
+	}
 	if !a.noteEditor().Undo() || a.noteEditor().Source() != "original" {
 		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.noteEditor().Source())
+	}
+}
+
+func TestTypingManagedTimestampKeepsCaretAndDoesNotRescheduleForever(t *testing.T) {
+	a, tt, path := runtimeFixture(t)
+	if !a.noteEditor().FocusCommands().Focused() {
+		a.noteEditor().FocusCommands().Focus()
+		tt.Frame()
+	}
+	before := a.noteEditor().NavigationCommands().Caret()
+	tt.Type("x")
+	tt.Frame()
+	if got := a.noteEditor().NavigationCommands().Caret(); got <= before {
+		t.Fatalf("typed character did not advance caret: before=%d after=%d", before, got)
+	}
+	preMetadataSource := a.documentSource()
+	preMetadataCaret := a.noteEditor().NavigationCommands().Caret()
+	waitDocument(t, tt, func() bool {
+		return a.noteEditor().PersistenceState().MetadataDue.IsZero() && strings.Contains(a.documentSource(), "updated_at:")
+	})
+	postMetadataSource := a.documentSource()
+	metadataPrefix := strings.Index(postMetadataSource, preMetadataSource)
+	if metadataPrefix < 0 {
+		t.Fatalf("managed metadata did not preserve the body: before=%q after=%q", preMetadataSource, postMetadataSource)
+	}
+	if got, want := a.noteEditor().NavigationCommands().Caret(), preMetadataCaret+metadataPrefix; got != want {
+		t.Fatalf("managed metadata changed the caret's body position: got=%d want=%d (prefix=%d)", got, want, metadataPrefix)
+	}
+	if !a.noteEditor().FocusCommands().Focused() {
+		t.Fatal("managed metadata update stole editor focus")
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable := string(saved)
+	time.Sleep(2 * documentsave.MetadataUpdateDelay)
+	tt.Frame()
+	saved, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != stable {
+		t.Fatalf("managed timestamp kept autosaving: first=%q second=%q", stable, saved)
+	}
+	if due := a.noteEditor().PersistenceState().MetadataDue; !due.IsZero() {
+		t.Fatalf("managed timestamp scheduled a repeat update: %v", due)
 	}
 }
 
@@ -336,8 +387,11 @@ func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	expireAutosave(a)
 	waitDocument(t, tt, func() bool { return !a.documentDirty() })
 	data, _ := os.ReadFile(path)
-	if string(data) != "edited 中文" {
+	if !strings.HasSuffix(string(data), "\n\nedited 中文") {
 		t.Fatalf("saved %q", data)
+	}
+	if !strings.Contains(string(data), "updated_at:") {
+		t.Fatalf("autosave omitted managed timestamp: %q", data)
 	}
 	history, err := a.noteEditor().ListHistory(path)
 	if err != nil || len(history) == 0 {
@@ -363,11 +417,11 @@ func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	if string(data) != "external content" {
 		t.Fatalf("overwritten %q", data)
 	}
-	if a.documentSource() != "my unsaved edits" || !a.documentDirty() {
-		t.Fatal("lost current edits")
+	if !hasDocumentBody(a.documentSource(), "my unsaved edits") || !a.documentDirty() {
+		t.Fatalf("lost current edits: source=%q dirty=%v", a.documentSource(), a.documentDirty())
 	}
 	draft, err := a.noteEditor().ReadDraft(path)
-	if err != nil || draft.Text != "my unsaved edits" {
+	if err != nil || !hasDocumentBody(draft.Text, "my unsaved edits") {
 		t.Fatalf("recovery %v %v", draft, err)
 	}
 	a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
@@ -397,10 +451,35 @@ func TestCleanExternalEditReloadsAndIndexFindsIt(t *testing.T) {
 		t.Fatal("baseline stale")
 	}
 }
+
+func TestExternalReconciliationReadsRepositoryAcrossIndexGap(t *testing.T) {
+	a, _, path := runtimeFixture(t)
+	externalSource := "external revision during catalog refresh"
+	if err := os.WriteFile(path, []byte(externalSource), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the vault catalog temporarily being unavailable during a
+	// rescan. The active file still exists, so reconciliation must consult the
+	// document repository instead of treating a missing catalog row as deletion.
+	session := a.vault
+	a.vault = nil
+	a.reconcileExternalCurrentDocument(nil)
+	a.vault = session
+
+	if got := a.documentSource(); got != externalSource {
+		t.Fatalf("active buffer after repository reconciliation = %q, want %q", got, externalSource)
+	}
+	if a.noteEditor().PersistenceState().ConflictPath != "" || a.documents.IsConflictOpen() {
+		t.Fatalf("existing file was reported as missing: state=%+v", a.noteEditor().PersistenceState())
+	}
+}
+
 func TestUntitledDraftSurvivesRecreatingApp(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
 	a := New()
-	withDocumentPorts(t, a)
+	a.SetDocumentRepositories(store, store, store)
 	a.enableDocumentServices()
 	if err := a.noteEditor().ReplaceUser("unsaved untitled"); err != nil {
 		t.Fatal(err)
@@ -412,12 +491,12 @@ func TestUntitledDraftSurvivesRecreatingApp(t *testing.T) {
 		return !state.Saving && state.AutosaveDue.IsZero()
 	})
 	b := New()
-	withDocumentPorts(t, b)
+	b.SetDocumentRepositories(store, store, store)
 	b.enableDocumentServices()
 	b.openRecovery()
 	drafts, err := b.documentRecovery.ListDrafts()
-	if err != nil || len(drafts) != 1 || drafts[0].Text != "unsaved untitled" {
-		t.Fatal("draft not recovered")
+	if err != nil || len(drafts) != 1 || !hasDocumentBody(drafts[0].Text, "unsaved untitled") {
+		t.Fatalf("draft not recovered: drafts=%+v err=%v state=%+v source=%q", drafts, err, a.noteEditor().PersistenceState(), a.noteEditor().Source())
 	}
 }
 
@@ -519,6 +598,10 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.save()
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a.openHistory()
 	tt.Frame()
 	runtimeShot(t, tt, "document-history")
@@ -527,7 +610,7 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 		t.Fatal("history list is empty")
 	}
 	h := history[0]
-	label := h.CreatedAt.Local().Format("2006-01-02 15:04:05") + " · " + string(h.Revision)[:8]
+	label := locales.DocumentHistoryVersionLabel(h.CreatedAt.Local(), string(h.Revision)[:8])
 	if err := tt.Click(label); err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +619,7 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 		t.Fatalf("restore path=%q source=%q dirty=%v", a.documentPath(), a.documentSource(), a.documentDirty())
 	}
 	data, _ := os.ReadFile(path)
-	if string(data) != "updated" {
+	if string(data) != string(original) {
 		t.Fatal("history restore overwrote original file")
 	}
 }
@@ -629,9 +712,13 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 		t.Fatal("autosave recreated externally deleted file")
 	}
 	d, err := a.noteEditor().ReadDraft(path)
-	if err != nil || d.Text != "keep after deletion" {
-		t.Fatal("deleted document draft missing")
+	if err != nil || !hasDocumentBody(d.Text, "keep after deletion") {
+		t.Fatalf("deleted document draft missing: draft=%+v err=%v state=%+v source=%q", d, err, a.noteEditor().PersistenceState(), a.noteEditor().Source())
 	}
+}
+
+func hasDocumentBody(source, body string) bool {
+	return source == body || strings.HasSuffix(source, "\n\n"+body)
 }
 
 func TestEditorChangesUpdateSharedBacklinkIndex(t *testing.T) {

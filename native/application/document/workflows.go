@@ -3,9 +3,11 @@ package document
 import (
 	"errors"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	domain "muse/document"
+	doctypes "muse/document/types"
 )
 
 var (
@@ -15,23 +17,33 @@ var (
 )
 
 type EditingSnapshot struct {
-	Path       string
-	Source     string
-	DiskSource string
-	BaseSource string
-	Revision   domain.Revision
-	Dirty      bool
-	Saving     bool
+	Path        string
+	Source      string
+	DiskSource  string
+	BaseSource  string
+	Revision    domain.Revision
+	Dirty       bool
+	Saving      bool
+	InFlight    SaveRequest
+	HasInFlight bool
 }
 
 // EditingPort is the active mutable note capability. It contains only source
 // and persistence operations; it does not expose widgets, focus, or selection.
 type EditingPort interface {
 	Snapshot() EditingSnapshot
+	PersistenceState() SessionState
+	BeginSave(time.Time) (SaveRequest, bool)
+	StartSave(SaveRequest)
+	CompleteSave(SaveResult) bool
 	DestinationRevision(path string, expected domain.Revision) (domain.Revision, error)
 	Rebase(path string, revision domain.Revision, source string) bool
+	DeferExternal(note domain.Note) bool
+	TakeDeferredExternal() (domain.Note, bool)
 	ReplaceUser(source string) error
+	ReplaceSystem(source string) error
 	ClearAutosave()
+	ClearMetadataDeadline()
 	SetConflict(path string)
 	PreserveDraft() (string, error)
 	DeleteDraft(path string) error
@@ -52,7 +64,6 @@ type DirtyTransitionOutcome struct {
 }
 
 type ReplaceDocument func(path, source string, dirty bool) error
-type FlushManagedTimestamp func()
 type SaveMergedDocument func(path, source string, expected domain.Revision) error
 
 // SessionWorkflows coordinates recovery, history, and external-change
@@ -65,9 +76,69 @@ type SessionWorkflows struct {
 	History    domain.HistoryRepository
 	Editing    EditingPort
 	Replace    ReplaceDocument
-	FlushTime  FlushManagedTimestamp
-	UpdateTime FlushManagedTimestamp
 	Save       SaveMergedDocument
+}
+
+// Advance moves the active document's autosave state machine forward. The
+// UI only schedules this call and presents the resulting errors; deadline
+// ordering, managed metadata and save dispatch stay in the application layer.
+func (w SessionWorkflows) Advance(now time.Time) error {
+	if w.Editing == nil {
+		return ErrWorkflowUnavailable
+	}
+	state := w.Editing.PersistenceState()
+	// Autosave must wait for the timestamp patch, but the patch itself should
+	// happen at the autosave boundary instead of adding a second full debounce
+	// interval. This keeps the established 750 ms save latency and yields one
+	// durable write containing both the edit and its metadata.
+	if !state.MetadataDue.IsZero() &&
+		((!state.AutosaveDue.IsZero() && !now.Before(state.AutosaveDue)) || !now.Before(state.MetadataDue)) {
+		return w.FlushManagedTimestampAt(now)
+	}
+	if request, ok := w.Editing.BeginSave(now); ok {
+		w.Editing.StartSave(request)
+	}
+	return nil
+}
+
+// FlushManagedTimestampAt applies the managed timestamp through the editor's
+// system-edit capability before a pending save can be claimed.
+func (w SessionWorkflows) FlushManagedTimestampAt(now time.Time) error {
+	if w.Editing == nil {
+		return ErrWorkflowUnavailable
+	}
+	snapshot := w.Editing.Snapshot()
+	if !doctypes.IsMarkdownPath(snapshot.Path) {
+		w.Editing.ClearMetadataDeadline()
+		return nil
+	}
+	next, err := UpdateManagedTimestamp(snapshot.Source, now)
+	if err != nil {
+		return err
+	}
+	if err := w.Editing.ReplaceSystem(next); err != nil {
+		return err
+	}
+	w.Editing.ClearMetadataDeadline()
+	return nil
+}
+
+// FlushManagedTimestamp applies a pending managed timestamp immediately,
+// typically before a user-requested save or dirty-workspace transition.
+func (w SessionWorkflows) FlushManagedTimestamp() error {
+	if w.Editing == nil {
+		return ErrWorkflowUnavailable
+	}
+	if w.Editing.PersistenceState().MetadataDue.IsZero() {
+		return nil
+	}
+	return w.FlushManagedTimestampAt(time.Now())
+}
+
+// CompleteSave applies a worker result to the active editor session. Stale
+// generations and mismatched requests are rejected by the session adapter.
+func (w SessionWorkflows) CompleteSave(result SaveResult) bool {
+	return w.Editing != nil && w.Editing.CompleteSave(result)
 }
 
 type MergeOutcome uint8
@@ -88,6 +159,8 @@ const (
 	ExternalChangeLoaded
 	ExternalChangeMergedSaving
 	ExternalChangeConflict
+	ExternalChangeAcknowledged
+	ExternalChangeDeferred
 )
 
 func (w SessionWorkflows) ListDrafts() ([]domain.Draft, error) {
@@ -252,15 +325,15 @@ func (w SessionWorkflows) TryMergeExternalChanges() (MergeOutcome, error) {
 	}
 	if !w.Editing.Snapshot().Dirty {
 		w.Editing.ClearAutosave()
-		if w.FlushTime != nil {
-			w.FlushTime()
+		if err := w.FlushManagedTimestamp(); err != nil {
+			return MergeNoop, err
 		}
 		if !w.Editing.Snapshot().Dirty {
 			return MergeLoadedExternal, nil
 		}
 	}
-	if w.FlushTime != nil {
-		w.FlushTime()
+	if err := w.FlushManagedTimestamp(); err != nil {
+		return MergeNoop, err
 	}
 	updated := w.Editing.Snapshot()
 	if err := w.Save(updated.Path, updated.Source, updated.Revision); err != nil {
@@ -283,8 +356,21 @@ func (w SessionWorkflows) ReconcileExternal(external domain.Note) (ExternalChang
 		return ExternalChangeNoop, nil
 	}
 	if snapshot.Dirty || snapshot.Saving {
+		if snapshot.Saving {
+			if snapshot.HasInFlight && external.Source == snapshot.InFlight.Source {
+				return ExternalChangeAcknowledged, nil
+			}
+			if w.Editing.DeferExternal(external) {
+				return ExternalChangeDeferred, nil
+			}
+			return ExternalChangeNoop, errors.New("active document changed while deferring external revision")
+		}
 		if external.Source == snapshot.DiskSource {
-			return ExternalChangeNoop, nil
+			if !w.Editing.Rebase(external.Path, external.Revision, external.Source) {
+				return ExternalChangeNoop, errors.New("active document changed while acknowledging external revision")
+			}
+			w.Editing.ClearAutosave()
+			return ExternalChangeAcknowledged, nil
 		}
 		merged, ok := "", false
 		if !snapshot.Saving {
@@ -301,8 +387,8 @@ func (w SessionWorkflows) ReconcileExternal(external domain.Note) (ExternalChang
 				return ExternalChangeMergedSaving, nil
 			}
 			w.Editing.ClearAutosave()
-			if w.FlushTime != nil {
-				w.FlushTime()
+			if err := w.FlushManagedTimestamp(); err != nil {
+				return ExternalChangeNoop, err
 			}
 			if !w.Editing.Snapshot().Dirty {
 				return ExternalChangeLoaded, nil
@@ -317,9 +403,6 @@ func (w SessionWorkflows) ReconcileExternal(external domain.Note) (ExternalChang
 	}
 	if err := w.Replace(external.Path, external.Source, false); err != nil {
 		return ExternalChangeNoop, err
-	}
-	if w.UpdateTime != nil {
-		w.UpdateTime()
 	}
 	return ExternalChangeLoaded, nil
 }
@@ -342,8 +425,8 @@ func (w SessionWorkflows) preserveCurrentDraft(snapshot EditingSnapshot) error {
 	if !snapshot.Dirty {
 		return nil
 	}
-	if w.FlushTime != nil {
-		w.FlushTime()
+	if err := w.FlushManagedTimestamp(); err != nil {
+		return err
 	}
 	if w.Editing == nil {
 		return ErrWorkflowUnavailable

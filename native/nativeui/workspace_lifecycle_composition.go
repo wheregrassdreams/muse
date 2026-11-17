@@ -174,7 +174,7 @@ func (a *App) documentTick(c *ui.Context) {
 	c.After(100 * time.Millisecond)
 	select {
 	case result := <-content.Results():
-		if !content.CompleteSave(result) {
+		if !a.documentWorkflows().CompleteSave(result) {
 			break
 		}
 		if result.Err != nil {
@@ -189,40 +189,27 @@ func (a *App) documentTick(c *ui.Context) {
 		} else if result.Request.Path != "" && result.Note.Revision != "" && result.Request.Source == a.diskSource() {
 			a.updateTitle()
 		}
+		if _, ok := content.TakeDeferredExternal(); ok {
+			// The watcher event is an invalidation, and may have been queued
+			// before a later write. Re-read the repository after the in-flight
+			// save completes instead of applying a potentially stale indexed
+			// snapshot.
+			a.reconcileExternalCurrentDocument(a.vault)
+		}
 	default:
 	}
-	state := content.PersistenceState()
-	if !state.MetadataDue.IsZero() && !time.Now().Before(state.MetadataDue) {
-		content.ClearMetadataDeadline()
-		a.updateManagedTimestamp()
-		return
+	if err := a.documentWorkflows().Advance(time.Now()); err != nil {
+		a.notice(locales.CommonTimestampError(err.Error()))
 	}
-	request, ok := content.BeginSave(time.Now())
-	if !ok {
-		return
-	}
-	content.StartSave(request)
 }
 
 func (a *App) flushManagedTimestamp() {
-	if a.noteEditor() == nil || a.noteEditor().PersistenceState().MetadataDue.IsZero() {
+	if a.noteEditor() == nil {
 		return
 	}
-	a.noteEditor().ClearMetadataDeadline()
-	a.updateManagedTimestamp()
-}
-
-func (a *App) updateManagedTimestamp() {
-	if a.noteEditor() == nil || !doctypes.IsMarkdownPath(a.documentPath()) {
-		return
-	}
-	source := a.noteEditor().Snapshot().Source
-	next, err := documentsave.UpdateManagedTimestamp(source, time.Now())
-	if err != nil {
+	if err := a.documentWorkflows().FlushManagedTimestamp(); err != nil {
 		a.notice(locales.CommonTimestampError(err.Error()))
-		return
 	}
-	_ = a.noteEditor().ReplaceSystem(next)
 }
 
 func (a *App) persistWorkspaceState() {

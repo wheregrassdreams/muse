@@ -43,8 +43,11 @@ type SessionState struct {
 	BaseSource       string
 	AutosaveDue      time.Time
 	MetadataDue      time.Time
-	ApplyingMetadata bool
 	Saving           bool
+	InFlight         SaveRequest
+	HasInFlight      bool
+	DeferredExternal domain.Note
+	HasDeferred      bool
 	DraftKey         string
 	ConflictPath     string
 }
@@ -111,6 +114,45 @@ func (s *Session) Snapshot() SessionState {
 	return s.state
 }
 
+// DeferExternal retains the newest disk observation while a save is in
+// flight. The workflow applies it only after the exact submitted write has
+// been acknowledged or rejected.
+func (s *Session) DeferExternal(note domain.Note) bool {
+	if s == nil || note.Path == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || !s.state.Saving || s.state.Path != note.Path {
+		return false
+	}
+	if s.state.HasInFlight && note.Source == s.state.InFlight.Source {
+		return true
+	}
+	if s.state.HasDeferred && s.state.DeferredExternal.Revision == note.Revision {
+		return true
+	}
+	s.state.DeferredExternal = note
+	s.state.HasDeferred = true
+	return true
+}
+
+// TakeDeferredExternal returns a disk observation once no save is in flight.
+func (s *Session) TakeDeferredExternal() (domain.Note, bool) {
+	if s == nil {
+		return domain.Note{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.state.Saving || !s.state.HasDeferred {
+		return domain.Note{}, false
+	}
+	note := s.state.DeferredExternal
+	s.state.DeferredExternal = domain.Note{}
+	s.state.HasDeferred = false
+	return note, true
+}
+
 func (s *Session) Results() <-chan SaveResult { return s.results }
 
 // Close invalidates pending save work and clears session deadlines. The
@@ -127,6 +169,10 @@ func (s *Session) Close() {
 	s.state.BaseSource = ""
 	s.state.ConflictPath = ""
 	s.state.Saving = false
+	s.state.InFlight = SaveRequest{}
+	s.state.HasInFlight = false
+	s.state.DeferredExternal = domain.Note{}
+	s.state.HasDeferred = false
 	s.state.AutosaveDue = time.Time{}
 	s.state.MetadataDue = time.Time{}
 	s.mu.Unlock()
@@ -260,6 +306,10 @@ func (s *Session) Open(path, source string) {
 	s.state.Generation = s.token.Add(1)
 	s.state.Path = path
 	s.state.Saving = false
+	s.state.InFlight = SaveRequest{}
+	s.state.HasInFlight = false
+	s.state.DeferredExternal = domain.Note{}
+	s.state.HasDeferred = false
 	if path == "" {
 		s.state.DraftKey = newDraftKey()
 	}
@@ -270,21 +320,24 @@ func (s *Session) Open(path, source string) {
 	s.state.ConflictPath = ""
 }
 
-// Changed records a source edit and schedules persistence. Metadata edits
-// suppress their own timestamp reschedule to prevent an update loop.
+// Changed records a user source edit and schedules both autosave and the
+// managed timestamp update.
 func (s *Session) Changed(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.AutosaveDue = now.Add(AutosaveDelay)
-	if !s.state.ApplyingMetadata {
-		s.state.MetadataDue = now.Add(MetadataUpdateDelay)
-	}
+	s.state.MetadataDue = now.Add(MetadataUpdateDelay)
 }
 
-func (s *Session) SetApplyingMetadata(applying bool) {
+// MetadataChanged records a system metadata patch without moving an existing
+// autosave deadline. If an earlier save already claimed its deadline, queue a
+// follow-up so the metadata patch is persisted after that write completes.
+func (s *Session) MetadataChanged(now time.Time) {
 	s.mu.Lock()
-	s.state.ApplyingMetadata = applying
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	if s.state.AutosaveDue.IsZero() {
+		s.state.AutosaveDue = now.Add(AutosaveDelay)
+	}
 }
 
 // Rebase replaces the durable comparison baseline after an external edit or
@@ -316,12 +369,13 @@ func (s *Session) ClearAutosave() {
 	s.mu.Unlock()
 }
 
-// BeginSave atomically claims the pending autosave when its deadline has
-// elapsed. The caller can then run Save in a worker goroutine.
+// BeginSave atomically claims the pending autosave after both the autosave
+// deadline and any managed-metadata patch have settled. The caller can then
+// run Save in a worker goroutine.
 func (s *Session) BeginSave(path, source string, dirty bool, now time.Time) (SaveRequest, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Saving || s.state.AutosaveDue.IsZero() || now.Before(s.state.AutosaveDue) || !dirty {
+	if s.state.Saving || !s.state.MetadataDue.IsZero() || s.state.AutosaveDue.IsZero() || now.Before(s.state.AutosaveDue) || !dirty {
 		return SaveRequest{}, false
 	}
 	key := path
@@ -337,6 +391,8 @@ func (s *Session) BeginSave(path, source string, dirty bool, now time.Time) (Sav
 		Conflict:   s.state.ConflictPath != "",
 	}
 	s.state.Saving = true
+	s.state.InFlight = request
+	s.state.HasInFlight = true
 	s.state.AutosaveDue = time.Time{}
 	return request, true
 }
@@ -411,16 +467,24 @@ func (s *Session) ClearMetadataDeadline() {
 
 // CompleteSave applies a worker result only if its generation is still
 // current. It returns whether the result belongs to the active session.
-func (s *Session) CompleteSave(result SaveResult, currentPath, currentSource string) bool {
+func (s *Session) CompleteSave(result SaveResult, currentPath string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if result.Request.Generation != s.state.Generation || result.Request.Path != currentPath {
+	if result.Request.Generation != s.state.Generation || result.Request.Path != currentPath ||
+		!s.state.HasInFlight || result.Request != s.state.InFlight {
 		return false
 	}
 	s.state.Saving = false
+	s.state.InFlight = SaveRequest{}
+	s.state.HasInFlight = false
 	if result.Err != nil {
 		if errors.Is(result.Err, domain.ErrConflict) && result.Request.Path != "" {
 			s.state.ConflictPath = result.Request.Path
+		} else {
+			// Transient IO failures must not leave a dirty document permanently
+			// unscheduled. Retry with the ordinary debounce interval; CAS conflicts
+			// require user resolution and are intentionally paused above.
+			s.state.AutosaveDue = time.Now().Add(AutosaveDelay)
 		}
 		return true
 	}
@@ -428,5 +492,9 @@ func (s *Session) CompleteSave(result SaveResult, currentPath, currentSource str
 		s.state.Revision = result.Note.Revision
 		s.state.BaseSource = result.Note.Source
 	}
-	return currentSource == result.Request.Source
+	// Accept the persistence result even when editing continued while the write
+	// was in flight. The result still advances the durable baseline and must
+	// release deferred filesystem observations; the editor adapter separately
+	// keeps the newer buffer dirty when currentSource differs.
+	return true
 }
