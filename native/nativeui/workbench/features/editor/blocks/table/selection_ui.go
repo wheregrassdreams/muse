@@ -148,7 +148,25 @@ func (c Component) paintHandleDrag(ctx *ui.Context, viewport ui.Rect, item Table
 	ink := colorFromTheme(colors.TableControlInk)
 	ctx.After(16 * time.Millisecond)
 	ui.Overlay(ctx, func() {
-		ui.Box(ctx.Key(tableHandleKey{scopeID, item.LineStart, drag.Axis, drag.Index})).Absolute().Left(viewport.X).Top(viewport.Y).Width(viewport.W).Height(viewport.H).PassThrough().Draw(func(p *ui.Painter, _ ui.Rect) {
+		ui.Box(ctx.Key(tableHandleKey{scopeID, item.LineStart, drag.Axis, drag.Index})).Absolute().Left(viewport.X).Top(viewport.Y).Width(viewport.W).Height(viewport.H).
+			HandleInput(func(event ui.InputEvent) bool {
+				switch event.Kind {
+				case ui.InputPointerMove:
+					if event.Button == 0 {
+						_, _ = c.Dispatch(Action{Kind: MoveHandleDrag, LineStart: item.LineStart, Pointer: Point{X: event.X, Y: event.Y + scrollY}})
+						return true
+					}
+				case ui.InputPointerUp:
+					if event.Button == 0 {
+						if !event.Canceled {
+							_, _ = c.Dispatch(Action{Kind: MoveHandleDrag, LineStart: item.LineStart, Pointer: Point{X: event.X, Y: event.Y + scrollY}})
+						}
+						_, _ = c.Dispatch(Action{Kind: FinishHandleDrag, LineStart: item.LineStart, Canceled: event.Canceled})
+						return true
+					}
+				}
+				return false
+			}).Draw(func(p *ui.Painter, _ ui.Rect) {
 			p.Clip(viewport, 0, func() {
 				var thumb ui.Rect
 				if drag.Axis == table.Rows {
