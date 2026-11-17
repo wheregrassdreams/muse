@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -12,17 +11,16 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/locales"
-	"muse/nativeui/components/windowcontrols"
-	searchui "muse/nativeui/panels/search"
-	settingsui "muse/nativeui/panels/settings"
-	"muse/nativeui/surfaces/noteeditor"
+	"muse/nativeui/workbench/features/editor/surface"
+	searchui "muse/nativeui/workbench/features/search"
+	settingsui "muse/nativeui/workbench/features/settings"
+	"muse/nativeui/workbench/shell/windowcontrols"
 )
 
 // Run opens the native Muse window and runs the app loop. It is called by the
 // native entry point; nothing in this package needs a webview or a frontend
 // build.
 func Run(dependencies Dependencies) {
-	configureDefaultGCPolicy()
 	app := New()
 	app.SetDependencies(dependencies)
 	startMemoryDiagnostics(app)
@@ -102,18 +100,6 @@ func Run(dependencies Dependencies) {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-// configureDefaultGCPolicy lowers Go heap high-water during document scrolling.
-// On the 10 MiB prose benchmark and the real-vault image scroll probe, GOGC=50
-// reduced peak heap without crossing the 13 ms large-document frame budget.
-// Keep an explicit GOGC environment setting authoritative for diagnostics and
-// users who choose a different tradeoff.
-func configureDefaultGCPolicy() {
-	if _, configured := os.LookupEnv("GOGC"); configured {
-		return
-	}
-	debug.SetGCPercent(50)
 }
 
 func (a *App) openWindow() {

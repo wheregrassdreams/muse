@@ -16,18 +16,18 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == vaultsearchindexer.WorkerArgument {
+		if err := app.RebuildVaultSearchIndex(os.Args[2]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	app.ConfigureRuntimeGCPolicy()
 	runtime, err := app.NewRuntime(mygo.Shell.TrashItem)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer runtime.Close()
-	if len(os.Args) == 3 && os.Args[1] == vaultsearchindexer.WorkerArgument {
-		if err := runtime.RebuildVaultSearchIndex(os.Args[2]); err != nil {
-			runtime.Close()
-			log.Fatal(err)
-		}
-		return
-	}
 	nativeui.Run(nativeui.Dependencies{
 		Configuration:             runtime.Configuration,
 		AssistantSettingsLocation: runtime.AssistantSettingsLocation,
