@@ -3149,10 +3149,10 @@ func (a *App) settingsViewModel() settingsui.ViewModel {
 			Theme: mode, Accents: accents, AccentID: a.accentID,
 			Locale: a.localeSetting, LocaleConfigured: a.localeConfigured,
 			HeaderFade: a.headerFade, SmoothPageJumps: a.smoothPageJumps,
+			SmartTypography: a.smartTypography, FontSize: a.fontSize, LineHeight: a.lineHeight,
 		},
 		Editor: settingsui.Editor{
-			Keymap: a.noteEditor().ModalCommands().Keymap(), SmartTypography: a.smartTypography,
-			FontSize: a.fontSize, LineHeight: a.lineHeight, HideMouseCursor: a.hideMouseCursor,
+			Keymap: a.noteEditor().ModalCommands().Keymap(), HideMouseCursor: a.hideMouseCursor,
 			CursorFade: a.cursorFade, SmoothCursor: a.smoothCursor,
 			HeadingMarkerReveal: a.headingMarkerReveal, VimVirtualImageRows: a.vimVirtualImageRows,
 			VimYankFlash: a.vimYankFlash, SearchMatchPulse: a.searchMatchPulse,

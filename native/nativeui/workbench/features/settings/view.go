@@ -38,13 +38,13 @@ type Appearance struct {
 	LocaleConfigured bool
 	HeaderFade       bool
 	SmoothPageJumps  bool
+	SmartTypography  bool
+	FontSize         float64
+	LineHeight       float64
 }
 
 type Editor struct {
 	Keymap              string
-	SmartTypography     bool
-	FontSize            float64
-	LineHeight          float64
 	HideMouseCursor     bool
 	CursorFade          bool
 	SmoothCursor        bool
@@ -237,6 +237,19 @@ func renderAppearance(c *ui.Context, model Appearance, dispatch func(Action)) {
 			emit(dispatch, Action{Kind: HeaderFadeChanged, Enabled: value})
 		})
 	})
+	group(c, locales.SettingsTypography(), func() {
+		toggle(c, locales.SettingsSmartTypography(), locales.SettingsSmartTypographyDetail(), model.SmartTypography, func(value bool) {
+			emit(dispatch, Action{Kind: SmartTypographyChanged, Enabled: value})
+		})
+		divider(c)
+		sliderRow(c, locales.SettingsFontSize(), locales.SettingsFontSizeDetail(), model.FontSize, 12, 22, "%.0fpx", func(value float64) {
+			emit(dispatch, Action{Kind: FontSizeChanged, Number: value})
+		})
+		divider(c)
+		sliderRow(c, locales.SettingsLineHeight(), locales.SettingsLineHeightDetail(), model.LineHeight, 1.4, 2.2, "%.1f", func(value float64) {
+			emit(dispatch, Action{Kind: LineHeightChanged, Number: value})
+		})
+	})
 	group(c, locales.SettingsNavigation(), func() {
 		toggle(c, locales.SettingsSmoothPageJumps(), locales.SettingsSmoothPageJumpsDetail(), model.SmoothPageJumps, func(value bool) {
 			emit(dispatch, Action{Kind: SmoothPageJumpsChanged, Enabled: value})
@@ -259,25 +272,23 @@ func renderEditor(c *ui.Context, model Editor, dispatch func(Action)) {
 				{"default", locales.KeymapDefault()}, {"helix", locales.KeymapHelix()}, {"vim", locales.KeymapVim()},
 			} {
 				option := option
-				optionButton(c, option.label, model.Keymap == option.mode, func() {
+				optionButtonWithLabel(c, option.label, locales.SettingsKeymap()+"："+option.label, model.Keymap == option.mode, func() {
 					emit(dispatch, Action{Kind: KeymapChanged, Text: option.mode})
 				})
 			}
 		})
 	})
-	group(c, locales.SettingsTypography(), func() {
-		toggle(c, locales.SettingsSmartTypography(), locales.SettingsSmartTypographyDetail(), model.SmartTypography, func(value bool) {
-			emit(dispatch, Action{Kind: SmartTypographyChanged, Enabled: value})
+	if model.Keymap == "vim" {
+		group(c, "Vim", func() {
+			toggle(c, locales.SettingsVimImageRows(), locales.SettingsVimImageRowsDetail(), model.VimVirtualImageRows, func(value bool) {
+				emit(dispatch, Action{Kind: VimVirtualImageRowsChanged, Enabled: value})
+			})
+			divider(c)
+			toggle(c, locales.SettingsVimYankFlash(), locales.SettingsVimYankFlashDetail(), model.VimYankFlash, func(value bool) {
+				emit(dispatch, Action{Kind: VimYankFlashChanged, Enabled: value})
+			})
 		})
-		divider(c)
-		sliderRow(c, locales.SettingsFontSize(), locales.SettingsFontSizeDetail(), model.FontSize, 12, 22, "%.0fpx", func(value float64) {
-			emit(dispatch, Action{Kind: FontSizeChanged, Number: value})
-		})
-		divider(c)
-		sliderRow(c, locales.SettingsLineHeight(), locales.SettingsLineHeightDetail(), model.LineHeight, 1.4, 2.2, "%.1f", func(value float64) {
-			emit(dispatch, Action{Kind: LineHeightChanged, Number: value})
-		})
-	})
+	}
 	group(c, locales.SettingsCursor(), func() {
 		toggle(c, locales.SettingsHideMouseCursor(), locales.SettingsHideMouseCursorDetail(), model.HideMouseCursor, func(value bool) {
 			emit(dispatch, Action{Kind: HideMouseCursorChanged, Enabled: value})
@@ -293,26 +304,17 @@ func renderEditor(c *ui.Context, model Editor, dispatch func(Action)) {
 			})
 		}
 	})
-	group(c, locales.SettingsEditorGroup(), func() {
-		toggle(c, locales.SettingsHeadingMarkerReveal(), locales.SettingsHeadingMarkerRevealDetail(), model.HeadingMarkerReveal, func(value bool) {
-			emit(dispatch, Action{Kind: HeadingMarkerRevealChanged, Enabled: value})
-		})
-	})
-	if model.Keymap == "vim" {
-		group(c, "Vim", func() {
-			toggle(c, locales.SettingsVimImageRows(), locales.SettingsVimImageRowsDetail(), model.VimVirtualImageRows, func(value bool) {
-				emit(dispatch, Action{Kind: VimVirtualImageRowsChanged, Enabled: value})
-			})
-			divider(c)
-			toggle(c, locales.SettingsVimYankFlash(), locales.SettingsVimYankFlashDetail(), model.VimYankFlash, func(value bool) {
-				emit(dispatch, Action{Kind: VimYankFlashChanged, Enabled: value})
-			})
-		})
-	}
 	group(c, locales.SettingsSearch(), func() {
 		toggle(c, locales.SettingsSearchMatchPulse(), locales.SettingsSearchMatchPulseDetail(), model.SearchMatchPulse, func(value bool) {
 			emit(dispatch, Action{Kind: SearchMatchPulseChanged, Enabled: value})
 		})
+	})
+	group(c, locales.SettingsEditorGroup(), func() {
+		toggle(c, locales.SettingsHeadingMarkerReveal(), locales.SettingsHeadingMarkerRevealDetail(), model.HeadingMarkerReveal, func(value bool) {
+			emit(dispatch, Action{Kind: HeadingMarkerRevealChanged, Enabled: value})
+		})
+		divider(c)
+		informationRow(c, locales.SettingsSourceReveal(), locales.SettingsSourceRevealDetail())
 	})
 }
 
@@ -425,7 +427,7 @@ func toggle(c *ui.Context, label, detail string, checked bool, changed func(bool
 	t := c.Theme()
 	ui.Row(c).FillWidth().Padding(11, 0).Gap(16).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-			ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
+			ui.Text(c, label).FontSize(13.5).TextColor(t.Text).Cursor(ui.CursorPointer).OnClick(func() { changed(!checked) })
 			if detail != "" {
 				ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
 			}
@@ -449,14 +451,28 @@ func sliderRow(c *ui.Context, label, detail string, value, minValue, maxValue fl
 }
 
 func optionButton(c *ui.Context, label string, selected bool, onClick func()) {
+	optionButtonWithLabel(c, label, label, selected, onClick)
+}
+
+func optionButtonWithLabel(c *ui.Context, label, accessibleLabel string, selected bool, onClick func()) {
 	t := c.Theme()
-	b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(label)
+	b := ui.ButtonBase(c).Height(28).Padding(0, 9).Radius(6).Label(accessibleLabel)
 	if selected {
 		b.Background(t.Background).Border(1, t.Border)
 	} else if b.Hovered() {
 		b.Background(t.SurfaceHover)
 	}
 	b.OnClick(onClick).Children(func() { ui.Text(c, label).FontSize(11.5).TextColor(t.Text) })
+}
+
+func informationRow(c *ui.Context, label, detail string) {
+	t := c.Theme()
+	ui.Column(c).FillWidth().Padding(11, 0).Gap(3).Children(func() {
+		ui.Text(c, label).FontSize(13.5).TextColor(t.Text)
+		if detail != "" {
+			ui.Text(c, detail).FontSize(12).TextColor(t.TextMuted).Wrap()
+		}
+	})
 }
 
 func divider(c *ui.Context) {
