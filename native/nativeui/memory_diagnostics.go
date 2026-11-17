@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"muse/editor"
 	markdownui "muse/nativeui/components/markdown"
+	"muse/nativeui/surfaces/noteeditor"
 )
 
 var (
@@ -62,9 +62,9 @@ func logMemoryDiagnostics(app *App) {
 		}
 	}
 	app.mainMu.Lock()
-	var image editor.MemorySnapshot
-	if app.activeNote != nil {
-		image = app.activeNote.MemorySnapshot()
+	var image noteeditor.MemorySnapshot
+	if app.noteEditor() != nil {
+		image = app.noteEditor().MemorySnapshot()
 	}
 	vaultReady := app.vault != nil && app.vaultSnapshot.Ready
 	app.mainMu.Unlock()

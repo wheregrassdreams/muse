@@ -14,6 +14,9 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	editorui "muse/nativeui/components/editor"
+	findreplaceui "muse/nativeui/panels/findreplace"
 )
 
 // save() writes asynchronously on the UI queue; tests poll the file like a
@@ -96,7 +99,7 @@ func TestE2ESaveUntitledViaDialog(t *testing.T) {
 	tt.Frame()
 
 	// A new window is an empty document with the caret in it: type away.
-	a.activeNote.FocusCommands().Focus()
+	a.noteEditor().FocusCommands().Focus()
 	tt.Frame()
 	tt.Type("# E2E 已验证")
 	tt.Frame()
@@ -239,8 +242,8 @@ func TestOutlineClickMovesCaret(t *testing.T) {
 		t.Fatalf("outline row: %v", err)
 	}
 	tt.Frame()
-	if want := strings.Index(a.documentSource(), "二"); a.activeNote.NavigationCommands().Caret() != want {
-		t.Fatalf("caret = %d, want %d", a.activeNote.NavigationCommands().Caret(), want)
+	if want := strings.Index(a.documentSource(), "二"); a.noteEditor().NavigationCommands().Caret() != want {
+		t.Fatalf("caret = %d, want %d", a.noteEditor().NavigationCommands().Caret(), want)
 	}
 }
 
@@ -248,16 +251,17 @@ func TestSearchSelectsMatch(t *testing.T) {
 	a := New()
 	a.loadDoc("第一段 Muse\n\n第二段 muse 结束\n")
 	a.showPanel(panelSearch)
-	a.query = "muse"
+	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "muse"})
+	a.refreshSearch()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	if a.matches != 2 {
-		t.Fatalf("matches = %d, want 2", a.matches)
+	if count := len(a.findReplace.Snapshot().Matches); count != 2 {
+		t.Fatalf("matches = %d, want 2", count)
 	}
 	a.goToHit(1)
 	tt.Frame()
-	if got := a.activeNote.ClipboardCommands().SelectedText(); got != "muse" {
+	if got := a.noteEditor().ClipboardCommands().SelectedText(); got != "muse" {
 		t.Fatalf("selected %q", got)
 	}
 }
@@ -267,12 +271,12 @@ func TestAIEditIsUndoable(t *testing.T) {
 	a.loadDoc("原文。\n")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
-	a.activeNote.ReplaceUser("原文。\n\nAI 新增。\n")
+	a.noteEditor().ReplaceUser("原文。\n\nAI 新增。\n")
 	tt.Frame()
 	if !a.documentDirty() || a.documentSource() != "原文。\n\nAI 新增。\n" {
 		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.documentDirty(), a.documentSource())
 	}
-	a.activeNote.Undo()
+	a.noteEditor().Undo()
 	tt.Frame()
 	if a.documentSource() != "原文。\n" {
 		t.Fatalf("undo left %q", a.documentSource())
@@ -280,11 +284,11 @@ func TestAIEditIsUndoable(t *testing.T) {
 }
 
 func TestCodeFilesOpenAsCode(t *testing.T) {
-	if codeLanguage("a.md") != "" || codeLanguage("README") != "" {
+	if editorui.CodeLanguageFor("a.md") != "" || editorui.CodeLanguageFor("README") != "" {
 		t.Fatal("Markdown files open as code")
 	}
-	if codeLanguage("main.go") == "" || codeLanguage("notes.txt") != "text" {
-		t.Fatalf("code files: go=%q txt=%q", codeLanguage("main.go"), codeLanguage("notes.txt"))
+	if editorui.CodeLanguageFor("main.go") == "" || editorui.CodeLanguageFor("notes.txt") != "text" {
+		t.Fatalf("code files: go=%q txt=%q", editorui.CodeLanguageFor("main.go"), editorui.CodeLanguageFor("notes.txt"))
 	}
 }
 
@@ -292,8 +296,9 @@ func TestSearchReplace(t *testing.T) {
 	a := New()
 	a.loadDoc("cat and cat and Cat\n")
 	a.showPanel(panelSearch)
-	a.query = "cat"
-	a.replaceWith = "dog"
+	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "cat"})
+	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.ReplacementChanged, Text: "dog"})
+	a.refreshSearch()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	a.goToHit(1)
@@ -305,7 +310,7 @@ func TestSearchReplace(t *testing.T) {
 	if a.documentSource() != "dog and dog and dog\n" {
 		t.Fatalf("replace all: %q", a.documentSource())
 	}
-	a.activeNote.Undo()
+	a.noteEditor().Undo()
 	if a.documentSource() != "cat and dog and Cat\n" {
 		t.Fatalf("undo replace all: %q", a.documentSource())
 	}

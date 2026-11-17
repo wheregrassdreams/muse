@@ -2,7 +2,6 @@ package nativeui
 
 import (
 	"bytes"
-	mdedit "muse/editor"
 	mdoc "muse/markdown"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	inlineui "muse/nativeui/components/editor/blocks/inline"
 	linkpreview "muse/nativeui/components/linkpreview"
 )
 
@@ -25,14 +25,14 @@ func TestWikiLinkHoverPreviewDelayAndDismissal(t *testing.T) {
 	if tt.HasText("Preview body that should appear in the hover card.") {
 		t.Fatal("wiki link preview appeared before the hover delay")
 	}
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	tt.Frame()
 	if !tt.HasText("Preview body that should appear in the hover card.") {
 		t.Fatalf("wiki preview missing after delay; text=%q", tt.Texts())
 	}
 	runtimeShot(t, tt, "wiki-link-preview")
 	a.hoverWikiLink("", 0, 0)
-	time.Sleep(wikiLinkPreviewLeave + 30*time.Millisecond)
+	time.Sleep(linkpreview.LeaveDelay + 30*time.Millisecond)
 	tt.Frame()
 	if tt.HasText("Preview body that should appear in the hover card.") {
 		t.Fatal("wiki preview remained after pointer left the link")
@@ -49,10 +49,10 @@ func TestWorkspaceSearchModalCoversWikiPreview(t *testing.T) {
 	})
 	trigger := ui.Rect{X: 1000, Y: 700, W: 80, H: 20}
 	a.hoverWikiLinkAt("Target", trigger.X, trigger.Y, trigger)
-	time.Sleep(wikiLinkPreviewDelay + 20*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 20*time.Millisecond)
 	a.openWorkspaceSearch()
 	tt.Frame()
-	if !a.workspaceSearch || !tt.HasText("搜索笔记库") {
+	if !a.workspaceSearch.IsOpen() || !tt.HasText("搜索笔记库") {
 		t.Fatal("workspace search did not open over the hover preview")
 	}
 
@@ -60,7 +60,7 @@ func TestWorkspaceSearchModalCoversWikiPreview(t *testing.T) {
 	// overlap must belong to the modal, not activate the obscured preview.
 	tt.Move(940, 600)
 	tt.Frame()
-	if tt.HasText("This hover preview must stay below the search dialog") || a.linkPreview.overlayHovered {
+	if tt.HasText("This hover preview must stay below the search dialog") || a.linkPreviewHandle.Snapshot().OverlayHovered {
 		t.Fatal("hover preview stayed visible or received the pointer above the search dialog")
 	}
 	runtimeShot(t, tt, "workspace-search-over-link-preview")
@@ -74,7 +74,7 @@ func TestWikiPreviewClosesAfterScrolledExit(t *testing.T) {
 	})
 	trigger := ui.Rect{X: 300, Y: 80, W: 140, H: 20}
 	a.hoverWikiLinkAt("Projects/Atlas/Overview", trigger.X, trigger.Y, trigger)
-	time.Sleep(wikiLinkPreviewDelay + 20*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 20*time.Millisecond)
 	tt.Frame()
 	card, ok := tt.Find("链接预览")
 	if !ok {
@@ -86,15 +86,15 @@ func TestWikiPreviewClosesAfterScrolledExit(t *testing.T) {
 	tt.Frame()
 	tt.Scroll(card.X+card.W/2, card.Y+card.H/2, 0, 90)
 	tt.Frame()
-	if !tt.HasText("链接预览") || !a.linkPreview.leaveAt.IsZero() || !a.linkPreview.overlayHovered {
-		t.Fatalf("scrolling inside preview lost its hover grace: state=%+v text=%q", a.linkPreview, tt.Texts())
+	if !tt.HasText("链接预览") || !a.linkPreviewHandle.Snapshot().LeaveAt.IsZero() || !a.linkPreviewHandle.Snapshot().OverlayHovered {
+		t.Fatalf("scrolling inside preview lost its hover grace: state=%+v text=%q", a.linkPreviewHandle.Snapshot(), tt.Texts())
 	}
 	tt.Move(0, 0)
 	tt.Frame()
-	time.Sleep(wikiLinkPreviewLeave + time.Millisecond)
+	time.Sleep(linkpreview.LeaveDelay + time.Millisecond)
 	tt.Frame()
-	if tt.HasText("链接预览") || a.linkPreview.target != "" {
-		t.Fatalf("preview did not close after pointer left: state=%+v text=%q", a.linkPreview, tt.Texts())
+	if tt.HasText("链接预览") || a.linkPreviewHandle.Snapshot().Target != "" {
+		t.Fatalf("preview did not close after pointer left: state=%+v text=%q", a.linkPreviewHandle.Snapshot(), tt.Texts())
 	}
 }
 
@@ -109,7 +109,7 @@ func TestWikiHoverPreviewRendersMarkdownAndRelativeImage(t *testing.T) {
 		doc, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && doc.Source == source
 	})
-	preview := wikiPreviewMarkdown(source, strings.Index(source, "Architecture"))
+	preview := linkpreview.PreviewSource(source, strings.Index(source, "Architecture"))
 	doc := mdoc.Parse(preview)
 	if len(doc.Blocks) < 3 || doc.Blocks[0].Kind != mdoc.Heading || doc.Blocks[0].Level != 2 {
 		t.Fatalf("hover markdown heading not preserved: %#v", doc.Blocks)
@@ -125,7 +125,7 @@ func TestWikiHoverPreviewRendersMarkdownAndRelativeImage(t *testing.T) {
 		t.Fatalf("hover markdown lost emphasis or link: %#v", doc.Blocks)
 	}
 	a.hoverWikiLink("Projects/Atlas/Overview#Architecture", 150, 90)
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	tt.Frame()
 	if !tt.HasText("Architecture") || !tt.HasText("rendered section") || !tt.HasText("link") {
 		t.Fatalf("rendered Markdown overlay missing expected content: %q", tt.Texts())
@@ -138,7 +138,7 @@ func TestWikiHoverPreviewRendersMarkdownAndRelativeImage(t *testing.T) {
 	}
 	runtimeShot(t, tt, "wiki-link-preview-rendered-markdown")
 	a.hoverWikiLink("", 0, 0)
-	time.Sleep(wikiLinkPreviewLeave + 30*time.Millisecond)
+	time.Sleep(linkpreview.LeaveDelay + 30*time.Millisecond)
 	tt.Frame()
 	if tt.HasText("rendered section") {
 		t.Fatal("rendered preview did not close after pointer left")
@@ -161,7 +161,7 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 	a, tt, _ := runtimeFixtureCopy(t, filepath.Join("..", "testdata", "vault-fixture"))
 	waitDocument(t, tt, func() bool {
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
-		return ok && a.activeNote.Source() != ""
+		return ok && a.noteEditor().Source() != ""
 	})
 	// runtimeFixtureCopy's 1200×800 canvas places the Home link around this
 	// point; move over the rendered label rather than the hidden source range.
@@ -169,10 +169,11 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 	runtimeShot(t, tt, "wiki-preview-actual-link-before")
 	tt.Move(x, y)
 	tt.Frame()
-	if a.linkPreview.target != "Projects/Atlas/Overview" || a.linkPreview.linkBounds.W <= 0 || !a.linkPreview.linkBounds.Contains(a.linkPreview.x, a.linkPreview.y) {
-		t.Fatalf("actual pointer hover did not report the visible link bounds: preview=%+v moved=(%.1f,%.1f) source=%q texts=%q", a.linkPreview, x, y, a.activeNote.Source(), tt.Texts())
+	preview := a.linkPreviewHandle.Snapshot()
+	if preview.Target != "Projects/Atlas/Overview" || preview.LinkBounds.W <= 0 || !preview.LinkBounds.Contains(preview.X, preview.Y) {
+		t.Fatalf("actual pointer hover did not report the visible link bounds: preview=%+v moved=(%.1f,%.1f) source=%q texts=%q", preview, x, y, a.noteEditor().Source(), tt.Texts())
 	}
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	tt.Frame()
 	if _, ok := tt.Find("链接预览"); !ok {
 		t.Fatalf("preview overlay did not render for the actual hovered link: %q", tt.Texts())
@@ -181,34 +182,39 @@ func TestWikiPreviewUsesActualHoveredLinkBounds(t *testing.T) {
 }
 
 func TestWikiPreviewClosesAfterLeavingScrolledOverlay(t *testing.T) {
-	a := &App{}
+	a := &App{linkPreviewHandle: linkpreview.NewHandle()}
 	inside := true
+	lastInside := false
 	var open bool
 	tt := ui.NewTester(func(c *ui.Context) {
-		if a.linkPreview.target == "" {
-			a.linkPreview.target = "Target"
+		if a.linkPreviewHandle.Snapshot().Target == "" {
+			a.linkPreviewHandle.Hover("Target", 0, 0, ui.Rect{}, time.Now())
 		}
-		open = a.updateWikiPreviewHover(c, &a.linkPreview, inside)
+		if inside != lastInside {
+			a.linkPreviewHandle.SetOverlayHovered(inside, time.Now())
+			lastInside = inside
+		}
+		open, _ = a.linkPreviewHandle.Tick(time.Now())
 	}, 240, 160)
 	tt.Frame()
-	if !open || !a.linkPreview.overlayHovered || !a.linkPreview.leaveAt.IsZero() {
-		t.Fatalf("hovered preview state = %+v, open=%v", a.linkPreview, open)
+	if !open || !a.linkPreviewHandle.Snapshot().OverlayHovered || !a.linkPreviewHandle.Snapshot().LeaveAt.IsZero() {
+		t.Fatalf("hovered preview state = %+v, open=%v", a.linkPreviewHandle.Snapshot(), open)
 	}
 	tt.Scroll(100, 80, 0, 90)
 	tt.Frame()
-	if !open || !a.linkPreview.overlayHovered || !a.linkPreview.leaveAt.IsZero() {
-		t.Fatalf("scrolling inside preview started dismissal: state=%+v open=%v", a.linkPreview, open)
+	if !open || !a.linkPreviewHandle.Snapshot().OverlayHovered || !a.linkPreviewHandle.Snapshot().LeaveAt.IsZero() {
+		t.Fatalf("scrolling inside preview started dismissal: state=%+v open=%v", a.linkPreviewHandle.Snapshot(), open)
 	}
 	inside = false
 	tt.Move(230, 150)
 	tt.Frame()
-	if !open || a.linkPreview.overlayHovered || a.linkPreview.leaveAt.IsZero() {
-		t.Fatalf("leaving preview did not start dismissal: state=%+v open=%v", a.linkPreview, open)
+	if !open || a.linkPreviewHandle.Snapshot().OverlayHovered || a.linkPreviewHandle.Snapshot().LeaveAt.IsZero() {
+		t.Fatalf("leaving preview did not start dismissal: state=%+v open=%v", a.linkPreviewHandle.Snapshot(), open)
 	}
-	time.Sleep(wikiLinkPreviewLeave + time.Millisecond)
+	time.Sleep(linkpreview.LeaveDelay + time.Millisecond)
 	tt.Frame()
-	if open || a.linkPreview.target != "" {
-		t.Fatalf("preview remained after pointer left: state=%+v open=%v", a.linkPreview, open)
+	if open || a.linkPreviewHandle.Snapshot().Target != "" {
+		t.Fatalf("preview remained after pointer left: state=%+v open=%v", a.linkPreviewHandle.Snapshot(), open)
 	}
 }
 
@@ -228,7 +234,7 @@ func TestWikiLinkClickUsesVaultIndexAndHeadingAnchor(t *testing.T) {
 	a.openPathNow(source)
 	a.openLink("wiki:Atlas/Target#Second heading")
 	waitDocument(t, tt, func() bool { return a.documentPath() == target })
-	if got, want := a.activeNote.NavigationCommands().Caret(), strings.Index(a.documentSource(), "Second heading")-len("## "); got != want {
+	if got, want := a.noteEditor().NavigationCommands().Caret(), strings.Index(a.documentSource(), "Second heading")-len("## "); got != want {
 		t.Fatalf("wiki click caret = %d, want heading source offset %d", got, want)
 	}
 	current := a.documentPath()
@@ -330,7 +336,7 @@ func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 		return ok
 	})
 	a.loadDoc("![[Projects/Atlas/Overview]]")
-	hostSource := a.activeNote.Source()
+	hostSource := a.noteEditor().Source()
 	tt.Frame()
 	if path, source, ok := a.resolveWikiEmbed(a.documentPath(), "Projects/Atlas/Overview"); !ok || path != "Projects/Atlas/Overview.md" || !strings.Contains(source, "vaultfixturedeepsearchunique") {
 		t.Fatalf("embedded note resolver returned path=%q ok=%v source=%q", path, ok, source)
@@ -338,13 +344,13 @@ func TestFixtureEmbeddedNoteRendersReadOnlyWithoutLinkPreview(t *testing.T) {
 	runtimeShot(t, tt, "wiki-note-embed")
 	tt.Move(430, 536)
 	tt.Frame()
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	tt.Frame()
-	if a.activeNote.Source() != hostSource || a.documentDirty() {
+	if a.noteEditor().Source() != hostSource || a.documentDirty() {
 		t.Fatalf("read-only embedded content changed host source or dirty state: dirty=%v", a.documentDirty())
 	}
-	if a.linkPreview.target != "" {
-		t.Fatalf("embedded note opened a wiki hover preview for %q", a.linkPreview.target)
+	if a.linkPreviewHandle.Snapshot().Target != "" {
+		t.Fatalf("embedded note opened a wiki hover preview for %q", a.linkPreviewHandle.Snapshot().Target)
 	}
 }
 
@@ -377,7 +383,7 @@ func TestWikiImageLinksSuggestResolveAndOpenImagePreview(t *testing.T) {
 		t.Fatalf("note-relative image target resolved to %q", resolved)
 	}
 	setDocumentPathForTest(a, filepath.Join(root, "Home.md"))
-	if got := a.resolveWikiLinkStyle(a.documentPath(), "Attachments/diagram.png"); got != mdedit.LinkTargetValid {
+	if got := a.resolveWikiLinkStyle(a.documentPath(), "Attachments/diagram.png"); got != inlineui.LinkTargetValid {
 		t.Fatalf("attachment link style state = %v, want valid", got)
 	}
 	a.openLink("wiki:Attachments/diagram.png")
@@ -393,15 +399,18 @@ func TestWikiImageHoverShowsThumbnailBeforeFullPreviewClick(t *testing.T) {
 		return ok
 	})
 	a.hoverWikiLink("Attachments/diagram.png", 120, 80)
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	tt.Frame()
-	if a.linkPreview.image == nil || !tt.HasText("diagram.png") {
-		t.Fatalf("wiki image hover thumbnail missing: image=%v text=%q", a.linkPreview.image != nil, tt.Texts())
+	if a.linkPreviewHandle.Snapshot().ImageBitmap == nil || !tt.HasText("diagram.png") {
+		t.Fatalf("wiki image hover thumbnail missing: image=%v text=%q", a.linkPreviewHandle.Snapshot().ImageBitmap != nil, tt.Texts())
 	}
 	runtimeShot(t, tt, "wiki-image-hover-thumbnail")
 	a.openLink("wiki:Attachments/diagram.png")
-	if !a.imagePreviewOpen() || a.linkPreview.target != "" {
-		t.Fatalf("image click did not replace thumbnail with full preview: preview=%v hover=%+v", a.imagePreviewOpen(), a.linkPreview)
+	if !a.imagePreviewOpen() || a.linkPreviewHandle.Snapshot().Target != "" {
+		t.Fatalf("image click did not replace thumbnail with full preview: preview=%v hover=%+v", a.imagePreviewOpen(), a.linkPreviewHandle.Snapshot())
+	}
+	if a.linkPreviewHandle.Snapshot().ImagePath != "" || a.linkPreviewHandle.Snapshot().HasImageAsset || a.linkPreviewHandle.Snapshot().ImageBitmap != nil {
+		t.Fatal("opening the full image preview retained hover thumbnail resources")
 	}
 }
 
@@ -412,17 +421,17 @@ func TestWikiAnimatedImageHoverAdvancesThumbnailFrames(t *testing.T) {
 		return ok
 	})
 	a.hoverWikiLink("Attachments/animation.gif", 120, 80)
-	time.Sleep(wikiLinkPreviewDelay + 30*time.Millisecond)
+	time.Sleep(linkpreview.DwellDelay + 30*time.Millisecond)
 	deadline := time.Now().Add(2 * time.Second)
-	for a.linkPreview.image == nil && time.Now().Before(deadline) {
+	for a.linkPreviewHandle.Snapshot().ImageBitmap == nil && time.Now().Before(deadline) {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
 	tt.Frame()
-	if a.linkPreview.imageAsset == nil || a.linkPreview.image == nil {
-		t.Fatalf("GIF thumbnail asset did not load: image=%v target=%q", a.linkPreview.image != nil, a.linkPreview.target)
+	if !a.linkPreviewHandle.Snapshot().HasImageAsset || a.linkPreviewHandle.Snapshot().ImageBitmap == nil {
+		t.Fatalf("GIF thumbnail asset did not load: image=%v target=%q", a.linkPreviewHandle.Snapshot().ImageBitmap != nil, a.linkPreviewHandle.Snapshot().Target)
 	}
-	if next, _ := a.linkPreview.imageAsset.Advance(tt.Now()); next <= 0 {
+	if next, _ := a.linkPreviewHandle.AdvanceImage(tt.Now()); next <= 0 {
 		t.Fatal("GIF thumbnail asset did not report an animation frame deadline")
 	}
 	runtimeShot(t, tt, "wiki-gif-hover-thumbnail")

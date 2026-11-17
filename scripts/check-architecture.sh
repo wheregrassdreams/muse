@@ -21,6 +21,22 @@ if rg -n '^package nativeui$' native/nativeui --glob '*.go' | rg -v '^native/nat
   fail "nativeui child directories contain files that masquerade as the parent package"
 fi
 
+if rg -n '\b(documentdialogs|commandpalette|filetree|findreplaceui|naviconpicker|outlineui|propertypanel|searchui|settingsui|agentpanel)\.State\b' native/nativeui/app.go; then
+  fail "nativeui.App retains concrete panel/component state instead of handles"
+fi
+
+if rg -n 'func headingSlug|func codeLanguage|func treeProjectionSelectionLabel|func \(a \*App\) (selectedTreePaths|createTarget)\b' native/nativeui --glob '*.go'; then
+  fail "nativeui retains filetree projection, document-type, or Markdown heading policy"
+fi
+
+if rg -n 'func \(a \*App\) (fileMenu|fileRootMenu)\b|func resolveWiki\b' native/nativeui --glob '*.go'; then
+  fail "nativeui retains duplicate or obsolete filetree and wiki-link implementations"
+fi
+
+if rg -n '\b(isEditableFile|isImageFile|isVisibleWorkspaceFile)\b' native/nativeui --glob '*.go'; then
+  fail "nativeui retains forwarding helpers for document-type policy"
+fi
+
 if rg -n '^package nativeui$' native/platform --glob '*.go'; then
   fail "platform adapters declare the presentation package instead of their adapter package"
 fi
@@ -38,7 +54,6 @@ for package in \
   native/nativeui/components/editor/render \
   native/nativeui/components/editor/navigationrail \
   native/nativeui/components/editor/feedback \
-  native/nativeui/components/editor/scroll \
   native/nativeui/components/editor/textlayout; do
   if rg -n '^package editor$' "$package" --glob '*.go'; then
     fail "editor host package files remain inside child package: $package"
@@ -69,6 +84,14 @@ fi
 
 if rg -n '"muse/(nativeui|platform|cmd)/' native/application --glob '*.go' --glob '!**/*_test.go'; then
   fail "application use cases import presentation, platform adapters, or executables"
+fi
+
+if rg -n '"muse/(application|nativeui|platform|cmd)/' native/agent --glob '*.go' --glob '!**/*_test.go'; then
+  fail "agent value model imports an outer layer"
+fi
+
+if rg -n '^type (Role|Message|PartKind|PartStatus|Part|ToolPartState|ToolRequest|ToolResult)\b' native/application/agent --glob '*.go' --glob '!**/*_test.go'; then
+  fail "provider-neutral agent value types remain in application/agent"
 fi
 
 if rg -n '"(os|path/filepath)"' native/config --glob '*.go' --glob '!**/*_test.go'; then
@@ -135,6 +158,7 @@ for package in \
   native/markdown/images \
   native/markdown/math \
   native/markdown/diagrams \
+  native/agent \
   native/application/agent \
   native/platform/agent \
   native/config \
@@ -145,12 +169,14 @@ for package in \
   native/nativeui/components/editor \
   native/nativeui/components/editor/textlayout \
   native/nativeui/components/markdown \
+  native/nativeui/components/windowcontrols \
   native/nativeui/components/doctypes \
   native/nativeui/components/documentdialogs \
   native/nativeui/components/linkpreview \
   native/nativeui/window \
   native/nativeui/workspacepresenter \
   native/nativeui/surfaces/noteeditor \
+  native/nativeui/surfaces/backlinks \
   native/nativeui/surfaces/imagepreview \
   native/nativeui/surfaces/imagedocument \
   native/nativeui/surfaces/mermaidpreview \
@@ -160,7 +186,6 @@ for package in \
   native/nativeui/panels/outline \
   native/nativeui/panels/search \
   native/nativeui/panels/commandpalette \
-  native/nativeui/surfaces/quickopen \
   native/nativeui/panels/naviconpicker \
   native/nativeui/panels/vaulthome \
   native/nativeui/panels/properties \
@@ -170,7 +195,10 @@ for package in \
   native/platform/filesystem/configstore \
   native/platform/filesystem/agentworkspace \
   native/platform/filesystem/exportstore \
+  native/platform/filesystem/filemetadata \
   native/platform/filesystem/imagecache \
+  native/platform/filesystem/temporaryimages \
+  native/platform/filesystem/imagefiles \
   native/platform/filesystem/naviconstore \
   native/platform/filesystem/recentstore \
   native/platform/filesystem/vaultfiles \

@@ -71,7 +71,7 @@ func TestReferencePageLayoutAndHiddenProperties(t *testing.T) {
 				t.Fatal("expanded section did not expose real document timestamps")
 			}
 			runtimeShot(t, tt, "reference-properties-expanded-"+name)
-			if a.activeNote.Source() != referencePage {
+			if a.noteEditor().Source() != referencePage {
 				t.Fatal("inspector styling or expanding hidden fields rewrote Markdown")
 			}
 		})
@@ -96,11 +96,11 @@ func TestReferenceInspectorTypeEditPreservesBodyAndUndo(t *testing.T) {
 	tt.Type("Article")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	d := frontmatter.Parse(a.activeNote.Source())
-	if propertyDocumentType(d) != "Article" || !strings.HasSuffix(a.activeNote.Source(), src) {
-		t.Fatalf("type edit damaged document: %q", a.activeNote.Source())
+	d := frontmatter.Parse(a.noteEditor().Source())
+	if propertypanel.DocumentType(d) != "Article" || !strings.HasSuffix(a.noteEditor().Source(), src) {
+		t.Fatalf("type edit damaged document: %q", a.noteEditor().Source())
 	}
-	if !a.activeNote.Undo() || a.activeNote.Source() != src {
+	if !a.noteEditor().Undo() || a.noteEditor().Source() != src {
 		t.Fatal("type edit did not undo as one native operation")
 	}
 }

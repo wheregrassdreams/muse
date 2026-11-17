@@ -1,13 +1,12 @@
-package nativeui
+package externalopener
 
 import (
-	"log"
 	"os/exec"
 	"runtime"
 )
 
-// openExternal opens a URL or a file in the app the system has for it.
-func openExternal(href string) {
+// Open opens a URL or file with the operating system's default application.
+func Open(href string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -17,7 +16,9 @@ func openExternal(href string) {
 	default:
 		cmd = exec.Command("xdg-open", href)
 	}
-	if err := cmd.Run(); err != nil {
-		log.Printf("open %s: %v", href, err)
+	if err := cmd.Start(); err != nil {
+		return err
 	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

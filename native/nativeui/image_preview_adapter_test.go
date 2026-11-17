@@ -47,7 +47,7 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	a := New()
 	a.imageLocalFiles = imagefiles.New()
 	a.loadDoc("note\n" + strings.Repeat("entry\n", 100))
-	a.activeNote.FocusCommands().Focus()
+	a.noteEditor().FocusCommands().Focus()
 	a.openImagePreview(path)
 	tt := ui.NewTester(a.View, 900, 600)
 	deadline := time.Now().Add(2 * time.Second)
@@ -65,20 +65,20 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 	writeImageUIScreenshot(t, tt, "image-preview")
 	tt.Wheel(450, 300, 0, -40)
 	tt.Frame()
-	if a.activeNote.NavigationCommands().ScrollY() != 0 {
-		t.Fatalf("wheel up scrolled the note to %v", a.activeNote.NavigationCommands().ScrollY())
+	if a.noteEditor().NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("wheel up scrolled the note to %v", a.noteEditor().NavigationCommands().ScrollY())
 	}
 	tt.Wheel(450, 300, 0, 40)
 	tt.Frame()
-	if a.activeNote.NavigationCommands().ScrollY() != 0 {
-		t.Fatalf("wheel down scrolled the note to %v", a.activeNote.NavigationCommands().ScrollY())
+	if a.noteEditor().NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("wheel down scrolled the note to %v", a.noteEditor().NavigationCommands().ScrollY())
 	}
 	tt.Scroll(450, 300, 18, -24)
 	tt.Frame()
 	tt.Pinch(450, 300, 1.5)
 	tt.Frame()
 	tt.Type("accidental")
-	if got := a.activeNote.Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
+	if got := a.noteEditor().Source(); got != "note\n"+strings.Repeat("entry\n", 100) {
 		t.Fatalf("typing with preview open changed note source: %q", got)
 	}
 	if err := tt.Click("放大图片"); err != nil {
@@ -97,7 +97,7 @@ func TestImagePreviewShowsImageAndZoomControls(t *testing.T) {
 		t.Fatal("Esc left the image preview open")
 	}
 	tt.Frame()
-	if !a.activeNote.FocusCommands().Focused() {
+	if !a.noteEditor().FocusCommands().Focused() {
 		t.Fatal("closing the preview did not restore editor focus")
 	}
 }

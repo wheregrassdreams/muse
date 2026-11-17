@@ -2,10 +2,12 @@ package linkpreview
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/markdown"
+	markdownui "muse/nativeui/components/markdown"
 )
 
 func TestPlaceKeepsTriggerVisible(t *testing.T) {
@@ -17,6 +19,23 @@ func TestPlaceKeepsTriggerVisible(t *testing.T) {
 	}
 	if card.Y < link.Y+link.H && card.Y+card.H > link.Y {
 		t.Fatalf("preview card overlaps its trigger: link=%+v card=%+v", link, card)
+	}
+}
+
+func TestClearReleasesImagePreviewResources(t *testing.T) {
+	state := state{
+		Target: "Attachments/photo.png", imagePath: "/vault/Attachments/photo.png",
+		imageAsset: &markdownui.ImageAsset{}, imageBitmap: &ui.Bitmap{},
+	}
+	state.Clear()
+	if state.Target != "" || state.ImagePath() != "" || state.HasImageAsset() || state.ImageBitmap() != nil {
+		t.Fatalf("cleared preview retained image state: %+v", state)
+	}
+
+	state = state{Target: "Attachments/photo.png", imagePath: "/vault/Attachments/photo.png", imageAsset: &markdownui.ImageAsset{}, imageBitmap: &ui.Bitmap{}}
+	state.Hover("Projects/Target", 1, 2, ui.Rect{}, time.Now(), time.Second)
+	if state.ImagePath() != "" || state.HasImageAsset() || state.ImageBitmap() != nil {
+		t.Fatalf("changing hover target retained previous image resources: %+v", state)
 	}
 }
 

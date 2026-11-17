@@ -14,7 +14,7 @@ func SourceTokenSpan(base ui.Span, kind syntax.SourceTokenKind, palette *uiedito
 		return base
 	}
 
-	token := sourceTokenKind(kind)
+	token := SourceTokenKind(kind)
 	span := base
 	if color := palette.TokenColor(token); color.A != 0 {
 		span.Color = color
@@ -27,7 +27,8 @@ func SourceTokenSpan(base ui.Span, kind syntax.SourceTokenKind, palette *uiedito
 	return span
 }
 
-func sourceTokenKind(kind syntax.SourceTokenKind) uieditor.TokenKind {
+// SourceTokenKind maps Markdown token semantics to the editor palette.
+func SourceTokenKind(kind syntax.SourceTokenKind) uieditor.TokenKind {
 	switch kind {
 	case syntax.SourceTokenKeyword:
 		return uieditor.TokenKeyword

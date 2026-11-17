@@ -1,13 +1,12 @@
 // Package filetree renders a caller-projected file tree and translates user
-// input into typed actions. Discovery, ordering, filtering, file operations,
-// and drag/drop policy belong to the caller.
+// input into typed actions. It owns transient presentation state; discovery,
+// filtering, filesystem operations, and drag/drop policy belong to the host.
 package filetree
 
 import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/ui/scrollbar"
 )
 
 type EntryKind uint8
@@ -25,9 +24,6 @@ type Entry struct {
 	Detail         string
 	Kind           EntryKind
 	Depth          int
-	Expanded       bool
-	Selected       bool
-	Focused        bool
 	CanSelect      bool
 	CanExpand      bool
 	CanOpen        bool
@@ -51,12 +47,6 @@ type Command struct {
 	Enabled bool
 }
 
-type ScrollPort struct {
-	List      *ui.ListState
-	State     *ui.ScrollState
-	Indicator *scrollbar.Indicator
-}
-
 // NativeDropPort is a caller-provided native transfer capability. The panel
 // negotiates/detects transfers through MyGo and returns completed drops; it
 // never chooses a filesystem operation.
@@ -65,18 +55,15 @@ type NativeDropPort struct {
 	Operations transfer.Operation
 }
 
-// ViewModel contains presentation rows and capabilities. The caller owns the
-// file catalog, selection policy, expanded-node state, and list/scroll state.
+// ViewModel contains an ordered visible-row projection and capabilities. The
+// host owns catalog discovery, filtering, operation policy, and file access.
 type ViewModel struct {
 	Entries            []Entry
 	Commands           []Command
 	EmptyMessage       string
-	Focused            bool
-	PreviewID          string
 	RootContextActions []Command
 	RootCanDrop        bool
 	NativeDrop         NativeDropPort
-	Scroll             ScrollPort
 }
 
 type ActionKind uint8
@@ -124,7 +111,22 @@ type RenderResult struct {
 	NativeOffer *transfer.Offer
 }
 
-func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch func(Action[T])) RenderResult {
+// Render draws the caller's projected file tree using panel-owned transient
+// presentation state, then returns typed intents for host-side handling.
+func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort[T], dispatch func(Action[T])) RenderResult {
+	var state *state
+	if handle != nil {
+		state = handle.state
+	}
+	if state == nil {
+		state = newState()
+	}
+	state.initialize()
+	entries := append([]Entry(nil), model.Entries...)
+	dispatchState := func(action Action[T]) {
+		applyPresentationAction(state, action.Kind, action.ID, action.Modifiers, action.Bounds, entries)
+		dispatchAction(dispatch, action)
+	}
 	t := c.Theme()
 	if len(model.Commands) > 0 {
 		ui.Row(c).FillWidth().Height(34).Padding(0, 6).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -140,7 +142,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 					})
 				}
 				if button.Clicked() && command.Enabled {
-					dispatchAction(dispatch, Action[T]{Kind: InvokeCommand, CommandID: command.ID})
+					dispatchState(Action[T]{Kind: InvokeCommand, CommandID: command.ID})
 				}
 			}
 		})
@@ -154,47 +156,39 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 		area := ui.Column(c).FillWidth().Grow(1).Center().Padding(20).Children(func() {
 			ui.Text(c, message).FontSize(12).TextColor(t.TextMuted).Wrap()
 		})
-		attachContextMenu(area, "", model.RootContextActions, dispatch)
+		attachContextMenu(area, "", model.RootContextActions, dispatchState)
 		if model.RootCanDrop {
 			if payload, ok := ui.Drop[T](area); ok {
-				dispatchAction(dispatch, Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
+				dispatchState(Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
 			}
 			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
 				if drop, ok := ui.DropData(area, opts); ok {
-					dispatchAction(dispatch, Action[T]{Kind: DropNative, Drop: drop})
+					dispatchState(Action[T]{Kind: DropNative, Drop: drop})
 				}
 			}
 			if paths := area.DroppedFiles(); len(paths) > 0 {
-				dispatchAction(dispatch, Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+				dispatchState(Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
 			}
 		}
-		if model.PreviewID != "" {
-			dispatchAction(dispatch, Action[T]{Kind: LeaveEntry, ID: model.PreviewID})
+		if state.previewID != "" && !state.previewLeaveNotified {
+			dispatchState(Action[T]{Kind: LeaveEntry, ID: state.previewID})
 		}
 		return RenderResult{List: area}
 	}
 
-	var localScroll ui.ScrollState
-	scroll := model.Scroll.State
-	if scroll == nil {
-		scroll = &localScroll
-	}
-	localSelected := selectedEntry(model.Entries)
-	listState := model.Scroll.List
-	if listState == nil {
-		listState = &ui.ListState{Selected: &localSelected}
-	}
+	listState := &state.list
 	if listState.Selected == nil {
-		listState.Selected = &localSelected
+		listState.Selected = new(int)
 	}
-	listState.Label = func(i int) string { return model.Entries[i].Label }
-	listState.Key = func(i int) any { return model.Entries[i].ID }
+	state.visibleIDs = entryIDs(entries)
+	state.syncListFocus()
+	listState.Label = func(i int) string { return entries[i].Label }
+	listState.Key = func(i int) any { return entries[i].ID }
 
-	showScrollbar := model.Scroll.State != nil && model.Scroll.Indicator != nil &&
-		model.Scroll.Indicator.Visible(c.Now(), model.Scroll.State.X, model.Scroll.State.Y)
+	showScrollbar := state.indicator.Visible(c.Now(), state.scroll.X, state.scroll.Y)
 	if showScrollbar {
-		c.After(model.Scroll.Indicator.Remaining(c.Now()))
+		c.After(state.indicator.Remaining(c.Now()))
 	}
 
 	pointerActivated := false
@@ -202,17 +196,18 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 	hoveredID := ""
 	var hoveredBounds ui.Rect
 	var nativeOffer *transfer.Offer
-	list := ui.List(c, listState, len(model.Entries), func(i int) {
-		entry := model.Entries[i]
+	list := ui.List(c, listState, len(entries), func(i int) {
+		entry := entries[i]
+		selected, focused := state.owns(entry.ID), state.focusID == entry.ID
 		row := ui.ButtonBase(c).Label(entry.Label).Height(28).FillWidth().Radius(5).Padding(0, 8, 0, 4+float32(max(entry.Depth, 0))*14).
 			Gap(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-		if entry.Selected || entry.Focused || row.Hovered() || entry.DropHint {
+		if selected || focused || row.Hovered() || entry.DropHint {
 			row.Background(t.SurfaceHover)
 		}
 		row.Children(func() {
 			if entry.Kind == Directory {
 				label := ""
-				if entry.Expanded {
+				if state.IsExpanded(entry.ID) {
 					label = "⌄"
 				} else {
 					label = "›"
@@ -220,7 +215,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 				toggle := ui.ButtonBase(c).Label(label).Size(16, 20).Disabled(!entry.CanExpand).Padding(0).TextColor(t.TextMuted)
 				if toggle.Clicked() && entry.CanExpand {
 					pointerActivated = true
-					dispatchAction(dispatch, Action[T]{Kind: ToggleEntry, ID: entry.ID, Modifiers: toggle.ClickModifiers()})
+					dispatchState(Action[T]{Kind: ToggleEntry, ID: entry.ID, Modifiers: toggle.ClickModifiers()})
 				}
 			} else {
 				ui.Box(c).Size(16, 20)
@@ -235,8 +230,12 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 				ui.Text(c, glyph).Width(15).FontSize(13).TextColor(t.TextMuted)
 			}
 			ui.Column(c).FillWidth().MinWidth(0).Gap(1).Children(func() {
-				label := ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12).TextColor(t.Text)
-				if entry.Selected || entry.Focused {
+				labelColor := t.Text
+				if state.IsCut(entry.ID) {
+					labelColor = t.TextMuted
+				}
+				label := ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12).TextColor(labelColor)
+				if selected || focused {
 					label.FontWeight(600)
 				}
 				if entry.Detail != "" {
@@ -252,7 +251,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 			payload := drag.Make(entry.ID, dragItems)
 			row.Drag(payload)
 			if row.Dragging() && !entry.DragActive {
-				dispatchAction(dispatch, Action[T]{Kind: StartDrag, ID: entry.ID, ItemIDs: dragItems, Payload: payload})
+				dispatchState(Action[T]{Kind: StartDrag, ID: entry.ID, ItemIDs: dragItems, Payload: payload})
 			}
 		}
 		if entry.Previewable && row.Hovered() {
@@ -261,7 +260,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 		if entry.CanDrop {
 			if payload, ok := ui.Drop[T](row); ok {
 				rowDropHandled = true
-				dispatchAction(dispatch, Action[T]{Kind: DropEntries, ID: entry.ID, ItemIDs: dragIDs(drag, payload), Payload: payload})
+				dispatchState(Action[T]{Kind: DropEntries, ID: entry.ID, ItemIDs: dragIDs(drag, payload), Payload: payload})
 			}
 			if _, over := ui.DragOver[T](row); over {
 				rowDropHandled = true
@@ -276,7 +275,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 				}
 				if drop, ok := ui.DropData(row, opts); ok {
 					rowDropHandled = true
-					dispatchAction(dispatch, Action[T]{Kind: DropNative, ID: entry.ID, Drop: drop})
+					dispatchState(Action[T]{Kind: DropNative, ID: entry.ID, Drop: drop})
 				}
 			}
 			if row.FileDragOver() {
@@ -285,10 +284,10 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 			}
 			if paths := row.DroppedFiles(); len(paths) > 0 {
 				rowDropHandled = true
-				dispatchAction(dispatch, Action[T]{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
+				dispatchState(Action[T]{Kind: ImportFiles, ID: entry.ID, Paths: append([]string(nil), paths...)})
 			}
 		}
-		attachContextMenu(row, entry.ID, entry.ContextActions, dispatch)
+		attachContextMenu(row, entry.ID, entry.ContextActions, dispatchState)
 		if entry.CanSelect || entry.CanExpand || entry.CanOpen {
 			row.OnClick(func() {
 				pointerActivated = true
@@ -297,7 +296,7 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 					*listState.Selected = i
 				}
 				if entry.CanSelect {
-					dispatchAction(dispatch, Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: mods})
+					dispatchState(Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: mods})
 				}
 				if mods&(ui.Cmd|ui.Shift) != 0 {
 					return
@@ -306,11 +305,11 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 			})
 		}
 	})
-	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(scroll).Scrollbars(showScrollbar).Focusable()
-	attachContextMenu(list, "", model.RootContextActions, dispatch)
+	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(&state.scroll).Scrollbars(showScrollbar).Focusable()
+	attachContextMenu(list, "", model.RootContextActions, dispatchState)
 	if model.RootCanDrop && !rowDropHandled {
 		if payload, ok := ui.Drop[T](list); ok {
-			dispatchAction(dispatch, Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
+			dispatchState(Action[T]{Kind: DropEntries, ItemIDs: dragIDs(drag, payload), Payload: payload})
 		}
 		if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 			opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
@@ -318,32 +317,32 @@ func Render[T any](c *ui.Context, model ViewModel, drag DragPort[T], dispatch fu
 				nativeOffer = &offer
 			}
 			if drop, ok := ui.DropData(list, opts); ok {
-				dispatchAction(dispatch, Action[T]{Kind: DropNative, Drop: drop})
+				dispatchState(Action[T]{Kind: DropNative, Drop: drop})
 			}
 		}
 		if paths := list.DroppedFiles(); len(paths) > 0 {
-			dispatchAction(dispatch, Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
+			dispatchState(Action[T]{Kind: ImportFiles, Paths: append([]string(nil), paths...)})
 		}
 	}
-	if hoveredID != model.PreviewID {
-		if model.PreviewID != "" {
-			dispatchAction(dispatch, Action[T]{Kind: LeaveEntry, ID: model.PreviewID})
+	if hoveredID != state.previewID {
+		if state.previewID != "" && !state.previewLeaveNotified {
+			dispatchState(Action[T]{Kind: LeaveEntry, ID: state.previewID})
 		}
 		if hoveredID != "" {
-			dispatchAction(dispatch, Action[T]{Kind: HoverEntry, ID: hoveredID, Bounds: hoveredBounds})
+			dispatchState(Action[T]{Kind: HoverEntry, ID: hoveredID, Bounds: hoveredBounds})
 		}
 	}
-	if list.Changed() && !pointerActivated && model.Focused && listState.Selected != nil {
-		if i := *listState.Selected; i >= 0 && i < len(model.Entries) {
-			entry := model.Entries[i]
+	if list.Changed() && !pointerActivated && state.focused && listState.Selected != nil {
+		if i := *listState.Selected; i >= 0 && i < len(entries) {
+			entry := entries[i]
 			if entry.CanSelect {
-				dispatchAction(dispatch, Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: c.Modifiers()})
+				dispatchState(Action[T]{Kind: SelectEntry, ID: entry.ID, Modifiers: c.Modifiers()})
 			}
 		}
 	}
-	if !pointerActivated && model.Focused && list.Submitted() && listState.Selected != nil {
-		if i := *listState.Selected; i >= 0 && i < len(model.Entries) {
-			emitDefaultAction(model.Entries[i], dispatch)
+	if !pointerActivated && state.focused && list.Submitted() && listState.Selected != nil {
+		if i := *listState.Selected; i >= 0 && i < len(entries) {
+			emitDefaultAction(entries[i], dispatchState)
 		}
 	}
 	return RenderResult{List: list, HoveredID: hoveredID, NativeOffer: nativeOffer}
@@ -361,15 +360,6 @@ func attachContextMenu[T any](element ui.Element, targetID string, actions []Com
 			}
 		}
 	})
-}
-
-func selectedEntry(entries []Entry) int {
-	for i, entry := range entries {
-		if entry.Selected {
-			return i
-		}
-	}
-	return -1
 }
 
 func emitDefaultAction[T any](entry Entry, dispatch func(Action[T])) {

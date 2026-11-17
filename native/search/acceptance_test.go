@@ -7,18 +7,27 @@ import (
 	"testing"
 
 	"muse/document/types"
+	"muse/platform/filesystem/vaultsearchstore"
 	"muse/search"
 	"muse/search/rank"
 )
 
 func acceptanceIndex(t *testing.T, dir string) *search.Index {
 	t.Helper()
-	i, err := search.Open(dir)
+	i, err := openSearchTestIndex(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = i.Close() })
 	return i
+}
+
+func openSearchTestIndex(dir string) (*search.Index, error) {
+	storage, err := vaultsearchstore.NewAt(dir)
+	if err != nil {
+		return nil, err
+	}
+	return search.OpenWithStorage(storage)
 }
 
 func requireSearchPaths(t *testing.T, i *search.Index, query string, want ...string) {

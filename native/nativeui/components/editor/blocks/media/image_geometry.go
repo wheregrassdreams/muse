@@ -58,3 +58,53 @@ func ToolRects(box ui.Rect, size float32) (preview, source, align, grip ui.Rect)
 	grip = ui.Rect{X: box.X + box.W - button, Y: box.Y + box.H - button, W: button, H: button}
 	return
 }
+
+// ImageToolAction is the semantic result of hit-testing an image affordance.
+type ImageToolAction uint8
+
+const (
+	ImageToolNone ImageToolAction = iota
+	ImageToolPreview
+	ImageToolSource
+	ImageToolAlign
+	ImageToolResize
+)
+
+// ImageToolAt resolves a pointer against an image's control regions. The host
+// decides which editor operation or application callback handles the result.
+func ImageToolAt(box ui.Rect, size, x, y float32, block bool) ImageToolAction {
+	preview, source, align, grip := ToolRects(box, size)
+	switch {
+	case preview.Contains(x, y):
+		return ImageToolPreview
+	case source.Contains(x, y):
+		return ImageToolSource
+	case block && align.Contains(x, y):
+		return ImageToolAlign
+	case grip.Contains(x, y):
+		return ImageToolResize
+	default:
+		return ImageToolNone
+	}
+}
+
+// ImageToolButton is a backend-neutral presentation instruction for one image
+// tool. The editor renderer supplies actual colors, borders, and text shaping.
+type ImageToolButton struct {
+	Bounds ui.Rect
+	Label  string
+}
+
+// ImageToolButtons returns the visible media controls in paint order.
+func ImageToolButtons(box ui.Rect, size float32, block, centered bool) []ImageToolButton {
+	preview, source, align, _ := ToolRects(box, size)
+	buttons := []ImageToolButton{{Bounds: preview, Label: "↗"}}
+	if block {
+		label := "↤"
+		if centered {
+			label = "↔"
+		}
+		buttons = append(buttons, ImageToolButton{Bounds: align, Label: label})
+	}
+	return append(buttons, ImageToolButton{Bounds: source, Label: "</>"})
+}

@@ -113,6 +113,56 @@ func (o *FileOperations) CreateFolder(root, directory, base string) (string, err
 	}
 }
 
+// EnsureDirectory creates one vault directory when missing. Existing regular
+// directories are accepted; symlinks and non-directory collisions are not.
+func (o *FileOperations) EnsureDirectory(root, path string) error {
+	if o == nil || o.fs == nil {
+		return errors.New("vault file operations are not configured")
+	}
+	root, err := absolute(root)
+	if err != nil {
+		return err
+	}
+	path, err = absolute(path)
+	if err != nil {
+		return err
+	}
+	if !withinRoot(root, path) {
+		return fmt.Errorf("directory is outside the vault: %s", path)
+	}
+	if err := o.ensureNoSymlinkPath(root, path); err != nil {
+		return err
+	}
+	if info, err := o.fs.Lstat(path); err == nil {
+		if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("path exists and is not a directory: %s", path)
+		}
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	parentInfo, err := o.fs.Lstat(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	if !parentInfo.IsDir() || parentInfo.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("directory parent is not a directory: %s", filepath.Dir(path))
+	}
+	if err := o.fs.CreateDirectory(path); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		info, statErr := o.fs.Lstat(path)
+		if statErr != nil {
+			return statErr
+		}
+		if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("path exists and is not a directory: %s", path)
+		}
+	}
+	return nil
+}
+
 func (o *FileOperations) validateCreateLocation(root, directory, base string) error {
 	if strings.TrimSpace(base) == "" || base == "." || base == ".." || strings.ContainsAny(base, "/\\\x00") || filepath.Base(base) != base {
 		return errors.New("creation name must be a single file or folder name")

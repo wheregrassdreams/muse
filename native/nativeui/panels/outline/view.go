@@ -1,6 +1,6 @@
-// Package outline renders caller-provided heading rows and translates a
-// selection into a typed action. Heading extraction, active-heading policy,
-// and navigation remain with the caller.
+// Package outline renders caller-provided heading rows, tracks its active row
+// and scrolling, and translates a selection into a typed action. Heading
+// extraction and editor navigation remain with the caller.
 package outline
 
 import (
@@ -17,30 +17,8 @@ type Heading struct {
 	Offset int
 }
 
-// SelectedRange is an inclusive range of row indices selected by the caller.
-// A single active heading is represented by Start == End.
-type SelectedRange struct {
-	Start, End int
-}
-
-func (r SelectedRange) Contains(row, count int) bool {
-	return r.Start >= 0 && r.End >= r.Start && r.End < count && row >= r.Start && row <= r.End
-}
-
-// ScrollPort gives the owner control over scroll position and indicator
-// lifetime while allowing this view to bind the toolkit list to that state.
-type ScrollPort struct {
-	State     *ui.ScrollState
-	Indicator *scrollbar.Indicator
-}
-
-// ViewModel contains only values/capabilities required to render the panel.
-// The caller owns heading extraction, active-row selection, and scroll state.
-type ViewModel struct {
-	Headings      []Heading
-	SelectedRange SelectedRange
-	Scroll        ScrollPort
-}
+// ViewModel contains the immutable heading projection supplied by the caller.
+type ViewModel struct{ Headings []Heading }
 
 type ActionKind uint8
 
@@ -55,7 +33,48 @@ type Action struct {
 	Offset int
 }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+type state struct {
+	activeRow int
+	scroll    ui.ScrollState
+	indicator scrollbar.Indicator
+}
+
+// Handle keeps the outline's active row and toolkit scrolling private to the
+// panel. The application supplies a fresh heading projection for each view.
+type Handle struct{ state state }
+
+func NewHandle() *Handle { return &Handle{state: state{activeRow: -1}} }
+
+// SyncActiveHeading updates the displayed selection from the active editor
+// caret. Heading extraction remains with the editor session.
+func (h *Handle) SyncActiveHeading(headings []Heading, caret int) {
+	if h == nil {
+		return
+	}
+	active := -1
+	for i, heading := range headings {
+		if heading.Offset <= caret {
+			active = i
+		}
+	}
+	h.state.activeRow = active
+}
+
+// Render draws the supplied immutable heading projection and owns the local
+// selection and scrolling state. Selecting a heading returns its source offset
+// to the application through the typed action callback.
+func (h *Handle) Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+	if h == nil {
+		return
+	}
+	render(c, &h.state, model, dispatch)
+}
+
+func render(c *ui.Context, s *state, model ViewModel, dispatch func(Action)) {
+	if s == nil {
+		fallback := state{activeRow: -1}
+		s = &fallback
+	}
 	t := c.Theme()
 	if len(model.Headings) == 0 {
 		ui.Column(c).Fill().Center().Padding(20).Children(func() {
@@ -64,29 +83,20 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		return
 	}
 
-	showScrollbar := false
-	if model.Scroll.State != nil && model.Scroll.Indicator != nil {
-		showScrollbar = model.Scroll.Indicator.Visible(c.Now(), model.Scroll.State.X, model.Scroll.State.Y)
-		if showScrollbar {
-			c.After(model.Scroll.Indicator.Remaining(c.Now()))
-		}
-	}
-
-	var fallbackScroll ui.ScrollState
-	scroll := model.Scroll.State
-	if scroll == nil {
-		scroll = &fallbackScroll
+	showScrollbar := s.indicator.Visible(c.Now(), s.scroll.X, s.scroll.Y)
+	if showScrollbar {
+		c.After(s.indicator.Remaining(c.Now()))
 	}
 	ui.List(c, nil, len(model.Headings), func(i int) {
 		heading := model.Headings[i]
-		selected := model.SelectedRange.Contains(i, len(model.Headings))
+		isSelected := i == s.activeRow
 		row := ui.Row(c).Height(26).Radius(6).Padding(0, 8, 0, 6+float32(max(heading.Level-1, 0))*14).
 			Gap(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
-		if selected || row.Hovered() {
+		if isSelected || row.Hovered() {
 			row.Background(t.SurfaceHover)
 		}
 		row.Children(func() {
-			if selected {
+			if isSelected {
 				ui.Box(c).Width(2.5).Height(14).Radius(1.5).Background(t.Accent)
 			} else {
 				ui.Box(c).Width(2.5).Height(14).Radius(1.5).Opacity(0)
@@ -102,9 +112,10 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			}
 		})
 		row.OnClick(func() {
+			s.activeRow = i
 			if dispatch != nil {
 				dispatch(Action{Kind: SelectHeading, Offset: heading.Offset})
 			}
 		})
-	}).Grow(1).Padding(0, 8).Gap(0).TrackScroll(scroll).Scrollbars(showScrollbar)
+	}).Grow(1).Padding(0, 8).Gap(0).TrackScroll(&s.scroll).Scrollbars(showScrollbar)
 }

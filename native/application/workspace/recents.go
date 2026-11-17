@@ -1,5 +1,10 @@
 package workspace
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // RecentEntry is a previously opened vault folder or document.
 type RecentEntry struct {
 	Path  string `json:"path"`
@@ -76,6 +81,34 @@ func (r *RecentItems) Live(limit int) []RecentEntry {
 			if len(entries) == limit {
 				break
 			}
+		}
+	}
+	return entries
+}
+
+// LiveNotes returns existing Markdown files, excluding directory entries and
+// documents outside the active workspace root when one is supplied.
+func (r *RecentItems) LiveNotes(root string, limit int) []RecentEntry {
+	if limit <= 0 {
+		return nil
+	}
+	if limit > MaxRecentEntries {
+		limit = MaxRecentEntries
+	}
+	entries := make([]RecentEntry, 0, limit)
+	for _, entry := range r.Live(MaxRecentEntries) {
+		if entry.IsDir || strings.ToLower(filepath.Ext(entry.Path)) != ".md" {
+			continue
+		}
+		if root != "" {
+			rel, err := filepath.Rel(root, entry.Path)
+			if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+		}
+		entries = append(entries, entry)
+		if len(entries) == limit {
+			break
 		}
 	}
 	return entries

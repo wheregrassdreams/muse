@@ -273,6 +273,7 @@ func (s WorkspaceReadTools) DocumentStats(ctx context.Context, in ToolInput) (an
 type WorkspaceMutationPort interface {
 	WorkspacePort
 	WorkspaceDirectoryPort
+	CurrentDocumentDirty() bool
 	DestinationRevision(path string) (string, error)
 	SaveDocument(path, content, expectedRevision string) error
 	ApplyCurrentDocument(content string) error
@@ -311,6 +312,92 @@ type WorkspaceOperations struct {
 	Read  WorkspaceReadTools
 	Write WorkspaceWriteTools
 }
+
+// WorkspaceCapabilityProvider resolves the active workspace capability when
+// a tool is invoked. It lets long-lived assistant sessions follow vault
+// switches without retaining a stale workspace snapshot.
+type WorkspaceCapabilityProvider interface {
+	Workspace(context.Context) (WorkspaceMutationPort, error)
+}
+
+type WorkspaceCapabilityProviderFunc func(context.Context) (WorkspaceMutationPort, error)
+
+func (f WorkspaceCapabilityProviderFunc) Workspace(ctx context.Context) (WorkspaceMutationPort, error) {
+	return f(ctx)
+}
+
+// DynamicWorkspaceOperations composes the use cases around a workspace
+// capability supplied by the desktop composition root. All argument
+// validation, path policy, search bounds, and mutation sequencing remain in
+// this application package.
+type DynamicWorkspaceOperations struct{ Provider WorkspaceCapabilityProvider }
+
+func (o DynamicWorkspaceOperations) operations(ctx context.Context) (WorkspaceOperations, error) {
+	if o.Provider == nil {
+		return WorkspaceOperations{}, errors.New("workspace capability is unavailable")
+	}
+	workspace, err := o.Provider.Workspace(ctx)
+	if err != nil {
+		return WorkspaceOperations{}, err
+	}
+	if workspace == nil {
+		return WorkspaceOperations{}, errors.New("workspace capability is unavailable")
+	}
+	return WorkspaceOperations{Read: WorkspaceReadTools{Workspace: workspace}, Write: WorkspaceWriteTools{Workspace: workspace}}, nil
+}
+
+func (o DynamicWorkspaceOperations) delegate(ctx context.Context, invoke func(WorkspaceOperations) (any, error)) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	operations, err := o.operations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return invoke(operations)
+}
+
+func (o DynamicWorkspaceOperations) ListDocuments(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.ListDocuments(c, i) })
+}
+func (o DynamicWorkspaceOperations) ReadDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.ReadDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) SearchDocuments(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.SearchDocuments(c, i) })
+}
+func (o DynamicWorkspaceOperations) ReadOutline(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.ReadOutline(c, i) })
+}
+func (o DynamicWorkspaceOperations) WorkspaceTree(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.WorkspaceTree(c, i) })
+}
+func (o DynamicWorkspaceOperations) DocumentStats(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.DocumentStats(c, i) })
+}
+func (o DynamicWorkspaceOperations) OpenDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.OpenDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) EditDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.EditDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) InsertIntoDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.InsertIntoDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) WriteDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.WriteDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) RenameDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.RenameDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) DeleteDocument(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.DeleteDocument(c, i) })
+}
+func (o DynamicWorkspaceOperations) CreateFolder(c context.Context, i ToolInput) (any, error) {
+	return o.delegate(c, func(op WorkspaceOperations) (any, error) { return op.CreateFolder(c, i) })
+}
+
+var _ Operations = DynamicWorkspaceOperations{}
 
 func (o WorkspaceOperations) ListDocuments(c context.Context, i ToolInput) (any, error) {
 	return o.Read.ListDocuments(c, i)
@@ -480,6 +567,9 @@ func (s WorkspaceWriteTools) DeleteDocument(ctx context.Context, in ToolInput) (
 	path, err := s.resolve(in.Path)
 	if err != nil {
 		return nil, err
+	}
+	if current, _ := s.Workspace.CurrentDocument(); filepath.Clean(path) == filepath.Clean(current) && s.Workspace.CurrentDocumentDirty() {
+		return nil, errors.New("cannot delete the current document while it has unsaved changes")
 	}
 	if err := s.Workspace.TrashDocuments(s.Workspace.Root(), []string{path}); err != nil {
 		return nil, err

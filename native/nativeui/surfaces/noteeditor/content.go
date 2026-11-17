@@ -13,6 +13,7 @@ import (
 	documentapp "muse/application/document"
 	"muse/document"
 	"muse/editor"
+	editorinput "muse/editor/input"
 	"muse/events"
 	"muse/nativeui/window"
 	"muse/workspace"
@@ -21,6 +22,7 @@ import (
 var (
 	ErrInvalidPane        = errors.New("noteeditor: pane id is required")
 	ErrSurfaceUnavailable = errors.New("noteeditor: editor surface factory is not configured")
+	ErrIncompleteSurface  = errors.New("noteeditor: editor surface is missing required command capabilities")
 	ErrContentClosed      = errors.New("noteeditor: content is closed")
 )
 
@@ -39,6 +41,19 @@ type Snapshot struct {
 	Revision     document.Revision
 	CursorOffset int
 	Dirty        bool
+}
+
+// MemorySnapshot is a backend-neutral estimate of resources retained by the
+// active note surface. It keeps diagnostics independent of the editor widget.
+type MemorySnapshot struct {
+	SourceBytes          int
+	Leaves               int
+	VirtualLayout        bool
+	ImageCandidateLeaves int
+	ImageAssetViews      int
+	ImageAssets          int
+	LoadedImageAssets    int
+	ImagePixelBytes      int64
 }
 
 type Action struct {
@@ -81,7 +96,7 @@ type ModalCommands interface {
 	Keymap() string
 	SetKeymap(string)
 	ModeLabel() string
-	AcceptsTextInput() bool
+	ModalAcceptsText() bool
 }
 
 type NavigationCommands interface {
@@ -164,6 +179,64 @@ type Content struct {
 	mutating  bool
 }
 
+// Commands is the feature-owned capability App may use while the pane handle
+// is live. It deliberately omits Render and Close, which belong to window.Manager.
+type Commands interface {
+	FocusCommands() FocusCommands
+	ModalCommands() ModalCommands
+	NavigationCommands() NavigationCommands
+	SearchCommands() SearchCommands
+	ClipboardCommands() ClipboardCommands
+	FormattingCommands() FormattingCommands
+	PresentationCommands() PresentationCommands
+	WantsUnmodifiedShortcuts() bool
+	Configure(PresentationSettings) bool
+	Source() string
+	Undo() bool
+	Replace(start, end int, value string) error
+	Snapshot() Snapshot
+	PersistenceState() documentapp.SessionState
+	BeginSave(time.Time) (documentapp.SaveRequest, bool)
+	StartSave(documentapp.SaveRequest)
+	Results() <-chan documentapp.SaveResult
+	CompleteSave(documentapp.SaveResult) bool
+	MemorySnapshot() MemorySnapshot
+	ListDrafts() ([]document.Draft, error)
+	ReadDraft(key string) (document.Draft, error)
+	ListHistory(path string) ([]document.HistoryEntry, error)
+	ReadHistory(path, id string) (document.Note, error)
+	DestinationRevision(path string, expected document.Revision) (document.Revision, error)
+	DeleteDraft(path string) error
+	ReplaceUser(source string) error
+	ReplaceSystem(source string) error
+	MarkDirty()
+	Open(note document.Note, cursorOffset int) error
+	Relocate(note document.Note) error
+	SaveNow(path string, expected document.Revision) (document.Note, error)
+	PreserveDraft() (string, error)
+	SetConflict(path string)
+	Rebase(path string, revision document.Revision, source string) bool
+	ClearAutosave()
+	ClearMetadataDeadline()
+}
+
+var _ Commands = (*Content)(nil)
+
+// WithCommands resolves a live generic window handle and narrows it inside
+// the noteeditor owner package, so App never stores concrete surface state.
+func WithCommands(manager *window.Manager, handle window.Handle, use func(Commands) error) error {
+	if use == nil {
+		return window.ErrHandleUnavailable
+	}
+	return manager.WithContent(handle, func(content window.Content) error {
+		commands, ok := content.(*Content)
+		if !ok || commands == nil || commands.closed {
+			return ErrContentClosed
+		}
+		return use(commands)
+	})
+}
+
 func (c *Content) FocusCommands() FocusCommands {
 	if c == nil {
 		return nil
@@ -218,6 +291,13 @@ func (c *Content) PresentationCommands() PresentationCommands {
 	}
 	commands, _ := c.surface.(PresentationCommands)
 	return commands
+}
+
+// WantsUnmodifiedShortcuts reports whether the active modal keymap consumes
+// plain text, leaving ordinary application shortcuts available.
+func (c *Content) WantsUnmodifiedShortcuts() bool {
+	commands := c.ModalCommands()
+	return commands != nil && commands.Keymap() == "vim" && !commands.ModalAcceptsText()
 }
 
 func (c *Content) Configure(settings PresentationSettings) bool {
@@ -297,7 +377,27 @@ func NewContent(
 		doc.Close()
 		return nil, ErrSurfaceUnavailable
 	}
+	if !surfaceHasRequiredCommands(content.surface) {
+		content.surface.Close()
+		doc.Close()
+		return nil, ErrIncompleteSurface
+	}
 	return content, nil
+}
+
+func surfaceHasRequiredCommands(surface window.Content) bool {
+	if surface == nil {
+		return false
+	}
+	_, focus := surface.(FocusCommands)
+	_, modal := surface.(ModalCommands)
+	_, navigation := surface.(NavigationCommands)
+	_, search := surface.(SearchCommands)
+	_, clipboard := surface.(ClipboardCommands)
+	_, formatting := surface.(FormattingCommands)
+	_, presentation := surface.(PresentationCommands)
+	_, undo := surface.(interface{ Undo() bool })
+	return focus && modal && navigation && search && clipboard && formatting && presentation && undo
 }
 
 func NewUntitled(
@@ -350,13 +450,13 @@ func (c *Content) SessionFrame() editor.Frame                 { return c.session
 
 // MemorySnapshot forwards renderer-owned resource estimates through the
 // backend-neutral editor model contract.
-func (c *Content) MemorySnapshot() editor.MemorySnapshot {
+func (c *Content) MemorySnapshot() MemorySnapshot {
 	if c == nil || c.surface == nil {
-		return editor.MemorySnapshot{}
+		return MemorySnapshot{}
 	}
-	provider, ok := c.surface.(interface{ MemorySnapshot() editor.MemorySnapshot })
+	provider, ok := c.surface.(interface{ MemorySnapshot() MemorySnapshot })
 	if !ok {
-		return editor.MemorySnapshot{}
+		return MemorySnapshot{}
 	}
 	return provider.MemorySnapshot()
 }
@@ -414,7 +514,7 @@ func (c *Content) SetSelection(selection editor.Selection) error {
 	return c.session.SetSelection(selection)
 }
 
-func (c *Content) Dispatch(event editor.InputEvent) (editor.DispatchResult, error) {
+func (c *Content) Dispatch(event editorinput.Event) (editor.DispatchResult, error) {
 	if err := c.ensureOpen(); err != nil {
 		return editor.DispatchResult{}, err
 	}
@@ -427,7 +527,7 @@ func (c *Content) Dispatch(event editor.InputEvent) (editor.DispatchResult, erro
 	return result, err
 }
 
-func (c *Content) DispatchKey(event editor.KeyEvent) bool {
+func (c *Content) DispatchKey(event editorinput.KeyEvent) bool {
 	if c == nil || c.closed {
 		return false
 	}

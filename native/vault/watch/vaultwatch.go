@@ -8,7 +8,6 @@ package watch
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -52,6 +51,14 @@ type Backend interface {
 	Close() error
 }
 
+// FileSystem supplies only the directory queries needed to maintain
+// recursive watch coverage. The concrete OS calls live in platform adapters;
+// vault/watch retains the policy for which directories to watch.
+type FileSystem interface {
+	IsDirectory(path string) (bool, error)
+	WalkDirectories(root string, visit func(path string, walkErr error) error) error
+}
+
 const (
 	Changed Kind = "changed"
 	Removed Kind = "removed"
@@ -74,22 +81,27 @@ type watchRequest struct {
 // Watcher recursively monitors root and optionally one separately selected
 // file. The event channel is bounded; overflow is reported as a rescan event.
 type Watcher struct {
-	root      string
-	backend   Backend
-	events    chan Event
-	requests  chan watchRequest
-	stop      chan struct{}
-	done      chan struct{}
-	closeOnce sync.Once
-	wakeMu    sync.RWMutex
-	wake      func()
+	root       string
+	backend    Backend
+	fileSystem FileSystem
+	events     chan Event
+	requests   chan watchRequest
+	stop       chan struct{}
+	done       chan struct{}
+	closeOnce  sync.Once
+	wakeMu     sync.RWMutex
+	wake       func()
 }
 
 // New starts watching root recursively. Newly created directories are added
 // automatically. root must be an existing directory.
-func New(root string, backend Backend) (*Watcher, error) {
+func New(root string, backend Backend, fileSystem FileSystem) (*Watcher, error) {
 	if backend == nil {
 		return nil, errors.New("vault/watch: filesystem backend is required")
+	}
+	if fileSystem == nil {
+		_ = backend.Close()
+		return nil, errors.New("vault/watch: filesystem access port is required")
 	}
 	started := false
 	defer func() {
@@ -101,15 +113,15 @@ func New(root string, backend Backend) (*Watcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vault/watch: resolve root: %w", err)
 	}
-	info, err := os.Stat(abs)
+	isDirectory, err := fileSystem.IsDirectory(abs)
 	if err != nil {
 		return nil, fmt.Errorf("vault/watch: stat root: %w", err)
 	}
-	if !info.IsDir() {
+	if !isDirectory {
 		return nil, fmt.Errorf("vault/watch: root is not a directory: %s", abs)
 	}
 	w := &Watcher{
-		root: abs, backend: backend, events: make(chan Event, eventBuffer),
+		root: abs, backend: backend, fileSystem: fileSystem, events: make(chan Event, eventBuffer),
 		requests: make(chan watchRequest), stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	if err := w.addTree(abs, nil); err != nil {
@@ -144,11 +156,11 @@ func (w *Watcher) WatchFile(path string) error {
 		return fmt.Errorf("vault/watch: resolve file: %w", err)
 	}
 	parent := filepath.Dir(abs)
-	info, err := os.Stat(parent)
+	isDirectory, err := w.fileSystem.IsDirectory(parent)
 	if err != nil {
 		return fmt.Errorf("vault/watch: stat file parent: %w", err)
 	}
-	if !info.IsDir() {
+	if !isDirectory {
 		return fmt.Errorf("vault/watch: file parent is not a directory: %s", parent)
 	}
 	req := watchRequest{path: abs, reply: make(chan error, 1)}
@@ -179,12 +191,9 @@ func (w *Watcher) Close() error {
 }
 
 func (w *Watcher) addTree(root string, known map[string]struct{}) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+	return w.fileSystem.WalkDirectories(root, func(path string, walkErr error) error {
 		if walkErr != nil {
 			return fmt.Errorf("vault/watch: walk %s: %w", path, walkErr)
-		}
-		if !entry.IsDir() {
-			return nil
 		}
 		path, err := filepath.Abs(path)
 		if err != nil {
@@ -211,8 +220,8 @@ func (w *Watcher) run() {
 	defer w.backend.Close()
 
 	dirs := make(map[string]struct{})
-	_ = filepath.WalkDir(w.root, func(path string, entry os.DirEntry, err error) error {
-		if err == nil && entry.IsDir() {
+	_ = w.fileSystem.WalkDirectories(w.root, func(path string, err error) error {
+		if err == nil {
 			abs, _ := filepath.Abs(path)
 			dirs[abs] = struct{}{}
 		}
@@ -342,7 +351,7 @@ func (w *Watcher) run() {
 				continue
 			}
 			if ev.Op&Create != 0 {
-				if info, err := os.Stat(path); err == nil && info.IsDir() {
+				if isDirectory, err := w.fileSystem.IsDirectory(path); err == nil && isDirectory {
 					if err := w.addTree(path, dirs); err != nil {
 						overflowPending = true
 						clear(pending)

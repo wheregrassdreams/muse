@@ -7,41 +7,44 @@ import (
 	"strings"
 	"sync/atomic"
 
-	nativeagent "muse/agent"
+	conversation "muse/agent"
+	applicationagent "muse/application/agent"
 )
 
 // ProviderClient adapts the feature-owned AI HTTP service to the application
 // stream port. It contains no transcript, approval, or UI state.
 type ProviderClient struct {
-	service *nativeagent.AI
+	service *Provider
 	serial  atomic.Uint64
 	active  atomic.Value // string request id
 }
 
-func NewProviderClient(service *nativeagent.AI) *ProviderClient {
+var _ applicationagent.StreamClient = (*ProviderClient)(nil)
+
+func NewProviderClient(service *Provider) *ProviderClient {
 	return &ProviderClient{service: service}
 }
 
-func (c *ProviderClient) Stream(request Request, onDelta func(StreamEvent)) StreamResult {
+func (c *ProviderClient) Stream(request applicationagent.Request, onDelta func(applicationagent.StreamEvent)) applicationagent.StreamResult {
 	if c == nil || c.service == nil {
-		return StreamResult{Err: errors.New("assistant provider is unavailable")}
+		return applicationagent.StreamResult{Err: errors.New("assistant provider is unavailable")}
 	}
 	requestID := fmt.Sprintf("assistant-%d", c.serial.Add(1))
 	c.active.Store(requestID)
-	tools := map[int]*ToolRequest{}
+	tools := map[int]*conversation.ToolRequest{}
 	wireMessages := make([]map[string]any, 0, len(request.Messages)+1)
 	if request.Settings.System != "" {
 		wireMessages = append(wireMessages, map[string]any{"role": "system", "content": request.Settings.System})
 	}
 	for _, message := range request.Messages {
 		role := "assistant"
-		if message.Role == User {
+		if message.Role == conversation.User {
 			role = "user"
 		}
 		wire := map[string]any{"role": role, "content": message.Content}
 		var calls []map[string]any
 		for _, part := range message.Parts {
-			if part.Kind != ToolPart {
+			if part.Kind != conversation.ToolPart {
 				continue
 			}
 			if part.Tool.Arguments != "" {
@@ -60,14 +63,14 @@ func (c *ProviderClient) Stream(request Request, onDelta func(StreamEvent)) Stre
 		}
 		wireMessages = append(wireMessages, wire)
 	}
-	result := c.service.ChatStreamWith(nativeagent.ChatStreamRequest{
+	result := c.service.ChatStreamWith(ChatStreamRequest{
 		RequestID: requestID,
 		BaseURL:   request.Settings.BaseURL,
 		APIKey:    request.Settings.APIKey,
 		Body: map[string]any{
 			"model": request.Settings.Model, "stream": true, "messages": wireMessages, "tools": request.Tools,
 		},
-	}, nativeagent.ChatSink{Chunk: func(chunk string) {
+	}, ChatSink{Chunk: func(chunk string) {
 		for _, line := range strings.Split(chunk, "\n") {
 			line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "data:"))
 			if line == "" || line == "[DONE]" {
@@ -94,12 +97,12 @@ func (c *ProviderClient) Stream(request Request, onDelta func(StreamEvent)) Stre
 			}
 			delta := payload.Choices[0].Delta
 			if delta.Content != "" || delta.Reasoning != "" {
-				onDelta(StreamEvent{Text: delta.Content, Thought: delta.Reasoning})
+				onDelta(applicationagent.StreamEvent{Text: delta.Content, Thought: delta.Reasoning})
 			}
 			for _, part := range delta.Tools {
 				call := tools[part.Index]
 				if call == nil {
-					call = &ToolRequest{}
+					call = &conversation.ToolRequest{}
 					tools[part.Index] = call
 				}
 				call.ID += part.ID
@@ -110,18 +113,18 @@ func (c *ProviderClient) Stream(request Request, onDelta func(StreamEvent)) Stre
 	}})
 	c.active.Store("")
 	if result.Aborted {
-		return StreamResult{Aborted: true}
+		return applicationagent.StreamResult{Aborted: true}
 	}
 	if !result.Ok {
-		return StreamResult{Err: errors.New(result.Message)}
+		return applicationagent.StreamResult{Err: errors.New(result.Message)}
 	}
-	ordered := make([]ToolRequest, 0, len(tools))
+	ordered := make([]conversation.ToolRequest, 0, len(tools))
 	for index := 0; index < len(tools); index++ {
 		if call := tools[index]; call != nil {
 			ordered = append(ordered, *call)
 		}
 	}
-	return StreamResult{Tools: ordered}
+	return applicationagent.StreamResult{Tools: ordered}
 }
 
 func (c *ProviderClient) Abort() {

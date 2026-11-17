@@ -83,7 +83,7 @@ func (e *Editor) resetParserForSource(source string) {
 	frontmatterEnd := sourceModelFrontmatterEnd(source)
 	var imageInlines []syntax.IncrementalInline
 	if frontmatterEnd == 0 {
-		imageInlines, _ = largeDataImageOnlySource(source)
+		imageInlines, _ = syntax.LargeDataImageOnlySource(source)
 	}
 	e.p.Set(source, frontmatterEnd, imageInlines)
 	e.pending, e.pendingMulti = nil, false

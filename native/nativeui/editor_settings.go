@@ -1,19 +1,50 @@
 package nativeui
 
 import (
+	applicationconfig "muse/application/config"
 	"muse/config"
 	"muse/locales"
 )
 
 type editorSettings = config.EditorSettings
 
-func editorConfigPath() string { return config.EditorSettingsPath() }
-func loadEditorSettings() editorSettings {
-	s, _ := config.LoadEditorSettings()
+func (a *App) loadEditorSettings() editorSettings {
+	s, _ := applicationconfig.NewService(a.configRepository).LoadEditorSettings()
 	return s
 }
+
+func (a *App) applyEditorSettings(s editorSettings) {
+	if s.SmartTypography != nil {
+		a.smartTypography = *s.SmartTypography
+	}
+	if s.HeadingMarkerReveal != nil {
+		a.headingMarkerReveal = *s.HeadingMarkerReveal
+	}
+	if s.VimVirtualImageRows != nil {
+		a.vimVirtualImageRows = *s.VimVirtualImageRows
+	}
+	if s.CursorFade != nil {
+		a.cursorFade = *s.CursorFade
+	}
+	if s.SmoothCursor != nil {
+		a.smoothCursor = *s.SmoothCursor
+	}
+	if s.HideMouseCursor != nil {
+		a.hideMouseCursor = *s.HideMouseCursor
+	}
+	if s.SearchMatchPulse != nil {
+		a.searchMatchPulse = *s.SearchMatchPulse
+	}
+	if s.VimYankFlash != nil {
+		a.vimYankFlash = *s.VimYankFlash
+	}
+	if a.noteEditor() != nil {
+		a.noteEditor().ModalCommands().SetKeymap(s.Keymap)
+		a.configureActiveNote(0)
+	}
+}
 func (a *App) setEditorKeymap(mode string) {
-	a.activeNote.ModalCommands().SetKeymap(mode)
+	a.noteEditor().ModalCommands().SetKeymap(mode)
 	if err := a.saveEditorSettings(); err != nil {
 		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}
@@ -94,7 +125,7 @@ func (a *App) setVimYankFlash(enabled bool) {
 
 func (a *App) saveEditorSettings() error {
 	s := editorSettings{
-		Keymap:              a.activeNote.ModalCommands().Keymap(),
+		Keymap:              a.noteEditor().ModalCommands().Keymap(),
 		SmartTypography:     &a.smartTypography,
 		HeadingMarkerReveal: &a.headingMarkerReveal,
 		VimVirtualImageRows: &a.vimVirtualImageRows,
@@ -104,5 +135,5 @@ func (a *App) saveEditorSettings() error {
 		SearchMatchPulse:    &a.searchMatchPulse,
 		VimYankFlash:        &a.vimYankFlash,
 	}
-	return config.SaveEditorSettings(s)
+	return applicationconfig.NewService(a.configRepository).SaveEditorSettings(s)
 }

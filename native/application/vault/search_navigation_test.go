@@ -55,3 +55,16 @@ func TestValidateSearchNavigationRejectsPathsOutsideVault(t *testing.T) {
 		t.Fatalf("ValidateSearchNavigation() = %v, %v; want invalid hit path", status, err)
 	}
 }
+
+func TestSearchSnapshotSearchHitAtPath(t *testing.T) {
+	snapshot := SearchSnapshot{Hits: []search.Hit{
+		{Path: "notes/a.md", Start: 1}, {Path: "notes/a.md", Start: 7}, {Path: "notes/b.md"},
+	}}
+	hit, ok := snapshot.SearchHitAtPath("notes/a.md")
+	if !ok || hit.Start != 1 {
+		t.Fatalf("SearchHitAtPath() = %+v, %v; want first hit for the path", hit, ok)
+	}
+	if _, ok := snapshot.SearchHitAtPath("notes/missing.md"); ok {
+		t.Fatal("SearchHitAtPath() found a missing path")
+	}
+}

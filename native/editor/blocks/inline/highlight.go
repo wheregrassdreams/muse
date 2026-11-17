@@ -74,3 +74,11 @@ func AllHighlightRanges(source string, inlines []syntax.IncrementalInline, start
 func isLatinAlnum(r rune) bool {
 	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
 }
+
+func escapedAt(source string, offset int) bool {
+	backslashes := 0
+	for i := offset - 1; i >= 0 && source[i] == '\\'; i-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
+}

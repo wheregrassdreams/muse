@@ -3,6 +3,7 @@ package ime
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const indexStride = 2048
@@ -108,6 +109,14 @@ func (ix *Index) UnitsOf(source string, revision uint64, byteOffset int) int {
 		k++
 	}
 	return ix.units[k] + UTF16Len(source[ix.bytes[k]:byteOffset])
+}
+
+func clampByte(source string, offset int) int {
+	offset = max(0, min(offset, len(source)))
+	for offset > 0 && offset < len(source) && !utf8.RuneStart(source[offset]) {
+		offset--
+	}
+	return offset
 }
 
 // ByteOf maps a UTF-16 coordinate to a source byte boundary. Offsets inside a

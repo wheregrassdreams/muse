@@ -297,7 +297,7 @@ func (e *Editor) modalHorizontal(direction int, extend bool) {
 	}
 	if e.Keymap() == "vim" {
 		e.ApplyOperation(input.Operation{
-			Kind: OperationMoveHorizontal, Direction: direction,
+			Kind: input.OperationMoveHorizontal, Direction: direction,
 			Extend: extend, WithinLine: true,
 		})
 		e.promoteVisualTextToCellRegion()

@@ -1157,6 +1157,26 @@ func (msgs Messages) SettingsHeadingMarkerRevealDetail() string {
 	return Catalog.Format(msgs.locale, "settingsHeadingMarkerRevealDetail", nil)
 }
 
+// SettingsSourceReveal says "源码展开偏好"
+// in the language the app shows.
+func SettingsSourceReveal() string { return In(i18n.Locale()).SettingsSourceReveal() }
+
+// SettingsSourceReveal says "源码展开偏好"
+// in the language of msgs.
+func (msgs Messages) SettingsSourceReveal() string {
+	return Catalog.Format(msgs.locale, "settingsSourceReveal", nil)
+}
+
+// SettingsSourceRevealDetail says "编辑器会在需要时于光标附近展开 Markdown 源码。当前策略暂不支持自定义。"
+// in the language the app shows.
+func SettingsSourceRevealDetail() string { return In(i18n.Locale()).SettingsSourceRevealDetail() }
+
+// SettingsSourceRevealDetail says "编辑器会在需要时于光标附近展开 Markdown 源码。当前策略暂不支持自定义。"
+// in the language of msgs.
+func (msgs Messages) SettingsSourceRevealDetail() string {
+	return Catalog.Format(msgs.locale, "settingsSourceRevealDetail", nil)
+}
+
 // SettingsVimImageRows says "Vim 图片虚拟行"
 // in the language the app shows.
 func SettingsVimImageRows() string { return In(i18n.Locale()).SettingsVimImageRows() }

@@ -57,3 +57,19 @@ func TestEmptyCommandListShowsNoMatchAndSubmitDismisses(t *testing.T) {
 		t.Fatalf("empty submit action = %+v", actions[len(actions)-1])
 	}
 }
+
+func TestFilterRanksCommandsByQueryAndPreservesRegistrationForEmptyQuery(t *testing.T) {
+	commands := []Command{
+		{ID: "create", Name: "Create Document", Hint: "⌘N"},
+		{ID: "settings", Name: "Open Settings"},
+		{ID: "search", Name: "Search Workspace"},
+	}
+	all := filter("  ", commands)
+	if len(all) != len(commands) || all[0].ID != "create" {
+		t.Fatalf("empty query filter = %+v, want original registration order", all)
+	}
+	filtered := filter("settings", commands)
+	if len(filtered) != 1 || filtered[0].ID != "settings" {
+		t.Fatalf("settings filter = %+v, want only settings command", filtered)
+	}
+}

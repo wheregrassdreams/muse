@@ -4,7 +4,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"muse/editor/navigation"
@@ -999,6 +998,23 @@ func (e *Editor) enterLeaf(li, dir int, extend bool) {
 		ln = lines[1]
 	}
 	e.setCaretKeepGoal(e.hitUnit(l, v, e.goalX, l.y+v.ty+ln.Rect.Y+ln.Rect.H/2), extend)
+}
+
+// leaveTableBoundary moves vertically from a table into its neighboring leaf.
+func (e *Editor) leaveTableBoundary(t *leaf, dir int, extend bool) {
+	if t == nil || dir == 0 {
+		return
+	}
+	for i, l := range e.leaves {
+		if l != t {
+			continue
+		}
+		if !extend && (i+dir < 0 || i+dir >= len(e.leaves)) && e.phantomAtEdge(i, dir) {
+			return
+		}
+		e.enterLeaf(i+dir, dir, extend)
+		return
+	}
 }
 
 // phantomAtEdge puts a new paragraph below the last leaf (dir > 0) or above

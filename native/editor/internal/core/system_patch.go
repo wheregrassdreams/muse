@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // SystemPatch is one minimal source replacement and its selection transition.

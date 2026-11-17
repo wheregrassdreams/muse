@@ -44,3 +44,21 @@ func ToolRequiresApproval(name string) bool {
 		return false
 	}
 }
+
+// DefaultToolPolicy owns static tool grouping, enablement, and approval rules.
+// Per-conversation permission is mutable session state and belongs to Session.
+type DefaultToolPolicy struct{}
+
+func (DefaultToolPolicy) Enabled(settings config.AssistantSettings, name string) bool {
+	return ToolEnabled(settings, name)
+}
+
+func (DefaultToolPolicy) RequiresApproval(name string) bool {
+	return ToolRequiresApproval(name)
+}
+
+func (DefaultToolPolicy) Schemas(settings config.AssistantSettings) []map[string]any {
+	return ToolSchemas(settings)
+}
+
+var _ ToolPolicy = DefaultToolPolicy{}

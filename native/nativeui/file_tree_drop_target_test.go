@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
+	"muse/nativeui/panels/filetree"
 )
 
 func TestListLevelRootDropPreviewReplacesStaleFolderTarget(t *testing.T) {
@@ -15,17 +16,17 @@ func TestListLevelRootDropPreviewReplacesStaleFolderTarget(t *testing.T) {
 	folder := filepath.Join(root, "Folder")
 	a := New()
 	a.root = root
-	a.treeDropTarget = treeDropTarget{path: folder, start: 1, end: 3}
-	a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(folder))
-	rows := []fileRow{{path: filepath.Join(root, "note.md")}, {path: folder, dir: true}}
+	a.fileTreeState.SetDropTargetRange(folder, 1, 3)
+	a.setTreeDragOperationDisplay(filetree.DragOperationMoveToFolder, filepath.Base(folder))
+	rows := []filetree.Row{{Path: filepath.Join(root, "note.md")}, {Path: folder, Directory: true}}
 
 	a.setTreeRootDropTarget(rows)
 
-	if a.treeDropTarget.path != root || a.treeDropTarget.start != 0 || a.treeDropTarget.end != len(rows) {
-		t.Fatalf("root fallback preview = %+v, want root range [0,%d)", a.treeDropTarget, len(rows))
+	if got := a.fileTreeState.DropTargetRange(); got.TargetID != root || got.StartRow != 0 || got.EndRow != len(rows) {
+		t.Fatalf("root fallback preview = %+v, want root range [0,%d)", got, len(rows))
 	}
-	if a.treeDragOperation != treeDragMoveToFolder || a.treeDragTarget != filepath.Base(root) {
-		t.Fatalf("root fallback label state = operation %q target %q", a.treeDragOperation, a.treeDragTarget)
+	if display := a.fileTreeState.DragOperationDisplay(); display.Kind != filetree.DragOperationMoveToFolder || display.TargetLabel != filepath.Base(root) {
+		t.Fatalf("root fallback label state = operation %v target %q", display.Kind, display.TargetLabel)
 	}
 }
 
@@ -45,7 +46,8 @@ func TestTreeDragIntoNestedDescendantTargetsContainingDirectory(t *testing.T) {
 	}
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.expanded[aPath], a.expanded[bPath] = true, true
+	a.fileTreeState.SetExpanded(aPath, true)
+	a.fileTreeState.SetExpanded(bPath, true)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	handle, ok := tt.Find(treeDragHandleLabel("source.md"))
@@ -62,8 +64,8 @@ func TestTreeDragIntoNestedDescendantTargetsContainingDirectory(t *testing.T) {
 	tt.Move(sx+12, sy)
 	tt.Move(tx, ty)
 	tt.Frame()
-	if a.treeDragTarget != "B" {
-		t.Fatalf("nested row target label=%q dragging=%v handle=%+v source=%+v target=%+v rootHoverTarget=%+v texts=%v", a.treeDragTarget, a.treeDragging, handle, handle, target, a.treeDropTarget, tt.Texts())
+	if display := a.fileTreeState.DragOperationDisplay(); display.TargetLabel != "B" {
+		t.Fatalf("nested row target label=%q dragging=%v handle=%+v source=%+v target=%+v rootHoverTarget=%+v texts=%v", display.TargetLabel, a.fileTreeState.DragPreview().Active, handle, handle, target, a.fileTreeState.DropTargetRange(), tt.Texts())
 	}
 	tt.Release(tx, ty)
 	tt.Frame()
@@ -99,14 +101,14 @@ func TestTreeDragHoverExpandsCollapsedDirectFolderTarget(t *testing.T) {
 	tt.Frame()
 	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !a.expanded[folder] {
-		t.Fatalf("directly targeted collapsed directory did not expand; text=%v hover=%q since=%v target=%+v dragging=%v source=%+v targetRow=%+v", tt.Texts(), a.treeDropHoverPath, a.treeDropHoverSince, a.treeDropTarget, a.treeDragging, handle, target)
+	if !a.fileTreeState.IsExpanded(folder) {
+		t.Fatalf("directly targeted collapsed directory did not expand; text=%v hover=%q since=%v target=%+v dragging=%v source=%+v targetRow=%+v", tt.Texts(), a.fileTreeState.DropHover().TargetID, a.fileTreeState.DropHover().EnteredAt, a.fileTreeState.DropTargetRange(), a.fileTreeState.DragPreview().Active, handle, target)
 	}
 	if _, ok := tt.Find("Nested"); !ok {
 		t.Fatal("expanded folder's child row was not rendered on the follow-up frame")
 	}
-	if a.treeDropTarget.path != folder {
-		t.Fatalf("drop target changed during expansion: %q", a.treeDropTarget.path)
+	if a.fileTreeState.DropTargetRange().TargetID != folder {
+		t.Fatalf("drop target changed during expansion: %q", a.fileTreeState.DropTargetRange().TargetID)
 	}
 	tt.Move(tx, ty)
 	tt.Frame()
@@ -114,7 +116,7 @@ func TestTreeDragHoverExpandsCollapsedDirectFolderTarget(t *testing.T) {
 	tt.Frame()
 	if _, err := os.Stat(filepath.Join(folder, "source.md")); err != nil {
 		_, rootErr := os.Stat(filepath.Join(root, "source.md"))
-		t.Fatalf("drop after auto-expand missed folder: %v root=%v target=%+v op=%q texts=%v", err, rootErr, a.treeDropTarget, a.treeDragOperation, tt.Texts())
+		t.Fatalf("drop after auto-expand missed folder: %v root=%v target=%+v op=%v texts=%v", err, rootErr, a.fileTreeState.DropTargetRange(), a.fileTreeState.DragOperationDisplay().Kind, tt.Texts())
 	}
 }
 
@@ -142,7 +144,7 @@ func TestTreeDragAutoExpandDoesNotDropIfReleasedOutsideTree(t *testing.T) {
 	tt.Frame()
 	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !a.expanded[folder] {
+	if !a.fileTreeState.IsExpanded(folder) {
 		t.Fatal("folder did not auto-expand")
 	}
 	tt.Move(800, 350)
@@ -155,7 +157,7 @@ func TestTreeDragAutoExpandDoesNotDropIfReleasedOutsideTree(t *testing.T) {
 	tt.Frame()
 	if _, err := os.Stat(source); err != nil {
 		_, folderErr := os.Stat(filepath.Join(folder, "source.md"))
-		t.Fatalf("source moved despite release outside tree: %v folder=%v tree=%+v target=%+v op=%s pointer=%+v", err, folderErr, treeBounds, a.treeDropTarget, a.treeDragOperation, a.treeDragPointer)
+		t.Fatalf("source moved despite release outside tree: %v folder=%v tree=%+v target=%+v op=%v pointer=%+v", err, folderErr, treeBounds, a.fileTreeState.DropTargetRange(), a.fileTreeState.DragOperationDisplay().Kind, a.fileTreeState.DragPreview().Pointer)
 	}
 	if _, err := os.Stat(filepath.Join(folder, "source.md")); !os.IsNotExist(err) {
 		t.Fatalf("stale folder target received outside release: %v", err)
@@ -186,7 +188,7 @@ func TestTreeDragAutoExpandDoesNotDropOnTreeListBlank(t *testing.T) {
 	tt.Frame()
 	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !a.expanded[folder] {
+	if !a.fileTreeState.IsExpanded(folder) {
 		t.Fatal("folder did not auto-expand")
 	}
 	tree, ok := tt.Find(locales.FilesTreeLabel())
@@ -237,7 +239,7 @@ func TestTreeDragAutoExpandCanceledPressDoesNotCommit(t *testing.T) {
 	tt.Frame()
 	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !a.expanded[folder] {
+	if !a.fileTreeState.IsExpanded(folder) {
 		t.Fatal("folder did not auto-expand")
 	}
 	tt.CancelPress()
@@ -267,7 +269,8 @@ func TestExternalFileDropOverNestedSubtreeUsesResolvedParent(t *testing.T) {
 	}
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.expanded[aPath], a.expanded[bPath] = true, true
+	a.fileTreeState.SetExpanded(aPath, true)
+	a.fileTreeState.SetExpanded(bPath, true)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	target, ok := tt.Find("inside.md")
@@ -280,7 +283,7 @@ func TestExternalFileDropOverNestedSubtreeUsesResolvedParent(t *testing.T) {
 	tt.Frame()
 	if got, err := os.ReadFile(filepath.Join(bPath, "external.md")); err != nil || string(got) != "external" {
 		_, rootErr := os.Stat(filepath.Join(root, "external.md"))
-		t.Fatalf("external file was not imported into B: %q, %v root=%v target=%+v op=%q texts=%v", got, err, rootErr, a.treeDropTarget, a.treeDragOperation, tt.Texts())
+		t.Fatalf("external file was not imported into B: %q, %v root=%v target=%+v op=%v texts=%v", got, err, rootErr, a.fileTreeState.DropTargetRange(), a.fileTreeState.DragOperationDisplay().Kind, tt.Texts())
 	}
 	if got, err := os.ReadFile(source); err != nil || string(got) != "external" {
 		t.Fatalf("external source was modified: %q, %v", got, err)
@@ -306,7 +309,7 @@ func TestExternalFileDropAfterFolderHoverFallsBackToRootOnListBlank(t *testing.T
 	}
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.expanded[folder] = true
+	a.fileTreeState.SetExpanded(folder, true)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	folderRow, ok := tt.Find("Folder")
@@ -323,8 +326,8 @@ func TestExternalFileDropAfterFolderHoverFallsBackToRootOnListBlank(t *testing.T
 	// The tester dispatches native FileDragOver and FileDrop together. Restore
 	// the folder hover as a stale precondition so the blank-area FileDragOver
 	// preview must replace it from the list-level fallback path.
-	a.treeDropTarget = treeDropTarget{path: folder, start: 0, end: 2}
-	a.setTreeDragMoveOperation(treeDragMoveToFolder, filepath.Base(folder))
+	a.fileTreeState.SetDropTargetRange(folder, 0, 2)
+	a.setTreeDragOperationDisplay(filetree.DragOperationMoveToFolder, filepath.Base(folder))
 
 	tree, ok := tt.Find(locales.FilesTreeLabel())
 	if !ok {

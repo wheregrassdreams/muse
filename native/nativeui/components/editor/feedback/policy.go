@@ -8,11 +8,36 @@ import (
 )
 
 const (
+	CaretBlinkPeriod         = 530 * time.Millisecond
+	CaretFadeDuration        = 120 * time.Millisecond
 	SmoothCursorDuration     = 110 * time.Millisecond
 	SmoothCursorFrameRate    = float32(60)
 	SearchMatchPulseDuration = 220 * time.Millisecond
 	VimYankFlashDuration     = 320 * time.Millisecond
 )
+
+// CaretFadeOpacity returns the caret opacity during the short fade windows at
+// the beginning and middle of a blink cycle. Away from those boundaries the
+// caret is fully visible or hidden.
+func CaretFadeOpacity(phase time.Duration) (float32, bool) {
+	if phase < CaretFadeDuration {
+		return 1, false
+	}
+	cycle := phase % (2 * CaretBlinkPeriod)
+	if cycle < CaretFadeDuration {
+		t := float32(cycle) / float32(CaretFadeDuration)
+		return t * t * (3 - 2*t), true
+	}
+	if cycle >= CaretBlinkPeriod && cycle < CaretBlinkPeriod+CaretFadeDuration {
+		t := float32(cycle-CaretBlinkPeriod) / float32(CaretFadeDuration)
+		t = 1 - t*t*(3-2*t)
+		return t, true
+	}
+	if cycle >= CaretBlinkPeriod+CaretFadeDuration {
+		return 0, false
+	}
+	return 1, false
+}
 
 // Rect is a value-only rectangle used by cursor interpolation.
 type Rect struct{ X, Y, W, H float32 }

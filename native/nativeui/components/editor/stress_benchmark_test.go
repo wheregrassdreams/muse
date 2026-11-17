@@ -21,7 +21,6 @@ import (
 	"muse/editor/navigation"
 	"muse/markdown/images"
 	syntax "muse/markdown/syntax"
-	editorScroll "muse/nativeui/components/editor/scroll"
 )
 
 func stressTester(e *Editor) *ui.Tester {
@@ -369,7 +368,7 @@ func BenchmarkStressFirstFrame(b *testing.B) {
 			b.ReportMetric(float64(unsafe.Sizeof(syntax.IncrementalBlock{})), "parser-block-B")
 			b.ReportMetric(float64(unsafe.Sizeof(leaf{})), "leaf-struct-B")
 			b.ReportMetric(float64(unsafe.Sizeof(viewParams{})), "view-params-B")
-			b.ReportMetric(float64(unsafe.Sizeof(editorScroll.HorizontalState{})), "horizontal-state-B")
+			b.ReportMetric(float64(unsafe.Sizeof(blockHorizontalState{})), "horizontal-state-B")
 			writeStressHeapProfile(b)
 			reportHeap(b, baseline, peak)
 			runtime.KeepAlive(keepAlive)

@@ -1,5 +1,6 @@
-// Package doctypes decides how a file opens. A Type maps file extensions to a
-// parser and a native view, and Registry resolves a path to its type.
+// Package doctypes owns backend-neutral file classification, parser selection,
+// and editability policy. The composition root binds each type to a concrete
+// document surface.
 //
 // This is the plugin seam: registering a Type is what makes a new kind of
 // file openable in Muse. Markdown and plain text are built in, and any
@@ -12,8 +13,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+)
 
-	mdoc "muse/markdown"
+// Parser identifies a parsing strategy without coupling the registry to a
+// document representation or rendering backend.
+type Parser string
+
+const (
+	MarkdownParser Parser = "markdown"
+	TextParser     Parser = "text"
 )
 
 // Type is one kind of openable document.
@@ -25,8 +33,8 @@ type Type struct {
 	// Extensions are the suffixes this type claims, lowercase and with
 	// the leading dot.
 	Extensions []string
-	// Parse turns file bytes into a document.
-	Parse func(src []byte) *mdoc.Doc
+	// Parser selects the parser the composition root binds to this type.
+	Parser Parser
 	// Editable reports whether the type can be edited and written back.
 	Editable bool
 }
@@ -46,7 +54,7 @@ func NewRegistry() *Registry {
 		ID:         "markdown",
 		Name:       "Markdown",
 		Extensions: []string{".md", ".markdown", ".mdx", ".mdown", ".mkd"},
-		Parse:      mdoc.ParseFile,
+		Parser:     MarkdownParser,
 		Editable:   true,
 	})
 
@@ -59,7 +67,7 @@ func NewRegistry() *Registry {
 			".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".sass", ".less", ".html", ".htm", ".xml", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
 			".sql", ".graphql", ".gql", ".proto", ".vue", ".svelte", ".astro", ".tex", ".bib", ".org", ".rst", ".adoc", ".properties", ".mod", ".sum", ".gradle", ".mk", ".cmake", ".plist", ".diff", ".patch",
 		},
-		Parse:    func(b []byte) *mdoc.Doc { return mdoc.ParsePlainText(string(b)) },
+		Parser:   TextParser,
 		Editable: true,
 	})
 
@@ -142,14 +150,14 @@ func (r *Registry) EditableExtensions() []string {
 	return extensions
 }
 
-// OpenSource resolves the path's type and parses caller-provided file content.
-// Reading the file belongs to the document or platform adapter that owns it.
-func (r *Registry) OpenSource(path string, source []byte) (*Type, *mdoc.Doc, error) {
+// Resolve selects a registered type for a path. Parsing and document creation
+// are supplied by the composition root using the returned parser identifier.
+func (r *Registry) Resolve(path string) (*Type, error) {
 	t, ok := r.Lookup(filepath.Ext(path))
 	if !ok {
-		return nil, nil, fmt.Errorf("doc: %s is not a text document", filepath.Base(path))
+		return nil, fmt.Errorf("doc: %s is not a text document", filepath.Base(path))
 	}
-	return t, t.Parse(source), nil
+	return t, nil
 }
 
 // binaryExts are the suffixes that must not be opened as text.
@@ -192,6 +200,17 @@ var editableNames = map[string]bool{
 // file set. Unknown extensions may still be opened through Lookup's text
 // fallback, but are not shown as workspace files.
 func IsEditablePath(path string) bool { return builtins.IsEditablePath(path) }
+
+// IsMarkdownPath reports whether a path uses the Markdown parser. An empty or
+// extensionless path is treated as Markdown because untitled notes and
+// README-like files use the rich note surface.
+func IsMarkdownPath(path string) bool {
+	if path == "" || filepath.Ext(path) == "" {
+		return true
+	}
+	t, err := builtins.Resolve(path)
+	return err == nil && t.Parser == MarkdownParser
+}
 
 // EditableExtensions returns the built-in explicit editable extensions.
 func EditableExtensions() []string { return builtins.EditableExtensions() }

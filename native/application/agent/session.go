@@ -11,63 +11,22 @@ import (
 	"sync"
 	"time"
 
+	conversation "muse/agent"
 	"muse/config"
 )
 
-type Role uint8
-
-const (
-	User Role = iota + 1
-	Assistant
-)
-
-type Message struct {
-	Role    Role
-	Content string
-	Parts   []Part
-}
-
-type PartKind uint8
-
-const (
-	TextPart PartKind = iota + 1
-	ThoughtPart
-	ToolPart
-)
-
-type PartStatus uint8
-
-const (
-	PartRunning PartStatus = iota + 1
-	PartApproval
-	PartSucceeded
-	PartFailed
-)
-
-type Part struct {
-	Kind     PartKind
-	Text     string
-	Duration time.Duration
-	Expanded bool
-	Tool     ToolPartState
-}
-
-type ToolPartState struct {
-	ID, Name, Arguments, Result, Error string
-	Status                             PartStatus
-}
-
 type Snapshot struct {
-	Revision uint64
-	Messages []Message
-	Busy     bool
-	Phase    string
-	Error    string
+	Revision   uint64
+	Messages   []conversation.Message
+	Busy       bool
+	Phase      string
+	Error      string
+	Permission Permission
 }
 
 type Request struct {
 	Settings config.AssistantSettings
-	Messages []Message
+	Messages []conversation.Message
 	Tools    []map[string]any
 }
 
@@ -76,7 +35,7 @@ type StreamEvent struct{ Text, Thought, Phase string }
 type StreamResult struct {
 	Aborted bool
 	Err     error
-	Tools   []ToolRequest
+	Tools   []conversation.ToolRequest
 }
 
 type StreamClient interface {
@@ -84,17 +43,8 @@ type StreamClient interface {
 	Abort()
 }
 
-type ToolRequest struct {
-	ID, Name, Arguments string
-}
-
-type ToolResult struct {
-	Content string
-	Err     error
-}
-
 type ToolExecutor interface {
-	Execute(context.Context, ToolRequest) ToolResult
+	Execute(context.Context, conversation.ToolRequest) conversation.ToolResult
 }
 
 type Permission uint8
@@ -108,7 +58,6 @@ const (
 type ToolPolicy interface {
 	Enabled(config.AssistantSettings, string) bool
 	RequiresApproval(string) bool
-	Permission() Permission
 	Schemas(config.AssistantSettings) []map[string]any
 }
 
@@ -128,32 +77,35 @@ const (
 type approval struct{ decision chan Decision }
 
 var (
-	ErrUnavailable = errors.New("assistant session: stream client is unavailable")
-	ErrBusy        = errors.New("assistant session: a response is already in progress")
-	ErrEmptyPrompt = errors.New("assistant session: prompt is empty")
-	ErrNoApproval  = errors.New("assistant session: approval request is no longer active")
+	ErrUnavailable       = errors.New("assistant session: stream client is unavailable")
+	ErrBusy              = errors.New("assistant session: a response is already in progress")
+	ErrEmptyPrompt       = errors.New("assistant session: prompt is empty")
+	ErrNoApproval        = errors.New("assistant session: approval request is no longer active")
+	ErrInvalidPermission = errors.New("assistant session: invalid permission")
+	ErrInvalidDecision   = errors.New("assistant session: invalid approval decision")
 )
 
 // Session serializes transcript updates and owns cancellation/approval
 // lifecycle. Client callbacks may arrive on background goroutines.
 type Session struct {
-	mu        sync.RWMutex
-	client    StreamClient
-	settings  config.AssistantSettings
-	tools     ToolExecutor
-	policy    ToolPolicy
-	messages  []Message
-	busy      bool
-	phase     string
-	lastError string
-	revision  uint64
-	requestID uint64
-	approvals map[string]approval
-	closed    bool
+	mu         sync.RWMutex
+	client     StreamClient
+	settings   config.AssistantSettings
+	permission Permission
+	tools      ToolExecutor
+	policy     ToolPolicy
+	messages   []conversation.Message
+	busy       bool
+	phase      string
+	lastError  string
+	revision   uint64
+	requestID  uint64
+	approvals  map[string]approval
+	closed     bool
 }
 
 func NewSession(settings config.AssistantSettings, client StreamClient, capabilities ...Capabilities) *Session {
-	s := &Session{settings: settings, client: client, approvals: make(map[string]approval)}
+	s := &Session{settings: settings, permission: AskBeforeChanges, client: client, approvals: make(map[string]approval)}
 	if len(capabilities) > 0 {
 		s.tools, s.policy = capabilities[0].Tools, capabilities[0].Policy
 	}
@@ -166,10 +118,49 @@ func (s *Session) Snapshot() Snapshot {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return Snapshot{Revision: s.revision, Messages: append([]Message(nil), s.messages...), Busy: s.busy, Phase: s.phase, Error: s.lastError}
+	return Snapshot{Revision: s.revision, Messages: append([]conversation.Message(nil), s.messages...), Busy: s.busy, Phase: s.phase, Error: s.lastError, Permission: s.permission}
 }
 
-func (s *Session) RestoreMessages(messages []Message) {
+// Permission returns the current conversation-scoped tool permission.
+func (s *Session) Permission() Permission {
+	if s == nil {
+		return ReadOnly
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.permission == 0 {
+		return AskBeforeChanges
+	}
+	return s.permission
+}
+
+// SetPermission changes the permission for this conversation. Approval
+// decisions use DecideApproval so changing permission and releasing the
+// corresponding tool call can happen atomically.
+func (s *Session) SetPermission(permission Permission) error {
+	if s == nil {
+		return ErrUnavailable
+	}
+	if !validPermission(permission) {
+		return ErrInvalidPermission
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrUnavailable
+	}
+	if s.permission != permission {
+		s.permission = permission
+		s.revision++
+	}
+	return nil
+}
+
+func validPermission(permission Permission) bool {
+	return permission == AskBeforeChanges || permission == AllowChanges || permission == ReadOnly
+}
+
+func (s *Session) RestoreMessages(messages []conversation.Message) {
 	if s == nil {
 		return
 	}
@@ -181,11 +172,11 @@ func (s *Session) RestoreMessages(messages []Message) {
 	s.mu.Unlock()
 }
 
-func cloneMessages(messages []Message) []Message {
-	copyMessages := make([]Message, len(messages))
+func cloneMessages(messages []conversation.Message) []conversation.Message {
+	copyMessages := make([]conversation.Message, len(messages))
 	for i, message := range messages {
 		copyMessages[i] = message
-		copyMessages[i].Parts = append([]Part(nil), message.Parts...)
+		copyMessages[i].Parts = append([]conversation.Part(nil), message.Parts...)
 	}
 	return copyMessages
 }
@@ -200,8 +191,28 @@ func (s *Session) SetSettings(settings config.AssistantSettings) {
 	s.mu.Unlock()
 }
 
+// SetClient injects or replaces the provider while the session is idle. The
+// client is stable for the lifetime of an active stream so Abort always targets
+// the request that Send started.
+func (s *Session) SetClient(client StreamClient) error {
+	if s == nil {
+		return ErrUnavailable
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrUnavailable
+	}
+	if s.busy {
+		return ErrBusy
+	}
+	s.client = client
+	s.revision++
+	return nil
+}
+
 func (s *Session) Send(prompt string) error {
-	if s == nil || s.client == nil {
+	if s == nil {
 		return ErrUnavailable
 	}
 	prompt = strings.TrimSpace(prompt)
@@ -209,7 +220,7 @@ func (s *Session) Send(prompt string) error {
 		return ErrEmptyPrompt
 	}
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.client == nil {
 		s.mu.Unlock()
 		return ErrUnavailable
 	}
@@ -217,7 +228,7 @@ func (s *Session) Send(prompt string) error {
 		s.mu.Unlock()
 		return ErrBusy
 	}
-	s.messages = append(s.messages, Message{Role: User, Content: prompt}, Message{Role: Assistant})
+	s.messages = append(s.messages, conversation.Message{Role: conversation.User, Content: prompt}, conversation.Message{Role: conversation.Assistant})
 	s.busy, s.phase, s.lastError = true, "thinking", ""
 	s.requestID++
 	id := s.requestID
@@ -237,14 +248,14 @@ func (s *Session) stream(id uint64, request Request) {
 			break
 		}
 		for _, call := range result.Tools {
-			s.appendTool(id, ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: PartRunning})
+			s.appendTool(id, conversation.ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: conversation.PartRunning})
 			outcome := s.ExecuteTool(context.Background(), call)
-			status := PartSucceeded
+			status := conversation.PartSucceeded
 			errorText := ""
 			if outcome.Err != nil {
-				status, errorText = PartFailed, outcome.Err.Error()
+				status, errorText = conversation.PartFailed, outcome.Err.Error()
 			}
-			s.finishTool(id, call.ID, ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Result: outcome.Content, Error: errorText, Status: status})
+			s.finishTool(id, call.ID, conversation.ToolPartState{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Result: outcome.Content, Error: errorText, Status: status})
 		}
 		s.mu.Lock()
 		if id != s.requestID || s.closed {
@@ -267,25 +278,25 @@ func (s *Session) stream(id uint64, request Request) {
 }
 
 func (s *Session) requestLocked() Request {
-	request := Request{Settings: s.settings, Messages: append([]Message(nil), s.messages...)}
+	request := Request{Settings: s.settings, Messages: append([]conversation.Message(nil), s.messages...)}
 	if s.policy != nil {
 		request.Tools = s.policy.Schemas(s.settings)
 	}
 	return request
 }
 
-func (s *Session) appendTool(id uint64, tool ToolPartState) {
+func (s *Session) appendTool(id uint64, tool conversation.ToolPartState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id != s.requestID || s.closed || len(s.messages) == 0 {
 		return
 	}
 	last := &s.messages[len(s.messages)-1]
-	last.Parts = append(last.Parts, Part{Kind: ToolPart, Tool: tool})
+	last.Parts = append(last.Parts, conversation.Part{Kind: conversation.ToolPart, Tool: tool})
 	s.revision++
 }
 
-func (s *Session) finishTool(id uint64, toolID string, value ToolPartState) {
+func (s *Session) finishTool(id uint64, toolID string, value conversation.ToolPartState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id != s.requestID || s.closed || len(s.messages) == 0 {
@@ -293,7 +304,7 @@ func (s *Session) finishTool(id uint64, toolID string, value ToolPartState) {
 	}
 	last := &s.messages[len(s.messages)-1]
 	for i := len(last.Parts) - 1; i >= 0; i-- {
-		if last.Parts[i].Kind == ToolPart && last.Parts[i].Tool.ID == toolID {
+		if last.Parts[i].Kind == conversation.ToolPart && last.Parts[i].Tool.ID == toolID {
 			last.Parts[i].Tool = value
 			break
 		}
@@ -307,7 +318,7 @@ func (s *Session) applyEvent(id uint64, event StreamEvent) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if id != s.requestID || s.closed || len(s.messages) == 0 || s.messages[len(s.messages)-1].Role != Assistant {
+	if id != s.requestID || s.closed || len(s.messages) == 0 || s.messages[len(s.messages)-1].Role != conversation.Assistant {
 		return
 	}
 	last := &s.messages[len(s.messages)-1]
@@ -315,21 +326,21 @@ func (s *Session) applyEvent(id uint64, event StreamEvent) {
 		s.phase = event.Phase
 	}
 	if event.Thought != "" {
-		appendPartDelta(last, ThoughtPart, event.Thought)
+		appendPartDelta(last, conversation.ThoughtPart, event.Thought)
 	}
 	if event.Text != "" {
-		appendPartDelta(last, TextPart, event.Text)
+		appendPartDelta(last, conversation.TextPart, event.Text)
 		last.Content += event.Text
 	}
 	s.revision++
 }
 
-func appendPartDelta(message *Message, kind PartKind, value string) {
+func appendPartDelta(message *conversation.Message, kind conversation.PartKind, value string) {
 	if n := len(message.Parts); n > 0 && message.Parts[n-1].Kind == kind {
 		message.Parts[n-1].Text += value
 		return
 	}
-	message.Parts = append(message.Parts, Part{Kind: kind, Text: value})
+	message.Parts = append(message.Parts, conversation.Part{Kind: kind, Text: value})
 }
 
 func (s *Session) Stop() {
@@ -386,7 +397,7 @@ func (s *Session) TogglePart(messageIndex, partIndex int) {
 	s.revision++
 }
 
-func (s *Session) RequestApproval(ctx context.Context, request ToolRequest) (Decision, error) {
+func (s *Session) RequestApproval(ctx context.Context, request conversation.ToolRequest) (Decision, error) {
 	if s == nil || request.ID == "" {
 		return Reject, ErrNoApproval
 	}
@@ -406,32 +417,58 @@ func (s *Session) RequestApproval(ctx context.Context, request ToolRequest) (Dec
 	s.mu.Unlock()
 	select {
 	case decision := <-entry.decision:
-		s.mu.Lock()
-		delete(s.approvals, request.ID)
-		s.revision++
-		s.mu.Unlock()
+		s.finishApproval(request.ID, entry)
 		return decision, nil
 	case <-ctx.Done():
+		// Serialize the cancellation result with DecideApproval. If a user
+		// decision was accepted first, honor it; otherwise remove the request
+		// before a later UI action can change conversation permission.
 		s.mu.Lock()
-		delete(s.approvals, request.ID)
-		s.revision++
+		if current, ok := s.approvals[request.ID]; ok && current.decision == entry.decision {
+			select {
+			case decision := <-entry.decision:
+				delete(s.approvals, request.ID)
+				s.revision++
+				s.mu.Unlock()
+				return decision, nil
+			default:
+				delete(s.approvals, request.ID)
+				s.revision++
+			}
+		}
 		s.mu.Unlock()
 		return Reject, ctx.Err()
 	}
+}
+
+func (s *Session) finishApproval(id string, entry approval) {
+	s.mu.Lock()
+	if current, ok := s.approvals[id]; ok && current.decision == entry.decision {
+		delete(s.approvals, id)
+		s.revision++
+	}
+	s.mu.Unlock()
 }
 
 func (s *Session) DecideApproval(id string, decision Decision) error {
 	if s == nil {
 		return ErrNoApproval
 	}
-	s.mu.RLock()
+	if decision != Reject && decision != Approve && decision != AlwaysApprove {
+		return ErrInvalidDecision
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entry, ok := s.approvals[id]
-	s.mu.RUnlock()
 	if !ok {
 		return ErrNoApproval
 	}
 	select {
 	case entry.decision <- decision:
+		if decision == AlwaysApprove && s.permission != AllowChanges {
+			s.permission = AllowChanges
+			s.revision++
+		}
 		return nil
 	default:
 		return ErrNoApproval
@@ -440,27 +477,30 @@ func (s *Session) DecideApproval(id string, decision Decision) error {
 
 // ExecuteTool applies the injected capability and permission policy before
 // delegating a typed operation. It never interprets UI state or raw JSON.
-func (s *Session) ExecuteTool(ctx context.Context, request ToolRequest) ToolResult {
+func (s *Session) ExecuteTool(ctx context.Context, request conversation.ToolRequest) conversation.ToolResult {
 	if s == nil || s.tools == nil || s.policy == nil {
-		return ToolResult{Err: ErrUnavailable}
+		return conversation.ToolResult{Err: ErrUnavailable}
 	}
 	s.mu.RLock()
-	settings := s.settings
+	settings, permission := s.settings, s.permission
 	s.mu.RUnlock()
+	if permission == 0 {
+		permission = AskBeforeChanges
+	}
 	if !s.policy.Enabled(settings, request.Name) {
-		return ToolResult{Err: fmt.Errorf("assistant tool %q is disabled", request.Name)}
+		return conversation.ToolResult{Err: fmt.Errorf("assistant tool %q is disabled", request.Name)}
 	}
 	if s.policy.RequiresApproval(request.Name) {
-		switch s.policy.Permission() {
+		switch permission {
 		case ReadOnly:
-			return ToolResult{Err: errors.New("assistant session is read-only")}
+			return conversation.ToolResult{Err: errors.New("assistant session is read-only")}
 		case AskBeforeChanges:
 			decision, err := s.RequestApproval(ctx, request)
 			if err != nil {
-				return ToolResult{Err: err}
+				return conversation.ToolResult{Err: err}
 			}
 			if decision == Reject {
-				return ToolResult{Err: errors.New("assistant operation was rejected")}
+				return conversation.ToolResult{Err: errors.New("assistant operation was rejected")}
 			}
 		}
 	}

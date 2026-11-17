@@ -37,7 +37,7 @@ func TestWorkspaceLifecyclePersistsAndRestoresActiveDocumentAndCaret(t *testing.
 	first.setWorkspace(root)
 	first.openPathNow(path)
 	caret := len("first line\nsecond")
-	first.activeNote.NavigationCommands().Select(caret, caret)
+	first.noteEditor().NavigationCommands().Select(caret, caret)
 	first.persistWorkspaceState()
 	want := workspace.State{
 		Version: 1, VaultPath: root, ActiveTab: "main",
@@ -64,7 +64,7 @@ func TestWorkspaceLifecyclePersistsAndRestoresActiveDocumentAndCaret(t *testing.
 	if got := second.documentSource(); got != source {
 		t.Fatalf("restored source = %q, want %q", got, source)
 	}
-	if got := second.activeNote.NavigationCommands().SelectionRange().End; got != caret {
+	if got := second.noteEditor().NavigationCommands().SelectionRange().End; got != caret {
 		t.Fatalf("restored caret = %d, want %d", got, caret)
 	}
 }

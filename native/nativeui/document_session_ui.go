@@ -1,21 +1,102 @@
 package nativeui
 
 import (
-	"strings"
-	"unicode/utf8"
+	"errors"
 
 	"github.com/egoist/mygo/ui"
-	documentsave "muse/application/document"
+
+	documentapp "muse/application/document"
+	"muse/document"
 	"muse/locales"
 	"muse/nativeui/components/documentdialogs"
+	"muse/nativeui/surfaces/noteeditor"
 )
 
-func (a *App) openRecovery() {
-	if a.activeNote == nil {
-		a.notice(locales.CommonRecoveryReadError("document services are not configured"))
-		return
+type noteEditorWorkflowPort struct{ editor noteeditor.Commands }
+
+func (p noteEditorWorkflowPort) Snapshot() documentapp.EditingSnapshot {
+	if p.editor == nil {
+		return documentapp.EditingSnapshot{}
 	}
-	drafts, err := a.activeNote.ListDrafts()
+	snapshot := p.editor.Snapshot()
+	persistence := p.editor.PersistenceState()
+	return documentapp.EditingSnapshot{
+		Path: snapshot.Path, Source: snapshot.Source, DiskSource: snapshot.DiskSource,
+		BaseSource: persistence.BaseSource, Revision: snapshot.Revision, Dirty: snapshot.Dirty,
+		Saving: persistence.Saving,
+	}
+}
+
+func (p noteEditorWorkflowPort) DestinationRevision(path string, expected document.Revision) (document.Revision, error) {
+	if p.editor == nil {
+		return "", documentapp.ErrWorkflowUnavailable
+	}
+	return p.editor.DestinationRevision(path, expected)
+}
+
+func (p noteEditorWorkflowPort) Rebase(path string, revision document.Revision, source string) bool {
+	return p.editor != nil && p.editor.Rebase(path, revision, source)
+}
+func (p noteEditorWorkflowPort) ReplaceUser(source string) error {
+	if p.editor == nil {
+		return documentapp.ErrWorkflowUnavailable
+	}
+	return p.editor.ReplaceUser(source)
+}
+func (p noteEditorWorkflowPort) ClearAutosave() {
+	if p.editor != nil {
+		p.editor.ClearAutosave()
+	}
+}
+func (p noteEditorWorkflowPort) SetConflict(path string) {
+	if p.editor != nil {
+		p.editor.SetConflict(path)
+	}
+}
+func (p noteEditorWorkflowPort) PreserveDraft() (string, error) {
+	if p.editor == nil {
+		return "", documentapp.ErrWorkflowUnavailable
+	}
+	return p.editor.PreserveDraft()
+}
+func (p noteEditorWorkflowPort) DeleteDraft(path string) error {
+	if p.editor == nil {
+		return documentapp.ErrWorkflowUnavailable
+	}
+	return p.editor.DeleteDraft(path)
+}
+
+func (a *App) documentWorkflows() documentapp.SessionWorkflows {
+	var active documentapp.EditingPort
+	if editor := a.noteEditor(); editor != nil {
+		active = noteEditorWorkflowPort{editor: editor}
+	}
+	return documentapp.SessionWorkflows{
+		Repository: a.documentRepository,
+		Recovery:   a.documentRecovery,
+		History:    a.documentHistory,
+		Editing:    active,
+		FlushTime:  a.flushManagedTimestamp,
+		UpdateTime: a.updateManagedTimestamp,
+		Replace: func(path, source string, dirty bool) error {
+			if a.noteEditor() == nil {
+				return documentapp.ErrWorkflowUnavailable
+			}
+			a.loadDocumentAt(path, source)
+			if dirty {
+				a.noteEditor().MarkDirty()
+			}
+			a.updateTitle()
+			return nil
+		},
+		Save: func(path, source string, expected document.Revision) error {
+			return a.writeDocument(path, source, expected)
+		},
+	}
+}
+
+func (a *App) openRecovery() {
+	drafts, err := a.documentWorkflows().ListDrafts()
 	if err != nil {
 		a.notice(locales.CommonRecoveryReadError(err.Error()))
 		return
@@ -24,15 +105,7 @@ func (a *App) openRecovery() {
 }
 
 func (a *App) openHistory() {
-	if a.documentPath() == "" {
-		a.notice(locales.DocumentUnsaved())
-		return
-	}
-	if a.activeNote == nil {
-		a.notice(locales.CommonHistoryReadError("document services are not configured"))
-		return
-	}
-	entries, err := a.activeNote.ListHistory(a.documentPath())
+	entries, err := a.documentWorkflows().ListHistory(a.documentPath())
 	if err != nil {
 		a.notice(locales.CommonHistoryReadError(err.Error()))
 		return
@@ -42,129 +115,58 @@ func (a *App) openHistory() {
 
 func (a *App) documentDialogs(c *ui.Context) {
 	documentdialogs.Render(c, a.documents, func(action documentdialogs.Action) {
+		workflows := a.documentWorkflows()
 		switch action.Kind {
 		case documentdialogs.TryMerge:
-			a.tryMergeExternalChanges()
+			outcome, err := workflows.TryMergeExternalChanges()
+			if err != nil {
+				switch {
+				case errors.Is(err, documentapp.ErrMergeConflict):
+					a.notice(locales.DocumentExternalMergeConflict())
+				case errors.Is(err, documentapp.ErrNotText):
+					a.notice(locales.DocumentExternalReadFailed())
+				default:
+					a.notice(locales.CommonMergedSaveError(err.Error()))
+				}
+				return
+			}
+			a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
+			a.updateTitle()
+			if outcome == documentapp.MergeLoadedExternal {
+				a.notice(locales.DocumentExternalLoaded())
+			} else if outcome == documentapp.MergeSaved {
+				a.notice(locales.DocumentExternalMerged())
+			}
 		case documentdialogs.KeepCopy:
-			if !a.preserveCurrentDraft() {
+			if err := workflows.KeepCopy(); err != nil {
+				a.notice(locales.CommonDraftPreserveError(err.Error()))
 				return
 			}
-			source := a.diskSource()
-			a.loadDocumentAt("", source)
-			a.activeNote.MarkDirty()
-			a.documents.ConflictOpen = false
-			a.updateTitle()
+			a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
 		case documentdialogs.ReloadDisk:
-			note, err := documentsave.Read(a.documentRepository, a.documentPath())
-			if err != nil {
-				a.notice(err.Error())
+			if err := workflows.ReloadDisk(); err != nil {
+				if errors.Is(err, documentapp.ErrNotText) {
+					a.notice(locales.DocumentExternalNotText())
+				} else {
+					a.notice(err.Error())
+				}
 				return
 			}
-			if !isTextSource(note.Source) {
-				a.notice(locales.DocumentExternalNotText())
-				return
-			}
-			if !a.preserveCurrentDraft() {
-				return
-			}
-			a.loadDoc(note.Source)
-			a.documents.ConflictOpen = false
-			a.updateTitle()
+			a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
 		case documentdialogs.RestoreDraft:
-			draft, err := a.activeNote.ReadDraft(action.Key)
-			if err != nil {
+			if err := workflows.RestoreDraft(action.Key); err != nil {
 				a.notice(err.Error())
 				return
 			}
-			if !a.preserveCurrentDraft() {
-				return
-			}
-			a.loadDocumentAt("", draft.Text)
-			a.activeNote.MarkDirty()
-			a.documents.RecoveryOpen = false
-			a.updateTitle()
+			a.documents.Apply(action)
 		case documentdialogs.RestoreHistory:
-			note, err := a.activeNote.ReadHistory(a.documents.HistoryPath, action.ID)
-			if err != nil {
+			if err := workflows.RestoreHistory(a.documents.HistoryPath(), action.ID); err != nil {
 				a.notice(err.Error())
 				return
 			}
-			if !a.preserveCurrentDraft() {
-				return
-			}
-			a.loadDocumentAt("", note.Source)
-			a.activeNote.MarkDirty()
-			a.documents.HistoryOpen = false
-			a.updateTitle()
-		case documentdialogs.CloseConflict:
-			a.documents.ConflictOpen = false
-		case documentdialogs.CloseRecovery:
-			a.documents.RecoveryOpen = false
-		case documentdialogs.CloseHistory:
-			a.documents.HistoryOpen = false
+			a.documents.Apply(action)
+		case documentdialogs.CloseConflict, documentdialogs.CloseRecovery, documentdialogs.CloseHistory:
+			a.documents.Apply(action)
 		}
 	})
-}
-
-func (a *App) tryMergeExternalChanges() bool {
-	if a.activeNote == nil || a.documentPath() == "" {
-		return false
-	}
-	state := a.activeNote.PersistenceState()
-	external, err := documentsave.Read(a.documentRepository, a.documentPath())
-	if err != nil || !isTextSource(external.Source) {
-		a.notice(locales.DocumentExternalReadFailed())
-		return false
-	}
-	externalSource := external.Source
-	merged, ok := documentsave.MergeDisjointEdits(state.BaseSource, a.diskSource(), externalSource)
-	if !ok {
-		a.notice(locales.DocumentExternalMergeConflict())
-		return false
-	}
-	if !a.activeNote.Rebase(external.Path, external.Revision, externalSource) {
-		a.notice(locales.DocumentExternalReadFailed())
-		return false
-	}
-	_ = a.activeNote.ReplaceUser(strings.ReplaceAll(merged, "\r\n", "\n"))
-	a.documents.ConflictOpen = false
-	if !a.documentDirty() {
-		a.activeNote.ClearAutosave()
-		a.updateManagedTimestamp()
-		if !a.documentDirty() {
-			a.notice(locales.DocumentExternalLoaded())
-			return true
-		}
-	}
-	a.flushManagedTimestamp()
-	if err := a.writeDocument(external.Path, a.diskSource(), external.Revision); err != nil {
-		a.activeNote.SetConflict(a.documentPath())
-		a.documents.ConflictOpen = true
-		a.notice(locales.CommonMergedSaveError(err.Error()))
-		return false
-	}
-	a.documents.ConflictOpen = false
-	_ = a.activeNote.DeleteDraft(a.documentPath())
-	a.updateTitle()
-	a.notice(locales.DocumentExternalMerged())
-	return true
-}
-
-func isTextSource(source string) bool {
-	if strings.IndexByte(source, 0) >= 0 {
-		return false
-	}
-	return utf8.ValidString(source)
-}
-
-func (a *App) preserveCurrentDraft() bool {
-	if a.activeNote == nil || !a.documentDirty() {
-		return true
-	}
-	a.flushManagedTimestamp()
-	if _, err := a.activeNote.PreserveDraft(a.documentPath(), a.diskSource()); err != nil {
-		a.notice(locales.CommonDraftPreserveError(err.Error()))
-		return false
-	}
-	return true
 }

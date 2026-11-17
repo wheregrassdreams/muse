@@ -26,7 +26,8 @@ type Hit struct {
 	Score                   float64
 }
 
-// Index is a persistent Tantivy-backed index. Instances are created by Open.
+// Index is a persistent Tantivy-backed index. Instances are created by
+// OpenWithStorage.
 type Index struct{ state *indexState }
 
 // Corpus is a search-owned port implemented by vault indexes. It exposes an
@@ -43,8 +44,15 @@ type QueryOptions struct {
 	Rankers *rank.Registry
 }
 
-// Open opens or creates an index under dir.
-func Open(dir string) (*Index, error) { return openIndex(dir) }
+// OpenWithStorage opens or creates an index using the supplied persistence
+// capability. Search owns query and recovery policy; the platform adapter
+// supplies the concrete filesystem operations.
+func OpenWithStorage(storage Persistence) (*Index, error) {
+	if storage == nil {
+		return nil, errors.New("search: persistence capability is required")
+	}
+	return openIndex(storage)
+}
 
 // Reconcile makes the disk index match docs, skipping unchanged revisions.
 func (i *Index) Reconcile(ctx context.Context, docs []Document) error {

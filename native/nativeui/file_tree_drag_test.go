@@ -9,8 +9,9 @@ import (
 	"image/png"
 	"math"
 	applicationvault "muse/application/vault"
-	mdedit "muse/editor"
 	"muse/locales"
+	"muse/nativeui/interactions/dragpayload"
+	"muse/nativeui/panels/filetree"
 	"muse/platform/filesystem/documentstore"
 	"muse/platform/filesystem/imagefiles"
 	"muse/platform/filesystem/vaultfiles"
@@ -141,7 +142,7 @@ func TestMoveTreeFolderRemapsOpenDescendant(t *testing.T) {
 	a := newFileTreeTestApp(t, root)
 	a.root, a.selectedPath = root, open
 	setDocumentPathForTest(a, open)
-	a.expanded[source] = true
+	a.fileTreeState.SetExpanded(source, true)
 	a.moveTreeItem(source, destination)
 	moved := filepath.Join(destination, "Old", "note.md")
 	if a.documentPath() != moved || a.selectedPath != moved {
@@ -229,7 +230,7 @@ func TestPlainTreeClickDoesNotStartDragProjection(t *testing.T) {
 	if !ok {
 		t.Fatal("tree row missing")
 	}
-	if a.treeDragging {
+	if a.fileTreeState.DragPreview().Active {
 		t.Fatal("tree drag UI appeared before input")
 	}
 	tt.ClickAt(before.X+4, before.Y+10)
@@ -238,7 +239,7 @@ func TestPlainTreeClickDoesNotStartDragProjection(t *testing.T) {
 	if !ok || before.H != after.H || before.Y != after.Y {
 		t.Fatalf("row geometry changed on click: before=%+v after=%+v", before, after)
 	}
-	if a.treeDragging {
+	if a.fileTreeState.DragPreview().Active {
 		t.Fatal("plain click started drag UI")
 	}
 	if _, found := tt.Find("tree-drag-projection"); found {
@@ -264,14 +265,14 @@ func TestTreeModifierSelectionDoesNotOpenOrToggleRows(t *testing.T) {
 	if err := tt.ClickWith(0, treeDragHandleLabel("a.md")); err != nil {
 		t.Fatal(err)
 	}
-	if a.selectedPath != filepath.Join(root, "a.md") || !a.treeSelection[filepath.Join(root, "a.md")] {
-		t.Fatalf("plain click did not select/open one file: selected=%v open=%q", a.treeSelection, a.selectedPath)
+	if a.selectedPath != filepath.Join(root, "a.md") || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
+		t.Fatalf("plain click did not select/open one file: selected=%v open=%q", a.fileTreeState.SelectedIDs(), a.selectedPath)
 	}
 	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.treeSelection) != 2 || !a.treeSelection[filepath.Join(root, "a.md")] || !a.treeSelection[filepath.Join(root, "b.md")] {
-		t.Fatalf("Cmd/Ctrl click selection = %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 2 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "b.md")) {
+		t.Fatalf("Cmd/Ctrl click selection = %v", a.fileTreeState.SelectedIDs())
 	}
 	if a.selectedPath != filepath.Join(root, "a.md") {
 		t.Fatalf("modifier click opened another file: selectedPath=%q", a.selectedPath)
@@ -279,8 +280,8 @@ func TestTreeModifierSelectionDoesNotOpenOrToggleRows(t *testing.T) {
 	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.treeSelection) != 1 || !a.treeSelection[filepath.Join(root, "a.md")] {
-		t.Fatalf("Cmd/Ctrl click did not toggle the row off: %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
+		t.Fatalf("Cmd/Ctrl click did not toggle the row off: %v", a.fileTreeState.SelectedIDs())
 	}
 	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
 		t.Fatal(err)
@@ -288,20 +289,20 @@ func TestTreeModifierSelectionDoesNotOpenOrToggleRows(t *testing.T) {
 	if err := tt.ClickWith(ui.Shift, treeDragHandleLabel("c.md")); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.treeSelection) != 3 || !a.treeSelection[filepath.Join(root, "a.md")] || !a.treeSelection[filepath.Join(root, "b.md")] || !a.treeSelection[filepath.Join(root, "c.md")] {
-		t.Fatalf("Shift range selection = %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 3 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "b.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "c.md")) {
+		t.Fatalf("Shift range selection = %v", a.fileTreeState.SelectedIDs())
 	}
-	if a.treeSelectionAnchor != filepath.Join(root, "a.md") || a.selectedPath != filepath.Join(root, "a.md") {
-		t.Fatalf("Shift click changed anchor/open file: anchor=%q selected=%q", a.treeSelectionAnchor, a.selectedPath)
+	if a.selectedPath != filepath.Join(root, "a.md") || len(a.fileTreeState.SelectedIDs()) != 3 {
+		t.Fatalf("Shift click changed open file or selection: selected=%q selection=%v", a.selectedPath, a.fileTreeState.SelectedIDs())
 	}
 	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("Folder")); err != nil {
 		t.Fatal(err)
 	}
-	if a.expanded[folder] || !a.treeSelection[folder] {
-		t.Fatalf("modifier click toggled folder or missed selection: expanded=%v selection=%v", a.expanded[folder], a.treeSelection)
+	if a.fileTreeState.IsExpanded(folder) || !a.fileTreeState.IsSelected(folder) {
+		t.Fatalf("modifier click toggled folder or missed selection: expanded=%v selection=%v", a.fileTreeState.IsExpanded(folder), a.fileTreeState.SelectedIDs())
 	}
 	clickTreeRow(t, tt, "Folder")
-	if !a.expanded[folder] {
+	if !a.fileTreeState.IsExpanded(folder) {
 		t.Fatal("plain folder click did not toggle expansion")
 	}
 }
@@ -322,12 +323,12 @@ func TestTreeRightClickPreservesSelectionOnlyForSelectedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	rightClickTreeRow(t, tt, "b.md")
-	if len(a.treeSelection) != 2 || !a.treeSelection[filepath.Join(root, "a.md")] || !a.treeSelection[filepath.Join(root, "b.md")] {
-		t.Fatalf("right-click selected row discarded the multi-selection: %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 2 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "b.md")) {
+		t.Fatalf("right-click selected row discarded the multi-selection: %v", a.fileTreeState.SelectedIDs())
 	}
 	rightClickTreeRow(t, tt, "c.md")
-	if len(a.treeSelection) != 1 || !a.treeSelection[filepath.Join(root, "c.md")] {
-		t.Fatalf("right-click unselected row did not establish its own context: %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "c.md")) {
+		t.Fatalf("right-click unselected row did not establish its own context: %v", a.fileTreeState.SelectedIDs())
 	}
 	if a.selectedPath != filepath.Join(root, "a.md") {
 		t.Fatalf("right-click opened another file: %q", a.selectedPath)
@@ -370,19 +371,16 @@ func TestTreeDragMovesCurrentMultiSelection(t *testing.T) {
 	tt.Frame()
 	for _, name := range []string{"a.md", "b.md"} {
 		if _, err := os.Stat(filepath.Join(folder, name)); err != nil {
-			t.Fatalf("selected item %s was not moved: %v (selection=%v dragSelection=%v dragged=%v operation=%q)", name, err, a.treeSelection, a.treeDragSelection, a.treeDragging, a.treeDragOperation)
+			t.Fatalf("selected item %s was not moved: %v (selection=%v dragging=%v operation=%v)", name, err, a.fileTreeState.SelectedIDs(), a.fileTreeState.DragPreview().Active, a.fileTreeState.DragOperationDisplay().Kind)
 		}
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Fatalf("selected item %s remained at its source: %v", name, err)
 		}
 	}
 	for _, name := range []string{"a.md", "b.md"} {
-		if !a.treeSelection[filepath.Join(folder, name)] {
-			t.Fatalf("selection was not remapped to moved path %q: %v", filepath.Join(folder, name), a.treeSelection)
+		if !a.fileTreeState.IsSelected(filepath.Join(folder, name)) {
+			t.Fatalf("selection was not remapped to moved path %q: %v", filepath.Join(folder, name), a.fileTreeState.SelectedIDs())
 		}
-	}
-	if a.treeSelectionAnchor != filepath.Join(folder, "a.md") {
-		t.Fatalf("selection anchor was not remapped: %q", a.treeSelectionAnchor)
 	}
 }
 
@@ -409,13 +407,13 @@ func TestTreeDragUnmodifiedPressOnUnselectedRowCollapsesGroup(t *testing.T) {
 	x, y := handle.X+12, handle.Y+14
 	tt.Press(x, y)
 	tt.Frame()
-	if len(a.treeSelection) != 1 || !a.treeSelection[filepath.Join(root, "a.md")] {
-		t.Fatalf("selection changed before threshold: %v", a.treeSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
+		t.Fatalf("selection changed before threshold: %v", a.fileTreeState.SelectedIDs())
 	}
 	tt.Move(x+10, y)
 	tt.Frame()
-	if len(a.treeDragSelection) != 1 || a.treeDragSelection[0] != filepath.Join(root, "b.md") {
-		t.Fatalf("dragging an unselected row should collapse to itself: selection=%v frozen=%v", a.treeSelection, a.treeDragSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 1 || a.fileTreeState.SelectedIDs()[0] != filepath.Join(root, "b.md") {
+		t.Fatalf("dragging an unselected row should collapse to itself: selection=%v", a.fileTreeState.SelectedIDs())
 	}
 	target, ok := tt.Find("Folder")
 	if !ok {
@@ -494,7 +492,7 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
 	a.loadDoc("# Draft\n\n")
-	original := a.activeNote.Source()
+	original := a.noteEditor().Source()
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	before, ok := tt.Find("note.md")
@@ -513,7 +511,7 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	tt.Press(startX, startY)
 	tt.Move(startX+10, startY)
 	tt.Frame()
-	if !a.treeDragging {
+	if !a.fileTreeState.DragPreview().Active {
 		t.Fatal("crossing drag threshold did not start the tree drag")
 	}
 	tt.Advance(150 * time.Millisecond)
@@ -528,30 +526,30 @@ func TestTreeDragUsesOneProjectionAfterThresholdAndKeepsRowFixed(t *testing.T) {
 	initialCenterX := initialProjection.X + initialProjection.W/2
 	finalCenterX := finalProjection.X + finalProjection.W/2
 	if !ok || finalProjection.W >= initialProjection.W || finalProjection.H <= initialProjection.H || math.Abs(float64(finalCenterX-initialCenterX)) > 1 {
-		t.Fatalf("projection did not compact and grow: initial=%+v final=%+v started=%v dragging=%v", initialProjection, finalProjection, a.treeDragStarted, a.treeDragging)
+		t.Fatalf("projection did not compact and grow: initial=%+v final=%+v started=%v dragging=%v", initialProjection, finalProjection, a.fileTreeState.DragPreview().StartedAt, a.fileTreeState.DragPreview().Active)
 	}
 	after, ok := tt.Find("note.md")
 	if !ok || before.X != after.X || before.Y != after.Y || before.W != after.W || before.H != after.H {
 		t.Fatalf("source row geometry changed during drag: before=%+v after=%+v", before, after)
 	}
 	texts := strings.Join(tt.Texts(), "\n")
-	if a.treeDragOperation != treeDragInsertIntoEditor {
-		t.Fatalf("editor target operation = %q", a.treeDragOperation)
+	if a.fileTreeState.DragOperationDisplay().Kind != filetree.DragOperationInsertIntoEditor {
+		t.Fatalf("editor target operation = %v", a.fileTreeState.DragOperationDisplay().Kind)
 	}
 	if !strings.Contains(texts, locales.TreeDragProjectionOperationLabel("note.md")) {
-		t.Fatalf("projection operation is missing from the dragged item: operation=%q texts=%q", a.treeDragOperation, texts)
+		t.Fatalf("projection operation is missing from the dragged item: operation=%v texts=%q", a.fileTreeState.DragOperationDisplay().Kind, texts)
 	}
 	runtimeShot(t, tt, "tree-drag-projection")
 	tt.Release(600, 360)
 	tt.Frame()
-	if a.treeDragging {
+	if a.fileTreeState.DragPreview().Active {
 		t.Fatal("tree drag UI remained after release")
 	}
-	if !strings.Contains(a.activeNote.Source(), "[[note]]") {
-		t.Fatalf("editor drop did not insert wiki link: %q", a.activeNote.Source())
+	if !strings.Contains(a.noteEditor().Source(), "[[note]]") {
+		t.Fatalf("editor drop did not insert wiki link: %q", a.noteEditor().Source())
 	}
-	if !a.activeNote.Undo() || a.activeNote.Source() != original {
-		t.Fatalf("undo did not revert link insertion: %q", a.activeNote.Source())
+	if !a.noteEditor().Undo() || a.noteEditor().Source() != original {
+		t.Fatalf("undo did not revert link insertion: %q", a.noteEditor().Source())
 	}
 }
 
@@ -581,11 +579,11 @@ func TestTreeDragDropsFileIntoFolder(t *testing.T) {
 	tt.Move(handle.X+14, handle.Y+14)
 	tt.Move(target.X+target.W/2, target.Y+target.H/2)
 	tt.Frame()
-	if !a.treeDragging {
+	if !a.fileTreeState.DragPreview().Active {
 		t.Fatalf("drag source did not remain active at target: handle=%+v target=%+v", handle, target)
 	}
-	if a.treeDragOperation != treeDragMoveToFolder || a.treeDragTarget != "Folder" {
-		t.Fatalf("folder target operation = %q target=%q handle=%+v target=%+v", a.treeDragOperation, a.treeDragTarget, handle, target)
+	if display := a.fileTreeState.DragOperationDisplay(); display.Kind != filetree.DragOperationMoveToFolder || display.TargetLabel != "Folder" {
+		t.Fatalf("folder target operation = %v target=%q handle=%+v target=%+v", display.Kind, display.TargetLabel, handle, target)
 	}
 	tt.Release(target.X+target.W/2, target.Y+target.H/2)
 	tt.Frame()
@@ -606,7 +604,7 @@ func TestTreeDragDropsToWideRootBlankArea(t *testing.T) {
 	}
 	a := newFileTreeTestApp(t, root)
 	a.setWorkspace(root)
-	a.expanded[folder] = true
+	a.fileTreeState.SetExpanded(folder, true)
 	tt := ui.NewTester(a.View, 1000, 720)
 	tt.Frame()
 	handle, ok := tt.Find(treeDragHandleLabel("note.md"))
@@ -617,8 +615,8 @@ func TestTreeDragDropsToWideRootBlankArea(t *testing.T) {
 	tt.Move(handle.X+14, handle.Y+14)
 	tt.Move(220, 420)
 	tt.Frame()
-	if a.treeDragOperation != treeDragMoveToFolder || a.treeDragTarget != filepath.Base(root) {
-		t.Fatalf("root drop target = operation %q target %q", a.treeDragOperation, a.treeDragTarget)
+	if display := a.fileTreeState.DragOperationDisplay(); display.Kind != filetree.DragOperationMoveToFolder || display.TargetLabel != filepath.Base(root) {
+		t.Fatalf("root drop target = operation %v target %q", display.Kind, display.TargetLabel)
 	}
 	tt.Release(220, 420)
 	tt.Frame()
@@ -708,7 +706,7 @@ func TestTreeDragHandsOffToNativeWindowDragWhenPointerLeaves(t *testing.T) {
 	tt.Press(handle.X+4, handle.Y+14)
 	tt.Move(handle.X+14, handle.Y+14)
 	tt.Frame()
-	if !a.treeDragging {
+	if !a.fileTreeState.DragPreview().Active {
 		t.Fatal("in-window drag did not start")
 	}
 	tt.Move(-20, -20)
@@ -732,15 +730,15 @@ func TestTreeDragHandsOffToNativeWindowDragWhenPointerLeaves(t *testing.T) {
 	}
 	tt.Move(handle.X+4, handle.Y+14)
 	tt.Frame()
-	if !a.treeDragging || a.treeDragPointer.X <= 0 {
+	if !a.fileTreeState.DragPreview().Active || a.fileTreeState.DragPreview().Pointer.X <= 0 {
 		t.Fatal("re-entering Muse did not restore the in-window projection state")
 	}
 	options.Done(transfer.Result{Canceled: true})
 	if a.treeNativeHandoff {
 		t.Fatal("native handoff state remained after completion")
 	}
-	if len(a.treeDragSelection) != 0 {
-		t.Fatalf("native handoff retained stale drag selection: %v", a.treeDragSelection)
+	if len(a.fileTreeState.SelectedIDs()) != 0 {
+		t.Fatalf("native handoff retained stale drag selection: %v", a.fileTreeState.SelectedIDs())
 	}
 }
 
@@ -771,8 +769,8 @@ func TestTreeNativeHandoffCompletionAllowsNextClick(t *testing.T) {
 	// wrapper as an OS drop, including clearing the original pressed row.
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.treeNativeHandoff || a.treeDragging {
-		t.Fatalf("native completion retained app drag state: handoff=%v dragging=%v", a.treeNativeHandoff, a.treeDragging)
+	if a.treeNativeHandoff || a.fileTreeState.DragPreview().Active {
+		t.Fatalf("native completion retained app drag state: handoff=%v dragging=%v", a.treeNativeHandoff, a.fileTreeState.DragPreview().Active)
 	}
 	next, ok := tt.Find(treeDragHandleLabel("next.md"))
 	if !ok {
@@ -797,7 +795,7 @@ func TestCrossWindowNativeMoveBackMovesOriginalOnlyOnce(t *testing.T) {
 	sender := New()
 	sender.root = root
 	sender.children(root) // Seed the sender's cache before the other window moves it.
-	data, err := treeItemTransferData(mdedit.VaultItemDrag{Path: original, Name: filepath.Base(original)})
+	data, err := treeItemTransferData(dragpayload.VaultItem{Path: original, Name: filepath.Base(original)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -834,7 +832,7 @@ func TestCrossWindowNativeMoveBackMovesOriginalOnlyOnce(t *testing.T) {
 	// source-side native callback. Exactly one copy must exist afterward.
 	sender.treeNativeHandoff = false
 	sender.children(folder) // Cache the item's current location before moving back.
-	backData, err := treeItemTransferData(mdedit.VaultItemDrag{Path: firstMoved, Name: filepath.Base(firstMoved)})
+	backData, err := treeItemTransferData(dragpayload.VaultItem{Path: firstMoved, Name: filepath.Base(firstMoved)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -884,7 +882,7 @@ func TestCrossWindowNativeCopyKeepsSource(t *testing.T) {
 	if err := os.WriteFile(source, []byte("body"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	data, err := treeItemTransferData(mdedit.VaultItemDrag{Path: source, Name: "note.md"})
+	data, err := treeItemTransferData(dragpayload.VaultItem{Path: source, Name: "note.md"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -907,12 +905,12 @@ func TestCrossWindowNativeDefaultMoveMovesSelectedItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := []string{filepath.Join(root, "a.md"), filepath.Join(root, "b.md")}
-	items := make([]mdedit.VaultItemDrag, 0, len(paths))
+	items := make([]dragpayload.VaultItem, 0, len(paths))
 	for _, path := range paths {
 		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		items = append(items, mdedit.VaultItemDrag{Path: path, Name: filepath.Base(path)})
+		items = append(items, dragpayload.VaultItem{Path: path, Name: filepath.Base(path)})
 	}
 	data, err := treeItemsTransferData(items)
 	if err != nil {
@@ -961,7 +959,7 @@ func TestTreeImageHoverPopupSitsOutsideClippedSidebar(t *testing.T) {
 	tt.Frame()
 	popup, ok := tt.Find("图片预览")
 	if !ok {
-		t.Fatalf("image hover popup missing; path=%q rect=%+v texts=%q", a.treePreviewPath, row, tt.Texts())
+		t.Fatalf("image hover popup missing; path=%q rect=%+v texts=%q", a.fileTreeState.PreviewID(), row, tt.Texts())
 	}
 	if popup.X < row.X+row.W || popup.X-row.X-row.W > 12 || popup.Y != row.Y || popup.X+popup.W > 1000 || popup.Y+popup.H > 720 {
 		t.Fatalf("popup is clipped/offscreen: %+v panelWidth=%.0f", popup, a.panelW)
@@ -997,8 +995,8 @@ func TestDraggingTreeImageShowsThumbnailAndHidesHoverPreview(t *testing.T) {
 	}
 	tt.Move(row.X+row.W/2, row.Y+row.H/2)
 	tt.Frame()
-	if a.treePreviewPath != path {
-		t.Fatalf("hover preview was not established before drag: %q", a.treePreviewPath)
+	if a.fileTreeState.PreviewID() != path {
+		t.Fatalf("hover preview was not established before drag: %q", a.fileTreeState.PreviewID())
 	}
 	handle, ok := tt.Find(treeDragHandleLabel("photo.png"))
 	if !ok {
@@ -1007,11 +1005,11 @@ func TestDraggingTreeImageShowsThumbnailAndHidesHoverPreview(t *testing.T) {
 	tt.Press(handle.X+4, handle.Y+14)
 	tt.Move(handle.X+14, handle.Y+14)
 	tt.Frame()
-	if !a.treeDragging {
+	if !a.fileTreeState.DragPreview().Active {
 		t.Fatal("crossing drag threshold did not start the image drag")
 	}
-	if a.treePreviewPath != "" {
-		t.Fatalf("tree image preview remained during drag: %q", a.treePreviewPath)
+	if a.fileTreeState.PreviewID() != "" {
+		t.Fatalf("tree image preview remained during drag: %q", a.fileTreeState.PreviewID())
 	}
 	if _, ok := tt.Find("拖动图片缩略图"); !ok {
 		t.Fatalf("image thumbnail missing from drag projection: %q", strings.Join(tt.Texts(), "\n"))
@@ -1024,7 +1022,7 @@ func TestDraggingTreeImageShowsThumbnailAndHidesHoverPreview(t *testing.T) {
 	tt.Frame()
 	tt.Release(600, 360)
 	tt.Frame()
-	if !strings.Contains(a.activeNote.Source(), "![[photo.png]]") {
-		t.Fatalf("tree image drop did not insert embed syntax: %q", a.activeNote.Source())
+	if !strings.Contains(a.noteEditor().Source(), "![[photo.png]]") {
+		t.Fatalf("tree image drop did not insert embed syntax: %q", a.noteEditor().Source())
 	}
 }

@@ -11,8 +11,11 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	mdedit "muse/editor"
 	"muse/locales"
+	"muse/nativeui/components/windowcontrols"
+	searchui "muse/nativeui/panels/search"
+	settingsui "muse/nativeui/panels/settings"
+	"muse/nativeui/surfaces/noteeditor"
 )
 
 // Run opens the native Muse window and runs the app loop. It is called by the
@@ -30,7 +33,7 @@ func Run(dependencies Dependencies) {
 		app.invalidate()
 	})
 	mygo.App.WhenReady(func() {
-		app.applyNativePreferences(loadNativePreferences())
+		app.applyNativePreferences(app.loadNativePreferences())
 		app.enableDocumentServices()
 		switch os.Getenv("MUSE_THEME") {
 		case "light":
@@ -51,13 +54,13 @@ func Run(dependencies Dependencies) {
 			app.openPathNow(p)
 		}
 		if os.Getenv("MUSE_SETTINGS") == "1" {
-			app.settingsOpen = true
+			app.settingsPanel.OpenAt(settingsui.AppearancePage)
 		}
 		// Capture hooks: MUSE_CAPTURE photographs the window, and
 		// MUSE_SCROLL puts it where the shot should show.
 		if off := os.Getenv("MUSE_SCROLL"); off != "" {
 			if n, err := strconv.Atoi(off); err == nil {
-				app.ed.ScrollToOffset(n)
+				app.noteEditor().NavigationCommands().ScrollToOffset(n)
 			}
 		}
 		// TEMP capture hook
@@ -66,7 +69,7 @@ func Run(dependencies Dependencies) {
 			app.openProperties()
 		case "vault-search":
 			app.openWorkspaceSearch()
-			app.workspaceQuery = os.Getenv("MUSE_SEARCH_QUERY")
+			app.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: os.Getenv("MUSE_SEARCH_QUERY")})
 		case "outline":
 			app.showPanel(panelOutline)
 		case "search":
@@ -139,7 +142,7 @@ func (a *App) openWindow() {
 		TitleBarStyle:        mygo.TitleBarHidden,
 		TitleBarHeight:       44,
 		TrafficLightPosition: &mygo.Point{X: 12, Y: 15},
-		HideWindowButtons:    controlsAtRight,
+		HideWindowButtons:    windowcontrols.Visible(),
 	})
 	a.installMenu()
 	a.updateTitle()
@@ -148,7 +151,7 @@ func (a *App) openWindow() {
 	// the system's snap). Redraw when it does.
 	a.win.OnMaximize(a.invalidate)
 	a.win.OnClose(func(e *mygo.CloseEvent) {
-		if !a.dirty {
+		if !a.documentDirty() {
 			a.persistWorkspaceState()
 			a.closeVaultSessionNow()
 			return
@@ -251,10 +254,13 @@ func (a *App) installMenu() {
 
 // editorAction runs fn on the editor and gives it the keyboard back, as a
 // menu item takes it.
-func (a *App) editorAction(fn func(e *mdedit.Editor)) func() {
+func (a *App) editorAction(fn func(e noteeditor.FormattingCommands)) func() {
 	return func() {
-		fn(a.ed)
-		a.ed.Focus()
+		if a.noteEditor() == nil || a.noteEditor().FormattingCommands() == nil {
+			return
+		}
+		fn(a.noteEditor().FormattingCommands())
+		a.noteEditor().FocusCommands().Focus()
 	}
 }
 
@@ -264,33 +270,33 @@ func (a *App) paragraphMenu(click func(func()) func(*mygo.MenuItem, *mygo.Window
 	var items []*mygo.MenuItem
 	for i, name := range []string{locales.ParagraphHeading1(), locales.ParagraphHeading2(), locales.ParagraphHeading3(), locales.ParagraphHeading4(), locales.ParagraphHeading5(), locales.ParagraphHeading6()} {
 		level := i + 1
-		items = append(items, &mygo.MenuItem{Label: name, Click: click(a.editorAction(func(e *mdedit.Editor) { e.SetHeading(level) }))})
+		items = append(items, &mygo.MenuItem{Label: name, Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.SetHeading(level) }))})
 	}
 	return append(items,
-		&mygo.MenuItem{Label: locales.ParagraphBody(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.SetHeading(0) }))},
+		&mygo.MenuItem{Label: locales.ParagraphBody(), Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.SetHeading(0) }))},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: locales.ParagraphQuote(), Click: click(a.editorAction((*mdedit.Editor).ToggleQuote))},
-		&mygo.MenuItem{Label: locales.ParagraphOrderedList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("1.") }))},
-		&mygo.MenuItem{Label: locales.ParagraphUnorderedList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("-") }))},
-		&mygo.MenuItem{Label: locales.ParagraphTaskList(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.ToggleList("- [ ]") }))},
+		&mygo.MenuItem{Label: locales.ParagraphQuote(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleQuote))},
+		&mygo.MenuItem{Label: locales.ParagraphOrderedList(), Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.ToggleList("1.") }))},
+		&mygo.MenuItem{Label: locales.ParagraphUnorderedList(), Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.ToggleList("-") }))},
+		&mygo.MenuItem{Label: locales.ParagraphTaskList(), Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.ToggleList("- [ ]") }))},
 		mygo.Separator(),
-		&mygo.MenuItem{Label: locales.ParagraphCodeBlock(), Click: click(a.editorAction((*mdedit.Editor).InsertCodeBlock))},
-		&mygo.MenuItem{Label: locales.ParagraphMathBlock(), Click: click(a.editorAction((*mdedit.Editor).InsertMathBlock))},
-		&mygo.MenuItem{Label: locales.ParagraphTable(), Click: click(a.editorAction(func(e *mdedit.Editor) { e.InsertTable(3, 3) }))},
-		&mygo.MenuItem{Label: locales.ParagraphRule(), Click: click(a.editorAction((*mdedit.Editor).InsertRule))},
+		&mygo.MenuItem{Label: locales.ParagraphCodeBlock(), Click: click(a.editorAction(noteeditor.FormattingCommands.InsertCodeBlock))},
+		&mygo.MenuItem{Label: locales.ParagraphMathBlock(), Click: click(a.editorAction(noteeditor.FormattingCommands.InsertMathBlock))},
+		&mygo.MenuItem{Label: locales.ParagraphTable(), Click: click(a.editorAction(func(e noteeditor.FormattingCommands) { e.InsertTable(3, 3) }))},
+		&mygo.MenuItem{Label: locales.ParagraphRule(), Click: click(a.editorAction(noteeditor.FormattingCommands.InsertRule))},
 	)
 }
 
 // formatMenu is the menu bar's 格式: the formats of text.
 func (a *App) formatMenu(click func(func()) func(*mygo.MenuItem, *mygo.Window)) []*mygo.MenuItem {
 	return []*mygo.MenuItem{
-		{Label: locales.FormatBold(), Click: click(a.editorAction((*mdedit.Editor).ToggleBold))},
-		{Label: locales.FormatItalic(), Click: click(a.editorAction((*mdedit.Editor).ToggleItalic))},
-		{Label: locales.FormatUnderline(), Click: click(a.editorAction((*mdedit.Editor).ToggleUnderline))},
-		{Label: locales.FormatStrike(), Click: click(a.editorAction((*mdedit.Editor).ToggleStrike))},
-		{Label: locales.FormatInlineCode(), Click: click(a.editorAction((*mdedit.Editor).ToggleCode))},
-		{Label: locales.FormatHighlight(), Click: click(a.editorAction((*mdedit.Editor).ToggleHighlight))},
+		{Label: locales.FormatBold(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleBold))},
+		{Label: locales.FormatItalic(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleItalic))},
+		{Label: locales.FormatUnderline(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleUnderline))},
+		{Label: locales.FormatStrike(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleStrike))},
+		{Label: locales.FormatInlineCode(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleCode))},
+		{Label: locales.FormatHighlight(), Click: click(a.editorAction(noteeditor.FormattingCommands.ToggleHighlight))},
 		mygo.Separator(),
-		{Label: locales.FormatLink(), Click: click(a.editorAction((*mdedit.Editor).InsertLink))},
+		{Label: locales.FormatLink(), Click: click(a.editorAction(noteeditor.FormattingCommands.InsertLink))},
 	}
 }

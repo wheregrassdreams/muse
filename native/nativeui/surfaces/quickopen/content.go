@@ -6,11 +6,15 @@ import (
 )
 
 type SurfaceOptions struct {
-	Rows     func(query string) Rows
-	FileIcon *ui.SVG
-	IconTint func(*ui.Theme) ui.Color
-	OnOpen   func(path string)
-	OnClose  func()
+	Rows func(query string) Rows
+	// RowsRevision identifies changes in the candidate source independent of
+	// the query. The content refreshes its row snapshot when either this value
+	// or the query changes.
+	RowsRevision func() [2]uint64
+	FileIcon     *ui.SVG
+	IconTint     func(*ui.Theme) ui.Color
+	OnOpen       func(path string)
+	OnClose      func()
 }
 
 // Content keeps query and selection private to the transient Quick Open
@@ -20,6 +24,10 @@ type Content struct {
 	options  SurfaceOptions
 	controls window.Controls
 	closed   bool
+	rows     Rows
+	rowsKey  [2]uint64
+	rowsFor  string
+	hasRows  bool
 }
 
 func NewContent(options SurfaceOptions) *Content {
@@ -32,10 +40,18 @@ func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
 		return
 	}
-	var rows Rows
-	if s.options.Rows != nil {
-		rows = s.options.Rows(s.state.Query)
+	rowsKey := [2]uint64{}
+	if s.options.RowsRevision != nil {
+		rowsKey = s.options.RowsRevision()
 	}
+	if !s.hasRows || s.rowsFor != s.state.Query || s.rowsKey != rowsKey {
+		s.rowsFor, s.rowsKey, s.hasRows = s.state.Query, rowsKey, true
+		s.rows = nil
+		if s.options.Rows != nil {
+			s.rows = s.options.Rows(s.state.Query)
+		}
+	}
+	rows := s.rows
 	tint := ui.Color{}
 	if s.options.IconTint != nil {
 		tint = s.options.IconTint(c.Theme())
@@ -68,6 +84,8 @@ func (s *Content) Close() {
 	}
 	s.closed = true
 	s.state = state{}
+	s.rows = nil
+	s.hasRows = false
 	if s.options.OnClose != nil {
 		s.options.OnClose()
 	}

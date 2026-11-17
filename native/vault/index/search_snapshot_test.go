@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"muse/platform/filesystem/vaultsearchstore"
 	"muse/search"
 )
 
@@ -43,7 +44,11 @@ func TestSearchDocumentsImplementsSearchOwnedCorpusPort(t *testing.T) {
 	if len(docs) != 1 || docs[0].Path != "note.md" || docs[0].Title != "Corpus" || len(docs[0].Metadata.Tags) != 1 || docs[0].Metadata.Tags[0] != "work" || docs[0].ID == "" {
 		t.Fatalf("SearchDocuments() = %#v", docs)
 	}
-	searchIndex, err := search.Open(filepath.Join(t.TempDir(), "search"))
+	storage, err := vaultsearchstore.NewAt(filepath.Join(t.TempDir(), "search"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	searchIndex, err := search.OpenWithStorage(storage)
 	if err != nil {
 		t.Fatal(err)
 	}

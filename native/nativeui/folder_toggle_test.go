@@ -1,11 +1,11 @@
 package nativeui
 
 import (
-	"github.com/egoist/mygo/ui"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestFolderFirstClickAndWorkspaceReset(t *testing.T) {
@@ -15,27 +15,20 @@ func TestFolderFirstClickAndWorkspaceReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := newFileTreeTestApp(t, dir)
-	if a.folderToggled == nil {
-		t.Fatal("constructor did not initialize toggle state")
-	}
 	a.setWorkspace(dir)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	clickTreeRow(t, tt, "child")
-	if !a.expanded[sub] {
+	if !a.fileTreeState.IsExpanded(sub) {
 		t.Fatal("first folder click did not expand")
 	}
-	if a.folderToggled[sub].IsZero() {
-		t.Fatal("toggle timestamp missing")
-	}
 	a.setWorkspace(dir)
-	if len(a.folderToggled) != 0 {
-		t.Fatal("workspace retained debounce state")
+	if a.fileTreeState.IsExpanded(sub) {
+		t.Fatal("workspace switch retained expanded folder state")
 	}
-	tt.Advance(time.Second)
 	tt.Frame()
 	clickTreeRow(t, tt, "child")
-	if !a.expanded[sub] {
+	if !a.fileTreeState.IsExpanded(sub) {
 		t.Fatal("folder did not expand after workspace reset")
 	}
 }

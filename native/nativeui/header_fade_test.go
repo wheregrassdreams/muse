@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/nativeui/components/windowcontrols"
+	settingsui "muse/nativeui/panels/settings"
 )
 
 // fadeDoc is long enough to scroll, and dense: a line of text sits under
@@ -43,7 +45,7 @@ func fadeApp(t *testing.T, scroll int) (*App, *ui.Tester, ui.Rect) {
 	tt.Frame()
 	tt.Frame()
 	if scroll > 0 {
-		a.activeNote.NavigationCommands().ScrollToOffset(scroll)
+		a.noteEditor().NavigationCommands().ScrollToOffset(scroll)
 		tt.Frame()
 		tt.Frame()
 	}
@@ -138,13 +140,13 @@ func TestHeaderFadeScrollsUnderTheHeader(t *testing.T) {
 
 	// The strip paints over what it covers: the frames differ across the
 	// header and the fade, and not at all below them.
-	d := bandDiff(on, off, ed, 0, int(editorHeaderH+headerFadeReach))
+	d := bandDiff(on, off, ed, 0, int(editorHeaderH+windowcontrols.FadeReach))
 	if d < 8 {
 		t.Fatalf("the strip paints nothing over the header: mean difference %v", d)
 	}
 	// Past the fade the two frames are the same frame: the strip ends, and
 	// nothing of it shows where the document is sharp again.
-	below := int(editorHeaderH+headerFadeReach) + 10
+	below := int(editorHeaderH+windowcontrols.FadeReach) + 10
 	if a, b := bandOf(on, ed, below), bandOf(off, ed, below); a != b {
 		t.Fatalf("the strip shows below the fade at y=%d: %+v against %+v", below, a, b)
 	}
@@ -163,8 +165,8 @@ func TestHeaderFadeStartsAtTheTopOfTheDocument(t *testing.T) {
 	tt.Frame()
 	off := tt.Image()
 
-	if a.activeNote.NavigationCommands().ScrollY() != 0 {
-		t.Fatalf("scrolled at rest: %v", a.activeNote.NavigationCommands().ScrollY())
+	if a.noteEditor().NavigationCommands().ScrollY() != 0 {
+		t.Fatalf("scrolled at rest: %v", a.noteEditor().NavigationCommands().ScrollY())
 	}
 	for y := int(editorHeaderH) + 4; y < 220; y += 4 {
 		if a, b := bandOf(on, ed, y), bandOf(off, ed, y); a != b {
@@ -195,17 +197,17 @@ func TestHeaderFadeOffCoversTheHeader(t *testing.T) {
 // leaves the source, the caret and the scroll where they were.
 func TestHeaderFadeKeepsTheDocument(t *testing.T) {
 	a, tt, _ := fadeApp(t, 900)
-	caret, src := a.activeNote.NavigationCommands().Caret(), a.activeNote.Source()
-	y := a.activeNote.NavigationCommands().ScrollY()
+	caret, src := a.noteEditor().NavigationCommands().Caret(), a.noteEditor().Source()
+	y := a.noteEditor().NavigationCommands().ScrollY()
 	a.headerFade = false
 	tt.Frame()
 	tt.Frame()
 	a.headerFade = true
 	tt.Frame()
 	tt.Frame()
-	if a.activeNote.NavigationCommands().Caret() != caret || a.activeNote.Source() != src || a.activeNote.NavigationCommands().ScrollY() != y {
+	if a.noteEditor().NavigationCommands().Caret() != caret || a.noteEditor().Source() != src || a.noteEditor().NavigationCommands().ScrollY() != y {
 		t.Fatalf("toggling moved the document: caret %d→%d, scroll %v→%v, source %d→%d",
-			caret, a.activeNote.NavigationCommands().Caret(), y, a.activeNote.NavigationCommands().ScrollY(), len(src), len(a.activeNote.Source()))
+			caret, a.noteEditor().NavigationCommands().Caret(), y, a.noteEditor().NavigationCommands().ScrollY(), len(src), len(a.noteEditor().Source()))
 	}
 }
 
@@ -218,7 +220,7 @@ func TestHeaderFadeDark(t *testing.T) {
 	tt := ui.NewTester(a.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
-	a.activeNote.NavigationCommands().ScrollToOffset(1300)
+	a.noteEditor().NavigationCommands().ScrollToOffset(1300)
 	tt.Frame()
 	tt.Frame()
 	ed, ok := tt.Find("文档")
@@ -233,11 +235,11 @@ func TestHeaderFadeDark(t *testing.T) {
 	tt.Frame()
 	off := tt.Image()
 
-	d := bandDiff(on, off, ed, 0, int(editorHeaderH+headerFadeReach))
+	d := bandDiff(on, off, ed, 0, int(editorHeaderH+windowcontrols.FadeReach))
 	if d < 8 {
 		t.Fatalf("the strip paints nothing over the header: mean difference %v", d)
 	}
-	below := int(editorHeaderH+headerFadeReach) + 10
+	below := int(editorHeaderH+windowcontrols.FadeReach) + 10
 	if p, q := bandOf(on, ed, below), bandOf(off, ed, below); p != q {
 		t.Fatalf("the strip shows below the fade at y=%d: %+v against %+v", below, p, q)
 	}
@@ -254,14 +256,14 @@ func TestHeaderFadeIsTransparent(t *testing.T) {
 	tt := ui.NewTester(a.View, 1000, 700)
 	tt.Frame()
 	tt.Frame()
-	a.activeNote.NavigationCommands().ScrollToOffset(len(body) / 2)
+	a.noteEditor().NavigationCommands().ScrollToOffset(len(body) / 2)
 	tt.Frame()
 	tt.Frame()
 	ed, ok := tt.Find("文档")
 	if !ok {
 		t.Fatal("no editor")
 	}
-	if a.activeNote.NavigationCommands().ScrollY() <= 0 {
+	if a.noteEditor().NavigationCommands().ScrollY() <= 0 {
 		t.Fatal("not scrolled")
 	}
 	img := tt.Image()
@@ -300,7 +302,7 @@ func TestHeaderFadeReduceTransparency(t *testing.T) {
 func TestHeaderFadeSetting(t *testing.T) {
 	a := New()
 	a.openSettings()
-	a.settingsTab = 0
+	a.settingsPanel.SetPage(settingsui.AppearancePage)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	fadeShot(t, tt.Image(), "header-fade-setting")

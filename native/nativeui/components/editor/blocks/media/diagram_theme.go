@@ -19,3 +19,14 @@ func DiagramTheme(panel, text, muted, border, surfaceAlt, accent ui.Color) *diag
 		Accent: colorOf(accent), Radius: 4,
 	}
 }
+
+// PreviewDiagram parses a detached preview model and copies its mutable label
+// slice before handing the result to another UI surface.
+func PreviewDiagram(source string, theme *diagrams.Theme) (diagrams.Result, bool) {
+	result, ok := diagrams.Parse(source, diagrams.Options{Theme: theme})
+	if !ok {
+		return diagrams.Result{}, false
+	}
+	result.Labels = append([]diagrams.Label(nil), result.Labels...)
+	return result, true
+}

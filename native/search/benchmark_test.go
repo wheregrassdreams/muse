@@ -88,7 +88,7 @@ func BenchmarkLiteralOverBudget(b *testing.B) {
 func BenchmarkLiteralBudgetScale(b *testing.B) {
 	for _, count := range []int{20_000, 50_000} {
 		docs := searchBenchmarkDocumentsUnique(count)
-		idx, err := Open(b.TempDir())
+		idx, err := openLocalTestIndex(b.TempDir())
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -131,7 +131,7 @@ func BenchmarkLiteralBudgetScale(b *testing.B) {
 func BenchmarkLiteralUniqueLatency(b *testing.B) {
 	for _, count := range []int{10_000, 20_000, 50_000} {
 		docs := searchBenchmarkDocumentsUnique(count)
-		idx, err := Open(b.TempDir())
+		idx, err := openLocalTestIndex(b.TempDir())
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -210,7 +210,7 @@ func BenchmarkColdReconcile(b *testing.B) {
 			var projectionBytes, orderBytes int64
 			for n := 0; n < b.N; n++ {
 				dir := filepath.Join(root, fmt.Sprintf("index-%d", n))
-				idx, err := Open(dir)
+				idx, err := openLocalTestIndex(dir)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -237,7 +237,7 @@ func BenchmarkOpenAndReconcileUnchanged(b *testing.B) {
 	for _, count := range []int{1_000, 10_000, 20_000} {
 		docs := searchBenchmarkDocuments(count)
 		root := b.TempDir()
-		initial, err := Open(root)
+		initial, err := openLocalTestIndex(root)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -252,7 +252,7 @@ func BenchmarkOpenAndReconcileUnchanged(b *testing.B) {
 			b.ResetTimer()
 			var projectionBytes, orderBytes int64
 			for n := 0; n < b.N; n++ {
-				idx, err := Open(root)
+				idx, err := openLocalTestIndex(root)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -450,7 +450,7 @@ func benchmarkLiteral(b *testing.B, idx *Index, query string, limit int) {
 func benchmarkPersistentIndex(b *testing.B, count int) (*Index, []Document) {
 	b.Helper()
 	docs := searchBenchmarkDocuments(count)
-	idx, err := Open(b.TempDir())
+	idx, err := openLocalTestIndex(b.TempDir())
 	if err != nil {
 		b.Fatal(err)
 	}

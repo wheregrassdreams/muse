@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"muse/nativeui/panels/filetree"
 )
 
 func TestFileRowsCacheReusesAndInvalidatesFlattenedTree(t *testing.T) {
@@ -27,12 +29,11 @@ func TestFileRowsCacheReusesAndInvalidatesFlattenedTree(t *testing.T) {
 		t.Fatalf("unchanged tree did not reuse its flattened rows: first=%p second=%p rows=%+v", &first[0], &second[0], second)
 	}
 
-	a.expanded[folder] = true
-	a.fileRowsDirty = true
+	a.fileTreeState.SetExpanded(folder, true)
 	expanded := a.fileRows()
 	childVisible := false
 	for _, row := range expanded {
-		childVisible = childVisible || row.path == filepath.Join(folder, "Child.md")
+		childVisible = childVisible || row.Path == filepath.Join(folder, "Child.md")
 	}
 	if len(expanded) != 3 || !childVisible {
 		t.Fatalf("expanded tree rows = %+v", expanded)
@@ -45,7 +46,7 @@ func TestFileRowsCacheReusesAndInvalidatesFlattenedTree(t *testing.T) {
 	refreshed := a.fileRows()
 	newVisible := false
 	for _, row := range refreshed {
-		newVisible = newVisible || row.path == filepath.Join(root, "New.md")
+		newVisible = newVisible || row.Path == filepath.Join(root, "New.md")
 	}
 	if len(refreshed) != 4 || !newVisible {
 		t.Fatalf("tree refresh did not rebuild rows after filesystem invalidation: %+v", refreshed)
@@ -69,10 +70,10 @@ func BenchmarkExpandedFileRows(b *testing.B) {
 	}
 
 	newTree := func() *App {
-		a := &App{root: root, dirs: make(map[string][]string), isDir: make(map[string]bool), expanded: make(map[string]bool)}
-		a.expanded[filepath.Join(root, "folder")] = true
+		a := &App{root: root, dirs: make(map[string][]string), isDir: make(map[string]bool), fileTreeState: filetree.NewHandle()}
+		a.fileTreeState.SetExpanded(filepath.Join(root, "folder"), true)
 		for i := range folders {
-			a.expanded[filepath.Join(root, filepath.Join("folder", string(rune('A'+i/26))+string(rune('A'+i%26))))] = true
+			a.fileTreeState.SetExpanded(filepath.Join(root, filepath.Join("folder", string(rune('A'+i/26))+string(rune('A'+i%26)))), true)
 		}
 		if rows := a.fileRows(); len(rows) != folders*(filesPerFolder+1)+1 {
 			b.Fatalf("expanded row count = %d", len(rows))
@@ -93,7 +94,7 @@ func BenchmarkExpandedFileRows(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for range b.N {
-			a.fileRowsDirty = true
+			a.fileTreeState.InvalidateRows()
 			_ = a.fileRows()
 		}
 	})

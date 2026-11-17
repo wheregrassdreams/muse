@@ -9,8 +9,9 @@ import (
 
 func TestThemeChoiceEmitsTypedTheme(t *testing.T) {
 	var actions []Action
+	state := NewHandle()
 	tester := ui.NewTester(func(c *ui.Context) {
-		Render(c, ViewModel{Page: AppearancePage}, func(action Action) { actions = append(actions, action) })
+		Render(c, &state, ViewModel{}, func(action Action) { actions = append(actions, action) })
 	}, 820, 620)
 	tester.Frame()
 	if err := tester.Click(locales.ThemeDark()); err != nil {
@@ -23,8 +24,9 @@ func TestThemeChoiceEmitsTypedTheme(t *testing.T) {
 
 func TestPageNavigationEmitsTypedPage(t *testing.T) {
 	var actions []Action
+	state := NewHandle()
 	tester := ui.NewTester(func(c *ui.Context) {
-		Render(c, ViewModel{Page: AppearancePage}, func(action Action) { actions = append(actions, action) })
+		Render(c, &state, ViewModel{}, func(action Action) { actions = append(actions, action) })
 	}, 820, 620)
 	tester.Frame()
 	if err := tester.Click(locales.SettingsEditor()); err != nil {
@@ -37,8 +39,10 @@ func TestPageNavigationEmitsTypedPage(t *testing.T) {
 
 func TestAssistantSaveAndCapabilityActions(t *testing.T) {
 	var actions []Action
+	state := NewHandle()
+	state.SetPage(AssistantPage)
 	tester := ui.NewTester(func(c *ui.Context) {
-		Render(c, ViewModel{Page: AssistantPage}, func(action Action) { actions = append(actions, action) })
+		Render(c, &state, ViewModel{}, func(action Action) { actions = append(actions, action) })
 	}, 820, 620)
 	tester.Frame()
 	if err := tester.Click(locales.AiSaveModelSettings()); err != nil {

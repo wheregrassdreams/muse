@@ -37,3 +37,30 @@ func TestSessionReadyInvalidatesEmptyTreeCachedBeforeVaultStartup(t *testing.T) 
 		t.Fatalf("children after SessionReady = %v, want [%s]", got, note)
 	}
 }
+
+func TestCloseVaultSessionReleasesWikiSuggestionData(t *testing.T) {
+	root := t.TempDir()
+	a := newFileTreeTestApp(t, root)
+	session := a.vault
+
+	a.closeVaultSessionNow()
+
+	if a.vault != nil {
+		t.Fatal("closeVaultSessionNow left a vault session attached")
+	}
+	if session.Snapshot().Ready || session.WikiSuggestions() != nil {
+		t.Fatal("closeVaultSessionNow retained data for the closed session")
+	}
+}
+
+func TestWorkspaceSwitchReleasesPreviousVaultSession(t *testing.T) {
+	oldRoot, newRoot := t.TempDir(), t.TempDir()
+	a := newFileTreeTestApp(t, oldRoot)
+	session := a.vault
+
+	a.setWorkspace(newRoot)
+
+	if a.vault == session {
+		t.Fatal("workspace switch retained the previous vault session")
+	}
+}

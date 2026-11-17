@@ -1,6 +1,8 @@
 package nativeui
 
 import (
+	searchui "muse/nativeui/panels/search"
+	vaultsearch "muse/search"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,7 +61,7 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 	a.openWorkspaceSearch()
 	for _, query := range []string{"Cantor", "size", "集合", "的", "Cantor"} {
 		typedAt := time.Now()
-		a.workspaceQuery = query
+		a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: query})
 		deadline = time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
 			tt.Frame()
@@ -70,9 +72,9 @@ func TestProfileWorkspaceSearchRealVault(t *testing.T) {
 				}
 				t.Logf("query=%q end-to-end=%s search=%s estimate=%s next-coalesce=%s hits=%d", query,
 					time.Since(typedAt).Round(time.Millisecond), state.Elapsed.Round(time.Microsecond),
-					state.Cost.Round(time.Microsecond), workspaceSearchCoalesce(state.Cost, false), len(state.Hits))
+					state.Cost.Round(time.Microsecond), vaultsearch.CoalesceDelay(state.Cost, false), len(state.Hits))
 				if query == "的" {
-					first, last := a.workspaceSearchResults.Visible()
+					first, last := a.workspaceSearch.VisibleResults()
 					t.Logf("500-result list built visible rows=%d (range %d..%d)", max(0, last-first+1), first, last)
 				}
 				break

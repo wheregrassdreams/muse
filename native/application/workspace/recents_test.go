@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -54,5 +55,39 @@ func TestRecentItemsWithoutRepositoryIsSafe(t *testing.T) {
 	}
 	if items.Entries() != nil || items.Live(MaxVisibleRecent) != nil {
 		t.Fatal("unconfigured recent service returned entries")
+	}
+}
+
+func TestRecentItemsLiveNotesAppliesDocumentAndWorkspacePolicy(t *testing.T) {
+	root := filepath.Join("", "vault")
+	inside := filepath.Join(root, "note.MD")
+	outside := filepath.Join("other-vault", "note.md")
+	store := &memoryRecentStore{
+		entries: []RecentEntry{
+			{Path: filepath.Join(root, "folder"), IsDir: true},
+			{Path: filepath.Join(root, "readme.txt")},
+			{Path: outside},
+			{Path: inside},
+			{Path: filepath.Join(root, "second.md")},
+		},
+		paths: map[string]bool{
+			filepath.Join(root, "folder"):     true,
+			filepath.Join(root, "readme.txt"): true,
+			outside:                           true,
+			inside:                            true,
+			filepath.Join(root, "second.md"):  true,
+		},
+	}
+	items := NewRecentItems(store)
+
+	want := []RecentEntry{{Path: inside}, {Path: filepath.Join(root, "second.md")}}
+	if got := items.LiveNotes(root, MaxVisibleRecent); !reflect.DeepEqual(got, want) {
+		t.Fatalf("LiveNotes() = %+v, want %+v", got, want)
+	}
+	if got := items.LiveNotes(root, 1); !reflect.DeepEqual(got, want[:1]) {
+		t.Fatalf("LiveNotes(limit=1) = %+v, want %+v", got, want[:1])
+	}
+	if got := items.LiveNotes(root, MaxRecentEntries+1); !reflect.DeepEqual(got, want) {
+		t.Fatalf("LiveNotes(oversized limit) = %+v, want %+v", got, want)
 	}
 }

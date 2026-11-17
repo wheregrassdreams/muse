@@ -173,13 +173,13 @@ func TestSameDirectoryOpenCannotRecoverActiveIndex(t *testing.T) {
 	if err := i.Reconcile(ctx, []search.Document{{ID: "live", Path: "live.md", Source: "activeindexneedle", Revision: "1"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := search.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
+	if _, err := openSearchTestIndex(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
 		t.Fatalf("second Open error = %v, want index in use", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "dirty.marker"), []byte("interrupted"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := search.Open(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
+	if _, err := openSearchTestIndex(dir); err == nil || !strings.Contains(err.Error(), "index in use") {
 		t.Fatalf("Open with active dirty marker error = %v, want index in use", err)
 	}
 	hits, err := i.Search(ctx, "activeindexneedle", 10)

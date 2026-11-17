@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	editorScroll "muse/nativeui/components/editor/scroll"
 )
 
 func TestHorizontalScrollCoreKeepsIndependentBlockState(t *testing.T) {
@@ -127,7 +126,7 @@ func TestHorizontalScrollIndicatorTracksActualMovementOnly(t *testing.T) {
 	if blockContentWidth(l) <= blockViewport(l).W {
 		t.Fatal("fixture must overflow horizontally")
 	}
-	track, _ := editorScroll.HorizontalBarRects(blockViewport(l), blockContentWidth(l), l.horizontal.Offset)
+	track, _ := horizontalBarRects(blockViewport(l), blockContentWidth(l), l.horizontal.Offset)
 
 	// Painting and hovering alone do not create a scroll indicator.
 	h.tt.Move(track.X+10, track.Y+1)

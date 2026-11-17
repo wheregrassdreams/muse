@@ -45,9 +45,9 @@ type Preview struct {
 	Level   int
 }
 
-// State belongs to one rendered editor surface. Its slices are reused across
+// state belongs to one rendered editor surface. Its slices are reused across
 // frames; it stores no source model or editor pointer.
-type State struct {
+type state struct {
 	Hover    int
 	Active   int
 	Revision uint64
@@ -60,18 +60,18 @@ type State struct {
 	Anim     bool
 }
 
-func NewState() State { return State{Hover: -1, Active: -1} }
+func newState() state { return state{Hover: -1, Active: -1} }
 
-func (s *State) Reset() {
+func (s *state) Reset() {
 	if s == nil {
 		return
 	}
-	*s = NewState()
+	*s = newState()
 }
 
 // Draw paints the rail and reports heading jumps through the supplied host
 // action. Preview data is requested only for the currently hovered heading.
-func (s *State) Draw(ctx *ui.Context, bounds ui.Rect, frame Frame, preview func(int) Preview, jump func(int)) {
+func (s *state) Draw(ctx *ui.Context, bounds ui.Rect, frame Frame, preview func(int) Preview, jump func(int)) {
 	if s == nil || ctx == nil {
 		return
 	}
@@ -144,6 +144,45 @@ func (s *State) Draw(ctx *ui.Context, bounds ui.Rect, frame Frame, preview func(
 		ctx.After(16 * time.Millisecond)
 	} else if s.Hover >= 0 {
 		ctx.After(80 * time.Millisecond)
+	}
+}
+
+// Snapshot exposes a detached view of the current rail presentation for host
+// diagnostics and interaction tests. Mutable animation state remains private.
+type Snapshot struct {
+	Hover, Active int
+	Rect          ui.Rect
+	Ys            []float32
+	Pitch         float32
+}
+
+// Handle keeps pointer, animation and geometry state private to this package.
+type Handle struct{ state *state }
+
+func NewHandle() *Handle {
+	state := newState()
+	return &Handle{state: &state}
+}
+
+func (h *Handle) Reset() {
+	if h != nil && h.state != nil {
+		h.state.Reset()
+	}
+}
+
+func (h *Handle) Draw(ctx *ui.Context, bounds ui.Rect, frame Frame, preview func(int) Preview, jump func(int)) {
+	if h != nil && h.state != nil {
+		h.state.Draw(ctx, bounds, frame, preview, jump)
+	}
+}
+
+func (h *Handle) Snapshot() Snapshot {
+	if h == nil || h.state == nil {
+		return Snapshot{Hover: -1, Active: -1}
+	}
+	return Snapshot{
+		Hover: h.state.Hover, Active: h.state.Active, Rect: h.state.Rect,
+		Ys: append([]float32(nil), h.state.Ys...), Pitch: h.state.Pitch,
 	}
 }
 

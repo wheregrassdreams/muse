@@ -18,21 +18,6 @@ func setRecentTestStore(a *App, dir string) {
 	})
 }
 
-func TestRecentLabelsDedupAndClip(t *testing.T) {
-	rs := []recentEntry{
-		{Path: "/w/proj/notes.md"},
-		{Path: "/w/other/notes.md"},
-		{Path: "/w/一个特别特别特别特别长长长长长长长长长长长的文件夹名字啊"},
-	}
-	labels := recentLabels(rs)
-	if labels[0] != "proj/notes.md" || labels[1] != "other/notes.md" {
-		t.Fatalf("duplicate labels lack parent directories: %q", labels)
-	}
-	if got := []rune(labels[2]); len(got) > 24 || !strings.HasSuffix(labels[2], "…") {
-		t.Fatalf("long label was not clipped: %q (%d runes)", labels[2], len(got))
-	}
-}
-
 func TestEmptyStateMenuListsOnlyLiveRecents(t *testing.T) {
 	dir := t.TempDir()
 	proj := filepath.Join(dir, "project")
@@ -95,8 +80,9 @@ func TestEmptyStateMenuOpensPersistedRecentFile(t *testing.T) {
 
 	second := New()
 	setRecentTestStore(second, dir)
-	if len(second.recents) != 1 || second.recents[0].Path != notes {
-		t.Fatalf("recents did not load: %+v", second.recents)
+	entries := second.recentItems.Entries()
+	if len(entries) != 1 || entries[0].Path != notes {
+		t.Fatalf("recents did not load: %+v", entries)
 	}
 	tester := ui.NewTester(second.View, 1200, 800)
 	tester.Frame()
@@ -108,10 +94,10 @@ func TestEmptyStateMenuOpensPersistedRecentFile(t *testing.T) {
 		t.Fatalf("choose recent file: %v", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && second.path != notes {
+	for time.Now().Before(deadline) && second.documentPath() != notes {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if second.path != notes {
-		t.Fatalf("path = %q, want %q", second.path, notes)
+	if second.documentPath() != notes {
+		t.Fatalf("path = %q, want %q", second.documentPath(), notes)
 	}
 }

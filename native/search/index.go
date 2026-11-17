@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"math"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -20,7 +20,6 @@ import (
 	"unicode/utf8"
 
 	tantivy "github.com/anyproto/tantivy-go"
-	"github.com/gofrs/flock"
 	"muse/document/types"
 )
 
@@ -70,9 +69,10 @@ type indexState struct {
 	mu       sync.RWMutex
 	dir      string
 	dataDir  string
+	storage  Persistence
 	manifest manifest
 	engine   *tantivy.TantivyContext
-	fileLock *flock.Flock
+	fileLock Lock
 	closed   bool
 	poisoned bool
 
@@ -91,19 +91,15 @@ type indexState struct {
 	literalOrderReady bool
 }
 
-func openIndex(dir string) (*Index, error) {
-	if strings.TrimSpace(dir) == "" {
+func openIndex(storage Persistence) (*Index, error) {
+	if storage == nil || strings.TrimSpace(storage.Root()) == "" {
 		return nil, errors.New("search: empty index directory")
 	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, fmt.Errorf("search: resolve index directory: %w", err)
-	}
-	if err := os.MkdirAll(abs, 0o700); err != nil {
+	abs := filepath.Clean(storage.Root())
+	if err := storage.MkdirAll(".", 0o700); err != nil {
 		return nil, fmt.Errorf("search: create index directory: %w", err)
 	}
-	fileLock := flock.New(filepath.Join(abs, ".search.lock"))
-	locked, err := fileLock.TryLock()
+	fileLock, locked, err := storage.TryLock(".search.lock")
 	if err != nil {
 		return nil, fmt.Errorf("search: acquire index lock: %w", err)
 	}
@@ -117,30 +113,28 @@ func openIndex(dir string) (*Index, error) {
 		}
 	}()
 	dataDir := filepath.Join(abs, indexSubdir)
-	manifestPath := filepath.Join(abs, manifestName)
-	dirtyPath := filepath.Join(abs, dirtyName)
-	meta, manifestErr := readManifest(manifestPath)
+	meta, manifestErr := readManifest(storage, manifestName)
 	if manifestErr != nil && !recoverableManifestError(manifestErr) {
 		return nil, manifestErr
 	}
-	_, dataErr := os.Stat(dataDir)
+	_, dataErr := storage.Stat(indexSubdir)
 	dataExists := dataErr == nil
-	if dataErr != nil && !errors.Is(dataErr, os.ErrNotExist) {
+	if dataErr != nil && !errors.Is(dataErr, fs.ErrNotExist) {
 		return nil, fmt.Errorf("search: inspect Tantivy directory: %w", dataErr)
 	}
-	_, manifestStatErr := os.Stat(manifestPath)
-	manifestMissing := errors.Is(manifestStatErr, os.ErrNotExist)
+	_, manifestStatErr := storage.Stat(manifestName)
+	manifestMissing := errors.Is(manifestStatErr, fs.ErrNotExist)
 	if manifestStatErr != nil && !manifestMissing {
 		return nil, fmt.Errorf("search: inspect manifest: %w", manifestStatErr)
 	}
-	_, dirtyErr := os.Stat(dirtyPath)
+	_, dirtyErr := storage.Stat(dirtyName)
 	dirty := dirtyErr == nil
-	if dirtyErr != nil && !errors.Is(dirtyErr, os.ErrNotExist) {
+	if dirtyErr != nil && !errors.Is(dirtyErr, fs.ErrNotExist) {
 		return nil, fmt.Errorf("search: inspect dirty marker: %w", dirtyErr)
 	}
 	recovering := dirty || manifestMissing || manifestErr != nil || !dataExists
 	if recovering && !dirty {
-		if err := writeDirtyMarker(dirtyPath); err != nil {
+		if err := writeDirtyMarker(storage, dirtyName); err != nil {
 			return nil, fmt.Errorf("search: mark recovery in progress: %w", err)
 		}
 	}
@@ -156,7 +150,7 @@ func openIndex(dir string) (*Index, error) {
 			reason = "Tantivy data is missing"
 		}
 		if dataExists {
-			quarantine, qErr := quarantineIndexDir(dataDir)
+			quarantine, qErr := quarantineIndexDir(storage, indexSubdir)
 			if qErr != nil {
 				return nil, fmt.Errorf("search: quarantine index after %s: %w", reason, qErr)
 			}
@@ -167,14 +161,14 @@ func openIndex(dir string) (*Index, error) {
 		meta = manifest{Version: 1, Docs: make(map[string]manifestRecord)}
 	}
 	if manifestErr != nil {
-		quarantinedManifest := manifestPath + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
-		if err := os.Rename(manifestPath, quarantinedManifest); err != nil {
+		quarantinedManifest := manifestName + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
+		if err := storage.Rename(manifestName, quarantinedManifest); err != nil {
 			return nil, fmt.Errorf("search: quarantine invalid manifest: %w", err)
 		}
-		log.Printf("search: quarantined invalid manifest at %s: %v", quarantinedManifest, manifestErr)
+		log.Printf("search: quarantined invalid manifest at %s: %v", filepath.Join(abs, quarantinedManifest), manifestErr)
 	}
 	if !dataExists {
-		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		if err := storage.MkdirAll(indexSubdir, 0o700); err != nil {
 			return nil, fmt.Errorf("search: create Tantivy directory: %w", err)
 		}
 	}
@@ -182,16 +176,16 @@ func openIndex(dir string) (*Index, error) {
 	if err != nil && isRecoverableOpenError(err) {
 		openErr := err
 		if !recovering {
-			if markerErr := writeDirtyMarker(dirtyPath); markerErr != nil {
+			if markerErr := writeDirtyMarker(storage, dirtyName); markerErr != nil {
 				return nil, fmt.Errorf("search: mark incompatible-index recovery: %w", markerErr)
 			}
 			recovering = true
 		}
 		quarantine := dataDir + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
-		if renameErr := os.Rename(dataDir, quarantine); renameErr != nil {
+		if renameErr := storage.Rename(indexSubdir, filepath.Base(quarantine)); renameErr != nil {
 			return nil, fmt.Errorf("search: Tantivy index is incompatible (%v), quarantine failed: %w", err, renameErr)
 		}
-		if mkdirErr := os.MkdirAll(dataDir, 0o700); mkdirErr != nil {
+		if mkdirErr := storage.MkdirAll(indexSubdir, 0o700); mkdirErr != nil {
 			return nil, fmt.Errorf("search: create replacement Tantivy directory: %w", mkdirErr)
 		}
 		engine, err = openEngine(dataDir)
@@ -199,7 +193,7 @@ func openIndex(dir string) (*Index, error) {
 			return nil, fmt.Errorf("search: open replacement Tantivy index: %w", err)
 		}
 		meta.Docs = make(map[string]manifestRecord)
-		if saveErr := writeManifest(manifestPath, meta); saveErr != nil {
+		if saveErr := writeManifest(storage, manifestName, meta); saveErr != nil {
 			_ = engine.Close()
 			return nil, fmt.Errorf("search: save rebuilt manifest: %w", saveErr)
 		}
@@ -211,18 +205,18 @@ func openIndex(dir string) (*Index, error) {
 		meta.Docs = make(map[string]manifestRecord)
 	}
 	if manifestMissing || manifestErr != nil || resetManifest {
-		if err := writeManifest(manifestPath, meta); err != nil {
+		if err := writeManifest(storage, manifestName, meta); err != nil {
 			_ = engine.Close()
 			return nil, fmt.Errorf("search: initialize recovered manifest: %w", err)
 		}
 	}
 	if recovering {
-		if err := clearDirtyMarker(dirtyPath, abs); err != nil {
+		if err := clearDirtyMarker(storage, dirtyName); err != nil {
 			_ = engine.Close()
 			return nil, fmt.Errorf("search: finish index recovery: %w", err)
 		}
 	}
-	s := &indexState{dir: abs, dataDir: dataDir, manifest: meta, engine: engine, fileLock: fileLock}
+	s := &indexState{dir: abs, dataDir: dataDir, manifest: meta, engine: engine, fileLock: fileLock, storage: storage}
 	opened = true
 	return &Index{state: s}, nil
 }
@@ -232,17 +226,17 @@ func recoverableManifestError(err error) bool {
 	return strings.Contains(message, "decode manifest") || strings.Contains(message, "unsupported or invalid manifest version")
 }
 
-func quarantineIndexDir(path string) (string, error) {
-	quarantine := path + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
-	if err := os.Rename(path, quarantine); err != nil {
+func quarantineIndexDir(storage Persistence, relative string) (string, error) {
+	quarantine := relative + ".corrupt-" + fmt.Sprint(time.Now().UnixNano())
+	if err := storage.Rename(relative, quarantine); err != nil {
 		return "", err
 	}
-	return quarantine, nil
+	return filepath.Join(storage.Root(), quarantine), nil
 }
 
-func readManifest(path string) (manifest, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+func readManifest(storage Persistence, path string) (manifest, error) {
+	data, err := storage.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return manifest{Version: 1, Docs: make(map[string]manifestRecord)}, nil
 	}
 	if err != nil {
@@ -258,32 +252,13 @@ func readManifest(path string) (manifest, error) {
 	return m, nil
 }
 
-func writeManifest(path string, m manifest) error {
+func writeManifest(storage Persistence, path string, m manifest) error {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return fmt.Errorf("encode manifest: %w", err)
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".manifest-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary manifest: %w", err)
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-	if err = f.Chmod(0o600); err == nil {
-		_, err = f.Write(data)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil {
-		return fmt.Errorf("write temporary manifest: %w", err)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close temporary manifest: %w", closeErr)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replace manifest: %w", err)
+	if err := storage.WriteAtomic(path, data, 0o600); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
 	}
 	return nil
 }
@@ -583,7 +558,7 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := writeDirtyMarker(filepath.Join(s.dir, dirtyName)); err != nil {
+	if err := writeDirtyMarker(s.storage, dirtyName); err != nil {
 		return fmt.Errorf("search: mark index transaction dirty: %w", err)
 	}
 	s.poisoned = true
@@ -656,10 +631,10 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 		}
 		next.Docs[d.ID] = manifestRecord{Path: d.Path, Title: d.Title, Revision: revision, Metadata: d.Metadata.Clone()}
 	}
-	if err := writeManifest(filepath.Join(s.dir, manifestName), next); err != nil {
+	if err := writeManifest(s.storage, manifestName, next); err != nil {
 		return fmt.Errorf("search: commit succeeded but manifest update failed: %w", err)
 	}
-	if err := clearDirtyMarker(filepath.Join(s.dir, dirtyName), s.dir); err != nil {
+	if err := clearDirtyMarker(s.storage, dirtyName); err != nil {
 		return fmt.Errorf("search: commit succeeded but dirty marker could not be cleared: %w", err)
 	}
 	s.manifest = next
@@ -667,28 +642,12 @@ func (s *indexState) applyLocked(ctx context.Context, upserts []Document, delete
 	return nil
 }
 
-func writeDirtyMarker(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	_, writeErr := f.WriteString("transaction in progress\n")
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	return errors.Join(writeErr, syncErr, closeErr)
+func writeDirtyMarker(storage Persistence, path string) error {
+	return storage.WriteAndSync(path, []byte("transaction in progress\n"), 0o600)
 }
 
-func clearDirtyMarker(path, dir string) error {
-	if err := os.Remove(path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	syncErr := d.Sync()
-	closeErr := d.Close()
-	return errors.Join(syncErr, closeErr)
+func clearDirtyMarker(storage Persistence, path string) error {
+	return storage.RemoveAndSync(path)
 }
 
 func makeNativeDocument(engine *tantivy.TantivyContext, d Document) (*tantivy.Document, error) {

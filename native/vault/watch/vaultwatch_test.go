@@ -45,7 +45,7 @@ func newTempWatcher(t *testing.T) (string, *Watcher) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := vaultwatch.New(root, backend)
+	w, err := vaultwatch.New(root, backend, filesystemwatcher.NewDirectoryAccess())
 	if err != nil {
 		t.Fatal(err)
 	}

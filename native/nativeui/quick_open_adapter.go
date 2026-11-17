@@ -2,12 +2,13 @@ package nativeui
 
 import (
 	"github.com/egoist/mygo/ui"
+	componenticons "muse/nativeui/components/icons"
 	"muse/nativeui/surfaces/quickopen"
 	"muse/nativeui/window"
 )
 
 type quickOpenCandidate struct {
-	fileRow
+	path         string
 	title        string
 	pathText     string
 	titleMatches []int
@@ -34,7 +35,7 @@ func (a *App) quickOpenCandidates(queries ...string) []quickOpenCandidate {
 	rows := make([]quickOpenCandidate, 0, len(matches))
 	for _, match := range matches {
 		rows = append(rows, quickOpenCandidate{
-			fileRow: fileRow{path: match.Path}, title: match.Title, pathText: match.PathText,
+			path: match.Path, title: match.Title, pathText: match.PathText,
 			titleMatches: match.TitleMatches, pathMatches: match.PathMatches,
 		})
 	}
@@ -50,8 +51,13 @@ func (a *App) openQuickOpen() {
 	}
 	a.closeQuickOpen()
 	content := quickopen.NewContent(quickopen.SurfaceOptions{
-		Rows:     func(query string) quickopen.Rows { return quickOpenRows(a.quickOpenCandidates(query)) },
-		FileIcon: iconFile,
+		Rows: func(query string) quickopen.Rows {
+			return quickOpenRows(a.quickOpenCandidates(query))
+		},
+		RowsRevision: func() [2]uint64 {
+			return [2]uint64{a.vaultSnapshot.FilesRevision, a.vaultSnapshot.IndexRevision}
+		},
+		FileIcon: componenticons.File(),
 		IconTint: func(theme *ui.Theme) ui.Color { return iconTint(theme) },
 		OnOpen: func(path string) {
 			a.selectedPath = path

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	media "muse/nativeui/components/editor/blocks/media"
 )
 
 func TestImageResizeReferenceMarkdownIsUndoableAndDoesNotWriteImage(t *testing.T) {
@@ -43,7 +44,7 @@ func TestImageResizeReferenceMarkdownIsUndoableAndDoesNotWriteImage(t *testing.T
 			continue
 		}
 		for _, pc := range l.view.disp.pieces {
-			if pc.obj != nil && pc.obj.imageSyntax == imageSyntaxMarkdown {
+			if pc.obj != nil && pc.obj.imageSource.Syntax == media.ImageSyntaxMarkdown {
 				obj = pc.obj
 				break
 			}
@@ -82,7 +83,7 @@ func TestWikiImageResizeUsesWidthPipeAndUndo(t *testing.T) {
 	for _, l := range e.leaves {
 		if l.view != nil {
 			for _, pc := range l.view.disp.pieces {
-				if pc.obj != nil && pc.obj.imageSyntax == imageSyntaxWiki {
+				if pc.obj != nil && pc.obj.imageSource.Syntax == media.ImageSyntaxWiki {
 					obj = pc.obj
 				}
 			}
@@ -97,18 +98,6 @@ func TestWikiImageResizeUsesWidthPipeAndUndo(t *testing.T) {
 	}
 	if !e.Undo() || e.Source() != src {
 		t.Fatalf("undo left wiki width: %q", e.Source())
-	}
-}
-
-func TestSetHTMLAttrsPreservesOtherAttributesAndClosingForm(t *testing.T) {
-	for _, tc := range []struct{ tag, want string }{
-		{`<img src="x.png" alt="x">`, `<img src="x.png" alt="x" width="200">`},
-		{`<img data-width="x" src="x.png" width='40' height="20" />`, `<img data-width="x" src="x.png" width='200' height="20" />`},
-	} {
-		got := setHTMLAttrs(tc.tag, struct{ name, value string }{"width", "200"})
-		if got != tc.want {
-			t.Errorf("setHTMLAttrs(%q)=%q, want %q", tc.tag, got, tc.want)
-		}
 	}
 }
 
@@ -162,7 +151,7 @@ func TestImageHoverDragCancelCommitAndUndo(t *testing.T) {
 		}
 	}
 	hit = h.e.imageHits[0]
-	_, _, _, grip := imageToolRects(hit.box, h.e.lk.size)
+	_, _, _, grip := media.ToolRects(hit.box, h.e.lk.size)
 	x, y := grip.X+grip.W/2, grip.Y+grip.H/2
 	startWidth := hit.obj.w
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
@@ -180,12 +169,12 @@ func TestImageHoverDragCancelCommitAndUndo(t *testing.T) {
 		t.Fatal("cancel did not restore the original image view")
 	}
 	hit = h.e.imageHits[0]
-	_, _, _, grip = imageToolRects(hit.box, h.e.lk.size)
+	_, _, _, grip = media.ToolRects(hit.box, h.e.lk.size)
 	x, y = grip.X+grip.W/2, grip.Y+grip.H/2
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: x, Y: y})
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerMove, Button: 0, X: x + 40, Y: y + 20})
 	h.frame()
-	wantWidth := h.e.imageDrag.previewWidth
+	wantWidth := h.e.imageDrag.gesture.PreviewWidth()
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerUp, Button: 0, X: x + 40, Y: y + 20})
 	h.frame()
 	if !strings.Contains(h.e.Source(), "|"+strconv.Itoa(int(wantWidth))+"](live.png)") {
@@ -234,7 +223,7 @@ func TestImageHoverPreviewPassesResolvedPathWithoutChangingSource(t *testing.T) 
 		t.Fatal("no rendered image region")
 	}
 	hit := h.e.imageHits[0]
-	preview, _, _, _ := imageToolRects(hit.box, h.e.lk.size)
+	preview, _, _, _ := media.ToolRects(hit.box, h.e.lk.size)
 	h.e.input(ui.InputEvent{Kind: ui.InputPointerDown, Button: 0, X: preview.X + preview.W/2, Y: preview.Y + preview.H/2})
 	if got != filepath.Join(dir, "sample file.png") {
 		t.Fatalf("preview callback got %q", got)
@@ -284,7 +273,7 @@ func TestStandaloneImageAlignmentSurvivesSourceReveal(t *testing.T) {
 				h.tt.Move(hit.box.X+hit.box.W/2, hit.box.Y+hit.box.H/2)
 				h.frame()
 				hit = h.e.imageHits[0]
-				_, _, align, _ := imageToolRects(hit.box, h.e.lk.size)
+				_, _, align, _ := media.ToolRects(hit.box, h.e.lk.size)
 				h.tt.ClickAt(align.X+align.W/2, align.Y+align.H/2)
 				h.frame()
 				hit = h.e.imageHits[0]
@@ -311,7 +300,7 @@ func TestStandaloneImageAlignmentSurvivesSourceReveal(t *testing.T) {
 				t.Fatalf("left-aligned image was not placed near the left edge: x=%.1f column=%.1f", before, h.e.colW)
 			}
 			if got := hit.obj.alignCenter; got != tc.wantCenter {
-				t.Fatalf("alignment mode = %v, want centered=%v; source=%d alignments=%v", got, tc.wantCenter, hit.obj.sourceFrom, h.e.imageAlignments)
+				t.Fatalf("alignment mode = %v, want centered=%v; source=%d alignments=%v", got, tc.wantCenter, hit.obj.imageSource.From, h.e.imageAlignments)
 			}
 			h.e.toggleSource(hit.leaf)
 			h.frame()

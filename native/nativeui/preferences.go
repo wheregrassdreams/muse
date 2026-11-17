@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	applicationconfig "muse/application/config"
 	"muse/config"
 	"muse/locales"
 	"muse/theme"
@@ -16,8 +17,8 @@ const (
 
 type nativePreferences = config.Preferences
 
-func loadNativePreferences() nativePreferences {
-	p, _ := config.LoadPreferences()
+func (a *App) loadNativePreferences() nativePreferences {
+	p, _ := applicationconfig.NewService(a.configRepository).LoadPreferences()
 	return p
 }
 
@@ -29,8 +30,8 @@ func (a *App) applyNativePreferences(p config.Preferences) {
 	if p.LocaleConfigured {
 		mygo.App.SetLocale(p.Locale)
 	}
-	if a.ed != nil {
-		a.ed.SetOptions(a.editorOptions())
+	if a.noteEditor() != nil {
+		a.configureActiveNote(0)
 	}
 	a.accentID = theme.Normalize(p.Accent)
 	switch p.Theme {
@@ -57,7 +58,7 @@ func (a *App) saveNativePreferences() error {
 	default:
 		p.Theme = config.ThemeLight
 	}
-	return config.SavePreferences(p)
+	return applicationconfig.NewService(a.configRepository).SavePreferences(p)
 }
 
 func (a *App) setLocale(tag string) {
@@ -103,7 +104,7 @@ func (a *App) setSmoothPageJumps(enabled bool) {
 		return
 	}
 	a.smoothPageJumps = enabled
-	a.ed.SetOptions(a.editorOptions())
+	a.configureActiveNote(0)
 	if err := a.saveNativePreferences(); err != nil {
 		a.notice(locales.CommonSettingSaveError(err.Error()))
 	}

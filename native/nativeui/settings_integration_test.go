@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	settingsui "muse/nativeui/panels/settings"
 )
 
 func TestSettingsDialog(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
-	a := New()
+	a := newConfigTestApp()
 	a.openSettings()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -59,9 +60,9 @@ func TestSettingsDialog(t *testing.T) {
 func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("MUSE_CONFIG_DIR", configDir)
-	a := New()
+	a := newConfigTestApp()
 	a.openSettings()
-	a.settingsTab = 2
+	a.settingsPanel.SetPage(settingsui.AssistantPage)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if a.aiEnabled {
@@ -81,7 +82,7 @@ func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
 	if a.aiEnabled {
 		t.Fatal("AI switch click did not disable the feature")
 	}
-	if got := loadNativePreferences(); got.AIEnabled {
+	if got := a.loadNativePreferences(); got.AIEnabled {
 		t.Fatalf("persisted AI enabled = true after disabling")
 	}
 	if err := tt.Click("AI 助手开关"); err != nil {
@@ -91,8 +92,8 @@ func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
 	if !a.aiEnabled {
 		t.Fatal("AI switch click did not re-enable the feature")
 	}
-	restarted := New()
-	restarted.applyNativePreferences(loadNativePreferences())
+	restarted := newConfigTestApp()
+	restarted.applyNativePreferences(restarted.loadNativePreferences())
 	if !restarted.aiEnabled {
 		t.Fatal("AI setting did not survive recreating the app")
 	}
@@ -103,17 +104,17 @@ func TestAISettingClickPersistsAcrossAppRestart(t *testing.T) {
 
 func TestThemePreferenceRoundTripsAndDefaultsToSystem(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
-	a := New()
-	a.applyNativePreferences(loadNativePreferences())
+	a := newConfigTestApp()
+	a.applyNativePreferences(a.loadNativePreferences())
 	if a.themeMode != themeSystem {
 		t.Fatalf("missing preference theme = %d, want system", a.themeMode)
 	}
 	a.setThemeMode(themeDark)
-	if got := loadNativePreferences(); got.Theme != "dark" {
+	if got := a.loadNativePreferences(); got.Theme != "dark" {
 		t.Fatalf("saved theme = %q, want dark", got.Theme)
 	}
-	restarted := New()
-	restarted.applyNativePreferences(loadNativePreferences())
+	restarted := newConfigTestApp()
+	restarted.applyNativePreferences(restarted.loadNativePreferences())
 	if restarted.themeMode != themeDark {
 		t.Fatalf("reloaded theme = %d, want dark", restarted.themeMode)
 	}
@@ -121,9 +122,9 @@ func TestThemePreferenceRoundTripsAndDefaultsToSystem(t *testing.T) {
 
 func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
 	t.Setenv("MUSE_CONFIG_DIR", t.TempDir())
-	a := New()
-	a.applyNativePreferences(loadNativePreferences())
-	if a.smoothPageJumps || a.activeNote.PresentationCommands().Settings().SmoothPageJumps {
+	a := newConfigTestApp()
+	a.applyNativePreferences(a.loadNativePreferences())
+	if a.smoothPageJumps || a.noteEditor().PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("smooth page jumps should default off")
 	}
 	a.openSettings()
@@ -135,12 +136,12 @@ func TestSmoothPageJumpAppearanceSettingDefaultsOffAndPersists(t *testing.T) {
 	if err := tt.Click("页内跳转平滑滚动开关"); err != nil {
 		t.Fatalf("enable smooth page jumps: %v", err)
 	}
-	if !a.smoothPageJumps || !a.activeNote.PresentationCommands().Settings().SmoothPageJumps {
+	if !a.smoothPageJumps || !a.noteEditor().PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("setting did not update editor navigation options")
 	}
-	restarted := New()
-	restarted.applyNativePreferences(loadNativePreferences())
-	if !restarted.smoothPageJumps || !restarted.activeNote.PresentationCommands().Settings().SmoothPageJumps {
+	restarted := newConfigTestApp()
+	restarted.applyNativePreferences(restarted.loadNativePreferences())
+	if !restarted.smoothPageJumps || !restarted.noteEditor().PresentationCommands().Settings().SmoothPageJumps {
 		t.Fatal("smooth page jump setting did not persist")
 	}
 }
@@ -152,7 +153,7 @@ func TestSettingsPersistenceFailureIsVisible(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("MUSE_CONFIG_DIR", badConfigDir)
-	a := New()
+	a := newConfigTestApp()
 	a.setAIEnabled(true)
 	if !strings.Contains(a.status, "保存设置失败") {
 		t.Fatalf("status = %q, want visible preference write error", a.status)

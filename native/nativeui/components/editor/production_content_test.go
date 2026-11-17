@@ -191,22 +191,23 @@ func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 		ui.Column(c).Fill().Children(func() { content.Render(c) })
 	}, 900, 420)
 	tester.Frame()
-	if content.rail.Rect.W == 0 || content.rail.Rect.H == 0 {
+	rail := content.rail.Snapshot()
+	if rail.Rect.W == 0 || rail.Rect.H == 0 {
 		t.Fatal("heading rail was not rendered for a scrollable document")
 	}
-	if content.rail.Active != 0 {
-		t.Fatalf("initial rail selection = %d, want first heading", content.rail.Active)
+	if rail.Active != 0 {
+		t.Fatalf("initial rail selection = %d, want first heading", rail.Active)
 	}
 	var pitch float32
-	ys := navigationrail.Positions(nil, 8, content.rail.Rect.H, &pitch)
+	ys := navigationrail.Positions(nil, 8, rail.Rect.H, &pitch)
 	point := 3
-	x := content.rail.Rect.X + content.rail.Rect.W/2
-	y := content.rail.Rect.Y + ys[point]
+	x := rail.Rect.X + rail.Rect.W/2
+	y := rail.Rect.Y + ys[point]
 	caretBefore := value.Caret()
 	tester.Move(x, y)
 	tester.Frame()
-	if content.rail.Hover != point {
-		t.Fatalf("hovered heading index = %d, want %d", content.rail.Hover, point)
+	if got := content.rail.Snapshot().Hover; got != point {
+		t.Fatalf("hovered heading index = %d, want %d", got, point)
 	}
 	preview := value.HeadingRailPreview(point)
 	if preview.Title != "Heading 3" || !strings.Contains(preview.Excerpt, "Paragraph 3.0") {
@@ -223,8 +224,8 @@ func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 	if got := value.Caret(); got != wantCaret {
 		t.Fatalf("rail click caret = %d, want heading offset %d", got, wantCaret)
 	}
-	if content.rail.Active != point {
-		t.Fatalf("rail active heading after jump = %d, want %d", content.rail.Active, point)
+	if got := content.rail.Snapshot().Active; got != point {
+		t.Fatalf("rail active heading after jump = %d, want %d", got, point)
 	}
 
 	narrow := New(text, Options{})
@@ -233,7 +234,7 @@ func TestProductionHeadingRailOwnsHoverScrollAndJump(t *testing.T) {
 		ui.Column(c).Fill().Children(func() { narrowContent.Render(c) })
 	}, 48, 180)
 	narrowTester.Frame()
-	if narrowContent.rail.Rect.W != 0 {
-		t.Fatalf("narrow window still shows heading rail: %+v", narrowContent.rail.Rect)
+	if rail := narrowContent.rail.Snapshot(); rail.Rect.W != 0 {
+		t.Fatalf("narrow window still shows heading rail: %+v", rail.Rect)
 	}
 }

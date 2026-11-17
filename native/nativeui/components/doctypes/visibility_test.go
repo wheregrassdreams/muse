@@ -37,3 +37,16 @@ func TestVisibleWorkspacePath(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownPathUsesRichNoteParser(t *testing.T) {
+	for _, path := range []string{"", "README", "note.md", "note.markdown", "note.mdx", "note.mdown"} {
+		if !IsMarkdownPath(path) {
+			t.Errorf("IsMarkdownPath(%q) = false, want true", path)
+		}
+	}
+	for _, path := range []string{"main.go", "notes.txt", "image.png"} {
+		if IsMarkdownPath(path) {
+			t.Errorf("IsMarkdownPath(%q) = true, want false", path)
+		}
+	}
+}

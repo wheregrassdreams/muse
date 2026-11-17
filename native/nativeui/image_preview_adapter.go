@@ -14,10 +14,11 @@ func (a *App) openImagePreview(src string) {
 	}
 	a.closeImagePreview()
 	content := imagepreview.NewContent(src, a.imagePreviewLabel(src), a.imageCacheStore, a.onMain, a.invalidate, func(source string) {
-		if a.ed != nil {
-			a.ed.CopyImageObject(source)
+		if a.noteEditor() != nil {
+			a.noteEditor().ClipboardCommands().CopyImageObject(source)
 		}
 	}, func() { a.imagePreviewHandle = window.Handle{} })
+	content.SetLocalFiles(a.imageLocalFiles)
 	handle, err := a.windows.Open(content, window.Placement{Host: "main", Layer: window.ModalOverlay})
 	if err != nil {
 		a.notice(err.Error())

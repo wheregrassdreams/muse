@@ -15,8 +15,9 @@ import (
 	"slices"
 	"strings"
 
+	sourceview "muse/editor/source"
 	syntax "muse/markdown/syntax"
-	editorScroll "muse/nativeui/components/editor/scroll"
+	"muse/ui/scrollbar"
 )
 
 // exts is the Markdown the editor reads: GitHub's flavor, footnotes, math,
@@ -98,6 +99,14 @@ type line struct {
 
 // leaf is a block the editor lays out: a paragraph, a heading, a block of
 // code or math, a table, a rule, raw lines or the phantom paragraph.
+// blockHorizontalState is toolkit-owned transient state for one rendered
+// block. Scroll policy itself stays in the backend-neutral scroll package.
+type blockHorizontalState struct {
+	Offset    float32
+	Shown     bool
+	Indicator scrollbar.Indicator
+}
+
 type leaf struct {
 	kind leafKind
 	// Flags describing syntax owned by the leaf.
@@ -138,7 +147,7 @@ type leaf struct {
 	view       *leafView
 	geom       *tableGeom
 	table      *leaf
-	horizontal editorScroll.HorizontalState
+	horizontal blockHorizontalState
 }
 
 // leafDetails keeps line arrays and code-fence metadata out of the common
@@ -508,7 +517,7 @@ func sameLeaf(a, b *leaf) bool {
 
 // buildLeaves turns the parse of src into the leaves the editor lays out,
 // in document order, from the arena's memory.
-func buildLeaves(src string, d *syntax.IncrementalDocument, fm int, a *leafArena) []*leaf {
+func buildLeaves(src string, d sourceview.SyntaxView, fm int, a *leafArena) []*leaf {
 	// out grows through the arena's leaves; its length is the output's.
 	a.reset()
 	var out []*leaf
@@ -632,7 +641,7 @@ func paraEnd(src string, end int) int {
 
 // headingLeaf makes the leaf of a heading: an ATX heading's text after its
 // #s, or a setext heading's text above its underline.
-func headingLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
+func headingLeaf(a *leafArena, src string, d sourceview.SyntaxView, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	l := a.get()
 	l.kind, l.id, l.level = kHeading, c, b.Level
@@ -688,7 +697,7 @@ func closingHashes(rest string) bool {
 
 // codeLeaf makes the leaf of a fenced or indented block of code: its
 // lines, and its fence's info string.
-func codeLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
+func codeLeaf(a *leafArena, src string, d sourceview.SyntaxView, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	l := linesLeaf(a, src, d, c, kCode, conts)
 	l.fenced = b.Fenced
@@ -721,7 +730,7 @@ func codeLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, co
 }
 
 // linesLeaf makes the leaf of a block of lines: code, math or HTML.
-func linesLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, kind leafKind, conts []cont) *leaf {
+func linesLeaf(a *leafArena, src string, d sourceview.SyntaxView, c int, kind leafKind, conts []cont) *leaf {
 	b := d.Block(c)
 	l := a.get()
 	l.kind, l.id = kind, c
@@ -780,7 +789,7 @@ const tabStop = 4
 // line, past what the parser's End leaves out (a table's last pipe, a
 // heading's closing #s or its underline, the closing $$ of math), and of
 // the last line of its descendants.
-func spanEnd(src string, d *syntax.IncrementalDocument, c int) int {
+func spanEnd(src string, d sourceview.SyntaxView, c int) int {
 	b := d.Block(c)
 	end := lineEndAt(src, b.End)
 	switch b.Kind {
@@ -811,7 +820,7 @@ func spanEnd(src string, d *syntax.IncrementalDocument, c int) int {
 }
 
 // tableLeaf makes the leaf of a table: its rows of cells.
-func tableLeaf(a *leafArena, src string, d *syntax.IncrementalDocument, c int, conts []cont) *leaf {
+func tableLeaf(a *leafArena, src string, d sourceview.SyntaxView, c int, conts []cont) *leaf {
 	b := d.Block(c)
 	t := &table{align: b.Align}
 	l := a.get()
@@ -866,7 +875,7 @@ func emptyCellAt(src string, at int) int {
 
 // emptyItemLeaf makes the leaf of a list item without content, "- " or
 // "1. ", for the caret to type in after its marker.
-func emptyItemLeaf(a *leafArena, src string, ib *syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
+func emptyItemLeaf(a *leafArena, src string, ib syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
 	p := ib.Start
 	for p < len(src) && src[p] != ' ' && src[p] != '\t' && src[p] != '\n' && src[p] != '\r' {
 		p++
@@ -895,7 +904,7 @@ func emptyItemLeaf(a *leafArena, src string, ib *syntax.IncrementalBlock, conts 
 }
 
 // emptyLeaf makes the leaf of a quotation or footnote without content.
-func emptyLeaf(a *leafArena, src string, b *syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
+func emptyLeaf(a *leafArena, src string, b syntax.IncrementalBlock, conts []cont, ct cont) *leaf {
 	e := lineEndAt(src, b.Start)
 	p := b.Start
 	if ct.kind == cQuote {

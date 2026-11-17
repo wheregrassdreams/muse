@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	applicationagent "muse/application/agent"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,8 +18,8 @@ func TestListModels(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, base := range []string{server.URL, server.URL + "/v1/"} {
-		result := NewAI().ListModels(TestConnRequest{BaseURL: base, APIKey: " test-key "})
-		if !result.Ok || len(result.Models) != 2 {
+		result, err := NewProvider().ListModels(context.Background(), applicationagent.ProviderCredentials{BaseURL: base, APIKey: " test-key "})
+		if err != nil || len(result.Models) != 2 {
 			t.Fatalf("discovery failed: %+v", result)
 		}
 		model := result.Models[0]
@@ -48,9 +50,9 @@ func TestListModelsErrors(t *testing.T) {
 				_, _ = w.Write([]byte(test.body))
 			}))
 			defer server.Close()
-			result := NewAI().ListModels(TestConnRequest{BaseURL: server.URL})
-			if result.Ok != test.ok || result.Status != test.status {
-				t.Fatalf("unexpected result: %+v", result)
+			result, err := NewProvider().ListModels(context.Background(), applicationagent.ProviderCredentials{BaseURL: server.URL})
+			if (err == nil) != test.ok || result.StatusCode != test.status {
+				t.Fatalf("unexpected result: %+v, err=%v", result, err)
 			}
 		})
 	}
@@ -83,7 +85,7 @@ func TestChatStreamWithDirectSink(t *testing.T) {
 
 	var chunks []string
 	ended := false
-	res := NewAI().ChatStreamWith(ChatStreamRequest{
+	res := NewProvider().ChatStreamWith(ChatStreamRequest{
 		RequestID: "t1",
 		BaseURL:   server.URL,
 		Body:      map[string]any{"model": "m", "stream": true},

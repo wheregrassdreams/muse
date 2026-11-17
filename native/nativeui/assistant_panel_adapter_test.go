@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	conversation "muse/agent"
 	applicationagent "muse/application/agent"
 	"muse/config"
 	"muse/platform/filesystem/imagefiles"
@@ -21,6 +22,7 @@ func (w *assistantWorkspaceStub) Root() string                                  
 func (w *assistantWorkspaceStub) CurrentDocument() (string, string)                { return w.path, w.source }
 func (w *assistantWorkspaceStub) ReadFile(string) ([]byte, error)                  { return nil, os.ErrNotExist }
 func (w *assistantWorkspaceStub) ReadDir(string) ([]applicationagent.Entry, error) { return nil, nil }
+func (w *assistantWorkspaceStub) CurrentDocumentDirty() bool                       { return false }
 func (w *assistantWorkspaceStub) ResolveWithinRoot(path string) (string, error) {
 	return filepath.Join(w.root, path), nil
 }
@@ -46,9 +48,9 @@ func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
 		return port, nil
 	}
-	operations := appAssistantOperations{app: app}
+	operations := applicationagent.DynamicWorkspaceOperations{Provider: appAssistantWorkspaceProvider{app: app}}
 
-	out := (applicationagent.Executor{Operations: operations}).Execute(context.Background(), applicationagent.ToolRequest{
+	out := (applicationagent.Executor{Operations: operations}).Execute(context.Background(), conversation.ToolRequest{
 		Name: "edit_document", Arguments: `{"old_text":"body","new_text":"updated"}`,
 	})
 	if out.Err != nil {
@@ -62,14 +64,14 @@ func TestAssistantOperationsUseTypedWorkspaceCapabilities(t *testing.T) {
 func TestAssistantPresenterAppliesTypedEffectsOnce(t *testing.T) {
 	app := New()
 	app.loadDoc("# Note\n")
-	presenter := &assistantPanel{effects: make(map[string]struct{})}
-	part := applicationagent.Part{Kind: applicationagent.ToolPart, Tool: applicationagent.ToolPartState{
-		ID: "insert-1", Name: "insert_into_document", Status: applicationagent.PartSucceeded,
+	presenter := newAssistantPanel(app).(*assistantPanel)
+	part := conversation.Part{Kind: conversation.ToolPart, Tool: conversation.ToolPartState{
+		ID: "insert-1", Name: "insert_into_document", Status: conversation.PartSucceeded,
 		Result: `{"kind":"insert_document","text":"new paragraph","position":"end"}`,
 	}}
-	presenter.applyEffect(app, part)
+	presenter.applyEffect(part)
 	first := app.documentSource()
-	presenter.applyEffect(app, part)
+	presenter.applyEffect(part)
 	if first == "# Note\n" || app.documentSource() != first {
 		t.Fatalf("typed effect was not applied exactly once: first=%q after=%q", first, app.documentSource())
 	}
@@ -94,7 +96,7 @@ type assistantToolClient struct{ turn int }
 func (c *assistantToolClient) Stream(_ applicationagent.Request, emit func(applicationagent.StreamEvent)) applicationagent.StreamResult {
 	c.turn++
 	if c.turn == 1 {
-		return applicationagent.StreamResult{Tools: []applicationagent.ToolRequest{{
+		return applicationagent.StreamResult{Tools: []conversation.ToolRequest{{
 			ID: "edit-1", Name: "edit_document", Arguments: `{"old_text":"before","new_text":"after"}`,
 		}}}
 	}
@@ -112,11 +114,14 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	app.newAgentWorkspace = func(string, applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
 		return port, nil
 	}
-	presenter := &assistantPanel{settings: config.AssistantSettings{Tools: config.AssistantTools{Edit: true}}, permission: applicationagent.AllowChanges}
+	presenter := &assistantPanel{settings: config.AssistantSettings{Tools: config.AssistantTools{Edit: true}}}
 	session := applicationagent.NewSession(presenter.settings, &assistantToolClient{}, applicationagent.Capabilities{
-		Tools:  applicationagent.Executor{Operations: appAssistantOperations{app: app}},
-		Policy: appAgentPolicy{panel: presenter},
+		Tools:  applicationagent.Executor{Operations: applicationagent.DynamicWorkspaceOperations{Provider: appAssistantWorkspaceProvider{app: app}}},
+		Policy: applicationagent.DefaultToolPolicy{},
 	})
+	if err := session.SetPermission(applicationagent.AllowChanges); err != nil {
+		t.Fatal(err)
+	}
 	presenter.session = session
 	if err := session.Send("把 before 改成 after"); err != nil {
 		t.Fatal(err)
@@ -133,7 +138,7 @@ func TestAssistantSessionExecutesTypedWorkspaceToolAndContinues(t *testing.T) {
 	if len(snapshot.Messages) != 2 || len(snapshot.Messages[1].Parts) != 2 || snapshot.Messages[1].Parts[1].Text != "已完成修改" {
 		t.Fatalf("unexpected session transcript after tool turn: %+v", snapshot.Messages)
 	}
-	if got := snapshot.Messages[1].Parts[0].Tool.Status; got != applicationagent.PartSucceeded {
+	if got := snapshot.Messages[1].Parts[0].Tool.Status; got != conversation.PartSucceeded {
 		t.Fatalf("tool status = %v", got)
 	}
 }

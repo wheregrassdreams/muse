@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	layoutindex "muse/editor/layout"
 	editorui "muse/nativeui/components/editor"
 	"muse/nativeui/surfaces/noteeditor"
 	"muse/nativeui/window"
@@ -30,7 +31,7 @@ func (e *editorSurfaceAdapter) SelectionRange() noteeditor.TextRange {
 }
 
 func (e *editorSurfaceAdapter) NavigateToOffset(offset int) {
-	e.Editor.NavigateToOffset(offset, editorui.PageJumpNearest)
+	e.Editor.NavigateToOffset(offset, layoutindex.PageJumpNearest)
 }
 
 func (e *editorSurfaceAdapter) Headings() []noteeditor.Heading {
@@ -90,5 +91,15 @@ func (e *editorSurfaceAdapter) Settings() noteeditor.PresentationSettings {
 		BaseDir:         options.BaseDir, AssetRoot: options.AssetRoot,
 		CurrentPath: options.CurrentPath, Code: options.Code,
 		LinkRevision: options.LinkRevision, LinkContext: options.LinkContext,
+	}
+}
+
+func (e *editorSurfaceAdapter) MemorySnapshot() noteeditor.MemorySnapshot {
+	snapshot := e.Editor.MemorySnapshot()
+	return noteeditor.MemorySnapshot{
+		SourceBytes: snapshot.SourceBytes, Leaves: snapshot.Leaves,
+		VirtualLayout: snapshot.VirtualLayout, ImageCandidateLeaves: snapshot.ImageCandidateLeaves,
+		ImageAssetViews: snapshot.ImageAssetViews, ImageAssets: snapshot.ImageAssets,
+		LoadedImageAssets: snapshot.LoadedImageAssets, ImagePixelBytes: snapshot.ImagePixelBytes,
 	}
 }

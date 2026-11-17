@@ -15,6 +15,31 @@ type ImageHost interface {
 	LoadImage(resolved string, dataURL bool) *images.Asset
 }
 
+// ImageSyntax identifies the source representation used by an image control.
+type ImageSyntax uint8
+
+const (
+	ImageSyntaxMarkdown ImageSyntax = iota + 1
+	ImageSyntaxWiki
+	ImageSyntaxHTML
+)
+
+// ImageSource identifies the source range owned by a rendered image and any
+// width suffix range parsed from Markdown syntax.
+type ImageSource struct {
+	From, To           int
+	WidthFrom, WidthTo int
+	Syntax             ImageSyntax
+}
+
+// ImageResizeHost is the editor capability needed to commit a media resize.
+// The media package computes the source edit; the host applies it through its
+// transaction/session boundary.
+type ImageResizeHost interface {
+	Source() string
+	CommitImageResize(from, to int, replacement string)
+}
+
 // ImageObject is a detached layout/resource projection for one displayed
 // image. It owns image sizing and placeholder metrics, while the host owns the
 // asset lifetime and document source ranges.
@@ -95,4 +120,22 @@ func (obj *ImageObject) Refresh() {
 		return
 	}
 	obj.Bitmap, obj.FrameVersion = RefreshImageBitmap(obj.Asset, obj.Bitmap, obj.FrameVersion)
+}
+
+// ApplyPreviewWidth updates the in-memory layout projection while an image is
+// being resized. It does not write source or touch the asset cache.
+func (obj *ImageObject) ApplyPreviewWidth(width float32) {
+	if obj == nil || width <= 0 {
+		return
+	}
+	obj.Refresh()
+	if obj.Bitmap != nil {
+		bw, bh := obj.Bitmap.Size()
+		if bw > 0 && bh > 0 {
+			obj.Height = width * float32(bh) / float32(bw)
+		}
+	} else if obj.Width > 0 {
+		obj.Height = width * obj.Height / obj.Width
+	}
+	obj.Width = width
 }

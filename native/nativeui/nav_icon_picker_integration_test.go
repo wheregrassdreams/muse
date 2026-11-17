@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	componenticons "muse/nativeui/components/icons"
 	"muse/ui/iconlibrary"
 )
 
@@ -35,13 +36,13 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	nearRect, nearOK := tt.Find("Align End Horizontal")
 	pickerTitle, titleOK := tt.Find("选择图标")
 	if !nearOK || !titleOK || nearRect.Y < pickerTitle.Y+60 || nearRect.Y > pickerTitle.Y+400 {
-		t.Fatalf("icons disappeared after a short scroll: row=%+v title=%+v scroll=%+v texts=%q", nearRect, pickerTitle, a.navIconPickerScroll, tt.Texts())
+		t.Fatalf("icons disappeared after a short scroll: row=%+v title=%+v scroll=%+v texts=%q", nearRect, pickerTitle, a.navIconPicker.Snapshot().Scroll, tt.Texts())
 	}
 	runtimeShot(t, tt, "nav-icon-picker-scroll-short")
 	tt.Scroll(150, 500, 0, 2700)
 	tt.Frame()
-	if a.navIconPickerScroll.Y < 3000 {
-		t.Fatalf("icon list did not scroll to its middle: y=%v", a.navIconPickerScroll.Y)
+	if a.navIconPicker.Snapshot().Scroll.Y < 3000 {
+		t.Fatalf("icon list did not scroll to its middle: y=%v", a.navIconPicker.Snapshot().Scroll.Y)
 	}
 	bonesRect, bonesOK := tt.Find("Bone Fracture")
 	if !bonesOK || !titleOK || bonesRect.Y < pickerTitle.Y+60 || bonesRect.Y > pickerTitle.Y+400 {
@@ -77,8 +78,8 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 		t.Fatalf("choose bookmark icon: %v", err)
 	}
 	bookmarked, _ := navIconFromLibrary("bookmark")
-	if a.navIconPickerOpen || a.treeIconID(item) != "bookmark" || a.treeIcon(item, false) != bookmarked {
-		t.Fatalf("tree icon was not applied: picker=%v ID=%q", a.navIconPickerOpen, a.treeIconID(item))
+	if a.navIconPicker.IsOpen() || a.treeIconID(item) != "bookmark" || a.treeIcon(item, false) != bookmarked {
+		t.Fatalf("tree icon was not applied: picker=%v ID=%q", a.navIconPicker.IsOpen(), a.treeIconID(item))
 	}
 	if got := a.navIconStore.Get(a.root, "Home.md"); got != "bookmark" {
 		t.Fatalf("persisted icon key lookup = %q", got)
@@ -92,8 +93,8 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	if err := tt.Click("恢复默认图标"); err != nil {
 		t.Fatalf("reset icon in picker: %v", err)
 	}
-	if a.navIconPickerOpen || a.treeIconID(item) != "" || a.treeIcon(item, false) != iconFile {
-		t.Fatalf("reset-to-default did not restore file icon: picker=%v ID=%q", a.navIconPickerOpen, a.treeIconID(item))
+	if a.navIconPicker.IsOpen() || a.treeIconID(item) != "" || a.treeIcon(item, false) != componenticons.File() {
+		t.Fatalf("reset-to-default did not restore file icon: picker=%v ID=%q", a.navIconPicker.IsOpen(), a.treeIconID(item))
 	}
 	if err := a.navIconStore.Delete(a.root, "Home.md"); err != nil {
 		t.Fatal(err)

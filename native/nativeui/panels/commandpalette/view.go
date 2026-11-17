@@ -4,12 +4,37 @@
 package commandpalette
 
 import (
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
+	"muse/search/quickopen"
 )
 
 type Command struct {
 	ID, Name, Hint string
+}
+
+// filter ranks registered commands for the panel query.
+func filter(query string, commands []Command) []Command {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return append([]Command(nil), commands...)
+	}
+	candidates := make([]quickopen.Candidate, len(commands))
+	byID := make(map[string]Command, len(commands))
+	for i, command := range commands {
+		candidates[i] = quickopen.Candidate{Path: command.ID, PathText: command.Name, Title: command.Name}
+		byID[command.ID] = command
+	}
+	matches := quickopen.Rank(query, candidates)
+	filtered := make([]Command, 0, len(matches))
+	for _, match := range matches {
+		if command, ok := byID[match.Path]; ok {
+			filtered = append(filtered, command)
+		}
+	}
+	return filtered
 }
 
 type ViewModel struct {
@@ -32,6 +57,66 @@ type Action struct {
 	Query string
 	Index int
 	ID    string
+}
+
+// state owns the command palette's transient presentation state. The root
+// application supplies command data and handles the resulting use cases.
+type state struct {
+	open     bool
+	query    string
+	selected int
+}
+
+// Handle keeps transient command-palette state inside this panel package.
+// The composition root may route events through it without retaining the
+// panel's concrete state object.
+type Handle struct{ state *state }
+
+func NewHandle() Handle { return Handle{state: &state{}} }
+
+func (h *Handle) ensureState() *state {
+	if h.state == nil {
+		h.state = &state{}
+	}
+	return h.state
+}
+
+func (h *Handle) Open()          { h.ensureState().Open() }
+func (h *Handle) Close()         { h.ensureState().Close() }
+func (h Handle) IsOpen() bool    { return h.state != nil && h.state.IsOpen() }
+func (h *Handle) Apply(a Action) { h.ensureState().Apply(a) }
+func (h Handle) ViewModel(c []Command) ViewModel {
+	if h.state == nil {
+		return ViewModel{Commands: filter("", c)}
+	}
+	return h.state.ViewModel(c)
+}
+
+func (s *state) Open() {
+	s.open = true
+	s.query = ""
+	s.selected = 0
+}
+
+func (s *state) Close() { s.open = false }
+
+func (s state) IsOpen() bool { return s.open }
+
+// Apply consumes stateful panel actions. Execute and Dismiss are left to the
+// composition root because they trigger application workflows.
+func (s *state) Apply(action Action) {
+	switch action.Kind {
+	case QueryChanged:
+		s.query = action.Query
+		s.selected = 0
+	case MoveSelection:
+		s.selected = max(0, action.Index)
+	}
+}
+
+func (s state) ViewModel(commands []Command) ViewModel {
+	commands = filter(s.query, commands)
+	return ViewModel{Query: s.query, Selected: clamp(s.selected, len(commands)), Commands: commands}
 }
 
 func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {

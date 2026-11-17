@@ -47,9 +47,10 @@ type FocusLifecycle interface {
 }
 
 var (
-	ErrModalAlreadyOpen = errors.New("window: a modal surface is already open")
-	ErrInvalidContent   = errors.New("window: content is required")
-	ErrInvalidPlacement = errors.New("window: host is required")
+	ErrModalAlreadyOpen  = errors.New("window: a modal surface is already open")
+	ErrInvalidContent    = errors.New("window: content is required")
+	ErrInvalidPlacement  = errors.New("window: host is required")
+	ErrHandleUnavailable = errors.New("window: content handle is unavailable")
 )
 
 type entry struct {
@@ -58,6 +59,21 @@ type entry struct {
 	placement Placement
 	restore   Handle
 	closing   bool
+}
+
+// WithContent resolves a live content handle for a synchronous operation.
+// Like every Manager operation, it must be called on the UI-owner thread.
+// The callback receives only the generic content contract; feature packages
+// own any typed capability assertions.
+func (m *Manager) WithContent(handle Handle, use func(Content) error) error {
+	if m == nil || handle.IsZero() || use == nil {
+		return ErrHandleUnavailable
+	}
+	e := m.entries[handle]
+	if e == nil || e.closing || e.content == nil {
+		return ErrHandleUnavailable
+	}
+	return use(e.content)
 }
 
 type paneKey struct {

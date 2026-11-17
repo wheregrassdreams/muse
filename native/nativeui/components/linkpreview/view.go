@@ -5,6 +5,8 @@ package linkpreview
 
 import (
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
@@ -18,6 +20,86 @@ const (
 	Markdown Kind = iota + 1
 	Image
 )
+
+// state owns transient hover and dismissal behavior for one preview.
+type state struct {
+	Target         string
+	X, Y           float32
+	LinkBounds     ui.Rect
+	Entered        time.Time
+	LeaveAt        time.Time
+	OverlayHovered bool
+	imagePath      string
+	imageAsset     *markdownui.ImageAsset
+	imageBitmap    *ui.Bitmap
+}
+
+// Hover updates the active link and preserves its dwell timer while the same
+// link remains under the pointer.
+func (s *state) Hover(target string, x, y float32, bounds ui.Rect, now time.Time, leaveDelay time.Duration) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		if s.Target != "" && s.LeaveAt.IsZero() {
+			s.LeaveAt = now.Add(leaveDelay)
+		}
+		return
+	}
+	if s.Target != target {
+		*s = state{Target: target, Entered: now}
+	}
+	s.X, s.Y, s.LinkBounds = x, y, bounds
+	s.LeaveAt = time.Time{}
+}
+
+// SetOverlayHovered starts or cancels the grace period as the pointer enters
+// or leaves the rendered preview card.
+func (s *state) SetOverlayHovered(hovered bool, now time.Time, leaveDelay time.Duration) {
+	s.OverlayHovered = hovered
+	if hovered {
+		s.LeaveAt = time.Time{}
+	} else if !s.LeaveAt.IsZero() || s.Target != "" {
+		s.LeaveAt = now.Add(leaveDelay)
+	}
+}
+
+// EnsureImage keeps the image resource associated with the active preview.
+// The loader is invoked only when the path changes; replacing or clearing the
+// path drops the previous asset and bitmap references.
+func (s *state) EnsureImage(path string, load func(string) *markdownui.ImageAsset) {
+	if s.imagePath == path {
+		return
+	}
+	s.imagePath = path
+	s.imageAsset = nil
+	s.imageBitmap = nil
+	if path != "" && load != nil {
+		s.imageAsset = load(path)
+	}
+}
+
+// AdvanceImage advances an animated preview and returns its next frame
+// deadline together with the currently available renderer bitmap.
+func (s *state) AdvanceImage(now time.Time) (time.Duration, *ui.Bitmap) {
+	if s.imageAsset == nil {
+		s.imageBitmap = nil
+		return 0, nil
+	}
+	next, _ := s.imageAsset.Advance(now)
+	s.imageBitmap = s.imageAsset.Bitmap()
+	return next, s.imageBitmap
+}
+
+// ImagePath reports the source associated with the active preview.
+func (s *state) ImagePath() string { return s.imagePath }
+
+// ImageBitmap returns the currently available image preview bitmap.
+func (s *state) ImageBitmap() *ui.Bitmap { return s.imageBitmap }
+
+// HasImageAsset reports whether an image resource is attached to this state.
+func (s *state) HasImageAsset() bool { return s.imageAsset != nil }
+
+// Clear ends the transient hover session and releases its image resources.
+func (s *state) Clear() { *s = state{} }
 
 type ViewModel struct {
 	Kind            Kind

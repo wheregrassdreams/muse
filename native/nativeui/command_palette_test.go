@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"muse/nativeui/panels/commandpalette"
 )
 
 // ⌘P 命令面板：打开 → 模糊过滤 → 运行选中命令。
@@ -13,7 +14,7 @@ func TestCommandPalette(t *testing.T) {
 	a.setWorkspace(t.TempDir())
 
 	a.openCommandPalette()
-	if !a.cmdPalette {
+	if !a.commandPalette.IsOpen() {
 		t.Fatal("面板未打开")
 	}
 	tt := ui.NewTester(a.View, 1200, 800)
@@ -35,19 +36,19 @@ func TestCommandPalette(t *testing.T) {
 
 	// 无匹配提示空候选，Esc 路径关闭
 	a.openCommandPalette()
-	a.cmdValue = "不存在的命令xyz"
+	a.commandPalette.Apply(commandpalette.Action{Kind: commandpalette.QueryChanged, Query: "不存在的命令xyz"})
 	if len(a.paletteCandidates()) != 0 {
 		t.Fatal("无匹配时应为空候选")
 	}
 	a.closeCommandPalette()
-	if a.cmdPalette {
+	if a.commandPalette.IsOpen() {
 		t.Fatal("关闭失败")
 	}
 
 	// 默认第一项是「新建文档」：运行后 dirty 文档状态建立
 	a.openCommandPalette()
 	a.applyCommandPalette()
-	if a.cmdPalette {
+	if a.commandPalette.IsOpen() {
 		t.Fatal("运行后面板未关闭")
 	}
 	// 新建文档 = 重置为空文档（path/source 清空）

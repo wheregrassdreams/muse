@@ -1,14 +1,12 @@
-// Package search renders workspace search UI and translates input into typed
-// actions. Query execution, recent-note discovery, candidate/ranking policy,
-// and navigation remain with application/search callers.
-package search
+// Package searchui renders workspace search and translates interaction into
+// typed actions. Query execution and navigation remain application concerns.
+package searchui
 
 import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/ui/scrollbar"
 )
 
 type Mode uint8
@@ -36,29 +34,18 @@ type Result struct {
 	Revision                        string
 }
 
-type ScrollPort struct {
-	State     *ui.ScrollState
-	Results   *ui.ListState
-	Indicator *scrollbar.Indicator
-}
-
-type ViewModel struct {
-	Open            *bool
-	Query           string
-	Mode            Mode
-	Availability    Availability
-	Error           string
-	Busy            bool
-	CanChangeMode   bool
-	Recent          []RecentItem
-	Results         []Result
-	Selected        int
-	RevealSelection bool
-	InputFocus      *ui.Handle
-	SearchIcon      *ui.SVG
-	FileIcon        *ui.SVG
-	IconTint        ui.Color
-	Scroll          ScrollPort
+// View is a current, immutable snapshot supplied by the application. Results
+// are already queried and ranked; this panel never scans or copies a vault.
+type View struct {
+	Availability  Availability
+	Error         string
+	Busy          bool
+	CanChangeMode bool
+	Recent        []RecentItem
+	Results       []Result
+	SearchIcon    *ui.SVG
+	FileIcon      *ui.SVG
+	IconTint      ui.Color
 }
 
 type ActionKind uint8
@@ -67,7 +54,6 @@ const (
 	QueryChanged ActionKind = iota + 1
 	ModeChanged
 	MoveSelection
-	SelectionRevealed
 	OpenRecent
 	OpenResult
 	Dismiss
@@ -82,12 +68,12 @@ type Action struct {
 	Result Result
 }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
-	if model.Open == nil || !*model.Open {
+func render(c *ui.Context, state *state, view View, dispatch func(Action)) {
+	if state == nil || !state.open {
 		return
 	}
-	count := rowCount(model)
-	selected := clampSelection(model.Selected, count)
+	count := state.viewCount(view)
+	state.selected = clampSelection(state.selected, count)
 	enterPressed := c.Shortcut(0, ui.KeyEnter)
 	submitted := false
 	if count > 0 {
@@ -99,39 +85,43 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			step = 1
 		}
 		if step != 0 {
-			selected = (selected + step + count) % count
-			dispatchAction(dispatch, Action{Kind: MoveSelection, Index: selected})
+			next := (state.selected + step + count) % count
+			action := Action{Kind: MoveSelection, Index: next}
+			state.apply(action)
+			dispatchAction(dispatch, action)
 		}
 	}
 	t := c.Theme()
-	dialog := ui.DialogBase(c, model.Open, func(backdrop, panel ui.Element) {
+	dialog := ui.DialogBase(c, &state.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(ui.RGBA(0, 0, 0, 0.30))
 		panel.Width(760).Height(620).MaxWidthPercent(94).MaxHeightPercent(86).Padding(0).Gap(0).Radius(14).
 			Background(t.Background).Border(1, t.Border).
 			Shadow(0, 18, 44, -8, ui.RGBA(0, 0, 0, 0.32)).Clip().Children(func() {
-			renderHeader(c, model, selected, count, dispatch, func() {
+			renderHeader(c, state, view, count, dispatch, func() {
 				submitted = true
-				dispatchOpenSelection(model, selected, dispatch)
+				dispatchOpenSelection(state, view, dispatch)
 			})
 			ui.Box(c).Height(1).FillWidth().Background(t.Border)
-			renderBody(c, model, selected, count, dispatch)
+			renderBody(c, state, view, count, dispatch)
 			ui.Box(c).Height(1).FillWidth().Background(t.Border)
-			renderFooter(c, model)
+			renderFooter(c, state, view)
 		})
 	})
 	if enterPressed && !submitted {
-		dispatchOpenSelection(model, selected, dispatch)
+		dispatchOpenSelection(state, view, dispatch)
 	}
 	if dialog.Dismissed() {
-		dispatchAction(dispatch, Action{Kind: Dismiss})
+		action := Action{Kind: Dismiss}
+		state.apply(action)
+		dispatchAction(dispatch, action)
 	}
 }
 
-func renderHeader(c *ui.Context, model ViewModel, selected, count int, dispatch func(Action), submit func()) {
+func renderHeader(c *ui.Context, state *state, view View, count int, dispatch func(Action), submit func()) {
 	t := c.Theme()
 	ui.Row(c).Height(58).Padding(0, 18).Gap(12).AlignItems(ui.Center).Children(func() {
-		ui.Icon(c, model.SearchIcon).Size(18, 18).TextColor(t.TextMuted)
-		query := model.Query
+		ui.Icon(c, view.SearchIcon).Size(18, 18).TextColor(t.TextMuted)
+		query := state.query
 		input := ui.TextInputBase(c, &query).Grow(1).MinWidth(0).
 			Placeholder(locales.WorkspaceSearchPlaceholder()).Label(locales.MenuSearchWorkspace()).AutoFocus().
 			OnSubmit(submit).
@@ -143,40 +133,46 @@ func renderHeader(c *ui.Context, model ViewModel, selected, count int, dispatch 
 				if k.Key == ui.KeyP {
 					step = -1
 				}
-				next := (selected + step + count) % count
-				dispatchAction(dispatch, Action{Kind: MoveSelection, Index: next})
+				next := (state.selected + step + count) % count
+				action := Action{Kind: MoveSelection, Index: next}
+				state.apply(action)
+				dispatchAction(dispatch, action)
 				return true
 			})
-		if model.InputFocus != nil {
-			input.Ref(model.InputFocus)
+		input.Ref(&state.inputFocus)
+		if query != state.query {
+			action := Action{Kind: QueryChanged, Query: query}
+			state.apply(action)
+			dispatchAction(dispatch, action)
 		}
-		if query != model.Query {
-			dispatchAction(dispatch, Action{Kind: QueryChanged, Query: query})
-		}
-		if model.CanChangeMode {
+		if view.CanChangeMode {
 			fullLabel, literalLabel := locales.WorkspaceSearchFullText(), locales.WorkspaceSearchLiteral()
-			if model.Mode == Literal {
+			if state.mode == Literal {
 				literalLabel = locales.WorkspaceSearchLiteralSelected()
 			} else {
 				fullLabel = locales.WorkspaceSearchFullTextSelected()
 			}
-			if ui.Button(c, fullLabel).Clicked() && model.Mode != FullText {
-				dispatchAction(dispatch, Action{Kind: ModeChanged, Mode: FullText})
+			if ui.Button(c, fullLabel).Clicked() && state.mode != FullText {
+				action := Action{Kind: ModeChanged, Mode: FullText}
+				state.apply(action)
+				dispatchAction(dispatch, action)
 			}
-			if ui.Button(c, literalLabel).Clicked() && model.Mode != Literal {
-				dispatchAction(dispatch, Action{Kind: ModeChanged, Mode: Literal})
+			if ui.Button(c, literalLabel).Clicked() && state.mode != Literal {
+				action := Action{Kind: ModeChanged, Mode: Literal}
+				state.apply(action)
+				dispatchAction(dispatch, action)
 			}
 		}
 	})
 }
 
-func renderBody(c *ui.Context, model ViewModel, selected, count int, dispatch func(Action)) {
+func renderBody(c *ui.Context, state *state, view View, count int, dispatch func(Action)) {
 	t := c.Theme()
-	if strings.TrimSpace(model.Query) == "" {
-		renderRecent(c, model, selected, dispatch)
+	if strings.TrimSpace(state.query) == "" {
+		renderRecent(c, state, view, dispatch)
 		return
 	}
-	switch model.Availability {
+	switch view.Availability {
 	case VaultRequired:
 		ui.Box(c).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Children(func() {
 			ui.Text(c, locales.WorkspaceSearchHint()).FontSize(12).TextColor(t.TextMuted)
@@ -184,8 +180,8 @@ func renderBody(c *ui.Context, model ViewModel, selected, count int, dispatch fu
 		return
 	case IndexBuilding:
 		ui.Box(c).FillWidth().Grow(1).MinHeight(100).Padding(10, 12).Children(func() {
-			if model.Error != "" {
-				ui.Text(c, locales.WorkspaceSearchIndexUnavailable(model.Error)).Wrap()
+			if view.Error != "" {
+				ui.Text(c, locales.WorkspaceSearchIndexUnavailable(view.Error)).Wrap()
 			} else {
 				ui.Text(c, locales.VaultIndexBuilding())
 			}
@@ -193,55 +189,52 @@ func renderBody(c *ui.Context, model ViewModel, selected, count int, dispatch fu
 		return
 	}
 
-	if model.Error != "" {
-		ui.Text(c, locales.WorkspaceSearchFailed(model.Error)).Wrap()
+	if view.Error != "" {
+		ui.Text(c, locales.WorkspaceSearchFailed(view.Error)).Wrap()
 	}
-	if model.Busy {
+	if view.Busy {
 		ui.Text(c, locales.VaultSearching()).FontSize(11).TextColor(t.TextMuted)
 	}
-	if !model.Busy && model.Error == "" && len(model.Results) == 0 {
+	if !view.Busy && view.Error == "" && len(view.Results) == 0 {
 		ui.Text(c, locales.VaultSearchEmpty()).FontSize(12).TextColor(t.TextMuted)
 	}
-	listState := model.Scroll.Results
-	if listState == nil {
-		listState = &ui.ListState{}
+	listState := &state.results
+	listState.Key = func(i int) any { return view.Results[i].Path }
+	if state.revealSelection && state.selected >= 0 && state.selected < len(view.Results) {
+		listState.ScrollIntoView(state.selected)
+		state.revealSelection = false
 	}
-	if model.RevealSelection && selected >= 0 && selected < len(model.Results) {
-		listState.ScrollIntoView(selected)
-		dispatchAction(dispatch, Action{Kind: SelectionRevealed})
-	}
-	state := model.Scroll.State
-	if state == nil {
-		state = &ui.ScrollState{}
-	}
-	showScrollbar := scrollVisible(c, model.Scroll)
-	ui.List(c, listState, len(model.Results), func(i int) {
-		result := model.Results[i]
-		renderResultRow(c, result, i == selected, model.Query, model.FileIcon, model.IconTint, func() {
+	showScrollbar := scrollVisible(c, state)
+	ui.List(c, listState, len(view.Results), func(i int) {
+		result := view.Results[i]
+		renderResultRow(c, result, i == state.selected, state.query, view.FileIcon, view.IconTint, func() {
+			state.selectResult(i, false)
 			dispatchAction(dispatch, Action{Kind: OpenResult, Index: i, Result: result})
 		})
-	}).FillWidth().Grow(1).MinHeight(0).Gap(6).TrackScroll(state).Scrollbars(showScrollbar)
+	}).FillWidth().Grow(1).MinHeight(0).Gap(6).TrackScroll(&state.scroll).Scrollbars(showScrollbar)
 }
 
-func renderRecent(c *ui.Context, model ViewModel, selected int, dispatch func(Action)) {
+func renderRecent(c *ui.Context, state *state, view View, dispatch func(Action)) {
 	t := c.Theme()
-	state := model.Scroll.State
-	if state == nil {
-		state = &ui.ScrollState{}
+	if len(view.Recent) == 0 {
+		ui.Text(c, locales.WorkspaceRecentEmpty()).FontSize(12).TextColor(t.TextMuted)
+		return
 	}
-	showScrollbar := scrollVisible(c, model.Scroll)
-	ui.Scroll(c).FillWidth().Grow(1).MinHeight(100).TrackScroll(state).Scrollbars(showScrollbar).
-		Padding(10, 12).Children(func() {
-		if len(model.Recent) == 0 {
-			ui.Text(c, locales.WorkspaceRecentEmpty()).FontSize(12).TextColor(t.TextMuted)
-		}
-		for i, item := range model.Recent {
-			item := item
-			renderResultRow(c, Result{Path: item.Path, Title: item.Title, PathLabel: item.PathLabel}, i == selected, "", model.FileIcon, model.IconTint, func() {
-				dispatchAction(dispatch, Action{Kind: OpenRecent, Index: i, Recent: item})
-			})
-		}
-	})
+	listState := &state.results
+	listState.Key = func(i int) any { return view.Recent[i].Path }
+	if state.revealSelection && state.selected >= 0 && state.selected < len(view.Recent) {
+		listState.ScrollIntoView(state.selected)
+		state.revealSelection = false
+	}
+	showScrollbar := scrollVisible(c, state)
+	ui.List(c, listState, len(view.Recent), func(i int) {
+		item := view.Recent[i]
+		result := Result{Path: item.Path, Title: item.Title, PathLabel: item.PathLabel}
+		renderResultRow(c, result, i == state.selected, "", view.FileIcon, view.IconTint, func() {
+			state.selectResult(i, false)
+			dispatchAction(dispatch, Action{Kind: OpenRecent, Index: i, Recent: item})
+		})
+	}).FillWidth().Grow(1).MinHeight(100).Gap(6).TrackScroll(&state.scroll).Scrollbars(showScrollbar)
 }
 
 func renderResultRow(c *ui.Context, result Result, selected bool, query string, fileIcon *ui.SVG, iconTint ui.Color, open func()) {
@@ -262,16 +255,16 @@ func renderResultRow(c *ui.Context, result Result, selected bool, query string, 
 	})
 }
 
-func renderFooter(c *ui.Context, model ViewModel) {
+func renderFooter(c *ui.Context, state *state, view View) {
 	t := c.Theme()
 	ui.Row(c).Height(34).Padding(0, 16).AlignItems(ui.Center).Children(func() {
-		if strings.TrimSpace(model.Query) != "" && model.Availability == Ready {
-			if model.Mode == Literal {
-				ui.Text(c, locales.SearchMatchCount(len(model.Results))).FontSize(10.5).TextColor(t.TextMuted)
+		if strings.TrimSpace(state.query) != "" && view.Availability == Ready {
+			if state.mode == Literal {
+				ui.Text(c, locales.SearchMatchCount(len(view.Results))).FontSize(10.5).TextColor(t.TextMuted)
 			} else {
-				ui.Text(c, locales.WorkspaceNoteCount(len(model.Results))).FontSize(10.5).TextColor(t.TextMuted)
+				ui.Text(c, locales.WorkspaceNoteCount(len(view.Results))).FontSize(10.5).TextColor(t.TextMuted)
 			}
-		} else if strings.TrimSpace(model.Query) == "" {
+		} else if strings.TrimSpace(state.query) == "" {
 			ui.Text(c, locales.WorkspaceRecentNotes()).FontSize(10.5).TextColor(t.TextMuted)
 		}
 		ui.Spacer(c)
@@ -279,25 +272,12 @@ func renderFooter(c *ui.Context, model ViewModel) {
 	})
 }
 
-func scrollVisible(c *ui.Context, port ScrollPort) bool {
-	if port.State == nil || port.Indicator == nil {
-		return false
-	}
-	visible := port.Indicator.Visible(c.Now(), port.State.X, port.State.Y)
+func scrollVisible(c *ui.Context, state *state) bool {
+	visible := state.indicator.Visible(c.Now(), state.scroll.X, state.scroll.Y)
 	if visible {
-		c.After(port.Indicator.Remaining(c.Now()))
+		c.After(state.indicator.Remaining(c.Now()))
 	}
 	return visible
-}
-
-func rowCount(model ViewModel) int {
-	if strings.TrimSpace(model.Query) == "" {
-		return len(model.Recent)
-	}
-	if model.Availability != Ready {
-		return 0
-	}
-	return len(model.Results)
 }
 
 func clampSelection(selected, count int) int {
@@ -307,15 +287,16 @@ func clampSelection(selected, count int) int {
 	return max(0, min(selected, count-1))
 }
 
-func dispatchOpenSelection(model ViewModel, selected int, dispatch func(Action)) {
-	if strings.TrimSpace(model.Query) == "" {
-		if selected >= 0 && selected < len(model.Recent) {
-			dispatchAction(dispatch, Action{Kind: OpenRecent, Index: selected, Recent: model.Recent[selected]})
+func dispatchOpenSelection(state *state, view View, dispatch func(Action)) {
+	selected := state.selected
+	if strings.TrimSpace(state.query) == "" {
+		if selected >= 0 && selected < len(view.Recent) {
+			dispatchAction(dispatch, Action{Kind: OpenRecent, Index: selected, Recent: view.Recent[selected]})
 		}
 		return
 	}
-	if model.Availability == Ready && selected >= 0 && selected < len(model.Results) {
-		dispatchAction(dispatch, Action{Kind: OpenResult, Index: selected, Result: model.Results[selected]})
+	if view.Availability == Ready && selected >= 0 && selected < len(view.Results) {
+		dispatchAction(dispatch, Action{Kind: OpenResult, Index: selected, Result: view.Results[selected]})
 	}
 }
 

@@ -61,7 +61,7 @@ native/
 │   ├── math/
 │   │   └── texcanvas/             # native canvas integration for TeX rendering
 │   └── diagrams/
-├── agent/                         # AI session/tool/provider-independent flow
+├── agent/                         # provider-neutral conversation and tool value model
 ├── config/                        # serialized settings, defaults and migration
 ├── theme/                         # runtime palette and visual tokens
 ├── ui/                            # reusable UI primitives
@@ -139,17 +139,17 @@ The child entries in this tree are real Go package boundaries, not merely folder
 | `editor/input/vim` | Independent Vim mode state machine, pending prefixes/counts/registers, and mapping from neutral key/text events to typed editor operations | `modal.go`, Vim-specific command interpretation, and mode/sequence tests; extract Editor-private callbacks into a narrow Host contract during wiring |
 | `editor/navigation` | Source-position movement and structural navigation policy | `nav.go`, `comment_nav.go`, and movement policy currently mixed into Vim/navigation files |
 | `editor/findreplace` | Case-insensitive current-buffer matching, source ranges and safe single/all replacement planning | Current-document `findHits`, snippet/range generation, and replacement planning in `nativeui.App` |
-| `editor/layout` | Block geometry, visible-range indexing, virtualization and scroll policy | Geometry/policy portions of `layout.go`, `horizontal_scroll.go`, and `vim_virtual_image_rows.go` |
+| `editor/layout` | Backend-neutral block and viewport geometry, visible-range indexing, virtualization, and scrolling policy | Geometry and virtualization portions of `layout.go`; horizontal offset/reveal/bar geometry and virtual-row policy from `horizontal_scroll.go` and `vim_virtual_image_rows.go` |
 | `editor/blocks/inline` | Inline formatting, math editing state, wiki/tag/comment behavior | Semantic portions of `format.go`, `inlinemath.go`, `wikilink.go`, `tag.go`, and `comment.go` |
 | `editor/blocks/paragraph` | Heading/list/fold/break behavior and paragraph transactions | `folding.go`, `typed_breaks.go`, `paragraph`/heading/list portions of editor commands |
 | `editor/blocks/table` | Table selection model, hit testing, grid geometry, and row/column operations | Semantic portions of `table_document_selection.go`, `table_region_*.go`, `table_virtual_edit.go`, and `table_visual_modes.go` |
-| `nativeui/components/editor` | MyGo input/render adapter, rich-text editing, IME, painting, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go` |
+| `nativeui/components/editor` | MyGo input/render adapter, rich-text editing, IME, painting, scroll event translation, and block-specific UI | MyGo-dependent portions of `view.go`, `display.go`, `paint.go`, `ime.go`, `rectangle.go`, `assets.go`, `source_highlight.go`, `image_controls.go`, `table_*_ui.go`, `table_edges.go`, `table_cell_menu.go`, and `table_reorder.go`; host scroll input/indicator adapters |
 
 The table entries are responsibility guides, not mechanical move lists: files that combine model behavior and UI must be split before their owners change. Tests move with the package that owns the tested behavior; Vim mode/command tests belong with `editor/input/vim`, movement semantics belong with `editor/navigation`, UI/input adapter tests belong with the component adapter, and transaction tests stay with the core. A package is justified when it has a coherent contract and more than a forwarding file.
 
 Vim remains a selectable editor input strategy, not a second editor core. Its state machine owns mode transitions, command prefixes/counts, register selection, and command-to-operation mapping. It calls typed host capabilities for source/selection queries and operation dispatch; it must not reach into `Editor` fields or own buffer/history. `editor/navigation` implements movement semantics, `editor/blocks/*` implements block operations, and `editor/internal/core` commits edits. The UI adapter translates MyGo events to neutral input events and renders the current mode label/command prompt from an immutable Vim view state.
 
-Text shaping needs an explicit backend boundary. `editor/layout` owns neutral block geometry and virtualization policy. The current shaping implementation imports MyGo and therefore belongs under `nativeui/components/editor/textlayout`; it must not stay under `editor` or `editor/internal`. If a backend-neutral shaping algorithm is extracted later, it can live behind that component package's narrow input/output contract without depending on MyGo.
+Text shaping needs an explicit backend boundary. `editor/layout` owns neutral block, viewport, scrolling, and virtualization policy. MyGo scroll event translation and indicator lifecycle stay in the `nativeui/components/editor` host. The current shaping implementation imports MyGo and therefore belongs under `nativeui/components/editor/textlayout`; it must not stay under `editor` or `editor/internal`. If a backend-neutral shaping algorithm is extracted later, it can live behind that component package's narrow input/output contract without depending on MyGo.
 
 The editor source adapter does not duplicate Markdown grammar or AST ownership. `editor/source` coordinates the editor's incremental source/revision and masking needs, then delegates Markdown syntax parsing and AST updates to `markdown/syntax`; it may not define a second Markdown AST or parser grammar. This is a public editor subsystem package, rather than an `internal` package, because `nativeui/components/editor` must be able to consume it without violating Go's `internal` import boundary.
 
@@ -163,7 +163,7 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 
 | Target package | Owns | Candidate current files / required seam |
 |---|---|---|
-| `components/editor` | Editor host, session synchronization, construction, lifecycle and composition of UI adapters | Keep `Editor`, source-to-leaf synchronization, and orchestration here; do not export broad mutable state to make extraction easier |
+| `components/editor` | Editor host, session synchronization, construction, lifecycle, scroll event translation, and composition of UI adapters | Keep `Editor`, source-to-leaf synchronization, MyGo scroll input/indicator handling, and orchestration here; do not export broad mutable state to make extraction easier |
 | `components/editor/inputadapter` | MyGo event normalization into `editor/input` events | Pure event translation from `production_input.go`; stateful dispatch stays at the host until it consumes typed commands/capabilities |
 | `components/editor/ime` | MyGo text-composition lifecycle and UTF-16 range conversion | `ime.go` after introducing a narrow text/selection session interface |
 | `components/editor/blocks/inline` | Inline-link suggestion/hover UI and host-side inline actions | Move wiki suggestion popup state and link interaction adapters here; consume `editor/blocks/inline` source ranges and typed actions |
@@ -173,7 +173,6 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 | `components/editor/render` | MyGo painting, rich-text block projection, syntax-token styling, and view composition from an immutable visible-block frame | `paint.go`, `display.go`, `production_view.go`, `source_highlight.go`, HTML/callout/wiki-embed presentation; object projection/painter invariant tests such as `object_size_test.go`. Keep tests coupled to the editor host in the component root until the renderer contract is wired. |
 | `components/editor/navigationrail` | Heading-rail rendering, hover/preview presentation, and interaction state | `navigation_rail.go`, `navigation_rail_model.go`; source-position snapshots and heading-jump policy move to `editor/navigation` when the host seam is wired |
 | `components/editor/feedback` | Transient visual feedback and animation state | `smooth_cursor.go`, `search_match_pulse.go`, `vim_yank_flash.go`; keep source selection and movement authoritative in `editor` |
-| `components/editor/scroll` | MyGo scroll input/indicator adapters for horizontally overflowing blocks and virtual image rows | `horizontal_scroll.go`, `vim_virtual_image_rows.go`; neutral viewport and movement policy belongs in `editor/layout` / `editor/navigation` |
 | `components/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
 
 The candidate map records the final owners, not an instruction to change dependencies during the layout pass. During layout-only moves, keep file bodies and package declarations unchanged even when they temporarily depend on the old shared package; the later wiring phase splits mixed host/model files and introduces narrow typed contracts. The renderer currently has the widest private-state reach, so its package API will need special care during wiring. The semantic `editor/blocks/*` packages remain the source of behavior; these UI packages only translate host events and present their state.
@@ -208,7 +207,9 @@ The root `nativeui` package is still larger than its target responsibility. Keep
 | `vault_home.go`, settings and nav-icon picker rendering/state | `panels/vaulthome`, `panels/settings`, `panels/naviconpicker` | Injected repositories and application capability adapters |
 | `assistant_panel_adapter.go`: assistant panel rendering and tool-policy rules | `panels/agent` for presentation; `agent` / `application/agent` for policy and workflows | Tool capability wiring at composition time |
 | `filetree_panel.go`, `file_tree_keys.go`: tree rendering, view state, tree-local commands | `panels/filetree`; shared focus/key routing in `interactions` | Typed action dispatch to `application/vault` |
-| `app.go`: flattened visible tree rows and cache invalidation coupled to expansion state | `panels/filetree` projection state | Supply catalog child/directory lookups and invalidate after vault catalog changes |
+| `app.go`: flattened visible tree rows, selection projection and create-target choice coupled to expansion/selection state | `panels/filetree` projection state and typed handle methods | Supply catalog child/directory lookups and invalidate after vault catalog changes |
+| `app.go`: Markdown heading fragment slug generation | `markdown/syntax` | Resolve the active note heading and navigate its source offset |
+| `app.go`: file-extension language selection and rich-Markdown path classification | `components/editor` for MyGo language IDs; `components/doctypes` for Markdown type policy | Supply the path and use the returned language/parser classification |
 | `properties_panel_adapter.go`: property view preferences, parsed-document cache, system-property snapshot and display projection | `panels/properties` | Config repository load/save adapter and typed metadata-workflow dispatch to `application/document` |
 | `vault_lifecycle.go`: backlink grouping/resolution and search-result policy | `vault/links`, `search`, and `application/vault` | Watch/index lifecycle coordination and opening the selected document |
 | `workspace_search_policy.go`: search scheduling/coalescing | `search` or a focused `application/search` workflow | UI query input and dispatch |
@@ -233,6 +234,8 @@ Source-position text navigation belongs to `editor/navigation`; MyGo event trans
 | `search` | Query language/AST, field/operator meaning, execution plan, ranking and result contract | Filesystem traversal, concrete vault index layout, panel state |
 | `workspace` | Open documents, active view, tabs/panes/layout, restoration snapshot and repository contract | Note source of truth, editor implementation internals, filesystem persistence |
 | `application` | User workflows spanning modules, ordering, cancellation and transaction boundaries | Domain invariants that belong to a feature module |
+| `agent` | Provider-neutral conversation messages, parts, tool requests/results and their stable value semantics | Session lifecycle, permissions/workflow policy, provider HTTP protocol, UI state |
+| `application/agent` | Conversation session lifecycle, streaming/approval orchestration, tool permissions and consumer-owned provider capabilities | Conversation value semantics, provider wire formats, panel state |
 | `nativeui` | Rendering, input translation, focus/panel state and calling use cases | Business rules, storage/index implementation, query execution |
 | `config` / `theme` | Persisted settings schema vs derived runtime style values | Editor/document policy or interaction state machines |
 | `ui` | Backend-neutral reusable UI behavior/components | Muse business concepts or platform-specific APIs |
@@ -330,7 +333,7 @@ Complete the target file/package layout before doing further production wiring. 
 ## Architecture decisions during implementation
 
 - 2026-11-16: GoRex is adopted as a behavioral reference for tab/pane focus and split-layout interactions, not as a package architecture to copy. Muse separates durable layout (`workspace`), generic live hosting (`nativeui/window`), and toolkit layout presentation (`nativeui/workspacepresenter`). A pane's note/editor composition belongs to `nativeui/surfaces/noteeditor`; recent pane focus used for runtime close fallback is session policy and is not serialized as durable document content.
-- 2026-11-17: Provider-specific HTTP and wire-format code belongs to `platform/agent`; `agent` and `application/agent` own provider-independent session, policy, and stream contracts. The composition root constructs concrete provider adapters and injects their ports. This keeps network protocols and credentials out of UI and application policy.
+- 2026-11-17: Provider-specific HTTP and wire-format code belongs to `platform/agent`; provider-neutral conversation values belong to `agent`, while `application/agent` owns session/permission workflows and the consumer-owned stream/provider ports. The composition root constructs concrete provider adapters and injects their ports. This keeps network protocols and credentials out of UI and application policy.
 - 2026-11-16: Refactor execution is layout-first. First relocate implementation and test files to the target package tree without changing package declarations, imports, APIs, or behavior; then perform package/API wiring against that completed tree. The layout-only intermediate may not compile, so do not use build success as its acceptance criterion. The completed wiring phase must remove all migration shells and satisfy the full completion gate above.
 
 Do not weaken these criteria to close the goal. If any criterion remains open, keep the goal active and continue the refactor.

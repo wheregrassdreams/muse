@@ -12,6 +12,7 @@ import (
 
 	"muse/markdown"
 	"muse/markdown/diagrams"
+	media "muse/nativeui/components/editor/blocks/media"
 	render "muse/nativeui/components/editor/render"
 	"muse/nativeui/components/editor/textlayout"
 	"muse/theme"
@@ -981,7 +982,7 @@ func (e *Editor) htmlView(l *leaf, width float32, at int, withCompose bool) *lea
 	obj := e.htmlImageObject(html, width)
 	sourceTargeted := sourceRangeTargeted(e, l.lineStart, blockEnd(e.Source(), l), false)
 	if obj != nil {
-		obj.sourceFrom, obj.sourceTo, obj.imageSyntax = l.start, l.end, imageSyntaxHTML
+		obj.imageSource = media.ImageSource{From: l.start, To: l.end, Syntax: media.ImageSyntaxHTML}
 		obj.width = obj.w
 		e.applyImagePreview(obj, l.start, l.end)
 		if at < 0 && !sourceTargeted {

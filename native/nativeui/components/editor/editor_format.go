@@ -1,7 +1,6 @@
 package editor
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -583,7 +582,10 @@ func (e *Editor) Paste(plain bool) {
 					if !isImagePath(f) {
 						continue
 					}
-					b, err := os.ReadFile(f)
+					if e.opts.ImageLocalFiles == nil {
+						continue
+					}
+					b, err := e.opts.ImageLocalFiles.ReadFile(f)
 					if err != nil {
 						continue
 					}
@@ -640,8 +642,8 @@ func (e *Editor) dropFiles(paths []string) {
 	var parts []string
 	for _, f := range images {
 		path := filepath.ToSlash(f)
-		if e.opts.SaveImage != nil {
-			if b, err := os.ReadFile(f); err == nil {
+		if e.opts.SaveImage != nil && e.opts.ImageLocalFiles != nil {
+			if b, err := e.opts.ImageLocalFiles.ReadFile(f); err == nil {
 				if p, err := e.opts.SaveImage(b, strings.ToLower(filepath.Ext(f))); err == nil {
 					path = p
 				}

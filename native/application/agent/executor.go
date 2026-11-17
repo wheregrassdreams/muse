@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	conversation "muse/agent"
 )
 
 // ToolInput is the validated, typed argument surface for assistant tools.
@@ -44,15 +46,15 @@ type Operations interface {
 
 type Executor struct{ Operations Operations }
 
-func (e Executor) Execute(ctx context.Context, request ToolRequest) ToolResult {
+func (e Executor) Execute(ctx context.Context, request conversation.ToolRequest) conversation.ToolResult {
 	if e.Operations == nil {
-		return ToolResult{Err: errors.New("assistant operations are unavailable")}
+		return conversation.ToolResult{Err: errors.New("assistant operations are unavailable")}
 	}
 	var input ToolInput
 	decoder := json.NewDecoder(strings.NewReader(request.Arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		return ToolResult{Err: fmt.Errorf("invalid %s arguments: %w", request.Name, err)}
+		return conversation.ToolResult{Err: fmt.Errorf("invalid %s arguments: %w", request.Name, err)}
 	}
 	var value any
 	var err error
@@ -84,14 +86,14 @@ func (e Executor) Execute(ctx context.Context, request ToolRequest) ToolResult {
 	case "create_folder":
 		value, err = e.Operations.CreateFolder(ctx, input)
 	default:
-		return ToolResult{Err: fmt.Errorf("unknown assistant tool %q", request.Name)}
+		return conversation.ToolResult{Err: fmt.Errorf("unknown assistant tool %q", request.Name)}
 	}
 	if err != nil {
-		return ToolResult{Err: err}
+		return conversation.ToolResult{Err: err}
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return ToolResult{Err: err}
+		return conversation.ToolResult{Err: err}
 	}
-	return ToolResult{Content: string(encoded)}
+	return conversation.ToolResult{Content: string(encoded)}
 }

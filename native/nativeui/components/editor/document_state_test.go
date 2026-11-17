@@ -107,7 +107,7 @@ func checkSound(t *testing.T, name string, step int, e *Editor) {
 	fmEnd := source.FrontmatterEnd(e.Source())
 	var imageOnly []syntax.IncrementalInline
 	if fmEnd == 0 {
-		imageOnly, _ = largeDataImageOnlySource(e.Source())
+		imageOnly, _ = syntax.LargeDataImageOnlySource(e.Source())
 	}
 	want.Set(e.Source(), fmEnd, imageOnly)
 	if got, wantMask := e.p.MaskedSource(), want.MaskedSource(); got != wantMask {

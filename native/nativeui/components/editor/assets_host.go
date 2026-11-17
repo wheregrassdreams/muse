@@ -46,7 +46,7 @@ func (e *Editor) sizedImage(destination, alt string, size media.ImageSize, width
 	if image == nil {
 		return nil
 	}
-	image.ApplySize(media.ImageSize{Width: size.w, Height: size.h, Zoom: size.zoom}, width)
+	image.ApplySize(size, width)
 	return objectFromMediaImage(image)
 }
 
@@ -58,6 +58,7 @@ func objectFromMediaImage(image *media.ImageObject) *object {
 		asset: image.Asset, bmp: image.Bitmap, assetFrameVersion: image.FrameVersion,
 		imagePending: image.Pending, imagePath: image.Path, imageDest: image.Destination,
 		alt: image.Alt, w: image.Width, h: image.Height, descent: image.Descent, block: image.Block,
+		mediaImage: image,
 	}
 }
 
@@ -81,6 +82,11 @@ func (o *object) refreshAssetBitmap() {
 	if o == nil {
 		return
 	}
+	if o.mediaImage != nil {
+		o.mediaImage.Refresh()
+		o.bmp, o.assetFrameVersion = o.mediaImage.Bitmap, o.mediaImage.FrameVersion
+		return
+	}
 	o.bmp, o.assetFrameVersion = media.RefreshImageBitmap(o.asset, o.bmp, o.assetFrameVersion)
 }
 
@@ -97,7 +103,7 @@ func (e *Editor) mathObject(tex string, size float32, display bool) *object {
 	if !ok {
 		return nil
 	}
-	return &object{math: formula.Raster, w: formula.Width, h: formula.Height, descent: formula.Descent}
+	return objectFromMath(formula)
 }
 
 func (e *Editor) mathBlockObject(tex string, width float32) *object {
@@ -105,7 +111,11 @@ func (e *Editor) mathBlockObject(tex string, width float32) *object {
 	if !ok {
 		return nil
 	}
-	return &object{math: formula.Raster, w: formula.Width, h: formula.Height, block: formula.Block}
+	return objectFromMath(formula)
+}
+
+func objectFromMath(formula media.MathObject) *object {
+	return &object{math: formula.Raster, w: formula.Width, h: formula.Height, descent: formula.Descent, block: formula.Block}
 }
 
 func (e *Editor) sketchOptions() diagrams.Options {

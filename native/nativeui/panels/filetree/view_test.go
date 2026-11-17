@@ -14,22 +14,22 @@ var testDragPort = DragPort[testPayload]{
 	IDs:  func(payload testPayload) []string { return payload.IDs },
 }
 
-func render(c *ui.Context, model ViewModel, dispatch func(Action[testPayload])) RenderResult {
-	return Render(c, model, testDragPort, dispatch)
+func render(c *ui.Context, state *state, model ViewModel, dispatch func(Action[testPayload])) RenderResult {
+	return Render(c, &Handle{state: state}, model, testDragPort, dispatch)
 }
 
 func TestClickSelectsProjectedEntry(t *testing.T) {
 	var actions []Action[testPayload]
-	selected := -1
-	list := &ui.ListState{Selected: &selected}
+	state := newState()
 	model := ViewModel{
 		Entries: []Entry{
 			{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true},
 			{ID: "note", Label: "Roadmap.md", Kind: File, Depth: 1, CanSelect: true, CanOpen: true},
 		},
-		Scroll: ScrollPort{List: list},
 	}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 360, 180)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 360, 180)
 	tester.Frame()
 	tester.ClickAt(180, 43)
 	tester.Frame()
@@ -40,8 +40,11 @@ func TestClickSelectsProjectedEntry(t *testing.T) {
 
 func TestExpansionControlEmitsToggleAction(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{Entries: []Entry{{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true}}}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 320, 120)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
 	tester.Frame()
 	tester.ClickAt(13, 14)
 	tester.Frame()
@@ -52,10 +55,12 @@ func TestExpansionControlEmitsToggleAction(t *testing.T) {
 
 func TestSubmittedFileEmitsOpenAction(t *testing.T) {
 	var actions []Action[testPayload]
-	selected := 0
-	list := &ui.ListState{Selected: &selected}
-	model := ViewModel{Entries: []Entry{{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanOpen: true}}, Focused: true, Scroll: ScrollPort{List: list}}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 320, 120)
+	state := newState()
+	state.SetFocused(true)
+	model := ViewModel{Entries: []Entry{{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanOpen: true}}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
 	tester.Frame()
 	tester.ClickAt(160, 14)
 	tester.Frame()
@@ -69,17 +74,18 @@ func TestSubmittedFileEmitsOpenAction(t *testing.T) {
 
 func TestKeyboardMoveEmitsSelectionForFocusedTree(t *testing.T) {
 	var actions []Action[testPayload]
-	selected := 0
-	list := &ui.ListState{Selected: &selected}
+	state := newState()
+	state.SetFocused(true)
+	state.SetSelection([]string{"one"})
 	model := ViewModel{
 		Entries: []Entry{
 			{ID: "one", Label: "One.md", Kind: File, CanSelect: true},
 			{ID: "two", Label: "Two.md", Kind: File, CanSelect: true},
 		},
-		Focused: true,
-		Scroll:  ScrollPort{List: list},
 	}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 320, 120)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
 	tester.Frame()
 	tester.ClickAt(160, 14)
 	tester.Frame()
@@ -93,6 +99,7 @@ func TestKeyboardMoveEmitsSelectionForFocusedTree(t *testing.T) {
 
 func TestToolbarCommandAndDropAction(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{
 		Commands: []Command{{ID: "new-note", Label: "New note", Enabled: true}},
 		Entries: []Entry{
@@ -100,7 +107,9 @@ func TestToolbarCommandAndDropAction(t *testing.T) {
 			{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true, DragIDs: []string{"note"}},
 		},
 	}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 360, 180)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 360, 180)
 	tester.Frame()
 	if err := tester.Click("New note"); err != nil {
 		t.Fatal(err)
@@ -112,8 +121,11 @@ func TestToolbarCommandAndDropAction(t *testing.T) {
 
 func TestRowContextMenuReturnsOpaqueCommand(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{Entries: []Entry{{ID: "note", Label: "Roadmap.md", Kind: File, ContextActions: []Command{{ID: "trash", Label: "Move to Trash", Enabled: true}}}}}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 320, 120)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
 	tester.Frame()
 	tester.RightClickAt(160, 14)
 	if err := tester.ChooseMenuItem("Move to Trash"); err != nil {
@@ -127,8 +139,11 @@ func TestRowContextMenuReturnsOpaqueCommand(t *testing.T) {
 
 func TestRootContextMenuUsesEmptyTargetID(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{EmptyMessage: "Empty", RootContextActions: []Command{{ID: "new-folder", Label: "New folder", Enabled: true}}}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, func(a Action[testPayload]) { actions = append(actions, a) }) }, 320, 120)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
+	}, 320, 120)
 	tester.Frame()
 	tester.RightClickAt(160, 60)
 	if err := tester.ChooseMenuItem("New folder"); err != nil {
@@ -142,15 +157,11 @@ func TestRootContextMenuUsesEmptyTargetID(t *testing.T) {
 
 func TestPreviewHoverActionsOnlyFireOnEntryTransitions(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{Entries: []Entry{{ID: "image", Label: "Photo.png", Kind: File, Previewable: true}}}
 	tester := ui.NewTester(func(c *ui.Context) {
-		render(c, model, func(a Action[testPayload]) {
+		render(c, state, model, func(a Action[testPayload]) {
 			actions = append(actions, a)
-			if a.Kind == HoverEntry {
-				model.PreviewID = a.ID
-			} else if a.Kind == LeaveEntry {
-				model.PreviewID = ""
-			}
 		})
 	}, 320, 120)
 	tester.Frame()
@@ -169,13 +180,14 @@ func TestPreviewHoverActionsOnlyFireOnEntryTransitions(t *testing.T) {
 
 func TestDragAndDropEmitsGenericAction(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	model := ViewModel{Entries: []Entry{
 		{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanDrop: true},
 		{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true, DragIDs: []string{"note", "other"}},
 		{ID: "other", Label: "Other.md", Kind: File, CanSelect: true},
 	}}
 	tester := ui.NewTester(func(c *ui.Context) {
-		render(c, model, func(a Action[testPayload]) {
+		render(c, state, model, func(a Action[testPayload]) {
 			actions = append(actions, a)
 			if a.Kind == StartDrag && a.ID == "note" {
 				model.Entries[1].DragActive = true
@@ -217,6 +229,7 @@ func TestDragAndDropEmitsGenericAction(t *testing.T) {
 
 func TestSingleDragUsesEntryAsPayloadAndDropsOnTargetRow(t *testing.T) {
 	var actions []Action[testPayload]
+	state := newState()
 	var madeEntry string
 	var madeIDs []string
 	drag := DragPort[testPayload]{
@@ -232,7 +245,7 @@ func TestSingleDragUsesEntryAsPayloadAndDropsOnTargetRow(t *testing.T) {
 		{ID: "note", Label: "Roadmap.md", Kind: File, CanSelect: true, CanDrag: true},
 	}}
 	tester := ui.NewTester(func(c *ui.Context) {
-		Render(c, model, drag, func(a Action[testPayload]) { actions = append(actions, a) })
+		Render(c, &Handle{state: state}, model, drag, func(a Action[testPayload]) { actions = append(actions, a) })
 	}, 320, 120)
 	tester.Frame()
 	tester.Press(160, 43)
@@ -256,15 +269,14 @@ func TestInjectedScrollStateReceivesWheelInput(t *testing.T) {
 	for i := range entries {
 		entries[i] = Entry{ID: fmt.Sprintf("note-%02d", i), Label: fmt.Sprintf("Note %02d", i), Kind: File, CanSelect: true}
 	}
-	var selected int
-	state := ui.ScrollState{}
-	model := ViewModel{Entries: entries, Scroll: ScrollPort{List: &ui.ListState{Selected: &selected}, State: &state}}
-	tester := ui.NewTester(func(c *ui.Context) { render(c, model, nil) }, 300, 120)
+	state := newState()
+	model := ViewModel{Entries: entries}
+	tester := ui.NewTester(func(c *ui.Context) { render(c, state, model, nil) }, 300, 120)
 	tester.Frame()
 	tester.Scroll(150, 90, 0, 100)
 	tester.Frame()
-	if state.Y <= 0 {
-		t.Fatalf("scroll state not updated: %+v", state)
+	if state.ScrollOffset().Y <= 0 {
+		t.Fatalf("scroll state not updated: %+v", state.ScrollOffset())
 	}
 }
 

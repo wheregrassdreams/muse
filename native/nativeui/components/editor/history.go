@@ -60,7 +60,7 @@ func (e *Editor) replace(from, to int, text string) {
 	}
 	e.clearTableVirtualEdit()
 	e.feedbackState.CancelYankFlash()
-	e.shiftImageAlignments(from, to, len(text))
+	e.imageAlignments.Shift(from, to, len(text))
 	if e.editBatch == nil {
 		e.begin(stepEdit)
 	}

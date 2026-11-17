@@ -15,9 +15,9 @@ func TestRenderShowsFieldsTagsAndReadOnlySystemValues(t *testing.T) {
 		},
 		SystemFields: []Field{{Key: "path", Label: "Path", Value: "/vault/Plan.md", System: true}},
 		Backlinks:    []Backlink{{Path: "Index.md", Label: "Index", Count: 2}},
-		HiddenOpen:   true,
 	}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, nil) }, 360, 460)
+	state := state{hiddenOpen: true}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, &state, model, nil) }, 360, 460)
 	tester.Frame()
 	for _, text := range []string{"Tags", "design", "notes", "Status", "Draft", "/vault/Plan.md", "Index"} {
 		if !tester.HasText(text) {
@@ -28,8 +28,9 @@ func TestRenderShowsFieldsTagsAndReadOnlySystemValues(t *testing.T) {
 
 func TestEditableValueStartsEditAndSaveEmitsSourceValue(t *testing.T) {
 	var actions []Action
+	state := &state{}
 	model := ViewModel{Fields: []Field{{Key: "status", Label: "Status", Value: "draft", Editable: true, Kind: Text}}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
 	tester.Frame()
 	if err := tester.Click("Status draft"); err != nil {
 		t.Fatal(err)
@@ -38,7 +39,7 @@ func TestEditableValueStartsEditAndSaveEmitsSourceValue(t *testing.T) {
 		t.Fatalf("begin-edit actions = %+v", actions)
 	}
 	actions = nil
-	model.EditingKey, model.Draft = "status", "in progress"
+	state.BeginEdit("status", "sidebar", "in progress")
 	tester.Frame()
 	if err := tester.Click(locales.CommonSave()); err != nil {
 		t.Fatal(err)
@@ -50,8 +51,9 @@ func TestEditableValueStartsEditAndSaveEmitsSourceValue(t *testing.T) {
 
 func TestDeleteFieldEmitsTypedAction(t *testing.T) {
 	var actions []Action
+	state := &state{}
 	model := ViewModel{Fields: []Field{{Key: "custom", Label: "Custom", Value: "value", Removable: true}}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
 	tester.Frame()
 	if err := tester.Click(locales.PropertyDelete()); err != nil {
 		t.Fatal(err)
@@ -63,8 +65,9 @@ func TestDeleteFieldEmitsTypedAction(t *testing.T) {
 
 func TestAddFieldEmitsCallerDraftAndKind(t *testing.T) {
 	var actions []Action
-	model := ViewModel{AddOpen: true, AddDraft: AddDraft{Key: "priority", Value: "2", Kind: Number}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
+	state := &state{addOpen: true, addDraft: AddDraft{Key: "priority", Value: "2", Kind: Number}}
+	model := ViewModel{}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
 	tester.Frame()
 	if err := tester.Click(locales.CommonAdd()); err != nil {
 		t.Fatal(err)
@@ -76,8 +79,9 @@ func TestAddFieldEmitsCallerDraftAndKind(t *testing.T) {
 
 func TestBooleanAddDraftReportsKeyChanges(t *testing.T) {
 	var actions []Action
-	model := ViewModel{AddOpen: true, AddDraft: AddDraft{Kind: Boolean}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
+	state := &state{addOpen: true, addDraft: AddDraft{Kind: Boolean}}
+	model := ViewModel{}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
 	tester.Frame()
 	if err := tester.Click(locales.PropertyName()); err != nil {
 		t.Fatal(err)
@@ -94,7 +98,8 @@ func TestBooleanAddDraftReportsKeyChanges(t *testing.T) {
 
 func TestEmptyPropertiesStateUsesCallerMessage(t *testing.T) {
 	model := ViewModel{EmptyMessage: "No metadata yet"}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, nil) }, 320, 180)
+	state := &state{}
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, nil) }, 320, 180)
 	tester.Frame()
 	if !tester.HasText("No metadata yet") {
 		t.Fatalf("empty message missing: %q", tester.Texts())
@@ -103,8 +108,9 @@ func TestEmptyPropertiesStateUsesCallerMessage(t *testing.T) {
 
 func TestReadOnlySystemFieldDoesNotOfferDeleteAction(t *testing.T) {
 	var actions []Action
+	state := &state{}
 	model := ViewModel{SystemFields: []Field{{Key: "path", Label: "Path", Value: "/vault/Plan.md", System: true, Removable: true}}}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
+	tester := ui.NewTester(func(c *ui.Context) { Render(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 220)
 	tester.Frame()
 	if tester.HasText(locales.PropertyDelete()) {
 		t.Fatalf("system field rendered a delete action: %q", tester.Texts())
@@ -116,6 +122,7 @@ func TestReadOnlySystemFieldDoesNotOfferDeleteAction(t *testing.T) {
 
 func TestSummaryBacklinkAndMoreButtonsDispatchNavigationActions(t *testing.T) {
 	var actions []Action
+	state := &state{}
 	model := ViewModel{
 		DocumentType:  "Project",
 		BacklinkCount: 2,
@@ -129,7 +136,7 @@ func TestSummaryBacklinkAndMoreButtonsDispatchNavigationActions(t *testing.T) {
 		},
 	}
 	tester := ui.NewTester(func(c *ui.Context) {
-		RenderSummary(c, model, func(action Action) { actions = append(actions, action) })
+		RenderSummary(c, state, model, func(action Action) { actions = append(actions, action) })
 	}, 760, 80)
 	tester.Frame()
 	if err := tester.Click(locales.PropertyViewBacklinks()); err != nil {
@@ -149,8 +156,9 @@ func TestSummaryBacklinkAndMoreButtonsDispatchNavigationActions(t *testing.T) {
 
 func TestSummaryPropertyDispatchesEditAction(t *testing.T) {
 	var actions []Action
+	state := &state{}
 	tester := ui.NewTester(func(c *ui.Context) {
-		RenderSummary(c, ViewModel{Summary: []Field{{Key: "status", DisplayValue: "Draft", Editable: true}}}, func(action Action) {
+		RenderSummary(c, state, ViewModel{Summary: []Field{{Key: "status", DisplayValue: "Draft", Editable: true}}}, func(action Action) {
 			actions = append(actions, action)
 		})
 	}, 420, 80)

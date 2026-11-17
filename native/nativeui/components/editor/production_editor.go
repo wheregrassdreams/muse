@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"image/color"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
+	uieditor "github.com/egoist/mygo/ui/editor"
 
 	editormodel "muse/editor"
 	inlineblock "muse/editor/blocks/inline"
@@ -29,10 +30,35 @@ import (
 	"muse/nativeui/components/editor/feedback"
 	"muse/nativeui/components/editor/ime"
 	"muse/nativeui/components/editor/navigationrail"
-	editorscroll "muse/nativeui/components/editor/scroll"
 	"muse/nativeui/components/editor/textlayout"
+	"muse/ui/scrollbar"
 	vaultlinks "muse/vault/links"
 )
+
+// CodeLanguageFor adapts a document path to MyGo's syntax-highlighting
+// language identifier. Markdown and extensionless note names use the rich
+// Markdown surface and therefore return an empty language.
+func CodeLanguageFor(path string) string {
+	if path == "" {
+		return ""
+	}
+	base := filepath.Base(path)
+	ext := strings.ToLower(filepath.Ext(base))
+	switch ext {
+	case ".md", ".markdown", ".mdx":
+		return ""
+	}
+	if language := uieditor.LanguageFor(base); language != nil {
+		if strings.EqualFold(language.Name, "markdown") {
+			return ""
+		}
+		return language.Name
+	}
+	if ext == "" {
+		return ""
+	}
+	return "text"
+}
 
 const invalidParsedRevision = ^uint64(0)
 
@@ -193,7 +219,7 @@ type Editor struct {
 	closed                 bool
 	diagrams               []diagramPainterCacheEntry
 	diagramClock           uint64
-	rail                   navigationrail.State
+	rail                   *navigationrail.Handle
 	typedBreaks            paragraph.Breaks
 	preserveInsertedBreaks bool
 
@@ -211,10 +237,9 @@ type Editor struct {
 	// that mask hides, where the front matter ends. Only p.set and p.edit
 	// write it (see parsed.go); everything else reads it.
 	p *source.Document
-	// largeDataImageCache keeps the tiny synthetic inline projection for a
-	// single huge data image. Its strings reference src, so sync clears it on
-	// every source revision.
-	largeDataImageCache largeDataImageInlineCache
+	// largeDataImageCache keeps a source-backed synthetic inline projection for
+	// one parsed block. The source module owns its revision lifetime.
+	largeDataImageCache source.ImageInlineCache
 	// arena holds the leaves of the parse before and the one being built:
 	// a leaf the edit did not change keeps its view, so the leaves of the
 	// parse before have to stay whole while the next is built.
@@ -279,7 +304,7 @@ type Editor struct {
 	imageDrag       *imageResizeDrag
 	// imageAlignments stores per-image presentation overrides by source offset.
 	// Standalone images default to centered; false is an explicit left alignment.
-	imageAlignments map[int]bool
+	imageAlignments media.ImageAlignmentState
 
 	// The element's size and where the column of text is in it.
 	elemW, viewH float32
@@ -299,7 +324,7 @@ type Editor struct {
 	estW, estSize, estLH float32
 
 	scroll          ui.ScrollState
-	scrollIndicator editorscroll.IndicatorState
+	scrollIndicator scrollbar.Indicator
 	scrollHandle    ui.Handle
 	handle          ui.Handle
 	focused         bool
@@ -479,7 +504,7 @@ func NewFromSession(session *editormodel.Session, opts Options) *Editor {
 		session = editormodel.NewSession("")
 	}
 	e := &Editor{Session: session, opts: opts, uiScopeID: nextEditorScopeID.Add(1), views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
-		hoverBlock: -1, foldHover: -1, rail: navigationrail.NewState()}
+		hoverBlock: -1, foldHover: -1, rail: navigationrail.NewHandle()}
 	e.imeClient = ime.NewClient(e, e)
 	e.p = source.New(exts, source.ParserText)
 	e.bindSessionAdapters()
@@ -622,8 +647,8 @@ func (e *Editor) SetSource(src string) {
 	e.tableHandleDrag = nil
 	e.horizontalDrag = nil
 	e.Session.ReplaceSource(src)
-	e.imageAlignments = nil
-	e.largeDataImageCache = largeDataImageInlineCache{}
+	e.imageAlignments.Clear()
+	e.largeDataImageCache.Reset()
 	e.p.Clear()
 	e.parsed = invalidParsedRevision
 	e.imeClient.Reset()
@@ -646,7 +671,7 @@ func (e *Editor) SetSource(src string) {
 	e.setSessionHead(e.firstStop())
 	e.setSessionAnchor(e.Caret())
 	for _, l := range e.leaves {
-		l.horizontal = editorscroll.HorizontalState{}
+		l.horizontal = blockHorizontalState{}
 	}
 }
 
@@ -654,9 +679,7 @@ func (e *Editor) SetSource(src string) {
 func (e *Editor) sync() {
 	e.drainSessionChanges()
 	e.dataImageAssets.ResetForRevision(e.Session.Revision())
-	if cached := &e.largeDataImageCache; cached.valid && cached.rev != e.Session.Revision() {
-		*cached = largeDataImageInlineCache{}
-	}
+	e.largeDataImageCache.ResetForRevision(e.Session.Revision())
 	if e.parsed == e.Session.Revision() && e.leaves != nil {
 		// The caret may have moved into or out of a comment: the leaves are
 		// built for the comment it is in (its own show, the others do not),
@@ -688,7 +711,7 @@ func (e *Editor) sync() {
 		if e.pending == nil || e.pendingMulti || fm != e.p.FrontmatterEnd() || !e.p.Edit(e.Source(), e.pending.from, e.pending.to, e.pending.text) {
 			var imageInlines []syntax.IncrementalInline
 			if fm == 0 {
-				imageInlines, _ = largeDataImageOnlySource(e.Source())
+				imageInlines, _ = syntax.LargeDataImageOnlySource(e.Source())
 			}
 			e.p.Set(e.Source(), fm, imageInlines)
 		}

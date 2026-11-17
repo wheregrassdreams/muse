@@ -4,6 +4,20 @@ import (
 	"testing"
 )
 
+func TestIsTextDataRejectsBinaryContent(t *testing.T) {
+	for _, data := range [][]byte{
+		{'a', 0, 'b'},
+		{0xff, 0xfe},
+	} {
+		if IsTextData(data) {
+			t.Errorf("IsTextData(%v) = true, want false", data)
+		}
+	}
+	if !IsTextData(nil) || !IsTextData([]byte("plain text 中文")) {
+		t.Fatal("IsTextData rejected empty or valid UTF-8 text")
+	}
+}
+
 func TestLookupKnownAndFallback(t *testing.T) {
 	r := NewRegistry()
 
@@ -24,23 +38,23 @@ func TestLookupKnownAndFallback(t *testing.T) {
 	}
 }
 
-func TestOpenSourceParsesCallerProvidedContent(t *testing.T) {
+func TestResolveSelectsParserWithoutParsing(t *testing.T) {
 	r := NewRegistry()
-	tp, d, err := r.OpenSource("notes.txt", []byte("line one\nline two\n"))
+	tp, err := r.Resolve("notes.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tp.ID != "text" || !tp.Editable {
+	if tp.ID != "text" || !tp.Editable || tp.Parser != TextParser {
 		t.Errorf("type = %+v, want editable text", tp)
 	}
-	if got := d.PlainText(); got != "line one\nline two\n" {
-		t.Errorf("text = %q", got)
+	if tp, err := r.Resolve("note.md"); err != nil || tp.Parser != MarkdownParser {
+		t.Errorf("Markdown parser selection = %v, %v", tp, err)
 	}
 }
 
-func TestOpenSourceRefusesBinary(t *testing.T) {
+func TestResolveRefusesBinary(t *testing.T) {
 	r := NewRegistry()
-	if _, _, err := r.OpenSource("logo.png", []byte("image bytes")); err == nil {
+	if _, err := r.Resolve("logo.png"); err == nil {
 		t.Error("opening logo.png succeeded, want an error")
 	}
 }

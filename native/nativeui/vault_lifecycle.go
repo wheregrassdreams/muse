@@ -8,25 +8,22 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	documentsave "muse/application/document"
+	documentapp "muse/application/document"
 	applicationvault "muse/application/vault"
 	"muse/document"
+	editorsource "muse/editor/source"
 	"muse/locales"
-	"muse/nativeui/components"
+	"muse/nativeui/components/doctypes"
+	"muse/nativeui/components/documentdialogs"
+	searchui "muse/nativeui/panels/search"
+	"muse/nativeui/surfaces/backlinks"
+	"muse/nativeui/window"
 	vaultsearch "muse/search"
-	vaultlinks "muse/vault/links"
-	vaultwatch "muse/vault/watch"
 )
 
 type vaultNavigationResult struct {
 	hit vaultsearch.Hit
 	err error
-}
-
-// Search and link offsets address on-disk bytes; the editor normalizes CRLF.
-func editorOffset(raw string, offset int) int {
-	offset = max(0, min(offset, len(raw)))
-	return offset - strings.Count(raw[:offset], "\r\n")
 }
 
 func (a *App) activeVaultRoot() string {
@@ -41,31 +38,26 @@ func (a *App) vaultTick(c *ui.Context) {
 	if root == "" && a.documentPath() != "" {
 		root = filepath.Dir(a.documentPath())
 	}
-	if a.activeNote == nil || root == "" || a.newVaultIndex == nil || a.newVaultCatalog == nil {
+	if a.noteEditor() == nil || root == "" || a.newVaultIndex == nil || a.newVaultCatalog == nil {
+		a.clearWikiSuggestionCache()
 		if a.vault != nil {
 			old := a.vault
 			a.vault = nil
 			a.vaultSnapshot = applicationvault.Snapshot{}
+			a.directoryCatalog.CloseSession(old)
 			go old.Close()
 		}
 		return
 	}
 	if a.vault == nil || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(root) {
+		a.clearWikiSuggestionCache()
 		if a.vault != nil {
 			old := a.vault
 			a.vault = nil
+			a.directoryCatalog.CloseSession(old)
 			go old.Close()
 		}
-		newWatcher := func(root string) (applicationvault.WatcherPort, error) {
-			if a.watcherBackendFactory == nil {
-				return nil, errors.New("filesystem watcher adapter is not configured")
-			}
-			backend, err := a.watcherBackendFactory()
-			if err != nil {
-				return nil, err
-			}
-			return vaultwatchNew(root, backend)
-		}
+		newWatcher := a.newWatcher
 		session, err := applicationvault.NewSession(root, applicationvault.SessionDependencies{
 			NewIndex: a.newVaultIndex, NewCatalog: a.newVaultCatalog,
 			NewWatcher: newWatcher, SearchReconciler: a.vaultSearchReconciler,
@@ -77,7 +69,6 @@ func (a *App) vaultTick(c *ui.Context) {
 		a.vault = session
 		a.vaultSnapshot = session.Snapshot()
 		a.vaultResultNavigation = make(chan vaultNavigationResult, 1)
-		a.vaultSearchSubmitted = "\x00"
 		a.invalidate()
 	}
 	if a.vault == nil {
@@ -109,10 +100,6 @@ func (a *App) vaultTick(c *ui.Context) {
 	a.linkIndexTick(c)
 }
 
-func vaultwatchNew(root string, backend vaultwatch.Backend) (applicationvault.WatcherPort, error) {
-	return vaultwatch.New(root, backend)
-}
-
 func (a *App) handleVaultResult(session *applicationvault.Session, result applicationvault.Result) {
 	if session == nil || a.vault != session {
 		return
@@ -127,7 +114,7 @@ func (a *App) handleVaultResult(session *applicationvault.Session, result applic
 		if result.Err != nil {
 			a.notice(locales.VaultIndexWatchError(result.Err.Error()))
 		}
-		if a.activeNote != nil {
+		if a.noteEditor() != nil {
 			a.configureActiveNote(0)
 		}
 		if a.pendingLinks {
@@ -147,33 +134,29 @@ func (a *App) handleVaultResult(session *applicationvault.Session, result applic
 		if result.Err != nil && !errors.Is(result.Err, os.ErrNotExist) {
 			a.notice(locales.WorkspaceIndexRefreshFailed(result.Err.Error()))
 		}
-		if a.workspaceSearch {
-			a.vaultSearchDue = time.Now()
+		if a.workspaceSearch.IsOpen() {
+			a.vault.ForceSearch(time.Now(), 0)
 		}
-		if result.Full || vaultResultTouches(result, a.documentPath()) {
+		if result.Full || result.TouchesPath(a.documentPath()) {
 			a.reconcileExternalCurrentDocument(session)
 		}
-		if a.activeNote != nil {
+		if a.noteEditor() != nil {
 			a.configureActiveNote(0)
 		}
 	case applicationvault.ActiveDocumentApplied:
-		if a.activeNote != nil {
+		if a.noteEditor() != nil {
 			a.configureActiveNote(0)
 		}
 	case applicationvault.QueryCompleted:
-		if result.Token == a.vaultSnapshot.Search.Token && result.Query == a.workspaceQuery && result.Literal == a.vaultSearchLiteral {
+		if session.IsCurrentSearchResult(result) && result.Query == a.workspaceSearch.Query() && result.Literal == (a.workspaceSearch.Mode() == searchui.Literal) {
 			a.vaultSnapshot = result.Snapshot
 			if len(result.Snapshot.Search.Hits) > 0 {
-				a.workspaceSearchSel = min(a.workspaceSearchSel, len(result.Snapshot.Search.Hits)-1)
-				a.workspaceReveal = true
+				a.workspaceSearch.Apply(searchui.Action{Kind: searchui.MoveSelection, Index: min(a.workspaceSearch.Selection(), len(result.Snapshot.Search.Hits)-1)})
 			}
 			if pending := a.vaultPendingNavigation; pending != nil {
-				for _, hit := range result.Snapshot.Search.Hits {
-					if hit.Path == pending.Path {
-						a.vaultPendingNavigation = nil
-						a.acceptSearchHit(hit)
-						break
-					}
+				if hit, ok := result.Snapshot.Search.SearchHitAtPath(pending.Path); ok {
+					a.vaultPendingNavigation = nil
+					a.acceptSearchHit(hit)
 				}
 			}
 		}
@@ -184,7 +167,7 @@ func (a *App) handleVaultResult(session *applicationvault.Session, result applic
 }
 
 func (a *App) reconcileExternalCurrentDocument(session *applicationvault.Session) {
-	if session == nil || a.documentPath() == "" || filepath.Ext(a.documentPath()) != ".md" {
+	if session == nil || a.documentPath() == "" || !doctypes.IsMarkdownPath(a.documentPath()) {
 		return
 	}
 	root := session.Snapshot().Root
@@ -192,100 +175,75 @@ func (a *App) reconcileExternalCurrentDocument(session *applicationvault.Session
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
 	}
-	state := a.activeNote.PersistenceState()
 	doc, ok := session.Document(filepath.ToSlash(rel))
 	if !ok {
-		a.activeNote.SetConflict(a.documentPath())
+		_ = a.documentWorkflows().MarkExternalMissing()
 		if a.documents != nil {
-			a.documents.ConflictOpen = true
+			a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.OpenConflict})
 		}
 		a.notice(locales.VaultCurrentFileDeleted())
 		return
 	}
-	if doc.Revision == state.Revision {
-		return
-	}
 	fresh := document.NewNote(a.documentPath(), doc.Source, doc.Revision)
-	if a.documentDirty() || state.Saving {
-		if fresh.Source == a.diskSource() {
-			return
-		}
-		merged, ok := "", false
-		if !state.Saving {
-			merged, ok = documentsave.MergeDisjointEdits(state.BaseSource, a.diskSource(), fresh.Source)
-		}
-		if ok {
-			a.activeNote.Rebase(a.documentPath(), fresh.Revision, fresh.Source)
-			_ = a.activeNote.ReplaceUser(strings.ReplaceAll(merged, "\r\n", "\n"))
-			if a.documentDirty() {
-				a.notice(locales.VaultExternalMergedSaving())
-			} else {
-				a.activeNote.ClearAutosave()
-				a.notice(locales.DocumentExternalLoaded())
-			}
-			return
-		}
-		a.activeNote.SetConflict(a.documentPath())
-		if a.documents != nil {
-			a.documents.ConflictOpen = true
-		}
-		if _, err := a.activeNote.PreserveDraft(a.documentPath(), a.diskSource()); err != nil {
+	caret := a.noteEditor().NavigationCommands().Caret()
+	outcome, err := a.documentWorkflows().ReconcileExternal(fresh)
+	if err != nil {
+		if outcome == documentapp.ExternalChangeConflict {
 			a.notice(locales.WorkspaceRecoverySaveFailed(err.Error()))
-		}
-		return
-	}
-	caret := a.activeNote.NavigationCommands().Caret()
-	a.loadDoc(fresh.Source)
-	a.activeNote.NavigationCommands().Select(min(caret, len(a.documentSource())), min(caret, len(a.documentSource())))
-	a.updateManagedTimestamp()
-	a.updateTitle()
-	if a.documentDirty() {
-		a.notice(locales.VaultExternalUpdatedAt())
-	} else {
-		a.notice(locales.DocumentExternalLoaded())
-	}
-}
-
-func vaultResultTouches(result applicationvault.Result, absolutePath string) bool {
-	if absolutePath == "" {
-		return false
-	}
-	for _, path := range result.Changed {
-		if filepath.Clean(path) == filepath.Clean(absolutePath) {
-			return true
+		} else {
+			a.notice(locales.WorkspaceIndexRefreshFailed(err.Error()))
 		}
 	}
-	return false
+	switch outcome {
+	case documentapp.ExternalChangeLoaded:
+		a.noteEditor().NavigationCommands().Select(min(caret, len(a.documentSource())), min(caret, len(a.documentSource())))
+		a.updateTitle()
+		if a.documentDirty() {
+			a.notice(locales.VaultExternalUpdatedAt())
+		} else {
+			a.notice(locales.DocumentExternalLoaded())
+		}
+	case documentapp.ExternalChangeMergedSaving:
+		a.notice(locales.VaultExternalMergedSaving())
+	case documentapp.ExternalChangeConflict:
+		if a.documents != nil {
+			a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.OpenConflict})
+		}
+	case documentapp.ExternalChangeNoop:
+	}
 }
 
 func (a *App) queueLinkIndexSnapshot() {
-	if a.vault == nil || a.documentPath() == "" || codeLanguage(a.documentPath()) != "" {
+	if a.vault == nil || a.documentPath() == "" || !doctypes.IsMarkdownPath(a.documentPath()) {
+		a.activeLinkIndex.Clear()
 		return
 	}
-	a.linkIndexGeneration++
-	a.linkIndexDue = time.Now().Add(120 * time.Millisecond)
+	a.activeLinkIndex.Schedule(a.documentPath(), a.diskSource(), time.Now())
 }
 
 func (a *App) linkIndexTick(c *ui.Context) {
-	if a.vault == nil || a.linkIndexDue.IsZero() {
+	if a.vault == nil {
 		return
 	}
-	if remaining := time.Until(a.linkIndexDue); remaining > 0 {
+	ticket, remaining, ready := a.activeLinkIndex.Take(time.Now())
+	if remaining > 0 {
 		c.After(remaining)
 		return
 	}
-	a.linkIndexDue = time.Time{}
-	session, path, source, generation := a.vault, a.documentPath(), a.diskSource(), a.linkIndexGeneration
+	if !ready {
+		return
+	}
+	session, path, source := a.vault, ticket.Path, ticket.Source
 	go func() {
 		if err := session.ApplyActiveDocument(path, source); err != nil {
 			return
 		}
 		a.onMain(func() {
-			if a.vault != session || a.documentPath() != path || a.diskSource() != source || a.linkIndexGeneration != generation {
+			if a.vault != session || a.documentPath() != path || a.diskSource() != source || !a.activeLinkIndex.IsCurrent(ticket) {
 				return
 			}
 			a.vaultSnapshot = session.Snapshot()
-			if a.activeNote != nil {
+			if a.noteEditor() != nil {
 				a.configureActiveNote(0)
 			}
 			a.invalidate()
@@ -293,30 +251,17 @@ func (a *App) linkIndexTick(c *ui.Context) {
 	}()
 }
 
-func (a *App) syncWorkspaceSearchQuery() {
+func (a *App) syncWorkspaceSearchQuery() time.Duration {
 	if a.vault == nil || !a.vaultSnapshot.Ready {
-		return
+		return 0
 	}
-	if a.vaultSearchSubmitted == a.workspaceQuery && a.vaultSearchSubmittedLiteral == a.vaultSearchLiteral {
-		return
-	}
-	if a.vaultSearchDue.IsZero() {
-		a.workspaceSearchSel = 0
-		a.workspaceScroll = ui.ScrollState{}
-		a.workspaceSearchResults = ui.ListState{}
-		a.workspaceReveal = true
-		a.vaultSearchDue = time.Now().Add(workspaceSearchCoalesce(a.vaultSnapshot.Search.Cost, a.vaultSnapshot.Search.Busy))
-	}
-	if time.Until(a.vaultSearchDue) > 0 {
-		return
-	}
-	a.vaultSearchSubmitted, a.vaultSearchSubmittedLiteral = a.workspaceQuery, a.vaultSearchLiteral
-	a.vaultSearchDue = time.Time{}
-	_, err := a.vault.Query(a.workspaceQuery, a.vaultSearchLiteral, a.documentPath(), a.diskSource())
+	query := a.workspaceSearch.Query()
+	delay, err := a.vault.ScheduleSearch(query, a.workspaceSearch.Mode() == searchui.Literal, a.documentPath(), a.diskSource(), time.Now())
 	if err != nil && !errors.Is(err, applicationvault.ErrSessionNotReady) {
 		a.notice(locales.WorkspaceSearchFailed(err.Error()))
 	}
 	a.vaultSnapshot = a.vault.Snapshot()
+	return delay
 }
 
 func (a *App) navigateIndexed(path string, offset int) {
@@ -326,7 +271,7 @@ func (a *App) navigateIndexed(path string, offset int) {
 	}
 	full := filepath.Join(root, filepath.FromSlash(path))
 	if filepath.Clean(full) == filepath.Clean(a.documentPath()) {
-		a.activeNote.NavigationCommands().ScrollToOffset(editorOffset(a.diskSource(), offset))
+		a.noteEditor().NavigationCommands().ScrollToOffset(editorsource.OffsetInNormalizedSource(a.diskSource(), offset))
 		return
 	}
 	a.indexedPath, a.indexedOffset = full, offset
@@ -334,30 +279,24 @@ func (a *App) navigateIndexed(path string, offset int) {
 }
 
 func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
-	if a.vault == nil || a.activeNote == nil || !a.vaultSnapshot.SearchAvailable {
+	if a.vault == nil || a.noteEditor() == nil || !a.vaultSnapshot.SearchAvailable {
 		return
 	}
-	root := a.vaultSnapshot.Root
-	full := filepath.Join(root, filepath.FromSlash(hit.Path))
-	query, literal := a.workspaceQuery, a.vaultSearchLiteral
+	query, literal := a.workspaceSearch.Query(), a.workspaceSearch.Mode() == searchui.Literal
 	currentPath, currentSource := a.documentPath(), a.diskSource()
 	session := a.vault
-	if filepath.Clean(full) == filepath.Clean(currentPath) && document.RevisionOf(currentSource) == document.Revision(hit.Revision) {
-		a.acceptSearchHit(hit)
-		return
-	}
 	go func() {
-		note, err := a.documentRepository.Read(full)
-		if err == nil && string(note.Revision) == hit.Revision {
+		status, err := session.ValidateSearchNavigation(a.documentRepository, hit, currentPath, document.RevisionOf(currentSource))
+		if err == nil && status == applicationvault.SearchHitCurrent {
 			a.postVaultNavigation(session, vaultNavigationResult{hit: hit})
 			return
 		}
-		if errors.Is(err, os.ErrNotExist) {
+		if err != nil && errors.Is(err, os.ErrNotExist) {
 			a.postVaultNavigation(session, vaultNavigationResult{err: err})
 			return
 		}
-		if refreshErr := session.Refresh(full); refreshErr != nil {
-			a.postVaultNavigation(session, vaultNavigationResult{err: refreshErr})
+		if err != nil {
+			a.postVaultNavigation(session, vaultNavigationResult{err: err})
 			return
 		}
 		pending := hit
@@ -366,10 +305,13 @@ func (a *App) navigateSearchHit(hit vaultsearch.Hit) {
 				return
 			}
 			a.vaultPendingNavigation = &pending
-			a.workspaceQuery = query
-			a.vaultSearchLiteral = literal
-			a.vaultSearchSubmitted = "\x00"
-			a.vaultSearchDue = time.Now().Add(120 * time.Millisecond)
+			a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: query})
+			if literal {
+				a.workspaceSearch.Apply(searchui.Action{Kind: searchui.ModeChanged, Mode: searchui.Literal})
+			} else {
+				a.workspaceSearch.Apply(searchui.Action{Kind: searchui.ModeChanged, Mode: searchui.FullText})
+			}
+			session.ForceSearch(time.Now(), 120*time.Millisecond)
 			a.invalidate()
 		})
 	}()
@@ -399,7 +341,10 @@ func (a *App) postVaultNavigation(session *applicationvault.Session, result vaul
 func (a *App) acceptSearchHit(hit vaultsearch.Hit) {
 	full := filepath.Join(a.activeVaultRoot(), filepath.FromSlash(hit.Path))
 	if filepath.Clean(full) == filepath.Clean(a.documentPath()) && document.RevisionOf(a.diskSource()) == document.Revision(hit.Revision) {
-		a.activeNote.NavigationCommands().NavigateToRange(editorOffset(a.diskSource(), hit.Start), editorOffset(a.diskSource(), hit.End))
+		a.noteEditor().NavigationCommands().NavigateToRange(
+			editorsource.OffsetInNormalizedSource(a.diskSource(), hit.Start),
+			editorsource.OffsetInNormalizedSource(a.diskSource(), hit.End),
+		)
 		return
 	}
 	a.indexedPath, a.indexedOffset, a.indexedRevision = full, hit.Start, hit.Revision
@@ -429,6 +374,14 @@ func (a *App) openLinks() {
 		a.pendingLinks = true
 		return
 	}
+	if a.windows == nil {
+		return
+	}
+	if a.windows.Contains(a.backlinksHandle) {
+		_ = a.windows.Focus(a.backlinksHandle)
+		return
+	}
+	a.backlinksHandle = window.Handle{}
 	path := a.documentPath()
 	if a.imageDocumentOpen() && a.imageDocumentPath() != "" {
 		path = a.imageDocumentPath()
@@ -441,99 +394,71 @@ func (a *App) openLinks() {
 		a.notice(locales.VaultIndexBuildingShort())
 		return
 	}
+	rel = filepath.ToSlash(rel)
+	content := backlinks.NewContent(backlinks.Ports{
+		Data: func() backlinks.Model {
+			if a.vault != session {
+				return backlinks.Model{}
+			}
+			snapshot := session.Snapshot()
+			return backlinks.Model{
+				Ready:    snapshot.Ready,
+				Busy:     snapshot.LinksBusy,
+				Incoming: session.BacklinkSources(rel),
+				Outgoing: snapshot.Outgoing,
+			}
+		},
+		OpenSource: func(path string, offset int) {
+			if a.vault == session {
+				a.navigateIndexed(path, offset)
+			}
+		},
+		OpenTarget: func(target string) {
+			if a.vault == session {
+				a.indexedLink(target)
+			}
+		},
+		OnClose: func() {
+			_ = session.CloseLinks()
+			if a.vault == session {
+				a.vaultSnapshot = session.Snapshot()
+			}
+			a.backlinksHandle = window.Handle{}
+			a.invalidate()
+		},
+	})
+	handle, err := a.windows.Open(content, window.Placement{Host: "main", Layer: window.ModalOverlay})
+	if err != nil {
+		_ = session.CloseLinks()
+		return
+	}
 	a.vaultSnapshot = session.Snapshot()
+	a.backlinksHandle = handle
 	a.invalidate()
 }
 
 func (a *App) closeLinks() {
+	if a.windows != nil && a.windows.Contains(a.backlinksHandle) {
+		_ = a.windows.Close(a.backlinksHandle)
+		return
+	}
 	if a.vault != nil {
 		_ = a.vault.CloseLinks()
 		a.vaultSnapshot = a.vault.Snapshot()
 	}
 }
 
-func (a *App) linksDialog(c *ui.Context) {
-	if a.vault == nil || !a.vaultSnapshot.LinksOpen {
+func (a *App) closeVaultSessionNow() {
+	if a == nil {
 		return
 	}
-	snapshot := a.vaultSnapshot
-	linksOpen := snapshot.LinksOpen
-	ui.Modal(c, &linksOpen, func() {
-		ui.Column(c).Width(540).MaxHeight(600).Padding(20).Gap(10).Background(c.Theme().Background).Radius(12).Children(func() {
-			ui.Text(c, locales.VaultBacklinksTitle()).FontWeight(700)
-			if !snapshot.Ready {
-				ui.Text(c, locales.VaultIndexBuildingShort())
-				return
-			}
-			rel, _ := filepath.Rel(snapshot.Root, a.documentPath())
-			_ = rel
-			components.QuietScroll(c, &a.vaultLinksScroll, &a.vaultLinksIndicator).Height(360).FillWidth().Children(func() {
-				ui.Column(c).FillWidth().Gap(6).Children(func() {
-					ui.Text(c, locales.VaultLinksToHere())
-					if snapshot.LinksBusy {
-						ui.Text(c, locales.VaultFindingBacklinks())
-					}
-					incoming := groupedBacklinks(snapshot.Incoming)
-					if len(incoming) == 0 {
-						ui.Text(c, locales.VaultNoBacklinks())
-					}
-					for _, link := range incoming {
-						l := link
-						label := l.Source
-						if l.Count > 1 {
-							label += locales.VaultBacklinkCountSuffix(l.Count)
-						}
-						if ui.Button(c, label).Label(locales.VaultBacklinkSourceLabel(label)).Clicked() {
-							a.closeLinks()
-							a.navigateIndexed(l.Source, l.Start)
-						}
-					}
-					ui.Text(c, locales.VaultOutgoingLinks())
-					for _, link := range snapshot.Outgoing {
-						l := link
-						if ui.Button(c, l.Target).Label(locales.VaultOpenLinkLabel(l.Target)).Clicked() {
-							a.closeLinks()
-							a.indexedLink(l.Target)
-						}
-					}
-				})
-			})
-			if ui.Button(c, locales.CommonClose()).Clicked() {
-				a.closeLinks()
-			}
-		})
-	})
-	if !linksOpen {
-		a.closeLinks()
-	}
-}
-
-type backlinkSource struct {
-	Source string
-	Start  int
-	Count  int
-}
-
-func groupedBacklinks(links []vaultlinks.Link) []backlinkSource {
-	groups := make([]backlinkSource, 0, len(links))
-	positions := make(map[string]int, len(links))
-	for _, link := range links {
-		if at, ok := positions[link.Source]; ok {
-			groups[at].Count++
-			continue
-		}
-		positions[link.Source] = len(groups)
-		groups = append(groups, backlinkSource{Source: link.Source, Start: link.Start, Count: 1})
-	}
-	return groups
-}
-
-func (a *App) closeVaultSessionNow() {
-	if a == nil || a.vault == nil {
+	a.clearWikiSuggestionCache()
+	if a.vault == nil {
 		return
 	}
 	session := a.vault
 	a.vault = nil
 	a.vaultSnapshot = applicationvault.Snapshot{}
+	a.directoryCatalog.CloseSession(session)
 	_ = session.Close()
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
+	"muse/ui/scrollbar"
 )
 
 type Role uint8
@@ -59,9 +60,51 @@ type Message struct {
 	Parts []Part
 }
 
-type ViewModel struct {
+// state owns the assistant panel's transient presentation state. The
+// application owns the agent session and supplies its current snapshot via
+// View.
+type state struct {
+	draft     string
+	scroll    ui.ScrollState
+	indicator scrollbar.Indicator
+}
+
+// Handle is the opaque assistant presentation state retained by the host.
+// Session and tool policy remain owned by application/agent.
+type Handle struct{ state }
+
+func NewHandle() *Handle { return &Handle{} }
+
+func newState() *state { return &state{} }
+
+func (s *state) Draft() string {
+	if s == nil {
+		return ""
+	}
+	return s.draft
+}
+
+func (s *state) SetDraft(draft string) {
+	if s != nil {
+		s.draft = draft
+	}
+}
+
+// ResetScroll clears the conversation's viewport after the host confirms a
+// successful conversation clear.
+func (s *state) ResetScroll() {
+	if s == nil {
+		return
+	}
+	s.scroll = ui.ScrollState{}
+	s.indicator = scrollbar.Indicator{}
+}
+
+// View contains only the current session snapshot and host-provided
+// capabilities needed to paint it. Transient draft and scroll state remain
+// private to state.
+type View struct {
 	Messages       []Message
-	Draft          string
 	Busy           bool
 	Phase          string
 	Error          string
@@ -69,8 +112,6 @@ type ViewModel struct {
 	SetupDetail    string
 	SetupButton    string
 	Suggestions    []string
-	ShowScrollbar  bool
-	Scroll         *ui.ScrollState
 	Icon           *ui.SVG
 	ContentWidth   float32
 	RenderMarkdown func(c *ui.Context, source string, width float32)
@@ -92,7 +133,7 @@ const (
 )
 
 // Action is the complete output of the panel. Part indexes address the
-// immutable message snapshot supplied in ViewModel for the current frame.
+// immutable message snapshot supplied in View for the current frame.
 type Action struct {
 	Kind         ActionKind
 	Text         string
@@ -101,7 +142,21 @@ type Action struct {
 	ToolID       string
 }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func Render(c *ui.Context, handle *Handle, view View, dispatch func(Action)) {
+	if handle == nil {
+		handle = NewHandle()
+	}
+	state := &handle.state
+	if dispatch != nil {
+		hostDispatch := dispatch
+		dispatch = func(action Action) {
+			state.Apply(action)
+			hostDispatch(action)
+		}
+	} else {
+		dispatch = func(action Action) { state.Apply(action) }
+	}
+	model := view
 	t := c.Theme()
 	if model.SetupTitle != "" {
 		ui.Column(c).Fill().Center().Gap(10).Padding(20).Children(func() {
@@ -119,13 +174,10 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		return
 	}
 	ui.Column(c).Fill().Children(func() {
-		if model.Scroll != nil {
-			ui.Scroll(c).Grow(1).TrackScroll(model.Scroll).Scrollbars(model.ShowScrollbar).Children(func() {
-				conversation(c, model, dispatch)
-			})
-		} else {
-			ui.Column(c).Grow(1).Children(func() { conversation(c, model, dispatch) })
-		}
+		showScrollbar := state.indicator.Visible(c.Now(), state.scroll.X, state.scroll.Y)
+		ui.Scroll(c).Grow(1).TrackScroll(&state.scroll).Scrollbars(showScrollbar).Children(func() {
+			conversation(c, model, dispatch)
+		})
 		if model.Busy {
 			ui.Row(c).Gap(7).AlignItems(ui.Center).Padding(8, 12).Children(func() {
 				ui.Spinner(c).TextColor(t.TextMuted)
@@ -140,11 +192,25 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		if model.Error != "" {
 			ui.Text(c, model.Error).Padding(8, 12).FontSize(11).TextColor(t.Danger).Wrap()
 		}
-		composer(c, model, dispatch)
+		composer(c, state, model, dispatch)
 	})
 }
 
-func conversation(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func (s *state) Apply(action Action) {
+	if s == nil {
+		return
+	}
+	switch action.Kind {
+	case DraftChanged:
+		s.draft = action.Text
+	case Send:
+		s.draft = ""
+	case UseSuggestion:
+		s.draft = action.Text
+	}
+}
+
+func conversation(c *ui.Context, model View, dispatch func(Action)) {
 	if len(model.Messages) == 0 {
 		t := c.Theme()
 		ui.Column(c).FillWidth().Padding(24, 12).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -197,7 +263,7 @@ func userBubble(c *ui.Context, text string) {
 	})
 }
 
-func assistantMessage(c *ui.Context, message Message, messageIndex int, model ViewModel, dispatch func(Action)) {
+func assistantMessage(c *ui.Context, message Message, messageIndex int, model View, dispatch func(Action)) {
 	ui.Column(c).FillWidth().Gap(8).Children(func() {
 		if len(message.Parts) == 0 {
 			markdown(c, message.Text, model)
@@ -219,7 +285,7 @@ func assistantMessage(c *ui.Context, message Message, messageIndex int, model Vi
 	})
 }
 
-func markdown(c *ui.Context, text string, model ViewModel) {
+func markdown(c *ui.Context, text string, model View) {
 	width := model.ContentWidth
 	if width <= 0 {
 		width = 360
@@ -355,20 +421,20 @@ func approvalButton(c *ui.Context, label string, primary bool, onClick func()) {
 	})
 }
 
-func composer(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func composer(c *ui.Context, state *state, model View, dispatch func(Action)) {
 	t := c.Theme()
 	ui.Column(c).Shrink(0).Padding(2, 10, 10, 10).Gap(5).Children(func() {
 		card := ui.Column(c).FillWidth().Radius(12).Background(t.Surface).Padding(6, 6, 6, 10)
 		card.Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.End).Children(func() {
-				draft := model.Draft
+				draft := state.draft
 				ta := ui.TextAreaBase(c, &draft).Grow(1).Placeholder(locales.AiPromptPlaceholder()).Lines(1, 7).
 					FontSize(12.5).Padding(4, 2).LineHeight(1.5)
+				if draft != state.draft {
+					emit(dispatch, Action{Kind: DraftChanged, Text: draft})
+				}
 				if ta.Shortcut(ui.Cmd, ui.KeyEnter) && !model.Busy {
 					emit(dispatch, Action{Kind: Send, Text: strings.TrimSpace(draft)})
-				}
-				if draft != model.Draft {
-					emit(dispatch, Action{Kind: DraftChanged, Text: draft})
 				}
 				if model.Busy {
 					button(c, locales.CommonStop(), func() { emit(dispatch, Action{Kind: Stop}) })

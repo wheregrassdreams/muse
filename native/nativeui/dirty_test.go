@@ -16,7 +16,7 @@ func clickSource(t *testing.T, a *App, tt *ui.Tester, needle string) {
 		t.Fatalf("%q not in the document %q", needle, a.documentSource())
 	}
 	tt.Frame()
-	x, y, ok := a.activeNote.NavigationCommands().WindowPoint(off)
+	x, y, ok := a.noteEditor().NavigationCommands().WindowPoint(off)
 	if !ok {
 		t.Fatalf("no position for %q", needle)
 	}

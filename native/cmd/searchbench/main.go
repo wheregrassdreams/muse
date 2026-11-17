@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"muse/document/types"
+	"muse/platform/filesystem/vaultsearchstore"
 	"muse/search"
 )
 
@@ -109,10 +110,12 @@ func main() {
 	}
 
 	ctx := context.Background()
+	searchStorage, err := vaultsearchstore.NewAt(*indexDir)
+	must(err)
 	var idx *search.Index
 	r.InitialOpen = measure(func() error {
 		var err error
-		idx, err = search.Open(*indexDir)
+		idx, err = search.OpenWithStorage(searchStorage)
 		return err
 	})
 	defer func() {
@@ -132,7 +135,7 @@ func main() {
 	idx = nil
 	r.Reopen = measure(func() error {
 		var err error
-		idx, err = search.Open(*indexDir)
+		idx, err = search.OpenWithStorage(searchStorage)
 		return err
 	})
 	r.NoChangeReconcile = measure(func() error { return idx.Reconcile(ctx, docs) })

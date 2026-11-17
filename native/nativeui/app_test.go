@@ -35,14 +35,15 @@ func TestNativeShellRendersMarkdown(t *testing.T) {
 	if pane, ok := a.windows.FocusedPane("main"); !ok || pane != "editor" {
 		t.Fatalf("focused pane = %q, %v; want editor", pane, ok)
 	}
-	if len(a.headings) != 1 || a.headings[0].text != "标题" {
-		t.Fatalf("headings = %+v", a.headings)
+	headings := a.noteEditor().NavigationCommands().Headings()
+	if len(headings) != 1 || headings[0].Text != "标题" {
+		t.Fatalf("headings = %+v", headings)
 	}
 	// The document is drawn by the editor: each of its blocks has a place
 	// on the surface.
 	for _, want := range []string{"标题", "正文", "加粗", "一", "二"} {
 		off := strings.Index(a.documentSource(), want)
-		if _, _, ok := a.activeNote.NavigationCommands().WindowPoint(off); !ok {
+		if _, _, ok := a.noteEditor().NavigationCommands().WindowPoint(off); !ok {
 			t.Fatalf("%q has no place in the editor", want)
 		}
 	}
@@ -53,17 +54,17 @@ func TestWorkspaceSearchModalFocusAndEscape(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	a.openWorkspaceSearch()
 	tt.Frame()
-	if !a.workspaceSearch {
+	if !a.workspaceSearch.IsOpen() {
 		t.Fatal("workspace search modal did not open")
 	}
 	tt.Type("needle")
 	tt.Frame()
-	if a.workspaceQuery != "needle" {
-		t.Fatalf("autofocused search input got %q", a.workspaceQuery)
+	if a.workspaceSearch.Query() != "needle" {
+		t.Fatalf("autofocused search input got %q", a.workspaceSearch.Query())
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.workspaceSearch {
+	if a.workspaceSearch.IsOpen() {
 		t.Fatal("Escape did not close workspace search")
 	}
 }
@@ -78,12 +79,12 @@ func TestWorkspaceSearchClosesOnBackdropClick(t *testing.T) {
 	// search input. A press on the dimmed area closes it.
 	tt.ClickAt(400, 120)
 	tt.Frame()
-	if !a.workspaceSearch {
+	if !a.workspaceSearch.IsOpen() {
 		t.Fatal("clicking inside the search dialog closed it")
 	}
 	tt.ClickAt(20, 20)
 	tt.Frame()
-	if a.workspaceSearch {
+	if a.workspaceSearch.IsOpen() {
 		t.Fatal("clicking outside the search dialog did not close it")
 	}
 }
@@ -97,8 +98,8 @@ func TestOpenDialogsRenderIndependentlyOfKeyboardOwnership(t *testing.T) {
 	if !tt.HasText("设置") || !tt.HasText("搜索笔记库") {
 		t.Fatalf("one open dialog was hidden by another: %q", tt.Texts())
 	}
-	if !a.settingsOpen || !a.workspaceSearch {
-		t.Fatalf("rendering changed dialog state: settings=%v search=%v", a.settingsOpen, a.workspaceSearch)
+	if !a.settingsPanel.IsOpen() || !a.workspaceSearch.IsOpen() {
+		t.Fatalf("rendering changed dialog state: settings=%v search=%v", a.settingsPanel.IsOpen(), a.workspaceSearch.IsOpen())
 	}
 }
 
@@ -108,8 +109,8 @@ func TestCmdOOpensWorkspaceQuickSearch(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyO)
 	tt.Frame()
-	if !a.workspaceSearch || a.quickOpenOpen() {
-		t.Fatalf("Cmd+O should open workspace quick search: workspaceSearch=%v quickOpen=%v", a.workspaceSearch, a.quickOpenOpen())
+	if !a.workspaceSearch.IsOpen() || a.quickOpenOpen() {
+		t.Fatalf("Cmd+O should open workspace quick search: workspaceSearch=%v quickOpen=%v", a.workspaceSearch.IsOpen(), a.quickOpenOpen())
 	}
 	if !tt.HasText("搜索笔记库") {
 		t.Fatalf("Cmd+O opened the wrong panel: %q", tt.Texts())
@@ -148,18 +149,18 @@ func TestWorkspaceSearchEmacsNavigationAndVaultRelativePaths(t *testing.T) {
 	if !strings.Contains(text, "Projects/Atlas/Rendering Notes.md") {
 		t.Fatalf("nested recent path lost its folder hierarchy: %q", text)
 	}
-	if a.workspaceSearchSel != 0 {
-		t.Fatalf("initial selection = %d, want 0", a.workspaceSearchSel)
+	if a.workspaceSearch.Selection() != 0 {
+		t.Fatalf("initial selection = %d, want 0", a.workspaceSearch.Selection())
 	}
 	tt.Key(ui.Ctrl, ui.KeyN)
 	tt.Frame()
-	if a.workspaceSearchSel != 1 {
-		t.Fatalf("Ctrl+N selection = %d, want 1", a.workspaceSearchSel)
+	if a.workspaceSearch.Selection() != 1 {
+		t.Fatalf("Ctrl+N selection = %d, want 1", a.workspaceSearch.Selection())
 	}
 	tt.Key(ui.Ctrl, ui.KeyP)
 	tt.Frame()
-	if a.workspaceSearchSel != 0 {
-		t.Fatalf("Ctrl+P selection = %d, want 0", a.workspaceSearchSel)
+	if a.workspaceSearch.Selection() != 0 {
+		t.Fatalf("Ctrl+P selection = %d, want 0", a.workspaceSearch.Selection())
 	}
 }
 
@@ -171,7 +172,7 @@ func TestSidebarMagnifierOpensWorkspaceSearch(t *testing.T) {
 		t.Fatalf("click sidebar search icon: %v", err)
 	}
 	tt.Frame()
-	if !a.workspaceSearch || !tt.HasText("搜索笔记库") {
+	if !a.workspaceSearch.IsOpen() || !tt.HasText("搜索笔记库") {
 		t.Fatal("sidebar magnifier did not open the workspace search modal")
 	}
 	if !a.panelOpen || a.panel != panelFiles {
@@ -179,7 +180,7 @@ func TestSidebarMagnifierOpensWorkspaceSearch(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.workspaceSearch {
+	if a.workspaceSearch.IsOpen() {
 		t.Fatal("Escape did not dismiss the modal opened from the sidebar")
 	}
 }
@@ -197,7 +198,7 @@ func TestWorkspaceSearchPaletteEntryUsesSharedOpen(t *testing.T) {
 		t.Fatal("workspace search command is missing")
 	}
 	run()
-	if !a.workspaceSearch {
+	if !a.workspaceSearch.IsOpen() {
 		t.Fatal("palette command did not open workspace search")
 	}
 }
@@ -405,7 +406,7 @@ func TestDarkThemeRenders(t *testing.T) {
 	if !a.dark {
 		t.Fatal("the dark theme is not on")
 	}
-	if _, _, ok := a.activeNote.NavigationCommands().WindowPoint(strings.Index(a.documentSource(), "正文")); !ok {
+	if _, _, ok := a.noteEditor().NavigationCommands().WindowPoint(strings.Index(a.documentSource(), "正文")); !ok {
 		t.Fatal("the document is not laid out in the dark theme")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"muse/locales"
+	"muse/nativeui/panels/filetree"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,31 +50,31 @@ func TestTreeMultiSelectionProjectionShowsCountAndStackedIcon(t *testing.T) {
 			pressX, pressY := handle.X+12, handle.Y+14
 			tt.PressWithModifiers(tc.mods, 0, pressX, pressY)
 			tt.Frame()
-			if len(a.treeSelection) != 1 || !a.treeSelection[filepath.Join(root, "a.md")] {
-				t.Fatalf("modifier press changed selection before drag threshold: %v", a.treeSelection)
+			if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
+				t.Fatalf("modifier press changed selection before drag threshold: %v", a.fileTreeState.SelectedIDs())
 			}
-			if a.treeDragging {
+			if a.fileTreeState.DragPreview().Active {
 				t.Fatal("press alone started drag before threshold")
 			}
 			tt.Move(pressX+1, pressY)
 			tt.Frame()
-			if a.treeDragging {
+			if a.fileTreeState.DragPreview().Active {
 				t.Fatal("one DIP motion crossed the drag threshold")
 			}
-			if len(a.treeSelection) != 1 || !a.treeSelection[filepath.Join(root, "a.md")] {
-				t.Fatalf("sub-threshold motion changed selection: %v", a.treeSelection)
+			if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
+				t.Fatalf("sub-threshold motion changed selection: %v", a.fileTreeState.SelectedIDs())
 			}
 			tt.Move(pressX+12, pressY)
 			tt.Frame()
-			if !a.treeDragging {
+			if !a.fileTreeState.DragPreview().Active {
 				t.Fatal("modifier press followed by threshold motion did not start drag")
 			}
-			if len(a.treeDragSelection) != len(tc.want) {
-				t.Fatalf("frozen drag selection = %v; want %v", a.treeDragSelection, tc.want)
+			if len(a.fileTreeState.SelectedIDs()) != len(tc.want) {
+				t.Fatalf("frozen drag selection = %v; want %v", a.fileTreeState.SelectedIDs(), tc.want)
 			}
 			for _, name := range tc.want {
-				if !a.treeSelection[filepath.Join(root, name)] {
-					t.Fatalf("drag threshold selection missed %s: %v", name, a.treeSelection)
+				if !a.fileTreeState.IsSelected(filepath.Join(root, name)) {
+					t.Fatalf("drag threshold selection missed %s: %v", name, a.fileTreeState.SelectedIDs())
 				}
 			}
 			countLabel := locales.FilesSelectedFileCount(len(tc.want))
@@ -83,7 +84,7 @@ func TestTreeMultiSelectionProjectionShowsCountAndStackedIcon(t *testing.T) {
 				count, countOK := tt.Find(countLabel)
 				allText := strings.Join(tt.Texts(), "\n")
 				if !cardOK || !countOK || strings.Count(allText, countLabel) != 1 {
-					t.Fatalf("%s projection lost/forked selection count: count=%+v texts=%q selection=%v frozen=%v", stage, count, allText, a.treeSelection, a.treeDragSelection)
+					t.Fatalf("%s projection lost/forked selection count: count=%+v texts=%q selection=%v frozen=%v", stage, count, allText, a.fileTreeState.SelectedIDs(), a.fileTreeState.SelectedIDs())
 				}
 			}
 			assertProjectionCount("first threshold")
@@ -99,8 +100,8 @@ func TestTreeMultiSelectionProjectionShowsCountAndStackedIcon(t *testing.T) {
 			assertProjectionCount("settled folder hover")
 			_, projectionOK := tt.Find(locales.TreeDragProjectionLabel(tc.press))
 			_, opOK := tt.Find(locales.TreeDragProjectionOperationLabel(tc.press))
-			if a.treeDragOperation != treeDragMoveToFolder || a.treeDragTarget != "Folder" || !projectionOK || !opOK {
-				t.Fatalf("target operation not represented on the dragged item projection: operation=%q texts=%v", a.treeDragOperation, tt.Texts())
+			if display := a.fileTreeState.DragOperationDisplay(); display.Kind != filetree.DragOperationMoveToFolder || display.TargetLabel != "Folder" || !projectionOK || !opOK {
+				t.Fatalf("target operation not represented on the dragged item projection: operation=%v texts=%v", display.Kind, tt.Texts())
 			}
 			runtimeShot(t, tt, tc.shot)
 			tt.Release(target.X+target.W/2, target.Y+target.H/2)
@@ -124,7 +125,7 @@ func TestTreeProjectionNamesMixedSelectionAsProjects(t *testing.T) {
 	if err := os.WriteFile(file, []byte("note"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if count, filesOnly := treeProjectionSelectionLabel([]string{file, folder}, func(path string) bool { return path == folder }); count != 2 || filesOnly {
+	if count, filesOnly := filetree.SelectionSummary([]string{file, folder}, func(path string) bool { return path == folder }); count != 2 || filesOnly {
 		t.Fatalf("mixed selection = %d items, filesOnly=%v; want 2 items and filesOnly=false", count, filesOnly)
 	}
 }
@@ -157,8 +158,8 @@ func TestTreeTrashHoverKeepsCompactTwoLineProjection(t *testing.T) {
 	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
 	tt.Frame()
-	if a.treeDragOperation != treeDragMoveToTrash {
-		t.Fatalf("trash target operation = %q", a.treeDragOperation)
+	if a.fileTreeState.DragOperationDisplay().Kind != filetree.DragOperationMoveToTrash {
+		t.Fatalf("trash target operation = %v", a.fileTreeState.DragOperationDisplay().Kind)
 	}
 	target, ok = tt.Find(locales.TreeTrashDropTarget())
 	if !ok {
@@ -222,15 +223,15 @@ func TestTreeDragProjectionSurvivesCollapsedFolderExpansion(t *testing.T) {
 	tt.Move(startX+12, startY)
 	tt.Move(targetX, targetY)
 	tt.Frame()
-	if !a.treeDragging || a.treeDragItem.Path != source {
-		t.Fatalf("drag did not start from source: dragging=%v item=%+v", a.treeDragging, a.treeDragItem)
+	if !a.fileTreeState.DragPreview().Active || a.treeDragItem.Path != source {
+		t.Fatalf("drag did not start from source: dragging=%v item=%+v", a.fileTreeState.DragPreview().Active, a.treeDragItem)
 	}
 	if _, ok := tt.Find(locales.TreeDragProjectionLabel("source.md")); !ok {
 		t.Fatal("projection card missing before target expansion")
 	}
 	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !a.expanded[folder] {
+	if !a.fileTreeState.IsExpanded(folder) {
 		t.Fatal("collapsed target did not expand after hover delay")
 	}
 	assertProjectionFollowsPointer := func(stage string) {
@@ -239,14 +240,14 @@ func TestTreeDragProjectionSurvivesCollapsedFolderExpansion(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s projection missing: texts=%q", stage, strings.Join(tt.Texts(), "\n"))
 		}
-		if dx, dy := projection.X-(a.treeDragPointer.X+12), projection.Y-(a.treeDragPointer.Y-58); math.Abs(float64(dx)) > 1 || math.Abs(float64(dy)) > 1 {
-			t.Fatalf("%s projection stopped following pointer: projection=%+v pointer=%+v delta=(%g,%g)", stage, projection, a.treeDragPointer, dx, dy)
+		if dx, dy := projection.X-(a.fileTreeState.DragPreview().Pointer.X+12), projection.Y-(a.fileTreeState.DragPreview().Pointer.Y-58); math.Abs(float64(dx)) > 1 || math.Abs(float64(dy)) > 1 {
+			t.Fatalf("%s projection stopped following pointer: projection=%+v pointer=%+v delta=(%g,%g)", stage, projection, a.fileTreeState.DragPreview().Pointer, dx, dy)
 		}
 	}
 	for i := 0; i < 3; i++ {
 		tt.Frame()
-		if !a.treeDragging || a.treeDragItem.Path != source || a.treeDragStarted.IsZero() {
-			t.Fatalf("drag session changed after row rebuild: dragging=%v item=%+v started=%v", a.treeDragging, a.treeDragItem, a.treeDragStarted)
+		if !a.fileTreeState.DragPreview().Active || a.treeDragItem.Path != source || a.fileTreeState.DragPreview().StartedAt.IsZero() {
+			t.Fatalf("drag session changed after row rebuild: dragging=%v item=%+v started=%v", a.fileTreeState.DragPreview().Active, a.treeDragItem, a.fileTreeState.DragPreview().StartedAt)
 		}
 		assertProjectionFollowsPointer(fmt.Sprintf("expansion frame %d", i))
 		if _, ok := tt.Find(treeDragHandleLabel("source.md")); !ok {
@@ -264,8 +265,8 @@ func TestTreeDragProjectionSurvivesCollapsedFolderExpansion(t *testing.T) {
 	tt.Release(600, 360)
 	tt.Frame()
 	tt.Frame()
-	if !a.treeDragStarted.IsZero() || a.treePointerReleased {
-		t.Fatalf("detached drag state did not clear after outside release: started=%v released=%v", a.treeDragStarted, a.treePointerReleased)
+	if !a.fileTreeState.DragPreview().StartedAt.IsZero() || a.fileTreeState.PointerReleased() {
+		t.Fatalf("detached drag state did not clear after outside release: started=%v released=%v", a.fileTreeState.DragPreview().StartedAt, a.fileTreeState.PointerReleased())
 	}
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("outside release unexpectedly moved source: %v", err)

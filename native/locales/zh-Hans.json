@@ -112,6 +112,8 @@
   "settingsEditorGroup": "编辑器",
   "settingsHeadingMarkerReveal": "标题标记按空格展开",
   "settingsHeadingMarkerRevealDetail": "开启后，光标停在标题文字时保持折叠；左移进入“# ”前缀空格后展开，并可继续移动到 #。",
+  "settingsSourceReveal": "源码展开偏好",
+  "settingsSourceRevealDetail": "编辑器会在需要时于光标附近展开 Markdown 源码。当前策略暂不支持自定义。",
   "settingsVimImageRows": "Vim 图片虚拟行",
   "settingsVimImageRowsDetail": "按图片显示高度提供平滑的 Vim 上下导航；行操作与选择仍作用于整张图片。仅在 Vim 模式生效。",
   "settingsVimYankFlash": "Vim 复制选区闪显",

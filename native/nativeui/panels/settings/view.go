@@ -76,11 +76,9 @@ type Assistant struct {
 }
 
 type ViewModel struct {
-	Page       Page
 	Appearance Appearance
 	Editor     Editor
 	Assistant  Assistant
-	Scroll     *ui.ScrollState
 }
 
 type ActionKind uint8
@@ -138,16 +136,20 @@ type Action struct {
 	Enabled    bool
 }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func Render(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
+	if handle == nil {
+		return
+	}
+	state := &handle.state
 	t := c.Theme()
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c).Width(164).Shrink(0).Padding(8, 8, 8, 10).Gap(3).Children(func() {
-			pageButton(c, locales.SettingsAppearance(), AppearancePage, model.Page, dispatch)
-			pageButton(c, locales.SettingsEditor(), EditorPage, model.Page, dispatch)
-			pageButton(c, locales.SettingsAI(), AssistantPage, model.Page, dispatch)
+			pageButton(c, locales.SettingsAppearance(), AppearancePage, state.page, dispatch)
+			pageButton(c, locales.SettingsEditor(), EditorPage, state.page, dispatch)
+			pageButton(c, locales.SettingsAI(), AssistantPage, state.page, dispatch)
 		})
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Radius(12).Clip().Background(t.Background).Border(1, t.Border).Children(func() {
-			title := pageTitle(model.Page)
+			title := pageTitle(state.page)
 			ui.Row(c).Height(42).Shrink(0).Padding(0, 16).AlignItems(ui.Center).
 				BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 				ui.Text(c, title).FontSize(14).FontWeight(650)
@@ -156,7 +158,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			})
 			content := func() {
 				ui.Column(c).FillWidth().Padding(16).Gap(16).Children(func() {
-					switch model.Page {
+					switch state.page {
 					case EditorPage:
 						renderEditor(c, model.Editor, dispatch)
 					case AssistantPage:
@@ -166,11 +168,7 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 					}
 				})
 			}
-			if model.Scroll != nil {
-				ui.Scroll(c).Grow(1).TrackScroll(model.Scroll).Children(content)
-			} else {
-				ui.Scroll(c).Grow(1).Children(content)
-			}
+			ui.Scroll(c).Grow(1).TrackScroll(&state.scroll).Children(content)
 		})
 	})
 }

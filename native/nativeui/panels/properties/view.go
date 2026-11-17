@@ -52,7 +52,7 @@ type AddDraft struct {
 }
 
 type ScrollPort struct {
-	State     *ui.ScrollState
+	state     *ui.ScrollState
 	Indicator *scrollbar.Indicator
 }
 
@@ -113,7 +113,11 @@ type Action struct {
 	Backlink Backlink
 }
 
-func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func Render(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
+	if handle == nil {
+		return
+	}
+	model = handle.state.project(model)
 	t := c.Theme()
 	title := model.Title
 	if title == "" {
@@ -134,7 +138,10 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 
 // RenderSummary draws the compact document metadata row above the editor.
 // It emits navigation and editing intent without looking up document state.
-func RenderSummary(c *ui.Context, model ViewModel, dispatch func(Action)) {
+func RenderSummary(c *ui.Context, handle *Handle, model ViewModel, dispatch func(Action)) {
+	if handle != nil {
+		model = handle.state.project(model)
+	}
 	t := c.Theme()
 	quiet := t.TextMuted
 	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
@@ -209,12 +216,12 @@ func renderHeader(c *ui.Context, model ViewModel, title string, dispatch func(Ac
 func renderContent(c *ui.Context, model ViewModel, dispatch func(Action)) {
 	t := c.Theme()
 	var fallback ui.ScrollState
-	scroll := model.Scroll.State
+	scroll := model.Scroll.state
 	if scroll == nil {
 		scroll = &fallback
 	}
-	showScrollbar := model.Scroll.State != nil && model.Scroll.Indicator != nil &&
-		model.Scroll.Indicator.Visible(c.Now(), model.Scroll.State.X, model.Scroll.State.Y)
+	showScrollbar := model.Scroll.state != nil && model.Scroll.Indicator != nil &&
+		model.Scroll.Indicator.Visible(c.Now(), model.Scroll.state.X, model.Scroll.state.Y)
 	if showScrollbar {
 		c.After(model.Scroll.Indicator.Remaining(c.Now()))
 	}

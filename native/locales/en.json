@@ -112,6 +112,8 @@
   "settingsEditorGroup": "Editor",
   "settingsHeadingMarkerReveal": "Expand Headings at Marker Space",
   "settingsHeadingMarkerRevealDetail": "When enabled, headings stay folded while the cursor is in their text. Move left into the space after the # prefix to expand, then continue to the #.",
+  "settingsSourceReveal": "Source Reveal Preference",
+  "settingsSourceRevealDetail": "The editor reveals Markdown source around the caret when needed. This policy is currently fixed and cannot be customized.",
   "settingsVimImageRows": "Vim Image Virtual Rows",
   "settingsVimImageRowsDetail": "Use the image's displayed height for smooth vertical Vim navigation; line operations and selections still apply to the whole image. Vim mode only.",
   "settingsVimYankFlash": "Flash Yanked Vim Selection",

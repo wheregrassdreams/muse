@@ -60,18 +60,23 @@ type Session struct {
 	cancel context.CancelFunc
 	opMu   sync.RWMutex
 
-	mu          sync.RWMutex
-	snapshot    Snapshot
-	index       IndexPort
-	catalog     CatalogPort
-	watcher     WatcherPort
-	links       *LinkGraph
-	linksPath   string
-	search      *search.Index
-	quickOpen   *QuickOpen
-	closed      bool
-	queryCancel context.CancelFunc
-	queryMu     sync.Mutex
+	mu                           sync.RWMutex
+	snapshot                     Snapshot
+	index                        IndexPort
+	catalog                      CatalogPort
+	watcher                      WatcherPort
+	links                        *LinkGraph
+	linksPath                    string
+	search                       *search.Index
+	quickOpen                    *QuickOpen
+	wikiSuggestions              []vaultlinks.Suggestion
+	wikiSuggestionsRevision      uint64
+	wikiSuggestionsFilesRevision uint64
+	wikiSuggestionsReady         bool
+	closed                       bool
+	queryCancel                  context.CancelFunc
+	queryMu                      sync.Mutex
+	searchSchedule               search.QueryScheduler
 
 	queryJobs   chan queryRequest
 	refreshJobs chan struct{}
@@ -89,6 +94,45 @@ type Session struct {
 	closeOnce sync.Once
 	closeDone chan struct{}
 	closeErr  error
+}
+
+// ScheduleSearch coalesces a query using this vault's measured search cost.
+// It submits the latest request as soon as its adaptive deadline is due and
+// returns the remaining wait for a presentation loop to schedule a redraw.
+func (s *Session) ScheduleSearch(query string, literal bool, activePath, activeSource string, now time.Time) (time.Duration, error) {
+	if s == nil {
+		return 0, ErrSessionClosed
+	}
+	if strings.TrimSpace(query) == "" {
+		s.searchSchedule.Reset()
+		return 0, nil
+	}
+	snapshot := s.Snapshot()
+	request := search.QueryRequest{Text: query, Literal: literal}
+	remaining := s.searchSchedule.Schedule(request, snapshot.Search.Cost, snapshot.Search.Busy, now)
+	if remaining > 0 {
+		return remaining, nil
+	}
+	request, ok := s.searchSchedule.Take(now)
+	if !ok {
+		return 0, nil
+	}
+	_, err := s.Query(request.Text, request.Literal, activePath, activeSource)
+	return 0, err
+}
+
+// ForceSearch schedules the current query again even when it matches the last
+// submitted request, for example after the indexed files have changed.
+func (s *Session) ForceSearch(now time.Time, wait time.Duration) {
+	if s != nil {
+		s.searchSchedule.Force(now, wait)
+	}
+}
+
+func (s *Session) ResetSearchSchedule() {
+	if s != nil {
+		s.searchSchedule.Reset()
+	}
 }
 
 // NewSession creates a session immediately and performs vault startup in the
@@ -439,6 +483,84 @@ func (s *Session) ImagePaths() []string {
 	return append([]string(nil), catalog.ImagePaths()...)
 }
 
+// WikiSuggestions returns a revision-scoped suggestion projection from the
+// vault catalog and indexed note metadata. The cache and its invalidation key
+// belong to this vault session, so UI adapters do not retain duplicate data.
+func (s *Session) WikiSuggestions() []vaultlinks.Suggestion {
+	if s == nil {
+		return nil
+	}
+	snapshot := s.Snapshot()
+	if !snapshot.Ready {
+		return nil
+	}
+	s.mu.RLock()
+	if s.wikiSuggestionsReady && s.wikiSuggestionsRevision == snapshot.IndexRevision && s.wikiSuggestionsFilesRevision == snapshot.FilesRevision {
+		items := append([]vaultlinks.Suggestion(nil), s.wikiSuggestions...)
+		s.mu.RUnlock()
+		return items
+	}
+	s.mu.RUnlock()
+
+	paths := s.Paths()
+	documents := make([]vaultlinks.Document, 0, len(paths))
+	for _, path := range paths {
+		rel, err := filepath.Rel(snapshot.Root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		doc, ok := s.Document(rel)
+		if !ok {
+			continue
+		}
+		documents = append(documents, vaultlinks.Document{Path: rel, Title: doc.Title, Aliases: doc.Metadata().Aliases})
+	}
+	items := vaultlinks.WikiSuggestions(documents, s.ImagePaths())
+	s.mu.Lock()
+	s.wikiSuggestions = append(s.wikiSuggestions[:0], items...)
+	s.wikiSuggestionsRevision = snapshot.IndexRevision
+	s.wikiSuggestionsFilesRevision = snapshot.FilesRevision
+	s.wikiSuggestionsReady = true
+	s.mu.Unlock()
+	return append([]vaultlinks.Suggestion(nil), items...)
+}
+
+// ResolveImageTarget resolves a Markdown wiki image target using this vault's
+// catalog and the source note's directory context.
+func (s *Session) ResolveImageTarget(currentPath, target string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	snapshot := s.Snapshot()
+	if !snapshot.Ready || snapshot.Root == "" {
+		return "", false
+	}
+	current := ""
+	if currentPath != "" {
+		rel, err := filepath.Rel(snapshot.Root, currentPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", false
+		}
+		current = filepath.ToSlash(rel)
+	}
+	rel, ok := vaultlinks.ResolveImageTarget(snapshot.Root, current, target, s.ImagePaths())
+	if !ok || !s.HasImage(rel) {
+		return "", false
+	}
+	return filepath.Join(snapshot.Root, filepath.FromSlash(rel)), true
+}
+
+func (s *Session) ClearWikiSuggestions() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.wikiSuggestions = nil
+	s.wikiSuggestionsReady = false
+	s.mu.Unlock()
+}
+
 // Children returns a detached list of immediate entries under a
 // vault-relative directory. The empty path addresses the vault root.
 func (s *Session) Children(directory string) []vaultfiles.Entry {
@@ -668,6 +790,8 @@ func (s *Session) closeResources() {
 	watcher, searchIndex, graph := s.watcher, s.search, s.links
 	s.watcher, s.search, s.links = nil, nil, nil
 	s.index, s.catalog, s.quickOpen = nil, nil, nil
+	s.wikiSuggestions = nil
+	s.wikiSuggestionsReady = false
 	s.snapshot.Ready = false
 	s.snapshot.SearchAvailable = false
 	s.snapshot.Search.Busy = false

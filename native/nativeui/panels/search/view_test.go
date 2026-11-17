@@ -1,4 +1,4 @@
-package search
+package searchui
 
 import (
 	"testing"
@@ -8,13 +8,13 @@ import (
 )
 
 func TestRenderRecentClickEmitsOpenRecent(t *testing.T) {
-	open := true
+	state := newState()
+	state.open()
 	var actions []Action
-	model := ViewModel{
-		Open:   &open,
-		Recent: []RecentItem{{Path: "notes/recent.md", Title: "Recent note", PathLabel: "notes/recent.md"}},
-	}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(action Action) { actions = append(actions, action) }) }, 900, 700)
+	view := View{Recent: []RecentItem{{Path: "notes/recent.md", Title: "Recent note", PathLabel: "notes/recent.md"}}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, &state, view, func(action Action) { actions = append(actions, action) })
+	}, 900, 700)
 	tester.Frame()
 	if !tester.HasText("Recent note") || !tester.HasText(locales.WorkspaceRecentNotes()) {
 		t.Fatalf("recent view missing content: %q", tester.Texts())
@@ -28,13 +28,17 @@ func TestRenderRecentClickEmitsOpenRecent(t *testing.T) {
 }
 
 func TestRenderQueryModeAndResultActions(t *testing.T) {
-	open := true
+	state := newState()
+	state.open()
+	state.setQuery("needle")
 	var actions []Action
-	model := ViewModel{
-		Open: &open, Query: "needle", Mode: FullText, Availability: Ready, CanChangeMode: true,
+	view := View{
+		Availability: Ready, CanChangeMode: true,
 		Results: []Result{{Path: "notes/target.md", Title: "Target note", PathLabel: "notes/target.md", Snippet: "needle in body", Offset: 42, Revision: "r1"}},
 	}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(action Action) { actions = append(actions, action) }) }, 900, 700)
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, &state, view, func(action Action) { actions = append(actions, action) })
+	}, 900, 700)
 	tester.Frame()
 	if !tester.HasText("Target note") || !tester.HasText("needle in body") {
 		t.Fatalf("result view missing: %q", tester.Texts())
@@ -45,6 +49,9 @@ func TestRenderQueryModeAndResultActions(t *testing.T) {
 	if got := lastAction(t, actions); got.Kind != ModeChanged || got.Mode != Literal {
 		t.Fatalf("mode action = %+v", got)
 	}
+	if state.modeValue() != Literal {
+		t.Fatalf("state mode = %v, want literal", state.modeValue())
+	}
 	if err := tester.Click("notes/target.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,30 +61,38 @@ func TestRenderQueryModeAndResultActions(t *testing.T) {
 }
 
 func TestRenderQueryInputAndDismissAreTypedActions(t *testing.T) {
-	open := true
+	state := newState()
+	state.open()
 	var actions []Action
-	model := ViewModel{Open: &open, Availability: VaultRequired}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, func(action Action) { actions = append(actions, action) }) }, 900, 700)
+	view := View{Availability: VaultRequired}
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, &state, view, func(action Action) { actions = append(actions, action) })
+	}, 900, 700)
 	tester.Frame()
 	tester.Type("draft")
 	tester.Frame()
 	if got := lastAction(t, actions); got.Kind != QueryChanged || got.Query != "draft" {
 		t.Fatalf("query action = %+v", got)
 	}
+	if state.queryValue() != "draft" {
+		t.Fatalf("state query = %q, want draft", state.queryValue())
+	}
 	tester.Key(0, ui.KeyEscape)
 	tester.Frame()
 	if got := lastAction(t, actions); got.Kind != Dismiss {
 		t.Fatalf("dismiss action = %+v", got)
 	}
-	if open {
+	if state.isOpen() {
 		t.Fatal("dialog did not close on Escape")
 	}
 }
 
 func TestRenderAvailabilityAndModePresentation(t *testing.T) {
-	open := true
-	model := ViewModel{Open: &open, Query: "query", Availability: IndexBuilding}
-	tester := ui.NewTester(func(c *ui.Context) { Render(c, model, nil) }, 900, 700)
+	state := newState()
+	state.open()
+	state.setQuery("query")
+	view := View{Availability: IndexBuilding}
+	tester := ui.NewTester(func(c *ui.Context) { render(c, &state, view, nil) }, 900, 700)
 	tester.Frame()
 	if !tester.HasText(locales.VaultIndexBuilding()) {
 		t.Fatalf("index building state missing: %q", tester.Texts())

@@ -73,9 +73,7 @@ func (e *Editor) Close() {
 	}
 	e.SetMathRenderer(nil)
 	e.diagrams = nil
-	e.rail.Ys = nil
-	e.rail.Scales = nil
-	e.rail.Rect = ui.Rect{}
+	e.rail.Reset()
 	if e.opts.OnClose != nil {
 		e.opts.OnClose()
 	}

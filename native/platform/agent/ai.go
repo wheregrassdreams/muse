@@ -1,12 +1,6 @@
-// AI 服务：对应 Electron 版 electron/services/ai.ts。
-// 密钥只进 Go 进程网络层，不暴露给渲染进程。
-//
-//	AI.TestConnection  请求 { baseUrl, apiKey } -> { ok, status?, message }
-//	AI.ChatStream      发起 OpenAI 兼容流式对话，SSE 块经事件转发给渲染进程
-//	AI.ChatAbort       中止指定 requestId 的上游请求
-//	AI.WebSearch       Brave Search API 联网搜索 -> { ok, results?, message? }
-//
-// 事件（Go -> 渲染进程）：ai:chat-chunk / ai:chat-end / ai:chat-error
+// Package agent implements the concrete OpenAI-compatible and Brave HTTP
+// adapters used by the application agent contracts. Credentials remain in
+// the Go process and never cross into a renderer.
 package agent
 
 import (
@@ -15,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	applicationagent "muse/application/agent"
 	"muse/locales"
 	"net/http"
 	"net/url"
@@ -25,33 +20,6 @@ import (
 )
 
 const aiTimeout = 10 * time.Second
-
-// TestConnResult 是连接测试的返回。
-type TestConnResult struct {
-	Ok      bool   `json:"ok"`
-	Status  int    `json:"status,omitempty"`
-	Message string `json:"message"`
-}
-
-// TestConnRequest 是连接测试的请求。
-type TestConnRequest struct {
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey"`
-}
-
-type ProviderModel struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name,omitempty"`
-	Reasoning     bool     `json:"reasoning,omitempty"`
-	Input         []string `json:"input,omitempty"`
-	ContextWindow int      `json:"contextWindow,omitempty"`
-	MaxTokens     int      `json:"maxTokens,omitempty"`
-}
-
-type ModelsResult struct {
-	TestConnResult
-	Models []ProviderModel `json:"models,omitempty"`
-}
 
 // ChatStreamRequest 是流式对话的请求。
 type ChatStreamRequest struct {
@@ -91,16 +59,18 @@ type WebSearchResponse struct {
 	Message string          `json:"message,omitempty"`
 }
 
-// AI 是 AI 服务对象。
-type AI struct {
+// Provider is the concrete HTTP-backed provider adapter.
+type Provider struct {
 	mu       sync.Mutex
 	aborters map[string]context.CancelFunc
 	client   *http.Client
 }
 
-// NewAI 初始化 AI 服务。
-func NewAI() *AI {
-	return &AI{aborters: map[string]context.CancelFunc{}, client: &http.Client{}}
+var _ applicationagent.ProviderManagement = (*Provider)(nil)
+
+// NewProvider constructs the HTTP-backed OpenAI-compatible and Brave adapter.
+func NewProvider() *Provider {
+	return &Provider{aborters: map[string]context.CancelFunc{}, client: &http.Client{}}
 }
 
 func normalizeBaseURL(raw string) string {
@@ -155,26 +125,30 @@ func osIsTimeout(err error) bool {
 }
 
 // TestConnection 测试与 OpenAI 兼容端点的连通性。
-func (a *AI) TestConnection(req TestConnRequest) TestConnResult {
-	return a.ListModels(req).TestConnResult
+func (a *Provider) TestConnection(ctx context.Context, req applicationagent.ProviderCredentials) (applicationagent.ProviderCheck, error) {
+	models, err := a.ListModels(ctx, req)
+	return applicationagent.ProviderCheck{StatusCode: models.StatusCode}, err
 }
 
 // ListModels discovers models through the same API prefix used for chat requests.
-func (a *AI) ListModels(req TestConnRequest) ModelsResult {
-	failure := func(status int, message string) ModelsResult {
-		return ModelsResult{TestConnResult: TestConnResult{Status: status, Message: message}}
+func (a *Provider) ListModels(parent context.Context, req applicationagent.ProviderCredentials) (applicationagent.ProviderModelList, error) {
+	failure := func(status int, kind applicationagent.ProviderErrorKind, detail string) (applicationagent.ProviderModelList, error) {
+		return applicationagent.ProviderModelList{StatusCode: status}, &applicationagent.ProviderError{Kind: kind, StatusCode: status, Detail: detail}
 	}
 	baseURL := normalizeBaseURL(req.BaseURL)
 	apiKey := strings.TrimSpace(req.APIKey)
 	if baseURL == "" {
-		return failure(0, locales.AiServiceFillBaseURL())
+		return failure(0, applicationagent.ProviderErrorInvalidConfiguration, "")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), aiTimeout)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, aiTimeout)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
 	if err != nil {
-		return failure(0, err.Error())
+		return failure(0, applicationagent.ProviderErrorInvalidConfiguration, err.Error())
 	}
 	if apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
@@ -182,16 +156,33 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 	httpReq.Header.Set("Accept", "application/json")
 	res, err := a.client.Do(httpReq)
 	if err != nil {
-		return failure(0, describeNetworkError(err))
+		if parent.Err() != nil {
+			return applicationagent.ProviderModelList{}, parent.Err()
+		}
+		kind := applicationagent.ProviderErrorNetwork
+		if errors.Is(err, context.DeadlineExceeded) || osIsTimeout(err) {
+			kind = applicationagent.ProviderErrorTimeout
+		}
+		return failure(0, kind, providerNetworkDetail(err))
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if err != nil {
-		return failure(res.StatusCode, locales.AiServiceReadModelsFailed())
+		if parent.Err() != nil {
+			return applicationagent.ProviderModelList{}, parent.Err()
+		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return failure(res.StatusCode, applicationagent.ProviderErrorTimeout, providerNetworkDetail(ctx.Err()))
+		}
+		return failure(res.StatusCode, applicationagent.ProviderErrorReadResponse, "")
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return failure(res.StatusCode, describeHTTPError(res.StatusCode, string(body)))
+		kind := applicationagent.ProviderErrorRequest
+		if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+			kind = applicationagent.ProviderErrorUnauthorized
+		}
+		return failure(res.StatusCode, kind, providerHTTPDetail(res.StatusCode, string(body)))
 	}
 	var data struct {
 		Data []struct {
@@ -208,9 +199,9 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 		} `json:"data"`
 	}
 	if json.Unmarshal(body, &data) != nil || data.Data == nil {
-		return failure(res.StatusCode, locales.AiServiceInvalidModelList())
+		return failure(res.StatusCode, applicationagent.ProviderErrorInvalidModelList, "")
 	}
-	models := make([]ProviderModel, 0, len(data.Data))
+	models := make([]applicationagent.ProviderModel, 0, len(data.Data))
 	seen := map[string]bool{}
 	for _, m := range data.Data {
 		id := strings.TrimSpace(m.ID)
@@ -226,16 +217,38 @@ func (a *AI) ListModels(req TestConnRequest) ModelsResult {
 		if contextWindow == 0 {
 			contextWindow = m.ContextLength
 		}
-		models = append(models, ProviderModel{ID: id, Name: name, Reasoning: m.Reasoning,
+		models = append(models, applicationagent.ProviderModel{ID: id, Name: name, Reasoning: m.Reasoning,
 			Input: m.Modalities.Input, ContextWindow: contextWindow, MaxTokens: m.MaxTokens})
 	}
-	return ModelsResult{TestConnResult: TestConnResult{Ok: true, Status: res.StatusCode,
-		Message: locales.AiServiceModelsLoaded(len(models))}, Models: models}
+	return applicationagent.ProviderModelList{StatusCode: res.StatusCode, Models: models}, nil
+}
+
+func providerNetworkDetail(err error) string {
+	var uerr *url.Error
+	if errors.As(err, &uerr) && uerr.Err != nil {
+		return uerr.Err.Error()
+	}
+	return err.Error()
+}
+
+func providerHTTPDetail(status int, raw string) string {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return ""
+	}
+	var parsed struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(raw), &parsed) == nil {
+		return parsed.Error.Message
+	}
+	return ""
 }
 
 // ChatStreamWith is ChatStream without the web event bus: the caller gets the
 // raw SSE chunks, end and error through sink.
-func (a *AI) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
+func (a *Provider) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
 	requestID := req.RequestID
 	baseURL := normalizeBaseURL(req.BaseURL)
 	apiKey := strings.TrimSpace(req.APIKey)
@@ -334,7 +347,7 @@ func (a *AI) ChatStreamWith(req ChatStreamRequest, sink ChatSink) ChatResult {
 }
 
 // ChatAbort 中止指定 requestId 的上游请求。
-func (a *AI) ChatAbort(req struct {
+func (a *Provider) ChatAbort(req struct {
 	RequestID string `json:"requestId"`
 },
 ) {
@@ -347,7 +360,7 @@ func (a *AI) ChatAbort(req struct {
 }
 
 // WebSearch Brave Search API 联网搜索。
-func (a *AI) WebSearch(req struct {
+func (a *Provider) WebSearch(req struct {
 	Query  string `json:"query"`
 	APIKey string `json:"apiKey"`
 	Count  int    `json:"count"`

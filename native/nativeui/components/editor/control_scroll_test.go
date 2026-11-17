@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	editorScroll "muse/nativeui/components/editor/scroll"
 	"muse/ui/scrollbar"
 )
 
@@ -114,7 +113,7 @@ func TestHorizontalBarHoverDoesNotShowOrExtendIt(t *testing.T) {
 		t.Fatal("actual horizontal scrolling did not show the scrollbar")
 	}
 	until := table.horizontal.Indicator.Remaining(time.Now())
-	track, _ := editorScroll.HorizontalBarRects(box, blockContentWidth(table), table.horizontal.Offset)
+	track, _ := horizontalBarRects(box, blockContentWidth(table), table.horizontal.Offset)
 	h.tt.Move(track.X+track.W/2, track.Y+1-h.e.scroll.Y)
 	h.tt.Advance(scrollbar.VisibleFor + time.Second)
 	h.frame()
@@ -175,7 +174,7 @@ func TestHorizontalThumbDragPreservesSelectionsAndSourceMode(t *testing.T) {
 			box := blockViewport(table)
 			h.tt.Scroll(box.X+box.W/2, box.Y+30-e.scroll.Y, 40, 0)
 			h.frame()
-			track, thumb := editorScroll.HorizontalBarRects(box, blockContentWidth(table), table.horizontal.Offset)
+			track, thumb := horizontalBarRects(box, blockContentWidth(table), table.horizontal.Offset)
 			if !table.horizontal.Shown || thumb.W <= 0 {
 				t.Fatalf("scroll did not expose a usable horizontal thumb: shown=%v x=%v content=%v viewport=%+v scrollY=%v", table.horizontal.Shown, table.horizontal.Offset, blockContentWidth(table), box, e.scroll.Y)
 			}

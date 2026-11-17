@@ -34,6 +34,20 @@ func (s *Session) IsCurrentSearchResult(result Result) bool {
 		result.Literal == s.snapshot.Search.Literal
 }
 
+// SearchHitAtPath returns a detached matching hit from one search snapshot.
+// The first result is used when multiple matches occur in the same document.
+func (snapshot SearchSnapshot) SearchHitAtPath(path string) (search.Hit, bool) {
+	if path == "" {
+		return search.Hit{}, false
+	}
+	for _, hit := range snapshot.Hits {
+		if hit.Path == path {
+			return hit, true
+		}
+	}
+	return search.Hit{}, false
+}
+
 // ValidateSearchHit checks that an indexed hit still refers to the same
 // document revision. A stale hit refreshes the index and returns
 // SearchHitNeedsRefresh so the caller can rerun the current query. A removed

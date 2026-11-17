@@ -17,26 +17,27 @@ func (a *App) openImageDocument(path string, record bool) {
 	}
 	a.closeImageDocument()
 	content, hasImage := imagedocument.NewContent(path, a.imageCacheStore, imagedocument.SurfaceOptions{
+		LocalFiles:    a.imageLocalFiles,
 		Header:        func(c *ui.Context) { a.editorHeader(c) },
 		HeaderHeight:  func(c *ui.Context) float32 { return a.headerH(c) },
 		BacklinkCount: func() int { return len(a.documentBacklinkSources()) },
 		OnBacklinks:   a.openLinks,
 		OnFullscreen:  a.openImagePreview,
 		OnCopy: func(path string) {
-			if a.ed != nil {
-				a.ed.CopyImageObject(path)
+			if a.noteEditor() != nil {
+				a.noteEditor().ClipboardCommands().CopyImageObject(path)
 			}
 		},
 		OnClose: func() { a.imageDocumentHandle = window.Handle{} },
 	})
-	handle, err := a.windows.Open(content, window.Placement{Host: "main", Pane: "editor", Layer: window.PaneContent})
+	handle, err := a.windows.Open(content, window.Placement{Host: "main", Pane: a.focusedPane(), Layer: window.PaneContent})
 	if err != nil {
 		a.notice(err.Error())
 		return
 	}
 	a.imageDocumentHandle = handle
-	a.propertiesOpen = false
-	a.propertyEditKey, a.propertyEditLocation = "", ""
+	a.propertiesPanel.Close()
+	a.propertiesPanel.CancelEdit()
 	a.selectedPath = path
 	if record {
 		a.pushNav(path)
@@ -63,8 +64,8 @@ func (a *App) imageDocumentPath() string {
 	if !a.imageDocumentOpen() {
 		return ""
 	}
-	if a.navAt >= 0 && a.navAt < len(a.navHist) && doctypes.IsImagePath(a.navHist[a.navAt]) {
-		return a.navHist[a.navAt]
+	if path, ok := a.navigationHistory.Current(); ok && doctypes.IsImagePath(path) {
+		return path
 	}
 	return a.selectedPath
 }

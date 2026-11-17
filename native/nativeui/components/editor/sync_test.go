@@ -14,7 +14,7 @@ func fullParserMask(text string) string {
 	fm := source.FrontmatterEnd(text)
 	var images []syntax.IncrementalInline
 	if fm == 0 {
-		images, _ = largeDataImageOnlySource(text)
+		images, _ = syntax.LargeDataImageOnlySource(text)
 	}
 	projection.Set(text, fm, images)
 	return projection.MaskedSource()

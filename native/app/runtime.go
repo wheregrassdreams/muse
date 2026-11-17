@@ -9,21 +9,26 @@ import (
 	"sync"
 
 	"muse/application/agent"
+	applicationconfig "muse/application/config"
 	documentapp "muse/application/document"
 	applicationvault "muse/application/vault"
 	workspaceapp "muse/application/workspace"
-	"muse/config"
 	"muse/document"
 	"muse/events"
 	"muse/markdown/images"
+	platformagent "muse/platform/agent"
 	"muse/platform/cachepath"
+	"muse/platform/externalopener"
 	"muse/platform/filesystem/agentworkspace"
+	"muse/platform/filesystem/configstore"
 	"muse/platform/filesystem/documentstore"
 	"muse/platform/filesystem/exportstore"
 	"muse/platform/filesystem/filemetadata"
 	"muse/platform/filesystem/imagecache"
+	"muse/platform/filesystem/imagefiles"
 	"muse/platform/filesystem/naviconstore"
 	"muse/platform/filesystem/recentstore"
+	"muse/platform/filesystem/temporaryimages"
 	"muse/platform/filesystem/vaultfiles"
 	"muse/platform/filesystem/vaultfilessource"
 	"muse/platform/filesystem/vaultindexsource"
@@ -40,24 +45,31 @@ import (
 // Runtime is the process-scoped set of feature ports selected by the
 // composition root. Its event dispatchers are owned here and closed with it.
 type Runtime struct {
-	Workspace             workspace.Repository
-	WorkspaceEvents       *events.Dispatcher[workspace.WorkspaceRestored]
-	Documents             document.Repository
-	DocumentExportWriter  documentapp.ExportWriter
-	DocumentMetadata      documentapp.MetadataReader
-	Recovery              document.RecoveryRepository
-	History               document.HistoryRepository
-	DocumentEvents        *events.Dispatcher[document.DocumentSaved]
-	VaultSearchReconciler applicationvault.SearchReconciler
-	NewAgentWorkspace     func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error)
-	NewVaultIndex         applicationvault.IndexFactory
-	NewVaultCatalog       applicationvault.CatalogFactory
-	FileOperations        *applicationvault.FileOperations
-	RecentItems           *workspaceapp.RecentItems
-	NavIcons              applicationvault.NavigationIconRepository
-	ImageCacheStore       images.CacheStore
-	NewWatcherBackend     func() (vaultwatch.Backend, error)
-	vaultSearchWorker     *vaultsearchindexer.Reconciler
+	Configuration             applicationconfig.Repository
+	AssistantSettingsLocation string
+	AssistantProvider         agent.ProviderManagement
+	AssistantStream           agent.StreamClient
+	OpenExternal              func(string) error
+	Workspace                 workspace.Repository
+	WorkspaceEvents           *events.Dispatcher[workspace.WorkspaceRestored]
+	Documents                 document.Repository
+	DocumentExportWriter      documentapp.ExportWriter
+	DocumentMetadata          documentapp.MetadataReader
+	Recovery                  document.RecoveryRepository
+	History                   document.HistoryRepository
+	DocumentEvents            *events.Dispatcher[document.DocumentSaved]
+	VaultSearchReconciler     applicationvault.SearchReconciler
+	NewAgentWorkspace         func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error)
+	NewVaultIndex             applicationvault.IndexFactory
+	NewVaultCatalog           applicationvault.CatalogFactory
+	FileOperations            *applicationvault.FileOperations
+	RecentItems               *workspaceapp.RecentItems
+	NavIcons                  applicationvault.NavigationIconRepository
+	ImageCacheStore           images.CacheStore
+	ImageLocalFiles           images.LocalFiles
+	TemporaryImages           documentapp.TemporaryImageStore
+	NewWatcher                func(root string) (applicationvault.WatcherPort, error)
+	vaultSearchWorker         *vaultsearchindexer.Reconciler
 
 	closeOnce sync.Once
 }
@@ -82,11 +94,16 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	documents := documentstore.New(filepath.Join(filepath.Dir(config.PreferencesPath()), "recovery"))
+	imageLocalFiles := imagefiles.New()
+	temporaryImageStore := temporaryimages.New()
+	configuration := configstore.New()
+	documents := documentstore.New(filepath.Join(configuration.Root(), "recovery"))
 	documentExportWriter := exportstore.New()
 	documentMetadata := filemetadata.New()
 	workspaceEvents := events.New[workspace.WorkspaceRestored]()
 	documentEvents := events.New[document.DocumentSaved]()
+	assistantProvider := platformagent.NewProvider()
+	assistantStream := platformagent.NewProviderClient(assistantProvider)
 	newVaultIndex := func(root string) (applicationvault.IndexPort, error) {
 		source, err := vaultindexsource.New(root)
 		if err != nil {
@@ -96,15 +113,20 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 	}
 	searchWorker := vaultsearchindexer.New(searchStore, newVaultIndex)
 	return &Runtime{
-		Workspace:             workspacestore.New(workspacestore.DefaultPath()),
-		WorkspaceEvents:       workspaceEvents,
-		Documents:             documents,
-		DocumentExportWriter:  documentExportWriter,
-		DocumentMetadata:      documentMetadata,
-		Recovery:              documents,
-		History:               documents,
-		DocumentEvents:        documentEvents,
-		VaultSearchReconciler: searchWorker,
+		Configuration:             configuration,
+		AssistantSettingsLocation: configuration.AssistantSettingsLocation(),
+		AssistantProvider:         assistantProvider,
+		AssistantStream:           assistantStream,
+		OpenExternal:              externalopener.Open,
+		Workspace:                 workspacestore.New(workspacestore.DefaultPath()),
+		WorkspaceEvents:           workspaceEvents,
+		Documents:                 documents,
+		DocumentExportWriter:      documentExportWriter,
+		DocumentMetadata:          documentMetadata,
+		Recovery:                  documents,
+		History:                   documents,
+		DocumentEvents:            documentEvents,
+		VaultSearchReconciler:     searchWorker,
 		NewAgentWorkspace: func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error) {
 			return agentworkspace.New(root, agentworkspace.CurrentDocument(current))
 		},
@@ -120,8 +142,14 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 		RecentItems:     workspaceapp.NewRecentItems(recentstore.New(recentstore.DefaultPath())),
 		NavIcons:        navIcons,
 		ImageCacheStore: images,
-		NewWatcherBackend: func() (vaultwatch.Backend, error) {
-			return filesystemwatcher.New()
+		ImageLocalFiles: imageLocalFiles,
+		TemporaryImages: temporaryImageStore,
+		NewWatcher: func(root string) (applicationvault.WatcherPort, error) {
+			backend, err := filesystemwatcher.New()
+			if err != nil {
+				return nil, err
+			}
+			return vaultwatch.New(root, backend, filesystemwatcher.NewDirectoryAccess())
 		},
 		vaultSearchWorker: searchWorker,
 	}, nil

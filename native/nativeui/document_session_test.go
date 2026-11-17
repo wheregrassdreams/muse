@@ -8,6 +8,8 @@ import (
 	applicationvault "muse/application/vault"
 	"muse/document"
 	"muse/document/frontmatter"
+	"muse/nativeui/components/documentdialogs"
+	searchui "muse/nativeui/panels/search"
 	"muse/platform/filesystem/documentstore"
 	"muse/platform/filesystem/filemetadata"
 	"muse/platform/filesystem/imagefiles"
@@ -47,10 +49,10 @@ func setDocumentPathForTest(a *App, path string) {
 
 func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
 	a, tt, _ := runtimeFixture(t)
-	if err := a.activeNote.ReplaceUser("a changed note"); err != nil {
+	if err := a.noteEditor().ReplaceUser("a changed note"); err != nil {
 		t.Fatal(err)
 	}
-	if a.activeNote.PersistenceState().MetadataDue.IsZero() {
+	if a.noteEditor().PersistenceState().MetadataDue.IsZero() {
 		t.Fatal("content edit did not schedule updated_at")
 	}
 	time.Sleep(documentsave.MetadataUpdateDelay + 10*time.Millisecond)
@@ -68,8 +70,8 @@ func TestManagedUpdatedAtIsDebouncedAndKeepsCoreKeys(t *testing.T) {
 	if fields["updated_at"].Value == "" {
 		t.Fatalf("updated_at was not set after debounce: %q", a.documentSource())
 	}
-	if !a.activeNote.Undo() || a.activeNote.Source() != "original" {
-		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.activeNote.Source())
+	if !a.noteEditor().Undo() || a.noteEditor().Source() != "original" {
+		t.Fatalf("Undo should restore the content and fold away managed metadata, got %q", a.noteEditor().Source())
 	}
 }
 
@@ -86,15 +88,16 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	setDocumentPathForTest(a, path)
 	a.enableDocumentServices()
 	a.loadDoc(base)
-	if err := a.activeNote.ReplaceUser("local line one\nline two\nline three\n"); err != nil {
+	if err := a.noteEditor().ReplaceUser("local line one\nline two\nline three\n"); err != nil {
 		t.Fatal(err)
 	}
 	external := "line one\nline two\nexternal line three\n"
 	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	a.documents.ConflictOpen = true
-	if !a.tryMergeExternalChanges() {
+	a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.OpenConflict})
+	outcome, err := a.documentWorkflows().TryMergeExternalChanges()
+	if err != nil || outcome != documentsave.MergeSaved {
 		t.Fatal("non-overlapping edits were not merged")
 	}
 	data, err := os.ReadFile(path)
@@ -104,7 +107,7 @@ func TestTryMergeExternalChangesSavesNonOverlappingEdits(t *testing.T) {
 	if !strings.Contains(string(data), "local line one") || !strings.Contains(string(data), "external line three") || a.documentDirty() {
 		t.Fatalf("merged file is incomplete or still dirty: dirty=%v source=%q", a.documentDirty(), data)
 	}
-	if state := a.activeNote.PersistenceState(); state.Revision != document.RevisionOf(string(data)) || state.BaseSource != string(data) {
+	if state := a.noteEditor().PersistenceState(); state.Revision != document.RevisionOf(string(data)) || state.BaseSource != string(data) {
 		t.Fatalf("successful merge did not adopt the saved revision as its new baseline: %#v", state)
 	}
 }
@@ -127,15 +130,15 @@ func TestTryMergeExternalChangesPreservesDirtyBufferWhenDiskChangesAgain(t *test
 	a.SetDocumentRepositories(repository, store, store)
 	setDocumentPathForTest(a, path)
 	a.loadDoc(base)
-	if err := a.activeNote.ReplaceUser("local line one\nline two\nline three\n"); err != nil {
+	if err := a.noteEditor().ReplaceUser("local line one\nline two\nline three\n"); err != nil {
 		t.Fatal(err)
 	}
 	external := "line one\nline two\nexternal line three\n"
 	if err := os.WriteFile(path, []byte(external), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	a.documents.ConflictOpen = true
-	if a.tryMergeExternalChanges() {
+	a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.OpenConflict})
+	if outcome, err := a.documentWorkflows().TryMergeExternalChanges(); err == nil || outcome == documentsave.MergeSaved {
 		t.Fatal("merge unexpectedly overwrote a concurrent disk change")
 	}
 	disk, err := os.ReadFile(path)
@@ -143,10 +146,10 @@ func TestTryMergeExternalChangesPreservesDirtyBufferWhenDiskChangesAgain(t *test
 		t.Fatal(err)
 	}
 	buffer := a.documentSource()
-	if string(disk) != repository.source || !strings.Contains(buffer, "local line one") || !strings.Contains(buffer, "external line three") || !a.documentDirty() || !a.documents.ConflictOpen {
-		t.Fatalf("concurrent conflict lost data: disk=%q buffer=%q dirty=%v conflict=%v", disk, buffer, a.documentDirty(), a.documents.ConflictOpen)
+	if string(disk) != repository.source || !strings.Contains(buffer, "local line one") || !strings.Contains(buffer, "external line three") || !a.documentDirty() || !a.documents.IsConflictOpen() {
+		t.Fatalf("concurrent conflict lost data: disk=%q buffer=%q dirty=%v conflict=%v", disk, buffer, a.documentDirty(), a.documents.IsConflictOpen())
 	}
-	if state := a.activeNote.PersistenceState(); state.Revision != document.RevisionOf(external) || state.BaseSource != external {
+	if state := a.noteEditor().PersistenceState(); state.Revision != document.RevisionOf(external) || state.BaseSource != external {
 		t.Fatalf("merge race did not retain the last observed disk baseline: %#v", state)
 	}
 }
@@ -282,7 +285,13 @@ func configureVaultPorts(t *testing.T, a *App) {
 			}
 			return vaultfiles.New(source), nil
 		},
-		NewWatcherBackend: func() (vaultwatch.Backend, error) { return filesystemwatcher.New() },
+		NewWatcher: func(root string) (applicationvault.WatcherPort, error) {
+			backend, err := filesystemwatcher.New()
+			if err != nil {
+				return nil, err
+			}
+			return vaultwatch.New(root, backend, filesystemwatcher.NewDirectoryAccess())
+		},
 	})
 }
 
@@ -320,7 +329,7 @@ func runtimeFixtureCopy(t *testing.T, sourceRoot string) (*App, *ui.Tester, stri
 }
 func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	if err := a.activeNote.ReplaceUser("edited 中文"); err != nil {
+	if err := a.noteEditor().ReplaceUser("edited 中文"); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
@@ -329,25 +338,25 @@ func TestAutosaveAndRecoveryHistory(t *testing.T) {
 	if string(data) != "edited 中文" {
 		t.Fatalf("saved %q", data)
 	}
-	history, err := a.activeNote.ListHistory(path)
+	history, err := a.noteEditor().ListHistory(path)
 	if err != nil || len(history) == 0 {
 		t.Fatalf("history %v %v", history, err)
 	}
-	d, err := a.activeNote.ReadHistory(path, history[0].ID)
+	d, err := a.noteEditor().ReadHistory(path, history[0].ID)
 	if err != nil || d.Source != "original" {
 		t.Fatalf("history content %v %v", d, err)
 	}
 }
 func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	if err := a.activeNote.ReplaceUser("my unsaved edits"); err != nil {
+	if err := a.noteEditor().ReplaceUser("my unsaved edits"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("external content"), 0640); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
-	waitDocument(t, tt, func() bool { return a.activeNote.PersistenceState().ConflictPath != "" })
+	waitDocument(t, tt, func() bool { return a.noteEditor().PersistenceState().ConflictPath != "" })
 	runtimeShot(t, tt, "document-conflict")
 	data, _ := os.ReadFile(path)
 	if string(data) != "external content" {
@@ -356,11 +365,11 @@ func TestAutosaveDoesNotOverwriteExternalChange(t *testing.T) {
 	if a.documentSource() != "my unsaved edits" || !a.documentDirty() {
 		t.Fatal("lost current edits")
 	}
-	draft, err := a.activeNote.ReadDraft(path)
+	draft, err := a.noteEditor().ReadDraft(path)
 	if err != nil || draft.Text != "my unsaved edits" {
 		t.Fatalf("recovery %v %v", draft, err)
 	}
-	a.documents.ConflictOpen = false
+	a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
 	a.save()
 	data, _ = os.ReadFile(path)
 	if string(data) != "external content" {
@@ -383,7 +392,7 @@ func TestCleanExternalEditReloadsAndIndexFindsIt(t *testing.T) {
 	if len(a.vaultSnapshot.Search.Hits) != 1 {
 		t.Fatal("index did not refresh")
 	}
-	if a.activeNote.PersistenceState().Revision != document.RevisionOf(a.diskSource()) {
+	if a.noteEditor().PersistenceState().Revision != document.RevisionOf(a.diskSource()) {
 		t.Fatal("baseline stale")
 	}
 }
@@ -392,20 +401,21 @@ func TestUntitledDraftSurvivesRecreatingApp(t *testing.T) {
 	a := New()
 	withDocumentPorts(t, a)
 	a.enableDocumentServices()
-	if err := a.activeNote.ReplaceUser("unsaved untitled"); err != nil {
+	if err := a.noteEditor().ReplaceUser("unsaved untitled"); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
 	tt := ui.NewTester(a.View, 1200, 800)
 	waitDocument(t, tt, func() bool {
-		state := a.activeNote.PersistenceState()
+		state := a.noteEditor().PersistenceState()
 		return !state.Saving && state.AutosaveDue.IsZero()
 	})
 	b := New()
 	withDocumentPorts(t, b)
 	b.enableDocumentServices()
 	b.openRecovery()
-	if len(b.documents.Drafts) != 1 || b.documents.Drafts[0].Text != "unsaved untitled" {
+	drafts, err := b.documentRecovery.ListDrafts()
+	if err != nil || len(drafts) != 1 || drafts[0].Text != "unsaved untitled" {
 		t.Fatal("draft not recovered")
 	}
 }
@@ -422,7 +432,7 @@ func expireAutosave(a *App) {
 
 func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	if err := a.activeNote.ReplaceUser("unsaved-buffer-only"); err != nil {
+	if err := a.noteEditor().ReplaceUser("unsaved-buffer-only"); err != nil {
 		t.Fatal(err)
 	}
 	if doc, ok := a.vault.Document("note.md"); !ok || doc.Source != "original" {
@@ -435,7 +445,7 @@ func TestIndexedWorkspaceSearchAndAliasNavigation(t *testing.T) {
 	}
 	waitDocument(t, tt, func() bool { _, ok := a.vault.ResolveLink("note.md", "Second#Section"); return ok })
 	a.openWorkspaceSearch()
-	a.workspaceQuery = "needle-unique-abc"
+	a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: "needle-unique-abc"})
 	waitDocument(t, tt, func() bool { return len(a.vaultSnapshot.Search.Hits) == 1 })
 	if err := tt.Click("字面量"); err != nil {
 		t.Fatalf("switch to literal mode: %v", err)
@@ -468,7 +478,7 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 		return ok
 	})
 	a.openWorkspaceSearch()
-	a.workspaceQuery = "vaultfixturedeepsearchunique"
+	a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: "vaultfixturedeepsearchunique"})
 	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
 	if got := a.vaultSnapshot.Search.Hits[0].Path; got != "Projects/Atlas/Overview.md" {
 		t.Fatalf("deep note search result path = %q", got)
@@ -486,9 +496,9 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 		doc, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return ok && strings.Contains(doc.Source, "vaultfixturedeepsearchupdated")
 	})
-	a.workspaceQuery = "vaultfixturedeepsearchupdated"
+	a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: "vaultfixturedeepsearchupdated"})
 	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 1 })
-	a.workspaceQuery = "vaultfixturedeepsearchunique"
+	a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: "vaultfixturedeepsearchunique"})
 	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 0 })
 
 	if err := os.Remove(nested); err != nil {
@@ -498,20 +508,24 @@ func TestWorkspaceSearchCoversNestedNotesAndTracksUpdatesAndDeletion(t *testing.
 		_, ok := a.vault.Document("Projects/Atlas/Overview.md")
 		return !ok
 	})
-	a.workspaceQuery = "vaultfixturedeepsearchupdated"
+	a.workspaceSearch.Apply(searchui.Action{Kind: searchui.QueryChanged, Query: "vaultfixturedeepsearchupdated"})
 	waitDocument(t, tt, func() bool { return !a.vaultSnapshot.Search.Busy && len(a.vaultSnapshot.Search.Hits) == 0 })
 }
 
 func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	if err := a.activeNote.ReplaceUser("updated"); err != nil {
+	if err := a.noteEditor().ReplaceUser("updated"); err != nil {
 		t.Fatal(err)
 	}
 	a.save()
 	a.openHistory()
 	tt.Frame()
 	runtimeShot(t, tt, "document-history")
-	h := a.documents.History[0]
+	history := a.documents.HistoryEntries()
+	if len(history) == 0 {
+		t.Fatal("history list is empty")
+	}
+	h := history[0]
 	label := h.CreatedAt.Local().Format("2006-01-02 15:04:05") + " · " + string(h.Revision)[:8]
 	if err := tt.Click(label); err != nil {
 		t.Fatal(err)
@@ -527,17 +541,17 @@ func TestHistoryRestoreDoesNotOverwriteOriginal(t *testing.T) {
 }
 func TestPausedAutosaveKeepsBaseline(t *testing.T) {
 	a, tt, path := runtimeFixture(t)
-	revision := a.activeNote.PersistenceState().Revision
-	a.activeNote.SetConflict(path)
-	if err := a.activeNote.ReplaceUser("local edits"); err != nil {
+	revision := a.noteEditor().PersistenceState().Revision
+	a.noteEditor().SetConflict(path)
+	if err := a.noteEditor().ReplaceUser("local edits"); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
 	waitDocument(t, tt, func() bool {
-		state := a.activeNote.PersistenceState()
+		state := a.noteEditor().PersistenceState()
 		return !state.Saving && state.AutosaveDue.IsZero()
 	})
-	if a.activeNote.PersistenceState().Revision != revision || !a.documentDirty() {
+	if a.noteEditor().PersistenceState().Revision != revision || !a.documentDirty() {
 		t.Fatal("paused save changed baseline/dirty state")
 	}
 	data, _ := os.ReadFile(path)
@@ -594,26 +608,26 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) && a.activeNote.PersistenceState().ConflictPath != path {
+	for time.Now().Before(deadline) && a.noteEditor().PersistenceState().ConflictPath != path {
 		tt.Frame()
 		time.Sleep(10 * time.Millisecond)
 	}
-	if a.activeNote.PersistenceState().ConflictPath != path {
-		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q vault=%+v", a.activeNote.PersistenceState().ConflictPath, a.documentPath(), a.vault.Snapshot())
+	if a.noteEditor().PersistenceState().ConflictPath != path {
+		t.Fatalf("external deletion was not surfaced: conflict=%q current=%q vault=%+v", a.noteEditor().PersistenceState().ConflictPath, a.documentPath(), a.vault.Snapshot())
 	}
-	a.documents.ConflictOpen = false
-	if err := a.activeNote.ReplaceUser("keep after deletion"); err != nil {
+	a.documents.Apply(documentdialogs.Action{Kind: documentdialogs.CloseConflict})
+	if err := a.noteEditor().ReplaceUser("keep after deletion"); err != nil {
 		t.Fatal(err)
 	}
 	expireAutosave(a)
 	waitDocument(t, tt, func() bool {
-		state := a.activeNote.PersistenceState()
+		state := a.noteEditor().PersistenceState()
 		return !state.Saving && state.AutosaveDue.IsZero()
 	})
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("autosave recreated externally deleted file")
 	}
-	d, err := a.activeNote.ReadDraft(path)
+	d, err := a.noteEditor().ReadDraft(path)
 	if err != nil || d.Text != "keep after deletion" {
 		t.Fatal("deleted document draft missing")
 	}
@@ -621,14 +635,14 @@ func TestBacklinkUIAndExternalDeletion(t *testing.T) {
 
 func TestEditorChangesUpdateSharedBacklinkIndex(t *testing.T) {
 	a, tt, _ := runtimeFixtureWithNotes(t, map[string]string{"Target.md": "# Target\n"})
-	if err := a.activeNote.ReplaceUser("[[Target]]"); err != nil {
+	if err := a.noteEditor().ReplaceUser("[[Target]]"); err != nil {
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool {
 		return len(a.vault.Backlinks("Target.md")) == 1
 	})
 
-	if err := a.activeNote.ReplaceUser("No internal link"); err != nil {
+	if err := a.noteEditor().ReplaceUser("No internal link"); err != nil {
 		t.Fatal(err)
 	}
 	waitDocument(t, tt, func() bool {
@@ -652,14 +666,14 @@ func TestIndexedCRLFHeadingOffsets(t *testing.T) {
 	}
 	tt.Frame()
 	want := strings.Index(a.documentSource(), "## Second")
-	if a.activeNote.NavigationCommands().Caret() != want {
-		t.Fatalf("caret=%d want=%d", a.activeNote.NavigationCommands().Caret(), want)
+	if a.noteEditor().NavigationCommands().Caret() != want {
+		t.Fatalf("caret=%d want=%d", a.noteEditor().NavigationCommands().Caret(), want)
 	}
 	// The same target in the active CRLF buffer must use the same conversion.
-	a.activeNote.NavigationCommands().Select(0, 0)
+	a.noteEditor().NavigationCommands().Select(0, 0)
 	a.indexedLink("#Second")
 	tt.Frame()
-	if a.activeNote.NavigationCommands().Caret() != want {
+	if a.noteEditor().NavigationCommands().Caret() != want {
 		t.Fatal("same-file CRLF offset drift")
 	}
 }

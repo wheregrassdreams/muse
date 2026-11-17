@@ -16,6 +16,7 @@ import (
 
 	"muse/markdown"
 	markdownui "muse/nativeui/components/markdown"
+	"muse/platform/filesystem/imagefiles"
 )
 
 func main() {
@@ -37,7 +38,10 @@ func main() {
 	}
 
 	doc := markdown.Parse(string(src))
-	tt := ui.NewTester(func(c *ui.Context) { markdownui.View(c, doc, markdownui.Options{}) }, *width, *height)
+	localFiles := imagefiles.New()
+	tt := ui.NewTester(func(c *ui.Context) {
+		markdownui.View(c, doc, markdownui.Options{LocalFiles: localFiles})
+	}, *width, *height)
 	tt.SetDark(*dark)
 	tt.Frame()
 

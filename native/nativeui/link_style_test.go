@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	mdedit "muse/editor"
+	inlineui "muse/nativeui/components/editor/blocks/inline"
 )
 
 func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
@@ -26,13 +26,13 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	a, tt, _ := runtimeFixtureAt(t, root, filepath.Join(root, "one/current.md"))
 	waitDocument(t, tt, func() bool { return a.vaultSnapshot.Ready })
 	opts := a.editorOptions()
-	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != mdedit.LinkTargetValid {
+	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != inlineui.LinkTargetValid {
 		t.Fatalf("target state=%v", got)
 	}
-	if got := opts.ResolveWikiLink(opts.CurrentPath, "missing"); got != mdedit.LinkTargetInvalid {
+	if got := opts.ResolveWikiLink(opts.CurrentPath, "missing"); got != inlineui.LinkTargetInvalid {
 		t.Fatalf("missing target state=%v", got)
 	}
-	if got := opts.ResolveWikiLink(opts.CurrentPath, "#Local"); got != mdedit.LinkTargetValid {
+	if got := opts.ResolveWikiLink(opts.CurrentPath, "#Local"); got != inlineui.LinkTargetValid {
 		t.Fatalf("local heading state=%v", got)
 	}
 	firstContext, revision := opts.LinkContext, opts.LinkRevision
@@ -42,10 +42,10 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	if opts.LinkContext == firstContext || opts.LinkRevision != revision {
 		t.Fatalf("document context changed incorrectly: %+v", opts)
 	}
-	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != mdedit.LinkTargetValid {
+	if got := opts.ResolveWikiLink(opts.CurrentPath, "target"); got != inlineui.LinkTargetValid {
 		t.Fatalf("vault-wide target state=%v", got)
 	}
-	if got := opts.ResolveWikiLink(opts.CurrentPath, "#Local"); got != mdedit.LinkTargetInvalid {
+	if got := opts.ResolveWikiLink(opts.CurrentPath, "#Local"); got != inlineui.LinkTargetInvalid {
 		t.Fatalf("second-document local heading state=%v", got)
 	}
 
@@ -55,10 +55,13 @@ func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {
 	if err := a.vault.Refresh(filepath.Join(root, "one/target.md")); err != nil {
 		t.Fatal(err)
 	}
-	waitDocument(t, tt, func() bool { _, ok := a.vault.Document("one/target.md"); return !ok })
+	waitDocument(t, tt, func() bool {
+		_, ok := a.vault.Document("one/target.md")
+		return !ok && a.vault.Snapshot().IndexRevision > revision
+	})
 	a.vaultSnapshot = a.vault.Snapshot()
 	opts = a.editorOptions()
-	if opts.LinkRevision <= revision || opts.ResolveWikiLink(opts.CurrentPath, "target") != mdedit.LinkTargetInvalid {
+	if opts.LinkRevision <= revision || opts.ResolveWikiLink(opts.CurrentPath, "target") != inlineui.LinkTargetInvalid {
 		t.Fatalf("updated vault snapshot did not refresh link style: revision=%d state=%v", opts.LinkRevision, opts.ResolveWikiLink(opts.CurrentPath, "target"))
 	}
 }
