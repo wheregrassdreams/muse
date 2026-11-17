@@ -15,6 +15,21 @@ func (e *Editor) modalText(text string) bool {
 	controller := e.vimController()
 	mode := controller.Mode()
 	searching := controller.View().Searching
+	// Helix keeps a text selection active while the mode label remains Normal.
+	// Resolve selection operators here, where the editor can see the current
+	// source range, instead of letting the context-free controller start a
+	// pending Vim-style operator sequence.
+	if e.Keymap() == "helix" && mode == vim.ModeNormal && !searching {
+		switch text {
+		case "d", "c", "y":
+			a, z := e.selection()
+			if a != z {
+				e.modalApply(text, a, z)
+				e.invalidate()
+				return true
+			}
+		}
+	}
 	intent, handled := e.vimController().InterpretText(text, time.Now(), e)
 	e.smoothCursorNavigation = e.opts.SmoothCursor && mode == vim.ModeNormal && !searching &&
 		(intent.Motion != 0 || intent.Kind == vim.IntentFindCharacter || intent.Kind == vim.IntentRepeatCharacterFind ||
@@ -247,6 +262,10 @@ func (e *Editor) applyVimMotion(intent vim.Intent, iteration int, extend bool) {
 
 func (e *Editor) applyModalOperator(intent vim.Intent) {
 	if intent.Linewise {
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.modalApply(intent.Operator, a, z)
+			return
+		}
 		range_ := vim.LinewiseOperatorRange(e.Source(), e.Caret(), intent.Count, intent.Operator)
 		e.modalApply(intent.Operator, range_.Start, range_.End)
 		return
