@@ -42,6 +42,10 @@ func TestSessionDispatchUsesProductionEditorIncrementalPath(t *testing.T) {
 	if !result.Changed || e.Source() != "first\n\ntypedsecond\n" {
 		t.Fatalf("dispatch result=%+v source=%q", result, e.Source())
 	}
+	// Session edits enqueue parser deltas and invalidate the view; the editor
+	// applies them on its next layout/synchronization pass, as it does before
+	// rendering a frame.
+	e.sync()
 	if e.p.Source() != e.Source() || e.p.Parser().Source() != e.p.MaskedSource() {
 		t.Fatalf("production parser did not follow session edit: source=%q parser=%q mask=%q", e.p.Source(), e.p.Parser().Source(), e.p.MaskedSource())
 	}
