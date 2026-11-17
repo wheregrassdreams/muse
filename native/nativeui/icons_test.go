@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	componenticons "muse/nativeui/components/icons"
 	iconlibrary "muse/ui/iconlibrary"
 )
 
 func TestEveryBundledIconParsesForNativeUI(t *testing.T) {
 	icons := iconlibrary.Catalog()
 	for _, icon := range icons {
-		if _, ok := navIconFromLibrary(icon.ID); !ok {
+		if _, ok := componenticons.Lookup(icon.ID); !ok {
 			t.Errorf("icon %q has no renderable SVG", icon.ID)
 		}
 	}

@@ -6,15 +6,11 @@ import (
 )
 
 type SurfaceOptions struct {
-	Rows func(query string) Rows
-	// RowsRevision identifies changes in the candidate source independent of
-	// the query. The content refreshes its row snapshot when either this value
-	// or the query changes.
-	RowsRevision func() [2]uint64
-	FileIcon     *ui.SVG
-	IconTint     func(*ui.Theme) ui.Color
-	OnOpen       func(path string)
-	OnClose      func()
+	Candidates CandidateSource
+	FileIcon   *ui.SVG
+	IconTint   func(*ui.Theme) ui.Color
+	OnOpen     func(path string)
+	OnClose    func()
 }
 
 // Content keeps query and selection private to the transient Quick Open
@@ -25,7 +21,7 @@ type Content struct {
 	controls window.Controls
 	closed   bool
 	rows     Rows
-	rowsKey  [2]uint64
+	rowsKey  Revision
 	rowsFor  string
 	hasRows  bool
 }
@@ -40,15 +36,15 @@ func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
 		return
 	}
-	rowsKey := [2]uint64{}
-	if s.options.RowsRevision != nil {
-		rowsKey = s.options.RowsRevision()
+	rowsKey := Revision{}
+	if s.options.Candidates != nil {
+		rowsKey = s.options.Candidates.Revision()
 	}
 	if !s.hasRows || s.rowsFor != s.state.Query || s.rowsKey != rowsKey {
 		s.rowsFor, s.rowsKey, s.hasRows = s.state.Query, rowsKey, true
 		s.rows = nil
-		if s.options.Rows != nil {
-			s.rows = s.options.Rows(s.state.Query)
+		if s.options.Candidates != nil {
+			s.rows = s.options.Candidates.Rows(s.state.Query)
 		}
 	}
 	rows := s.rows

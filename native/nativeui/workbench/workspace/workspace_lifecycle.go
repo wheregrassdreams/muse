@@ -115,6 +115,10 @@ func (a *App) SetDependencies(dependencies Dependencies) {
 	a.recentItems = dependencies.RecentItems
 	a.imageCacheStore = dependencies.ImageCacheStore
 	a.imageLocalFiles = dependencies.ImageLocalFiles
+	if a.imagePreview != nil {
+		a.imagePreview.Close()
+		a.imagePreview = nil
+	}
 	a.temporaryImageStore = dependencies.TemporaryImages
 	a.openExternal = dependencies.OpenExternal
 	a.newWatcher = dependencies.NewWatcher

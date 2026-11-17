@@ -79,7 +79,7 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	if err := tt.Click("书签"); err != nil {
 		t.Fatalf("choose bookmark icon: %v", err)
 	}
-	bookmarked, _ := navIconFromLibrary("bookmark")
+	bookmarked, _ := componenticons.Lookup("bookmark")
 	if a.navIconPicker.IsOpen() || a.treeIconID(item) != "bookmark" || a.treeIcon(item, false) != bookmarked {
 		t.Fatalf("tree icon was not applied: picker=%v ID=%q", a.navIconPicker.IsOpen(), a.treeIconID(item))
 	}

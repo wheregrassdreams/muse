@@ -47,11 +47,13 @@ import (
 	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 	noteeditor "muse/nativeui/workbench/features/editor/surface"
 	filetree "muse/nativeui/workbench/features/explorer"
+	imagepreviewui "muse/nativeui/workbench/features/imagepreview"
 	linkpreview "muse/nativeui/workbench/features/linkpreview"
 	"muse/nativeui/workbench/features/mermaidpreview"
 	naviconpicker "muse/nativeui/workbench/features/naviconpicker"
 	outlineui "muse/nativeui/workbench/features/outline"
 	propertypanel "muse/nativeui/workbench/features/properties"
+	quickopenui "muse/nativeui/workbench/features/quickopen"
 	searchui "muse/nativeui/workbench/features/search"
 	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
 	settingsui "muse/nativeui/workbench/features/settings"
@@ -186,14 +188,14 @@ type App struct {
 	workspacePane             window.PaneID
 	editorPaneHandle          window.Handle
 	workspacePaneHandles      map[window.PaneID]window.Handle
-	imagePreviewHandle        window.Handle
+	imagePreview              *imagepreviewui.Controller
 	imageDocumentHandle       window.Handle
-	quickOpenHandle           window.Handle
+	quickOpen                 *quickopenui.Controller
 	mermaidPreviewHandle      window.Handle
 	backlinksHandle           window.Handle
 	linkPreviewHandle         linkpreview.Handle
 	navIconStore              *applicationvault.IconPreferences
-	navIconPicker             *naviconpicker.Handle
+	navIconPicker             *naviconpicker.Controller
 
 	// quick open (⌘O): fuzzy file jump inside the workspace
 	coreMigration        *documentsave.CoreMetadataPlan
@@ -364,7 +366,6 @@ func New() *App {
 		directoryCatalog:     applicationvault.NewDirectoryCatalog(),
 		navigationHistory:    workspaceapp.NewDocumentHistory(),
 		fileTreeState:        filetree.NewHandle(),
-		navIconPicker:        naviconpicker.NewHandle(),
 		settingsPanel:        settingsui.NewHandle(),
 		findReplace:          findreplaceui.NewHandle(),
 		outlinePanel:         outlineui.NewHandle(),
@@ -393,6 +394,26 @@ func New() *App {
 			}
 		}
 	})
+	a.navIconPicker = naviconpicker.NewController(naviconpicker.Ports{
+		Preferences: navIconPreferences{app: a},
+		RelativePath: func(path string) (string, bool) {
+			return a.vaultRelativePath(path)
+		},
+		Invalidate: a.invalidate,
+		Notify:     a.handleNavIconNotice,
+	})
+	a.quickOpen = quickopenui.NewController(quickopenui.ControllerOptions{
+		Candidates: appQuickOpenCandidates{app: a},
+		FileIcon:   componenticons.File(),
+		IconTint:   func(theme *ui.Theme) ui.Color { return iconTint(theme) },
+		Windows:    a.windows,
+		Placement:  window.Placement{Host: "main", Layer: window.ModalOverlay},
+		OnOpen: func(path string) {
+			a.selectedPath = path
+			a.requestOpen(path)
+		},
+		OnClose: a.invalidate,
+	})
 	if err := a.createActiveNote(document.NewNote("", "", document.RevisionOf("")), 0); err != nil {
 		panic(err)
 	}
@@ -401,6 +422,201 @@ func New() *App {
 	}
 	a.loadDoc("")
 	return a
+}
+
+type navIconPreferences struct{ app *App }
+
+func (p navIconPreferences) Get(itemPath string) string {
+	if p.app == nil || p.app.navIconStore == nil {
+		return ""
+	}
+	return p.app.navIconStore.Get(p.app.root, itemPath)
+}
+
+func (p navIconPreferences) Set(itemPath, iconID string) error {
+	if p.app == nil || p.app.navIconStore == nil {
+		return errors.New("navigation icon storage is not configured")
+	}
+	return p.app.navIconStore.Set(p.app.root, itemPath, iconID)
+}
+
+func (p navIconPreferences) Delete(itemPath string) error {
+	if p.app == nil || p.app.navIconStore == nil {
+		return errors.New("navigation icon storage is not configured")
+	}
+	return p.app.navIconStore.Delete(p.app.root, itemPath)
+}
+
+func (a *App) handleNavIconNotice(notice naviconpicker.Notice) {
+	if a == nil {
+		return
+	}
+	switch notice.Kind {
+	case naviconpicker.PreferencesUnavailable:
+		a.notice(locales.CommonOpenIconSettingsError("navigation icon storage is not configured"))
+	case naviconpicker.PreferenceSaveFailed:
+		if notice.Err != nil {
+			a.notice(locales.CommonSaveIconError(notice.Err.Error()))
+		}
+	case naviconpicker.PreferenceUpdated:
+		a.notice(locales.NavigationIconUpdated())
+	}
+}
+
+func (a *App) vaultRelativePath(path string) (string, bool) {
+	if a == nil || a.root == "" || path == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(a.root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+func (a *App) treeIconID(path string) string {
+	if a == nil || a.navIconPicker == nil {
+		return ""
+	}
+	return a.navIconPicker.IconID(path)
+}
+
+func (a *App) treeIcon(path string, directory bool) *ui.SVG {
+	if a == nil || a.navIconPicker == nil {
+		if directory {
+			return componenticons.Folder()
+		}
+		return componenticons.File()
+	}
+	return a.navIconPicker.IconForPath(path, directory)
+}
+
+func (a *App) openNavIconPicker(path string) {
+	if a == nil || a.navIconPicker == nil {
+		return
+	}
+	if a.navIconStore == nil {
+		a.handleNavIconNotice(naviconpicker.Notice{Kind: naviconpicker.PreferencesUnavailable})
+		return
+	}
+	a.navIconPicker.Open(path)
+}
+
+func (a *App) navIconPickerPopover(c *ui.Context, anchor ui.Element) {
+	if a != nil && a.navIconPicker != nil {
+		a.navIconPicker.RenderPopover(c, anchor)
+	}
+}
+
+type appQuickOpenRows []quickopenui.Row
+
+func (rows appQuickOpenRows) Len() int                     { return len(rows) }
+func (rows appQuickOpenRows) At(index int) quickopenui.Row { return rows[index] }
+
+type appQuickOpenCandidates struct{ app *App }
+
+func (source appQuickOpenCandidates) Rows(query string) quickopenui.Rows {
+	a := source.app
+	if a == nil || a.vault == nil || !a.vaultSnapshot.Ready {
+		return appQuickOpenRows(nil)
+	}
+	matches := a.vault.QuickOpen(query)
+	rows := make(appQuickOpenRows, 0, len(matches))
+	for _, match := range matches {
+		rows = append(rows, quickopenui.Row{
+			Path: match.Path, Title: match.Title, PathText: match.PathText,
+			TitleMatches: match.TitleMatches, PathMatches: match.PathMatches,
+		})
+	}
+	return rows
+}
+
+func (source appQuickOpenCandidates) Revision() quickopenui.Revision {
+	if source.app == nil {
+		return quickopenui.Revision{}
+	}
+	return quickopenui.Revision{Catalog: source.app.vaultSnapshot.FilesRevision, Index: source.app.vaultSnapshot.IndexRevision}
+}
+
+func (a *App) openQuickOpen() {
+	if a == nil {
+		return
+	}
+	if a.root == "" {
+		a.openFileDialog()
+		return
+	}
+	if a.quickOpen == nil {
+		a.notice(quickopenui.ErrWindowHostUnavailable.Error())
+		return
+	}
+	if err := a.quickOpen.Open(); err != nil {
+		a.notice(err.Error())
+	}
+}
+
+func (a *App) closeQuickOpen() {
+	if a != nil && a.quickOpen != nil {
+		_ = a.quickOpen.Close()
+	}
+}
+
+func (a *App) quickOpenOpen() bool {
+	return a != nil && a.quickOpen != nil && a.quickOpen.IsOpen()
+}
+
+func (a *App) imagePreviewController() *imagepreviewui.Controller {
+	if a == nil {
+		return nil
+	}
+	if a.imagePreview == nil {
+		a.imagePreview = imagepreviewui.NewController(imagepreviewui.ControllerOptions{
+			Windows: a.windows, Placement: window.Placement{Host: "main", Layer: window.ModalOverlay},
+			ImageCache: a.imageCacheStore, LocalFiles: a.imageLocalFiles,
+			Label: a.imagePreviewLabel,
+			CopyImage: func(source string) {
+				if editor := a.noteEditor(); editor != nil {
+					editor.ClipboardCommands().CopyImageObject(source)
+				}
+			},
+			OnMain: a.onMain, Invalidate: a.invalidate,
+			OnError: func(err error) { a.notice(err.Error()) },
+		})
+	}
+	return a.imagePreview
+}
+
+func (a *App) openImagePreview(source string) {
+	if controller := a.imagePreviewController(); controller != nil {
+		_ = controller.Open(source)
+	}
+}
+
+func (a *App) closeImagePreview() {
+	if a != nil && a.imagePreview != nil {
+		a.imagePreview.Close()
+	}
+}
+
+func (a *App) imagePreviewOpen() bool {
+	return a != nil && a.imagePreview != nil && a.imagePreview.IsOpen()
+}
+
+func (a *App) imagePreviewLabel(source string) string {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") || strings.HasPrefix(source, "data:") {
+		return source
+	}
+	base := a.docDir()
+	if base == "" {
+		return filepath.ToSlash(source)
+	}
+	if absolute, err := filepath.Abs(source); err == nil {
+		source = absolute
+	}
+	if relative, err := filepath.Rel(base, source); err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(relative)
+	}
+	return filepath.ToSlash(source)
 }
 
 // ---------------------------------------------------------------------------
@@ -416,9 +632,7 @@ func (a *App) View(c *ui.Context) {
 		a.invalidate()
 	}
 	if a.navIconPicker.IsOpen() && c.Shortcut(0, ui.KeyEscape) {
-		a.cancelNavIconSearch()
 		a.navIconPicker.Close()
-		a.invalidate()
 	}
 	if (a.propertiesPanel.EditingKey() != "" || a.propertiesPanel.IsSourceMode()) && c.Shortcut(0, ui.KeyEscape) {
 		switch {

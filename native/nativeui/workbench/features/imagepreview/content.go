@@ -3,7 +3,7 @@ package imagepreview
 import (
 	"github.com/egoist/mygo/ui"
 	"muse/markdown/images"
-	"muse/nativeui/workbench/hosting"
+	hosting "muse/nativeui/workbench/hosting"
 )
 
 // Content owns the full-screen image preview's private view state and joins it
@@ -18,7 +18,7 @@ type Content struct {
 	invalidate func()
 	onCopy     func(string)
 	onClose    func()
-	controls   window.Controls
+	controls   hosting.Controls
 	closed     bool
 }
 
@@ -26,7 +26,7 @@ func NewContent(source, label string, cache images.CacheStore, onMain func(func(
 	return &Content{source: source, label: label, cache: cache, onMain: onMain, invalidate: invalidate, onCopy: onCopy, onClose: onClose}
 }
 
-func (s *Content) Bind(controls window.Controls) { s.controls = controls }
+func (s *Content) Bind(controls hosting.Controls) { s.controls = controls }
 
 // SetLocalFiles injects the platform file adapter before the first render.
 func (s *Content) SetLocalFiles(files images.LocalFiles) {
@@ -79,6 +79,6 @@ func (s *Content) Focused()       {}
 func (s *Content) Blurred()       {}
 func (s *Content) IsClosed() bool { return s == nil || s.closed }
 
-var _ window.Content = (*Content)(nil)
-var _ window.Bindable = (*Content)(nil)
-var _ window.FocusLifecycle = (*Content)(nil)
+var _ hosting.Content = (*Content)(nil)
+var _ hosting.Bindable = (*Content)(nil)
+var _ hosting.FocusLifecycle = (*Content)(nil)

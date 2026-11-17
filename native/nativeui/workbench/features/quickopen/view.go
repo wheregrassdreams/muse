@@ -19,6 +19,21 @@ type Rows interface {
 	At(int) Row
 }
 
+// Revision describes changes to the candidate catalog independent of the
+// current query. The controller refreshes its row projection when either the
+// query or this revision changes.
+type Revision struct {
+	Catalog uint64
+	Index   uint64
+}
+
+// CandidateSource supplies pre-ranked rows from the application/search
+// layers. Quick Open owns query presentation and selection, not matching.
+type CandidateSource interface {
+	Rows(query string) Rows
+	Revision() Revision
+}
+
 type ViewModel struct {
 	State    state
 	Rows     Rows

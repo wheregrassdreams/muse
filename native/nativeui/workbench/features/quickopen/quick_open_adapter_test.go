@@ -1,125 +1,152 @@
-package nativeui
+package quickopen
 
 import (
-	"os"
-	"path/filepath"
+	"errors"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	hosting "muse/nativeui/workbench/hosting"
 )
 
-func TestQuickOpenFuzzyJump(t *testing.T) {
-	dir := t.TempDir()
-	for path, source := range map[string]string{
-		"note.md":      "# note",
-		"aardvark.txt": "x",
-		"笔记A.md":       "# A",
-		"子/笔记B.md":     "# B",
-	} {
-		full := filepath.Join(dir, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte(source), 0o644); err != nil {
-			t.Fatal(err)
-		}
+type testCandidates struct {
+	revision Revision
+	byQuery  map[string]Rows
+	queries  []string
+}
+
+func (s *testCandidates) Rows(query string) Rows {
+	s.queries = append(s.queries, query)
+	return s.byQuery[query]
+}
+
+func (s *testCandidates) Revision() Revision { return s.revision }
+
+type testWindowHost struct {
+	manager   *hosting.Manager
+	content   hosting.Content
+	handle    hosting.Handle
+	openErr   error
+	placement hosting.Placement
+}
+
+func newTestWindowHost() *testWindowHost {
+	return &testWindowHost{manager: hosting.NewManager(nil)}
+}
+
+func (h *testWindowHost) Open(content hosting.Content, placement hosting.Placement) (hosting.Handle, error) {
+	if h.openErr != nil {
+		return hosting.Handle{}, h.openErr
 	}
-	a, tt, _ := runtimeFixtureAt(t, dir, filepath.Join(dir, "note.md"))
-	a.openQuickOpen()
-	tt.Frame()
-	if !a.quickOpenOpen() {
-		t.Fatal("Quick Open did not open")
+	handle, err := h.manager.Open(content, placement)
+	if err != nil {
+		return hosting.Handle{}, err
 	}
-	// Empty-query results use stable path order.
-	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
-	if a.quickOpenOpen() || a.documentPath() != filepath.Join(dir, "aardvark.txt") {
-		t.Fatalf("empty query selected %q, open=%v", a.documentPath(), a.quickOpenOpen())
+	h.content, h.handle, h.placement = content, handle, placement
+	return handle, nil
+}
+
+func (h *testWindowHost) Close(handle hosting.Handle) error   { return h.manager.Close(handle) }
+func (h *testWindowHost) Contains(handle hosting.Handle) bool { return h.manager.Contains(handle) }
+
+func TestControllerOpensSelectsAndClosesHostedPalette(t *testing.T) {
+	candidates := &testCandidates{
+		revision: Revision{Catalog: 1, Index: 1},
+		byQuery: map[string]Rows{
+			"": testRows{
+				{Path: "/vault/aardvark.txt", Title: "aardvark", PathText: "aardvark.txt"},
+				{Path: "/vault/note.md", Title: "note", PathText: "note.md"},
+			},
+			"B": testRows{{Path: "/vault/子/笔记B.md", Title: "笔记B", PathText: "子/笔记B.md"}},
+		},
 	}
-	a.openQuickOpen()
-	tt.Frame()
-	tt.Type("B")
-	tt.Frame()
-	candidates := a.quickOpenCandidates("B")
-	if len(candidates) != 1 || filepath.Base(candidates[0].path) != "笔记B.md" {
-		t.Fatalf("unexpected fuzzy candidates: %+v", candidates)
+	host := newTestWindowHost()
+	var opened []string
+	closed := 0
+	controller := NewController(ControllerOptions{
+		Candidates: candidates,
+		Windows:    host,
+		Placement:  hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
+		OnOpen:     func(path string) { opened = append(opened, path) },
+		OnClose:    func() { closed++ },
+	})
+	if err := controller.Open(); err != nil {
+		t.Fatal(err)
 	}
-	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
-	if a.quickOpenOpen() || a.documentPath() != filepath.Join(dir, "子", "笔记B.md") {
-		t.Fatalf("selected note was not opened: path=%q open=%v", a.documentPath(), a.quickOpenOpen())
+	if !controller.IsOpen() || host.content == nil || host.placement.Layer != hosting.ModalOverlay {
+		t.Fatalf("opened state=%v content=%T placement=%+v", controller.IsOpen(), host.content, host.placement)
+	}
+
+	tester := ui.NewTester(func(c *ui.Context) { host.content.Render(c) }, 800, 600)
+	tester.Frame()
+	if !tester.HasText("aardvark") {
+		t.Fatalf("empty-query candidate missing: %q", tester.Texts())
+	}
+	tester.Key(0, ui.KeyEnter)
+	tester.Frame()
+	if len(opened) != 1 || opened[0] != "/vault/aardvark.txt" || controller.IsOpen() || closed != 1 {
+		t.Fatalf("opened=%v open=%v close-callbacks=%d", opened, controller.IsOpen(), closed)
+	}
+
+	if err := controller.Open(); err != nil {
+		t.Fatal(err)
+	}
+	tester = ui.NewTester(func(c *ui.Context) { host.content.Render(c) }, 800, 600)
+	tester.Frame()
+	tester.Type("B")
+	tester.Frame()
+	if !tester.HasText("笔记B") || len(candidates.queries) == 0 || candidates.queries[len(candidates.queries)-1] != "B" {
+		t.Fatalf("query projection not refreshed: texts=%q queries=%v", tester.Texts(), candidates.queries)
+	}
+	tester.Key(0, ui.KeyEnter)
+	tester.Frame()
+	if len(opened) != 2 || opened[1] != "/vault/子/笔记B.md" || controller.IsOpen() || closed != 2 {
+		t.Fatalf("second open=%v open=%v close-callbacks=%d", opened, controller.IsOpen(), closed)
 	}
 }
 
-func TestQuickOpenUsesVaultCatalogForCollapsedFiles(t *testing.T) {
-	dir := t.TempDir()
-	nested := filepath.Join(dir, "closed", "nested-note.md")
-	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+func TestControllerRefreshesCandidateRowsOnRevisionChange(t *testing.T) {
+	candidates := &testCandidates{byQuery: map[string]Rows{"": testRows{{Path: "/a.md", Title: "Alpha"}}}}
+	host := newTestWindowHost()
+	controller := NewController(ControllerOptions{
+		Candidates: candidates,
+		Windows:    host,
+		Placement:  hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
+	})
+	if err := controller.Open(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(nested, []byte("# nested"), 0o644); err != nil {
+	tester := ui.NewTester(func(c *ui.Context) { host.content.Render(c) }, 800, 600)
+	tester.Frame()
+	if !tester.HasText("Alpha") {
+		t.Fatalf("initial rows missing: %q", tester.Texts())
+	}
+
+	candidates.byQuery[""] = testRows{{Path: "/b.md", Title: "Beta"}}
+	candidates.revision.Catalog++
+	tester.Frame()
+	if !tester.HasText("Beta") || tester.HasText("Alpha") {
+		t.Fatalf("revision did not refresh rows: %q", tester.Texts())
+	}
+	if err := controller.Close(); err != nil {
 		t.Fatal(err)
 	}
-	a, _, _ := runtimeFixtureAt(t, dir, nested)
-	candidates := a.quickOpenCandidates("nested")
-	if len(candidates) != 1 || candidates[0].path != nested {
-		t.Fatalf("collapsed nested file missing from Quick Open: %+v", candidates)
+	if controller.IsOpen() {
+		t.Fatal("explicit close left hosted palette open")
 	}
 }
 
-func TestQuickOpenMatchesIndexedTitleAndAlias(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "Projects", "Atlas", "Note.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
+func TestControllerReportsHostFailureWithoutOpening(t *testing.T) {
+	host := newTestWindowHost()
+	host.openErr = errors.New("host unavailable")
+	closed := 0
+	controller := NewController(ControllerOptions{Windows: host, OnClose: func() { closed++ }})
+	if err := controller.Open(); err == nil || err.Error() != "host unavailable" {
+		t.Fatalf("open error = %v", err)
 	}
-	if err := os.WriteFile(path, []byte("---\naliases: [Launch plan]\n---\n# Project Overview\n"), 0o644); err != nil {
-		t.Fatal(err)
+	if controller.IsOpen() || closed != 0 {
+		t.Fatalf("failed open left state open=%v close-callbacks=%d", controller.IsOpen(), closed)
 	}
-	a, _, _ := runtimeFixtureAt(t, dir, path)
-	candidates := a.quickOpenCandidates("launch")
-	if len(candidates) != 1 || candidates[0].path != path || candidates[0].title != "Project Overview" {
-		t.Fatalf("alias/title projection mismatch: %+v", candidates)
-	}
-}
-
-func TestQuickOpenRefreshesAfterVaultSwitch(t *testing.T) {
-	first, second := t.TempDir(), t.TempDir()
-	firstPath := filepath.Join(first, "old-note.md")
-	if err := os.WriteFile(firstPath, []byte("# Old"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a, tt, _ := runtimeFixtureAt(t, first, firstPath)
-	old := a.quickOpenCandidates("old")
-	if len(old) != 1 {
-		t.Fatalf("initial candidates=%+v", old)
-	}
-	oldSession := a.vault
-
-	secondPath := filepath.Join(second, "next-note.md")
-	if err := os.WriteFile(secondPath, []byte("# Next"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a.setWorkspace(second)
-	// The old session is closed before the replacement starts.
-	for i := 0; i < 3; i++ {
-		tt.Frame()
-	}
-	a.openPathNow(secondPath)
-	waitDocument(t, tt, func() bool { return a.vault != nil && a.vaultSnapshot.Ready && a.vaultSnapshot.Root == second })
-	if err := oldSession.Close(); err != nil {
-		t.Fatal(err)
-	}
-	newItems := a.quickOpenCandidates("next")
-	if len(newItems) != 1 || newItems[0].path != secondPath || newItems[0].path == old[0].path {
-		t.Fatalf("new vault reused stale candidates: %+v", newItems)
-	}
-}
-
-func TestCloseQuickOpenClosesDialog(t *testing.T) {
-	a := New()
-	a.closeQuickOpen()
-	if a.quickOpenOpen() {
-		t.Fatal("closing Quick Open left the dialog open")
+	if err := NewController(ControllerOptions{}).Open(); !errors.Is(err, ErrWindowHostUnavailable) {
+		t.Fatalf("missing-host error = %v", err)
 	}
 }

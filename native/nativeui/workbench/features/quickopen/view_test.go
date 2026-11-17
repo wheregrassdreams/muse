@@ -52,9 +52,9 @@ func TestContentCloseAndOpenActionAreTyped(t *testing.T) {
 	opened := ""
 	closed := 0
 	content := NewContent(SurfaceOptions{
-		Rows:    func(string) Rows { return testRows{{Path: "/notes/a.md", Title: "A"}} },
-		OnOpen:  func(path string) { opened = path },
-		OnClose: func() { closed++ },
+		Candidates: &testCandidates{byQuery: map[string]Rows{"": testRows{{Path: "/notes/a.md", Title: "A"}}}},
+		OnOpen:     func(path string) { opened = path },
+		OnClose:    func() { closed++ },
 	})
 	content.Bind(testControls{close: func() { content.Close() }})
 	tester := ui.NewTester(func(c *ui.Context) { content.Render(c) }, 800, 600)
