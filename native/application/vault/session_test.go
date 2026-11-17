@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -297,6 +298,48 @@ func TestSessionStartsRefreshesQueriesAndCloses(t *testing.T) {
 			}
 		case <-drainDeadline:
 			t.Fatal("results channel did not close after Close")
+		}
+	}
+}
+
+func TestSessionQueryCapsAndOrdersMatchingNotes(t *testing.T) {
+	root := t.TempDir()
+	notesDir := filepath.Join(root, "Notes")
+	if err := os.MkdirAll(notesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n := 0; n < 512; n++ {
+		path := filepath.Join(notesDir, fmt.Sprintf("%04d.md", n))
+		if err := os.WriteFile(path, []byte("oldqueueprobe latestqueueprobe"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	watcher := newSessionTestWatcher()
+	session, err := NewSession(root, sessionTestDependencies(t, watcher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	waitSession(t, session, func(snapshot Snapshot) bool { return snapshot.Ready })
+
+	token, err := session.Query("latestqueueprobe", true, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waitSession(t, session, func(snapshot Snapshot) bool {
+		return snapshot.Search.Token == token && !snapshot.Search.Busy
+	})
+	if result.Search.Error != "" {
+		t.Fatalf("query failed: %s", result.Search.Error)
+	}
+	if got := len(result.Search.Hits); got != searchLimit {
+		t.Fatalf("query returned %d hits, want capped result count %d", got, searchLimit)
+	}
+	for n, hit := range result.Search.Hits {
+		want := fmt.Sprintf("Notes/%04d.md", n)
+		if hit.Path != want {
+			t.Fatalf("hit %d path = %q, want deterministic path order %q", n, hit.Path, want)
 		}
 	}
 }
