@@ -29,8 +29,11 @@ func TestWikiLinkRevealsAtTheCaret(t *testing.T) {
 	if h.shows("[[") {
 		t.Fatal("the brackets show away from the caret")
 	}
-	// 项 starts at byte 6, so 8 is inside the label.
-	h.caretAt(8)
+	// Offsets are UTF-8 byte positions; 9 is the boundary after 项.
+	h.caretAt(9)
+	if h.e.Caret() != 9 {
+		t.Fatalf("caret offset = %d, want a valid in-link rune boundary", h.e.Caret())
+	}
 	if !h.shows("[[项目笔记]]") {
 		t.Fatalf("the link is hidden at the caret: %q", h.e.leaves[0].view.disp.text)
 	}
@@ -42,7 +45,10 @@ func TestWikiLinkAliasRevealsItsTarget(t *testing.T) {
 	if h.shows("项目笔记") {
 		t.Fatal("the target shows away from the caret")
 	}
-	h.caretAt(3)
+	h.caretAt(5)
+	if h.e.Caret() != 5 {
+		t.Fatalf("caret offset = %d, want a valid in-link rune boundary", h.e.Caret())
+	}
 	if !h.shows("[[项目笔记|") {
 		t.Fatalf("the target is hidden at the caret: %q", h.e.leaves[0].view.disp.text)
 	}

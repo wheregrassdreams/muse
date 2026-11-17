@@ -12,7 +12,12 @@ func TestImageEmbedDrawsThePicture(t *testing.T) {
 	}
 	// The caret at it shows the source, so it can be edited.
 	h := newHarness(t, "![[图.png]]")
-	h.caretAt(4)
+	// The caret is measured in UTF-8 byte offsets and must land on a rune
+	// boundary inside the embed's source.
+	h.caretAt(6)
+	if h.e.Caret() != 6 {
+		t.Fatalf("caret offset = %d, want a valid in-embed rune boundary", h.e.Caret())
+	}
 	if !h.shows("![[图.png]]") {
 		t.Fatalf("the embed is hidden at the caret: %q", h.e.leaves[0].view.disp.text)
 	}
