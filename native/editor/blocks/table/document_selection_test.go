@@ -80,7 +80,7 @@ func TestSelectionForTextRangeKeepsInnerTextAndPromotesCrossingRanges(t *testing
 		t.Fatal("selection wholly inside the table was promoted")
 	}
 	region, ok := SelectionForTextRange(view, editor.Selection{Anchor: 0, Head: view.Rows[0][1].Start + 1})
-	if !ok || region.Axis != Cells || region.Anchor != (Cell{Row: 0, Col: 0}) || region.Focus != (Cell{Row: 0, Col: 1}) {
+	if !ok || region.Axis != Rows || region.Anchor != (Cell{Row: 0, Col: 0}) || region.Focus != (Cell{Row: 0, Col: 1}) {
 		t.Fatalf("crossing range region = %+v, %v", region, ok)
 	}
 	whole, ok := SelectionForTextRange(view, editor.Selection{Anchor: view.LineStart, Head: view.End})
@@ -114,7 +114,7 @@ func TestRegionSelectionTransitionsKeepTypedOriginAndReportBoundary(t *testing.T
 		t.Fatalf("PromoteCellRegion() = %+v, %v", selection, ok)
 	}
 	moved := MoveRegion(grid, *selection, 1, 0)
-	if !moved.Handled || moved.Exited || !moved.Changed || moved.Selection.Focus != (Cell{Row: 1, Col: 0}) || moved.Selection.Origin != SelectionOriginVisualText {
+	if !moved.Handled || moved.Exited || !moved.Changed || moved.Selection.Anchor != selection.Anchor || moved.Selection.Focus != (Cell{Row: 1, Col: 1}) || moved.Selection.Axis != Whole || moved.Selection.Origin != SelectionOriginVisualText {
 		t.Fatalf("within-grid MoveRegion() = %+v", moved)
 	}
 	edge := MoveRegion(grid, *selection, 0, 1)
