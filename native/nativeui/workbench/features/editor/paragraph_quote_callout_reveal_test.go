@@ -132,9 +132,13 @@ func TestCalloutHeaderPreviewTracksExactSourceSelection(t *testing.T) {
 	}
 	_, headerEnd, _ := h.e.calloutHeader(header)
 	bodyText := strings.Index(src, "正文第一")
+	bodySelectionEnd := bodyText + len("正文")
 
 	// Selecting only body text leaves the semantic header projected.
-	h.e.Select(bodyText, bodyText+2)
+	h.e.Select(bodyText, bodySelectionEnd)
+	if h.e.Session.Selection().Anchor != bodyText || h.e.Session.Selection().Head != bodySelectionEnd {
+		t.Fatalf("body-only source selection was rejected: %+v", h.e.Session.Selection())
+	}
 	h.frame()
 	if h.e.calloutHeaderSourceOpen(header) {
 		t.Fatal("body-only character selection opened the callout header")
