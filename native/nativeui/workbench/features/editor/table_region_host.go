@@ -12,15 +12,7 @@ type tableCellMatrix = tablemodel.Matrix
 // for leaf geometry and selection painting. Selection semantics remain owned
 // by editor/blocks/table.
 func tableRegionBounds(selection tablemodel.Selection) (top, left, bottom, right int) {
-	top, bottom = selection.Anchor.Row, selection.Focus.Row
-	left, right = selection.Anchor.Col, selection.Focus.Col
-	if top > bottom {
-		top, bottom = bottom, top
-	}
-	if left > right {
-		left, right = right, left
-	}
-	return
+	return selection.Bounds()
 }
 
 func tableAlignmentsFromParser(values []syntax.IncrementalAlign) []tablemodel.Alignment {

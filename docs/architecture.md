@@ -136,7 +136,6 @@ native/
 │       └── features/              # first-party feature-owned UI modules
 │           ├── editor/            # note editor surface and its UI-specific subsystems
 │           ├── explorer/          # file tree and vault navigation view
-│           ├── vault/             # UI coordination for vault lifecycle and refresh
 │           ├── outline/
 │           ├── search/            # workspace search and current-document find/replace views
 │           ├── quickopen/         # transient file chooser surface; matching stays in search/quickopen
@@ -183,8 +182,7 @@ Each feature is a regular Go package. The composition root wires the feature exp
 ```text
 nativeui/workbench/features/editor/
 ├── surface/            # one editor instance hosted in a workspace pane
-├── inputadapter/       # MyGo event adaptation and host-side input routing
-│   └── vim/             # Vim-specific host and prompt adapters
+├── inputadapter/       # MyGo key/text normalization and the Vim prompt view
 ├── navigation/         # editor-host navigation integration
 ├── ime/                # text composition and IME host lifecycle
 ├── session/            # transaction and history integration
@@ -192,7 +190,6 @@ nativeui/workbench/features/editor/
 ├── blocks/             # inline, paragraph, table, and media UI adapters
 ├── navigationrail/     # heading rail presentation
 ├── textlayout/         # MyGo-backed shaping and layout cache
-├── settings/           # editor-specific settings projection
 └── feedback/           # transient cursor/search/yank visuals
 ```
 
@@ -250,26 +247,26 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 
 ### Editor UI component extraction map
 
-`nativeui/workbench/features/editor` is also too large to remain a single flat package. Its current `Editor` shares private leaf, view-cache, session, and interaction state across input, layout, display, and paint. In the layout phase, place files under the target responsibility directories without changing their bodies; these paths are only a skeleton and are not usable package boundaries yet. In the later wiring phase, split mixed implementations and introduce narrow immutable frames or typed host interfaces before changing package declarations and imports.
+`nativeui/workbench/features/editor` is the MyGo integration host for the editor feature; its child packages own cohesive presentation, input, navigation, and block behavior. A child package may not contain files that merely declare `package editor`. Since Go keeps unexported state private to a package, the root may retain only host operations that must read or mutate `Editor` state directly. Move independent policy and rendering into the owning child package and cross that boundary with immutable values and narrow typed callbacks. Do not expose `Editor`, parser leaves, mutable session internals, or caches as a shortcut.
 
 | Target package | Owns | Candidate current files / required seam |
 |---|---|---|
-| `workbench/features/editor` | Editor host, construction, lifecycle, scroll event translation, and narrow host bridges for child components | Keep the host lifecycle, MyGo scroll input/indicator handling, orchestration, and methods that must read private `Editor` state to implement child-owned capabilities; keep feature view/state/policy in child packages and do not export broad mutable state |
+| `workbench/features/editor` | Editor host, construction, lifecycle, scroll event translation, and narrow host bridges for child components | Keep the host lifecycle, MyGo scroll input/indicator handling, orchestration, and methods that must read private `Editor` state to implement child-owned capabilities; table host translation stays here while table view/actions stay in the table component; keep feature view/state/policy in child packages and do not export broad mutable state |
 | `workbench/features/editor/session` | Applying a validated editor transaction through the authoritative domain session | `transaction.go` accepts a domain `Session` and value transaction; parser synchronization and feature-owned history snapshots stay in the feature host because they require private presentation state |
-| `workbench/features/editor/input` | Pure MyGo key/text normalization into `editor/input` values | `key_event.go`; keymap interpretation and stateful `Editor` dispatch stay with their owners, while the Vim prompt view consumes a narrow presentation host |
+| `workbench/features/editor/inputadapter` | Pure MyGo key/text normalization and physical shortcut mapping into editor input values, plus Vim prompt presentation | `key_event.go`, `shortcut.go`, and `modal_command_line.go`; editor effects stay behind feature-root host callbacks, while Vim commands, operations, grapheme, and mode semantics stay in `editor/input/vim` |
 | `workbench/features/editor/ime` | MyGo text-composition lifecycle, UTF-16 range conversion, and text-input client contract | `client.go`, `state.go`, and `index.go`; the feature-root IME host implements narrow source-edit and geometry capabilities |
 | `workbench/features/editor/blocks/inline` | Inline-link suggestion/hover UI and host-side inline actions | Move wiki suggestion popup state and link interaction adapters here; consume `editor/blocks/inline` source ranges and typed actions |
 | `workbench/features/editor/blocks/inline` | Inline formatting command adapter over the source-level inline subsystem | `editor_format.go`; keep delimiter/range policy in `editor/blocks/inline` and limit the feature adapter to host facts and applying returned edits |
 | `workbench/features/editor/blocks/paragraph` | Fold affordances, fold host state, and paragraph-specific interactions | `folding_host.go` and `typed_breaks_host.go` with fold-chevron and typed-break UI adapters; heading/source policies remain in `editor/blocks/paragraph` |
-| `workbench/features/editor/blocks/table` | Table-only menus, drag/resize affordances, selection projection, and presentation/input adapters | `table_cell_menu.go`, `table_edges.go`, `table_reorder.go`, `document_selection_adapter.go`, and the UI part of `table_host.go`; consume `editor/blocks/table` state through a typed host |
+| `workbench/features/editor/blocks/table` | MyGo table view, hit testing, selection handles, and typed table action contract | `tableui.go` and `selection_ui.go`; expose immutable frames and typed actions through `tableui.Host`; Editor-specific parser/session translation stays in the feature root's table host adapters |
 | `workbench/features/editor/blocks/media` | Image, math, and diagram controls/presentation and UI resource lifetime | `image_controls.go`, `math_preview.go`, and `diagram_preview.go`; resolve leaf/source access through a typed media host |
-| `workbench/features/editor/render` | MyGo painting, rich-text block projection, syntax-token styling, and view composition from an immutable visible-block frame | `document.go`, `paint.go`, `display.go`, `production_view.go`, `production_layout_host.go`, `source_reveal.go`, `source_highlight.go`, HTML/callout/wiki-embed presentation; object projection/painter invariant tests such as `object_size_test.go`. Keep tests coupled to the editor host in the feature root until the renderer contract is wired. |
+| `workbench/features/editor/render` | Paint detached visible frames; own reusable block, callout and HTML projection, display-map, visibility, code-window, typography, and source-token presentation | `Frame`/`Block`/`Overlay` values and `Paint`; `ProjectCallouts` and `ProjectHTMLBlock` consume detached inputs. The Editor host may adapt parser leaves, caches and hit-tested geometry into values, but the renderer never receives `Editor`, parser nodes, source models, selection state, or mutable caches. |
 | `workbench/features/editor/navigation` | Reusable visible-text/source coordinate mapping with no editor or toolkit state | `mapping.go`; editor movement and layout-aware host resolution stay in the feature host and delegate source-position policy to `editor/navigation` |
 | `workbench/features/editor/navigationrail` | Heading-rail rendering, hover/preview presentation, and interaction state | `view.go` and `policy.go`; it consumes an immutable heading frame and typed preview/jump callbacks, never an `Editor` or source model |
 | `workbench/features/editor/feedback` | Transient visual feedback and animation state | `smooth_cursor.go`, `search_match_pulse.go`, `vim_yank_flash.go`; keep source selection and movement authoritative in `editor` |
 | `workbench/features/editor/textlayout` | MyGo-backed shaping and text-layout cache | Existing package; keep it dependent on backend drawing types and independent from editor session policy |
 
-The candidate map records the final owners, not an instruction to change dependencies during the layout pass. During layout-only moves, keep file bodies and package declarations unchanged even when they temporarily depend on the old shared package; the later wiring phase splits mixed implementations and introduces narrow typed contracts. The renderer currently has the widest private-state reach, so its package API will need special care during wiring. Semantic editing behavior remains in `editor`, `editor/navigation`, and `editor/blocks/*`; these UI packages translate host events, supply toolkit facts such as hit-tested source ranges, apply returned transactions through the editor session, and present resulting state. The editor feature's navigation adapter owns display-to-source mapping only; source movement semantics remain in `editor/navigation` and the relevant block subsystem. The feature root produces revision-tagged heading snapshots and passes values plus typed callbacks to the navigation rail, which never receives an `Editor` handle.
+The table records the intended owners and their seams. It is the acceptance contract for the implementation: package declarations, imports, tests, and runtime wiring must match these boundaries; a directory-only move or temporary bridge does not satisfy it. Semantic editing behavior remains in `editor`, `editor/navigation`, and `editor/blocks/*`; UI packages translate host events, supply toolkit facts such as hit-tested source ranges, apply returned transactions through the editor session, and present resulting state. The editor feature's navigation adapter owns display-to-source mapping only; source movement semantics remain in `editor/navigation` and the relevant block subsystem. The feature root produces revision-tagged heading snapshots and passes values plus typed callbacks to the navigation rail, which never receives an `Editor` handle.
 
 `markdown/syntax` owns Markdown parsing and AST values. `markdown/render` maps parsed values to rendered blocks. `images`, `math`, and `diagrams` own their bounded media/rendering pipelines and caches; they expose results to the renderer without depending on the editor session. The root `markdown` package is the stable entry point for common parse/render operations.
 

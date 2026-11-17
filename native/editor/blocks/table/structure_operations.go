@@ -1,0 +1,396 @@
+package table
+
+import (
+	"strings"
+
+	"muse/editor"
+)
+
+// AddColumnRight inserts a blank cell after the final displayed column on
+// each source row. Parser-provided pipe positions keep escaped pipes intact.
+func (c *Controller) AddColumnRight(host Host, lineStart int) (bool, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) == 0 {
+		return false, nil
+	}
+	selection := host.TextSelection()
+	edits := make([]editor.TextEdit, 0, len(view.Lines))
+	for index, line := range view.Lines {
+		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
+			continue
+		}
+		text := "   |"
+		if index == 1 {
+			text = " --- |"
+		}
+		lastPipe := line.Pipes[len(line.Pipes)-1]
+		if lastPipe+1 < line.Range.End && strings.TrimSpace(view.Source[lastPipe+1:line.Range.End]) != "" {
+			text = " |" + text
+		}
+		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: line.Range.End, End: line.Range.End}, Text: text})
+	}
+	if len(edits) == 0 {
+		return false, nil
+	}
+	tx := editor.Transaction{Edits: edits, Before: selection}
+	tx.After = mapSelection(tx, selection)
+	err := host.Apply(tx)
+	return err == nil, err
+}
+
+// AddRowBelow appends a row with blank cells at the end of the table.
+func (c *Controller) AddRowBelow(host Host, lineStart int) (bool, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 {
+		return false, nil
+	}
+	columns := 0
+	for _, row := range view.Rows {
+		columns = max(columns, len(row))
+	}
+	if columns == 0 {
+		return false, nil
+	}
+	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.End, End: view.End}, Text: text}},
+		Before: selection,
+	}
+	tx.After = mapSelection(tx, selection)
+	err := host.Apply(tx)
+	return err == nil, err
+}
+
+// InsertRowAfter inserts a blank row after a displayed row and returns the
+// caret offset in the inserted row. Row zero is the header; inserting after
+// it places the new row below the delimiter.
+func (c *Controller) InsertRowAfter(host Host, lineStart, row, column int) (bool, int, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 || row < 0 || row >= len(view.Rows) {
+		return false, 0, nil
+	}
+	columns := 0
+	for _, cells := range view.Rows {
+		columns = max(columns, len(cells))
+	}
+	if columns == 0 {
+		return false, 0, nil
+	}
+	lineIndex := row + 1
+	if lineIndex >= len(view.Lines) {
+		return false, 0, nil
+	}
+	at := view.Lines[lineIndex].Range.End
+	if row == 0 {
+		at = view.Lines[1].Range.End
+	}
+	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
+	column = clamp(column, 0, columns-1)
+	caret := at + 1 + len(view.ContinuationPrefix) + 2 + column*4
+	selection := host.TextSelection()
+	err := host.Apply(editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: at, End: at}, Text: text}},
+		Before: selection,
+		After:  editor.Selection{Anchor: caret, Head: caret},
+	})
+	return err == nil, caret, err
+}
+
+// InsertColumnBefore inserts a blank column before the displayed column,
+// using parser-projected pipe offsets so escaped pipes remain untouched.
+func (c *Controller) InsertColumnBefore(host Host, lineStart, column int) (bool, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || column < 0 {
+		return false, nil
+	}
+	columns := 0
+	for _, row := range view.Rows {
+		columns = max(columns, len(row))
+	}
+	if columns == 0 || column > columns {
+		return false, nil
+	}
+	edits := make([]editor.TextEdit, 0, len(view.Lines))
+	for lineIndex, line := range view.Lines {
+		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
+			continue
+		}
+		at := line.Range.End
+		if column < len(line.Pipes)-1 {
+			at = line.Pipes[column] + 1
+		} else {
+			at = line.Pipes[len(line.Pipes)-1] + 1
+		}
+		text := "   |"
+		if lineIndex == 1 {
+			text = " --- |"
+		}
+		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: at, End: at}, Text: text})
+	}
+	if len(edits) == 0 {
+		return false, nil
+	}
+	selection := host.TextSelection()
+	tx := editor.Transaction{Edits: edits, Before: selection}
+	tx.After = mapSelection(tx, selection)
+	err := host.Apply(tx)
+	return err == nil, err
+}
+
+// AlignColumn replaces one delimiter cell with the requested semantic
+// alignment and returns the source edit mapping for host-owned selection
+// state that is not part of the document selection.
+func (c *Controller) AlignColumn(host Host, lineStart, column int, alignment Alignment) (bool, EditMapping, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || column < 0 || len(view.Lines[1].Pipes) <= column+1 {
+		return false, EditMapping{}, nil
+	}
+	spec := " --- "
+	switch alignment {
+	case AlignmentNone:
+		spec = " --- "
+	case AlignmentLeft:
+		spec = " :-- "
+	case AlignmentCenter:
+		spec = " :-: "
+	case AlignmentRight:
+		spec = " --: "
+	default:
+		return false, EditMapping{}, nil
+	}
+	from, to := view.Lines[1].Pipes[column]+1, view.Lines[1].Pipes[column+1]
+	if from < view.Lines[1].Range.Start || to < from || to > view.Lines[1].Range.End || to > len(view.Source) {
+		return false, EditMapping{}, nil
+	}
+	if view.Source[from:to] == spec {
+		return false, EditMapping{}, nil
+	}
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}},
+		Before: selection,
+		After:  mapSelection(editor.Transaction{Edits: []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}}}, selection),
+	}
+	err := host.Apply(tx)
+	return err == nil, EditMapping{From: from, To: to, Inserted: len(spec)}, err
+}
+
+// EditMapping describes one replacement in source coordinates.
+type EditMapping struct{ From, To, Inserted int }
+
+func (m EditMapping) Offset(offset int) int {
+	if offset >= m.To {
+		return offset + m.Inserted - (m.To - m.From)
+	}
+	if offset > m.From {
+		return m.From + m.Inserted
+	}
+	return offset
+}
+
+// Reorder moves a contiguous row or column selection to an original-grid gap
+// and commits the serialized table as one editor transaction. It returns the
+// insertion index after removing the selection.
+func (c *Controller) Reorder(host Host, lineStart int, axis Axis, first, last, gap int) (bool, int, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || axis != Rows && axis != Columns {
+		return false, first, nil
+	}
+	count := len(view.Rows)
+	if axis == Columns {
+		count = 0
+		for _, row := range view.Rows {
+			count = max(count, len(row))
+		}
+	}
+	order, insertion, ok := MoveOrder(count, first, last, gap)
+	if !ok {
+		return false, insertion, nil
+	}
+	rows := make([][]string, len(view.Rows))
+	for row, spans := range view.Rows {
+		rows[row] = make([]string, len(spans))
+		for col, span := range spans {
+			if span.Start < view.LineStart || span.End < span.Start || span.End > view.End || span.End > len(view.Source) {
+				return false, insertion, nil
+			}
+			rows[row][col] = view.Source[span.Start:span.End]
+		}
+	}
+	alignments := append([]Alignment(nil), view.Alignments...)
+	if axis == Rows {
+		moved := make([][]string, len(order))
+		for index, old := range order {
+			moved[index] = rows[old]
+		}
+		rows = moved
+	} else {
+		movedAlignments := make([]Alignment, len(order))
+		for index, old := range order {
+			if old < len(alignments) {
+				movedAlignments[index] = alignments[old]
+			}
+		}
+		for row, values := range rows {
+			moved := make([]string, len(order))
+			for index, old := range order {
+				if old < len(values) {
+					moved[index] = values[old]
+				}
+			}
+			rows[row] = moved
+		}
+		alignments = movedAlignments
+	}
+	text := serialize(rows, alignments, view.Prefix, view.ContinuationPrefix)
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
+		Before: selection,
+	}
+	tx.After = mapSelection(tx, selection)
+	err := host.Apply(tx)
+	return err == nil, insertion, err
+}
+
+// DeleteRows removes a row range (or the full table) or clears that range for
+// change mode. Row zero is the Markdown header; the delimiter remains fixed.
+func (c *Controller) DeleteRows(host Host, lineStart, first, last int, whole, change bool) (bool, int, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 {
+		return false, 0, nil
+	}
+	firstLine, lastLine := first, last
+	if !whole {
+		if first < 0 || last < first || last >= len(view.Rows) {
+			return false, 0, nil
+		}
+		if first > 0 {
+			firstLine++
+		}
+		if last > 0 {
+			lastLine++
+		}
+	} else {
+		firstLine, lastLine = 0, len(view.Lines)-1
+	}
+	if firstLine < 0 || lastLine >= len(view.Lines) || lastLine < firstLine {
+		return false, 0, nil
+	}
+	a := view.Lines[firstLine].Range.Start
+	z := view.Lines[lastLine].Range.End
+	if !change && z < len(view.Source) {
+		z++
+	}
+	replacement := ""
+	if change {
+		replacement = "\n"
+	}
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: a, End: z}, Text: replacement}},
+		Before: selection,
+		After:  editor.Selection{Anchor: a, Head: a},
+	}
+	if change {
+		tx.After.Anchor++
+		tx.After.Head++
+	}
+	err := host.Apply(tx)
+	return err == nil, a, err
+}
+
+// DeleteTable removes the complete table block and returns its source
+// insertion point. Prefix and continuation text are part of the projected
+// line ranges supplied by the host.
+func (c *Controller) DeleteTable(host Host, lineStart int) (bool, int, error) {
+	return c.DeleteRows(host, lineStart, 0, 0, true, false)
+}
+
+// DeleteColumns deletes or clears an inclusive column range. It retains each
+// row's source prefix and suffix while rebuilding separators and alignment.
+func (c *Controller) DeleteColumns(host Host, lineStart, first, last int, change bool) (bool, int, error) {
+	view, ok := host.TableView(lineStart)
+	if !ok || len(view.Lines) < 2 || first < 0 || last < first {
+		return false, 0, nil
+	}
+	columns := 0
+	for _, row := range view.Rows {
+		columns = max(columns, len(row))
+	}
+	if last >= columns {
+		return false, 0, nil
+	}
+	var b strings.Builder
+	for lineIndex, line := range view.Lines {
+		if lineIndex > 0 {
+			b.WriteByte('\n')
+		}
+		if len(line.Pipes) < 2 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
+			return false, 0, nil
+		}
+		b.WriteString(view.Source[line.Range.Start : line.Pipes[0]+1])
+		written := 0
+		for col := 0; col < columns; col++ {
+			selected := col >= first && col <= last
+			if !change && selected {
+				continue
+			}
+			if written > 0 {
+				b.WriteString(" |")
+			}
+			value := ""
+			if lineIndex == 1 {
+				separator := "---"
+				if col < len(view.Alignments) {
+					switch view.Alignments[col] {
+					case AlignmentLeft:
+						separator = ":--"
+					case AlignmentCenter:
+						separator = ":-:"
+					case AlignmentRight:
+						separator = "--:"
+					}
+				}
+				value = separator
+			} else {
+				rowIndex := lineIndex
+				if lineIndex > 1 {
+					rowIndex--
+				}
+				if rowIndex < len(view.Rows) && col < len(view.Rows[rowIndex]) {
+					cell := view.Rows[rowIndex][col]
+					if cell.Start < view.LineStart || cell.End < cell.Start || cell.End > line.Range.End || cell.End > len(view.Source) {
+						return false, 0, nil
+					}
+					value = view.Source[cell.Start:cell.End]
+				} else {
+					value = ""
+				}
+				if change && selected {
+					value = ""
+				}
+			}
+			b.WriteByte(' ')
+			b.WriteString(value)
+			written++
+		}
+		if written > 0 {
+			b.WriteString(" |")
+		}
+		lastPipe := line.Pipes[len(line.Pipes)-1]
+		if lastPipe+1 < line.Range.End {
+			b.WriteString(view.Source[lastPipe+1 : line.Range.End])
+		}
+	}
+	start, end := view.Lines[0].Range.Start, view.Lines[len(view.Lines)-1].Range.End
+	selection := host.TextSelection()
+	tx := editor.Transaction{
+		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: start, End: end}, Text: b.String()}},
+		Before: selection,
+		After:  editor.Selection{Anchor: start, Head: start},
+	}
+	err := host.Apply(tx)
+	return err == nil, start, err
+}

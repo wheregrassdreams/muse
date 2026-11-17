@@ -181,8 +181,6 @@ for package in \
   native/nativeui/workbench/features/editor/session \
   native/nativeui/workbench/features/editor/navigation \
   native/nativeui/workbench/features/editor/textlayout \
-  native/nativeui/workbench/features/editor/inputadapter/vim \
-  native/nativeui/workbench/features/editor/settings \
   native/nativeui/workbench/features/markdown \
   native/nativeui/workbench/features/dialogs/document \
   native/nativeui/workbench/features/linkpreview \
@@ -201,7 +199,6 @@ for package in \
   native/nativeui/workbench/features/properties \
   native/nativeui/workbench/features/agent \
   native/nativeui/workbench/features/settings \
-  native/nativeui/workbench/features/vault \
   native/nativeui/workbench/features/dialogs \
   native/nativeui/workbench/features/dialogs/document \
   native/platform/filesystem/documentstore \

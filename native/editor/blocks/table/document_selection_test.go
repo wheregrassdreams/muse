@@ -89,6 +89,37 @@ func TestSelectionForTextRangeKeepsInnerTextAndPromotesCrossingRanges(t *testing
 	}
 }
 
+func TestSelectionProjectsToSourceAndContentRanges(t *testing.T) {
+	source := "before\n| A | B |\n| --- | --- |\n| x | y |\nafter"
+	view := testDocumentView(source)
+	grid := Grid{LineStart: view.LineStart, Rows: len(view.Rows), Cols: 2}
+	cases := []struct {
+		name      string
+		selection *Selection
+		source    editor.TextRange
+		content   editor.TextRange
+	}{
+		{"row", grid.AxisRegion(Rows, 1, 1, true), view.Lines[2].Range, editor.TextRange{Start: view.Rows[1][0].Start, End: view.Rows[1][1].End}},
+		{"column", grid.AxisRegion(Columns, 1, 1, true), editor.TextRange{Start: view.Rows[0][1].Start, End: view.Rows[1][1].End}, editor.TextRange{Start: view.Rows[0][1].Start, End: view.Rows[1][1].End}},
+		{"whole", grid.AxisRegion(Whole, 0, 0, true), editor.TextRange{Start: view.LineStart, End: view.End}, editor.TextRange{Start: view.LineStart, End: view.End}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.selection == nil {
+				t.Fatal("AxisRegion returned nil")
+			}
+			gotSource, ok := tc.selection.SourceRange(view)
+			if !ok || gotSource != tc.source {
+				t.Fatalf("SourceRange() = %+v, %v; want %+v", gotSource, ok, tc.source)
+			}
+			gotContent, ok := tc.selection.ContentRange(view)
+			if !ok || gotContent != tc.content {
+				t.Fatalf("ContentRange() = %+v, %v; want %+v", gotContent, ok, tc.content)
+			}
+		})
+	}
+}
+
 func TestProjectDocumentSelectionPreservesTextAroundStructuralTables(t *testing.T) {
 	source := "before\n| A | B |\n| --- | --- |\n| x | y |\nafter"
 	view := testDocumentView(source)
