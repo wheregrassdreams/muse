@@ -26,6 +26,7 @@ type PanelInput[T any] struct {
 // layer to finish focus and native drag handoff.
 type PanelResult struct {
 	NativeOffer    *transfer.Offer
+	PopoverAnchor  ui.Element
 	Focused        bool
 	FocusRequested bool
 }
@@ -98,7 +99,7 @@ func RenderPanel[T any](c *ui.Context, handle *Handle, input PanelInput[T]) Pane
 			c.After(deadline.Sub(c.Now()))
 		}
 	}
-	if !state.DragPreview().Active && !input.NativeHandoffPending && (state.PointerReleased() || (!wasDragging && state.DragPreview().StartedAt.IsZero())) {
+	if !state.DragPreview().Active && !input.NativeHandoffPending && state.PointerReleased() {
 		endedDrag := !state.DragPreview().StartedAt.IsZero() || state.PointerReleased()
 		state.SetDragPreview(DragPreviewState{})
 		state.SetPointerReleased(false)
@@ -108,5 +109,5 @@ func RenderPanel[T any](c *ui.Context, handle *Handle, input PanelInput[T]) Pane
 		}
 	}
 	state.SetTrashTargetActive(state.DragPreview().Active || wasDragging)
-	return PanelResult{NativeOffer: result.NativeOffer, Focused: focused, FocusRequested: focusRequested}
+	return PanelResult{NativeOffer: result.NativeOffer, PopoverAnchor: result.PopoverAnchor, Focused: focused, FocusRequested: focusRequested}
 }

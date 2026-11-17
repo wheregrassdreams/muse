@@ -25,7 +25,7 @@ type Option struct {
 type ViewModel struct {
 	Path    string
 	Query   string
-	Scroll  ui.ScrollState
+	Scroll  *ui.ScrollState
 	Results []Option
 	Loading bool
 }
@@ -73,17 +73,20 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		ui.Text(c, locales.IconPickerResultCount(countLabel, len(model.Results))).FontSize(10).TextColor(t.TextMuted)
 		rows := (len(model.Results) + columns - 1) / columns
 		scroll := model.Scroll
+		if scroll == nil {
+			scroll = &ui.ScrollState{}
+		}
 		firstRow := max(int(scroll.Y/rowHeight)-1, 0)
 		lastRow := min(firstRow+visibleRows+2, rows)
-		ui.Scroll(c).FillWidth().Height(312).TrackScroll(&scroll).Scrollbars(scroll.MaxY > 0).Children(func() {
-			ui.Column(c).FillWidth().Children(func() {
+		ui.Scroll(c).FillWidth().Height(312).TrackScroll(scroll).Scrollbars(scroll.MaxY > 0).Children(func() {
+			ui.Column(c).FillWidth().Height(float32(rows) * rowHeight).Shrink(0).Children(func() {
 				if firstRow > 0 {
-					ui.Box(c).FillWidth().Height(float32(firstRow) * rowHeight)
+					ui.Box(c).FillWidth().Height(float32(firstRow) * rowHeight).Shrink(0)
 				}
 				for row := firstRow; row < lastRow; row++ {
 					start := row * columns
 					end := min(start+columns, len(model.Results))
-					ui.Row(c).Height(rowHeight).AlignItems(ui.Center).Gap(4).Children(func() {
+					ui.Row(c).Height(rowHeight).Shrink(0).AlignItems(ui.Center).Gap(4).Children(func() {
 						for _, option := range model.Results[start:end] {
 							option := option
 							button := ui.ButtonBase(c).Size(56, 54).Radius(8).Padding(3).
@@ -101,13 +104,10 @@ func Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 					})
 				}
 				if lastRow < rows {
-					ui.Box(c).FillWidth().Height(float32(rows-lastRow) * rowHeight)
+					ui.Box(c).FillWidth().Height(float32(rows-lastRow) * rowHeight).Shrink(0)
 				}
 			})
 		})
-		if scroll.X != model.Scroll.X || scroll.Y != model.Scroll.Y || scroll.MaxX != model.Scroll.MaxX || scroll.MaxY != model.Scroll.MaxY {
-			dispatchAction(dispatch, Action{Kind: ScrollChanged, Scroll: scroll})
-		}
 		if model.Loading {
 			ui.Text(c, locales.IconPickerLoading()).FontSize(10).TextColor(t.TextMuted)
 		} else if len(model.Results) == 0 {

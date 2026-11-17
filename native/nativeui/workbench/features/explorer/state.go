@@ -296,6 +296,23 @@ func (s *state) SelectID(id string, modifiers ui.Modifiers, visibleEntries []Ent
 	s.syncListFocus()
 }
 
+// PrepareDragSelection applies the pointer-down selection rules before a drag
+// crosses the toolkit threshold. An unmodified press on an already selected
+// row preserves the multi-selection; modifiers otherwise follow SelectID.
+func (s *state) PrepareDragSelection(id string, modifiers ui.Modifiers, visibleEntries []Entry) {
+	if s == nil || id == "" {
+		return
+	}
+	if modifiers&ui.Shift != 0 || modifiers&ui.Cmd != 0 || !s.owns(id) {
+		s.selectID(id, modifiers, visibleEntries)
+	} else {
+		s.visibleIDs = entryIDs(visibleEntries)
+		s.syncListFocus()
+	}
+	s.focusID = id
+	s.syncListFocus()
+}
+
 func (s *state) FocusID() string {
 	if s == nil {
 		return ""

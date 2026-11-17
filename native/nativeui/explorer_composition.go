@@ -41,8 +41,18 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 			Previewable: !row.Directory && doctypes.IsImagePath(row.Path),
 		})
 	}
+	popoverAnchorID := ""
+	if a.navIconPicker.IsOpen() {
+		want := a.navIconPicker.Snapshot().Path
+		for _, row := range rows {
+			if relative, ok := a.vaultRelativePath(row.Path); ok && relative == want {
+				popoverAnchorID = row.Path
+				break
+			}
+		}
+	}
 	model := filetree.ModelInput{
-		Entries: entries, EmptyMessage: locales.FilesNoEditableText(),
+		Entries: entries, PopoverAnchorID: popoverAnchorID, EmptyMessage: locales.FilesNoEditableText(),
 		RootLabel: a.root, RootCanDrop: a.root != "",
 		NativeDrop: filetree.NativeDropPort{
 			Formats:    []transfer.Format{transfer.Format("application/x-muse-vault-item+json")},
@@ -66,13 +76,17 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 			if payload.Path == "" {
 				return nil
 			}
-			return []string{payload.Path}
+			return a.fileTreeState.SelectedPaths(rows, payload.Path)
 		},
 	}
 	item := a.treeDragItem
 	dragProjection := filetree.DragProjection{}
 	if item.Path != "" {
 		itemIcon := a.treeIcon(item.Path, item.Directory)
+		displayID := filepath.ToSlash(item.Path)
+		if relative, ok := a.vaultRelativePath(item.Path); ok {
+			displayID = filepath.ToSlash(relative)
+		}
 		imagePath := ""
 		if !item.Directory && doctypes.IsImagePath(item.Path) {
 			imagePath = item.Path
@@ -81,7 +95,7 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 			}
 		}
 		dragProjection = filetree.BuildDragProjection(a.fileTreeState, rows, filetree.DragProjectionInput{
-			ItemName: item.Name, ItemDirectory: item.Directory, ItemIcon: itemIcon, FileIcon: componenticons.File(),
+			ItemName: item.Name, DisplayID: displayID, ItemDirectory: item.Directory, ItemIcon: itemIcon, FileIcon: componenticons.File(),
 			IconTint: iconTint(c.Theme()), ImagePath: imagePath, ImageCacheStore: a.imageCacheStore,
 			LocalFiles: a.imageLocalFiles, OnImageLoad: a.invalidate, IsDirectory: a.catalogIsDirectory,
 		})
@@ -100,6 +114,9 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 			a.handleFileTreeAction(c, action)
 		},
 	})
+	if popoverAnchorID != "" && result.PopoverAnchor.Bounds().W > 0 {
+		a.navIconPickerPopover(c, result.PopoverAnchor)
+	}
 	a.treeFocusRequested = result.FocusRequested
 	if result.Focused {
 		a.setFocusedPanel(commands.PanelIDFiles)
@@ -111,6 +128,10 @@ func (a *App) fileTreePanelView(c *ui.Context) {
 
 func (a *App) handleFileTreeAction(c *ui.Context, action filetree.Action[dragpayload.VaultItem]) {
 	switch action.Kind {
+	case filetree.NavigateEntry:
+		a.dispatchPanelAction(commands.ActionNavigate, map[string]any{"index": action.Index})
+	case filetree.SubmitEntry:
+		a.dispatchPanelAction(commands.ActionOpen, map[string]any{"path": action.ID})
 	case filetree.SelectEntry, filetree.ToggleEntry:
 		a.setFocusedPanel(commands.PanelIDFiles)
 	case filetree.OpenEntry:

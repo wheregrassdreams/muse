@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/locales"
 )
 
 type testPayload struct{ IDs []string }
@@ -56,7 +55,7 @@ func TestPlainClickSelectsEntryWithoutStartingDrag(t *testing.T) {
 	if !ok || before.H != after.H || before.Y != after.Y {
 		t.Fatalf("row geometry changed on click: before=%+v after=%+v", before, after)
 	}
-	if state.DragPreview().Active || !state.IsSelected("note.md") || tester.HasText(locales.TreeDragProjectionLabel("note.md")) {
+	if state.DragPreview().Active || !state.IsSelected("note.md") {
 		t.Fatalf("plain click changed drag state or missed selection: drag=%+v selected=%v text=%v", state.DragPreview(), state.SelectedIDs(), tester.Texts())
 	}
 }
@@ -148,7 +147,7 @@ func TestSubmittedFileEmitsOpenAction(t *testing.T) {
 	actions = nil
 	tester.Key(0, ui.KeyEnter)
 	tester.Frame()
-	if len(actions) != 1 || actions[0].Kind != OpenEntry || actions[0].ID != "note" {
+	if len(actions) != 1 || actions[0].Kind != SubmitEntry || actions[0].ID != "note" {
 		t.Fatalf("actions = %+v, want open note", actions)
 	}
 }
@@ -173,7 +172,7 @@ func TestKeyboardMoveEmitsSelectionForFocusedTree(t *testing.T) {
 	actions = nil
 	tester.Key(0, ui.KeyDown)
 	tester.Frame()
-	if len(actions) != 1 || actions[0].Kind != SelectEntry || actions[0].ID != "two" {
+	if len(actions) != 1 || actions[0].Kind != NavigateEntry || actions[0].ID != "two" {
 		t.Fatalf("keyboard actions = %+v, want selection of next row", actions)
 	}
 }

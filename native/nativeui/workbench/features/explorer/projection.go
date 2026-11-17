@@ -95,6 +95,7 @@ func ProjectChildRows(root string, entries []CatalogEntry, visibleFile func(stri
 // come from the file-tree presentation state.
 type DragProjection struct {
 	ItemName          string
+	DisplayID         string
 	ItemKind          EntryKind
 	ItemIcon          *ui.SVG
 	FileIcon          *ui.SVG
@@ -114,6 +115,7 @@ type DragProjection struct {
 // are derived by the Explorer feature.
 type DragProjectionInput struct {
 	ItemName        string
+	DisplayID       string
 	ItemDirectory   bool
 	ItemIcon        *ui.SVG
 	FileIcon        *ui.SVG
@@ -149,7 +151,7 @@ func BuildDragProjection(handle *Handle, rows []Row, input DragProjectionInput) 
 		itemKind = Directory
 	}
 	return DragProjection{
-		ItemName: input.ItemName, ItemKind: itemKind, ItemIcon: input.ItemIcon, FileIcon: input.FileIcon,
+		ItemName: input.ItemName, DisplayID: input.DisplayID, ItemKind: itemKind, ItemIcon: input.ItemIcon, FileIcon: input.FileIcon,
 		IconTint: input.IconTint, SelectedCount: selectedCount, SelectedFilesOnly: selectedFilesOnly,
 		OperationKind: operation.Kind, OperationLabel: operation.Label(), ImagePath: input.ImagePath,
 		ImageCacheStore: input.ImageCacheStore, LocalFiles: input.LocalFiles, OnImageLoad: input.OnImageLoad,
@@ -167,6 +169,10 @@ func RenderDragProjection(c *ui.Context, handle *Handle, model DragProjection) {
 	if !drag.Active || drag.ItemID == "" {
 		return
 	}
+	displayID := model.DisplayID
+	if displayID == "" {
+		displayID = drag.ItemID
+	}
 	w, h := float32(220), float32(50)
 	showOperation := drag.Frames > 2 || !drag.StartedAt.IsZero() && c.Now().Sub(drag.StartedAt) >= 120*time.Millisecond || model.OperationKind == DragOperationMoveToTrash
 	isImage := model.SelectedCount == 1 && model.ItemKind == File && model.ImagePath != ""
@@ -177,7 +183,7 @@ func RenderDragProjection(c *ui.Context, handle *Handle, model DragProjection) {
 	}
 	t := c.Theme()
 	card := ui.Row(c).Absolute().Left(drag.Pointer.X+12).Top(drag.Pointer.Y-58).
-		Key("tree-drag-session-projection").Label(locales.TreeDragProjectionLabel(drag.ItemID)).
+		Key("tree-drag-session-projection").Label(locales.TreeDragProjectionLabel(displayID)).
 		Width(w).MinWidth(0).Height(h).IgnoreInput(true).Radius(12).
 		Background(t.SurfaceHover).Border(1, t.Border).
 		Shadow(0, 7, 20, -4, ui.RGBA(0, 0, 0, 0.14)).Padding(0, 8).Gap(8).AlignItems(ui.Center)
@@ -210,7 +216,7 @@ func RenderDragProjection(c *ui.Context, handle *Handle, model DragProjection) {
 			})
 			if showOperation && model.OperationLabel != "" {
 				ui.Text(c, model.OperationLabel).Key("tree-drag-projection-operation-" + drag.ItemID).
-					Label(locales.TreeDragProjectionOperationLabel(drag.ItemID)).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
+					Label(locales.TreeDragProjectionOperationLabel(displayID)).FontSize(10.5).TextColor(t.TextMuted).SingleLine().Ellipsis("…")
 			}
 		})
 	})

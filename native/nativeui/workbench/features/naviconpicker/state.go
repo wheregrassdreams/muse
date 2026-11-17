@@ -97,7 +97,7 @@ func (s *state) Snapshot() ViewModel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ViewModel{
-		Path: s.path, Query: s.query, Scroll: s.scroll,
+		Path: s.path, Query: s.query, Scroll: &s.scroll,
 		Results: append([]Option(nil), s.results...), Loading: s.loading,
 	}
 }
@@ -174,7 +174,7 @@ func RenderPopover(c *ui.Context, anchor ui.Element, handle *Handle, dispatch fu
 	state.mu.Lock()
 	open := state.open
 	model := ViewModel{
-		Path: state.path, Query: state.query, Scroll: state.scroll,
+		Path: state.path, Query: state.query, Scroll: &state.scroll,
 		Results: append([]Option(nil), state.results...), Loading: state.loading,
 	}
 	state.mu.Unlock()

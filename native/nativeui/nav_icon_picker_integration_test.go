@@ -40,14 +40,14 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 		t.Fatalf("icons disappeared after a short scroll: row=%+v title=%+v scroll=%+v texts=%q", nearRect, pickerTitle, a.navIconPicker.Snapshot().Scroll, tt.Texts())
 	}
 	runtimeShot(t, tt, "nav-icon-picker-scroll-short")
-	tt.Scroll(150, 500, 0, 2700)
+	tt.Scroll(150, 500, 0, 3000)
 	tt.Frame()
 	if a.navIconPicker.Snapshot().Scroll.Y < 3000 {
 		t.Fatalf("icon list did not scroll to its middle: y=%v", a.navIconPicker.Snapshot().Scroll.Y)
 	}
-	bonesRect, bonesOK := tt.Find("Bone Fracture")
-	if !bonesOK || !titleOK || bonesRect.Y < pickerTitle.Y+60 || bonesRect.Y > pickerTitle.Y+400 {
-		t.Fatalf("middle virtual row is outside the visible picker viewport: row=%+v title=%+v", bonesRect, pickerTitle)
+	middleRect, middleOK := tt.Find("Book Type")
+	if !middleOK || !titleOK || middleRect.Y < pickerTitle.Y+60 || middleRect.Y > pickerTitle.Y+400 {
+		t.Fatalf("middle virtual row is outside the visible picker viewport: row=%+v title=%+v scroll=%+v texts=%q", middleRect, pickerTitle, a.navIconPicker.Snapshot().Scroll, tt.Texts())
 	}
 	runtimeShot(t, tt, "nav-icon-picker-scroll-middle")
 	tt.Scroll(150, 500, 0, 30000)

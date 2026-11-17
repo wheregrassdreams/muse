@@ -270,6 +270,7 @@ func configureVaultPorts(t *testing.T, a *App) {
 	a.SetDependencies(Dependencies{
 		DocumentMetadata:      filemetadata.New(),
 		ImageLocalFiles:       imagefiles.New(),
+		NavIcons:              &memoryNavIconRepository{values: make(map[string]map[string]string)},
 		VaultSearchReconciler: nativeUITestSearchReconciler{store: store},
 		NewVaultIndex: func(root string) (applicationvault.IndexPort, error) {
 			source, err := vaultindexsource.New(root)
