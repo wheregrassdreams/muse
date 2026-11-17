@@ -182,8 +182,10 @@ func TestVimRightNavigationSkipsZeroSourceLinkDecoration(t *testing.T) {
 func TestVimRightNavigationThroughFullSyntaxFixture(t *testing.T) {
 	const src = "这是一段普通正文，用来检查行内语法的展开与收起：**粗体**、*斜体*、~~删除线~~、`行内代码`、\n[链接](https://example.com)、[[双链]]、[[双链|带标签]]、#标签 #回归/编辑器，以及行内公式 $a^2+b^2=c^2$。"
 	code := strings.Index(src, "`行内代码`")
+	// Vim's normal caret sits on the leading byte of the final code rune.
+	codeEndCaret := code + len("`行内代码") - len("码")
 	for _, width := range []float32{420, 520, 680, 820} {
-		for _, start := range []int{code + len("`行内代码") - 1, code + len("`行内代码`"), strings.Index(src, "[链接")} {
+		for _, start := range []int{codeEndCaret, code + len("`行内代码`"), strings.Index(src, "[链接")} {
 			h := newHarness(t, src)
 			opts := h.e.Options()
 			opts.MaxWidth, opts.SoftBreaksAsSpaces = width, true
