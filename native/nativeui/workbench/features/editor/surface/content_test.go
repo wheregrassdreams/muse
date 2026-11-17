@@ -15,13 +15,81 @@ import (
 )
 
 type testSurface struct {
-	session *editor.Session
-	options SurfaceOptions
-	closed  bool
+	session      *editor.Session
+	options      SurfaceOptions
+	presentation PresentationSettings
+	focused      bool
+	keymap       string
+	closed       bool
 }
+
+var (
+	_ window.Content           = (*testSurface)(nil)
+	_ FocusCommands            = (*testSurface)(nil)
+	_ ModalCommands            = (*testSurface)(nil)
+	_ NavigationCommands       = (*testSurface)(nil)
+	_ SearchCommands           = (*testSurface)(nil)
+	_ ClipboardCommands        = (*testSurface)(nil)
+	_ FormattingCommands       = (*testSurface)(nil)
+	_ PresentationCommands     = (*testSurface)(nil)
+	_ interface{ Undo() bool } = (*testSurface)(nil)
+)
 
 func (s *testSurface) Render(*ui.Context) {}
 func (s *testSurface) Close()             { s.closed = true }
+
+func (s *testSurface) Focus()                  { s.focused = true }
+func (s *testSurface) Focused() bool           { return s.focused }
+func (s *testSurface) Keymap() string          { return s.keymap }
+func (s *testSurface) SetKeymap(keymap string) { s.keymap = keymap }
+func (s *testSurface) ModeLabel() string       { return "" }
+func (s *testSurface) ModalAcceptsText() bool  { return s.keymap != "vim" }
+
+func (s *testSurface) Caret() int { return s.session.Selection().Head }
+func (s *testSurface) SelectionRange() TextRange {
+	selection := s.session.Selection()
+	return TextRange{Start: min(selection.Anchor, selection.Head), End: max(selection.Anchor, selection.Head)}
+}
+func (s *testSurface) Select(start, end int) {
+	_ = s.session.SetSelection(editor.Selection{Anchor: start, Head: end})
+}
+func (s *testSurface) ScrollY() float32                         { return 0 }
+func (*testSurface) ScrollToOffset(int)                         {}
+func (s *testSurface) NavigateToOffset(offset int)              { s.Select(offset, offset) }
+func (s *testSurface) NavigateToRange(start, end int)           { s.Select(start, end) }
+func (s *testSurface) Headings() []Heading                      { return nil }
+func (s *testSurface) WindowPoint(int) (float32, float32, bool) { return 0, 0, false }
+
+func (s *testSurface) SetHighlights([]TextRange, int) {}
+func (s *testSurface) SelectedText() string {
+	r := s.SelectionRange()
+	source := s.session.Source()
+	return source[r.Start:r.End]
+}
+func (*testSurface) CopyImageObject(string) {}
+
+func (*testSurface) AppendBlock(string)                        {}
+func (*testSurface) PrependBlock(string)                       {}
+func (*testSurface) ToggleBold()                               {}
+func (*testSurface) ToggleItalic()                             {}
+func (*testSurface) ToggleUnderline()                          {}
+func (*testSurface) ToggleStrike()                             {}
+func (*testSurface) ToggleCode()                               {}
+func (*testSurface) ToggleHighlight()                          {}
+func (*testSurface) ToggleQuote()                              {}
+func (*testSurface) ToggleList(string)                         {}
+func (*testSurface) SetHeading(int)                            {}
+func (*testSurface) InsertCodeBlock()                          {}
+func (*testSurface) InsertMathBlock()                          {}
+func (*testSurface) InsertTable(int, int)                      {}
+func (*testSurface) InsertRule()                               {}
+func (*testSurface) InsertLink()                               {}
+func (s *testSurface) Configure(settings PresentationSettings) { s.presentation = settings }
+func (s *testSurface) Settings() PresentationSettings          { return s.presentation }
+func (s *testSurface) Undo() bool {
+	result, err := s.session.Undo()
+	return err == nil && result.Changed
+}
 
 func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "note.md")
