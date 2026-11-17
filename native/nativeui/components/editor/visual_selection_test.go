@@ -49,15 +49,15 @@ func TestInclusiveSelectionCachesSourceGraphemesPerRevision(t *testing.T) {
 	for range 100 {
 		e.selection()
 	}
-	if e.graphemeBuilds != 1 {
-		t.Fatalf("selection queries segmented source %d times in one revision", e.graphemeBuilds)
+	if got := e.graphemeCache.BuildCount(); got != 1 {
+		t.Fatalf("selection queries segmented source %d times in one revision", got)
 	}
 	e.begin(stepEdit)
 	e.replace(0, 0, "x")
 	e.commit(3, 3)
 	e.setSessionInclusive(true)
 	e.selection()
-	if e.graphemeBuilds != 2 {
-		t.Fatalf("source revision did not rebuild grapheme index once: builds=%d", e.graphemeBuilds)
+	if got := e.graphemeCache.BuildCount(); got != 2 {
+		t.Fatalf("source revision did not rebuild grapheme index once: builds=%d", got)
 	}
 }

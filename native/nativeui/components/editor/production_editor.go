@@ -19,6 +19,7 @@ import (
 	"muse/editor/input"
 	"muse/editor/input/vim"
 	layoutindex "muse/editor/layout"
+	textnav "muse/editor/navigation"
 	"muse/editor/source"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
@@ -267,9 +268,7 @@ type Editor struct {
 	block                  *blockSelection
 	blockAnchorOffset      int
 	blockInput             *blockInput
-	graphemeRevision       uint64
-	graphemeBoundaries     []int
-	graphemeBuilds         uint64
+	graphemeCache          textnav.GraphemeBoundaryCache
 	wordIndexCache         []*displayWordIndex
 	wordIndexCacheCost     int
 	// tableSelection owns table-cell presentation. anchor/caret retain the
