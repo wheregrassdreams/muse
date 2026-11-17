@@ -158,6 +158,9 @@ func (e *Editor) tableSelectionCellRegion(s *tableSelection) (tablemodel.Selecti
 // moveTableCellRegion delegates structural movement to the table domain and
 // installs the resulting immutable selection snapshot in the UI host.
 func (e *Editor) moveTableCellRegion(rowDelta, colDelta int) bool {
+	if e.replayTableNavigation(rowDelta, colDelta) {
+		return true
+	}
 	selection := e.tableSelection
 	if selection == nil || !selection.cellRegion {
 		return false
@@ -169,8 +172,59 @@ func (e *Editor) moveTableCellRegion(rowDelta, colDelta int) bool {
 	before := e.tableNavigationState()
 	grid := tablemodel.Grid{LineStart: t.lineStart, Rows: len(t.tab.rows), Cols: t.tab.cols()}
 	move := tablemodel.MoveRegion(grid, *tableSelectionSnapshot(selection), rowDelta, colDelta)
-	if !move.Handled || move.Exited {
+	if !move.Handled {
 		return false
+	}
+	if move.Exited {
+		// A text-origin cell rectangle moves horizontally between rows at the
+		// same column. Table-origin rectangles keep the traditional behavior:
+		// crossing any outer edge resumes ordinary document selection.
+		if rowDelta == 0 && colDelta != 0 && selection.origin == tablemodel.SelectionOriginVisualText {
+			nextRow := selection.focusRow
+			if colDelta < 0 {
+				nextRow--
+			} else {
+				nextRow++
+			}
+			if nextRow >= 0 && nextRow < grid.Rows {
+				if wrapped, ok := tablemodel.PromoteCellRegion(grid,
+					tablemodel.Cell{Row: selection.anchorRow, Col: selection.anchorCol},
+					tablemodel.Cell{Row: nextRow, Col: selection.focusCol}, selection.right, selection.origin); ok {
+					e.tableSelection = tableSelectionFromSnapshot(wrapped)
+					e.tableDocumentRegion = nil
+					e.hasGoal = false
+					e.wantReveal = true
+					e.invalidate()
+					e.recordTableNavigation(before, rowDelta, colDelta)
+					return true
+				}
+			}
+		}
+
+		// Keep the last cell rectangle as a structural part while extending the
+		// source selection into the neighboring document text.
+		e.tableSelection = nil
+		e.tableBridge = nil
+		e.tableDocumentRegion = cloneTableSelection(selection)
+		direction := -1
+		if move.Direction.Row > 0 || move.Direction.Col > 0 {
+			direction = 1
+		}
+		e.tableNavigating = true
+		e.leaveTableBoundary(t, direction, true)
+		e.tableNavigating = false
+		if selection.origin == tablemodel.SelectionOriginVisualText {
+			e.vimController().SetTextVisualActive(false)
+		}
+		// The source envelope can temporarily map to a row-shaped selection.
+		// Keep the cell rectangle as a suspended document part instead.
+		e.tableSelection = nil
+		e.tableDocumentRegion = cloneTableSelection(selection)
+		e.hasGoal = false
+		e.wantReveal = true
+		e.invalidate()
+		e.recordTableNavigation(before, rowDelta, colDelta)
+		return true
 	}
 	e.tableSelection = tableSelectionFromSnapshot(&move.Selection)
 	e.tableDocumentRegion = nil

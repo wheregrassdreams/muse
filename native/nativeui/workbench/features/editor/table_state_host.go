@@ -126,8 +126,10 @@ func tableSelectionSnapshot(s *tableSelection) *tablemodel.Selection {
 
 func (e *Editor) tableTextOrigin() tablemodel.SelectionOrigin {
 	switch e.vimController().Mode() {
-	case vim.ModeVisual, vim.ModeBlockVisual:
+	case vim.ModeVisual, vim.ModeSelect:
 		return tablemodel.SelectionOriginVisualText
+	case vim.ModeBlockVisual:
+		return tablemodel.SelectionOriginTable
 	default:
 		return tablemodel.SelectionOriginText
 	}

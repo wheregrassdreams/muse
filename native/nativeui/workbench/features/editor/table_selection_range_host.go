@@ -173,6 +173,19 @@ func (e *Editor) structuralSelectionForRange() bool {
 		if t.kind != kTable || t.tab == nil {
 			continue
 		}
+		// When a text-origin rectangle's head leaves the table, preserve its
+		// exact cell focus while the ordinary source range grows outside. A
+		// fresh projection from the expanded envelope would move the table
+		// focus to the row touched by the document endpoint.
+		if suspended != nil && suspended.lineStart == t.lineStart &&
+			(e.Session.Selection().Anchor < t.lineStart || e.Session.Selection().Anchor > blockEnd(e.Source(), t) ||
+				e.Caret() < t.lineStart || e.Caret() > blockEnd(e.Source(), t)) {
+			start, end := e.selection()
+			if start < blockEnd(e.Source(), t) && end > t.lineStart {
+				e.tableDocumentRegion = suspended
+				return true
+			}
+		}
 		// Keep a table's projected structural selection alongside the document
 		// envelope when the endpoints extend into surrounding text. The domain
 		// splitter owns the promotion rule; the host only stores its snapshot.
