@@ -40,6 +40,7 @@ import (
 	markdownsyntax "muse/markdown/syntax"
 	componenticons "muse/nativeui/components/icons"
 	commands "muse/nativeui/workbench/commands"
+	"muse/nativeui/workbench/diagnostics"
 	"muse/nativeui/workbench/dragdrop"
 	agentui "muse/nativeui/workbench/features/agent"
 	"muse/nativeui/workbench/features/commandpalette"
@@ -1091,8 +1092,34 @@ func (a *App) commandPaletteDialog(c *ui.Context) {
 // ---------------------------------------------------------------------------
 // View
 
+func (a *App) memoryDiagnosticsSnapshot() diagnostics.Snapshot {
+	if a == nil {
+		return diagnostics.Snapshot{}
+	}
+	a.mainMu.Lock()
+	var editor diagnostics.EditorSnapshot
+	if note := a.noteEditor(); note != nil {
+		state := note.MemorySnapshot()
+		editor = diagnostics.EditorSnapshot{
+			SourceBytes: state.SourceBytes, Leaves: state.Leaves, VirtualLayout: state.VirtualLayout,
+			ImageCandidateLeaves: state.ImageCandidateLeaves, ImageAssetViews: state.ImageAssetViews,
+			ImageAssets: state.ImageAssets, LoadedImageAssets: state.LoadedImageAssets,
+			ImagePixelBytes: state.ImagePixelBytes,
+		}
+	}
+	vaultReady := a.vault != nil && a.vaultSnapshot.Ready
+	a.mainMu.Unlock()
+	pending, active := markdownui.ImageDecodeQueueStats()
+	cacheEntries, cacheBytes := markdownui.ImageAssetCacheStats()
+	return diagnostics.Snapshot{
+		VaultReady: vaultReady, Editor: editor,
+		ImageCacheEntries: cacheEntries, ImageCacheEstimatedBytes: cacheBytes,
+		ImageDecodePending: pending, ImageDecodeActive: active,
+	}
+}
+
 func (a *App) View(c *ui.Context) {
-	logMemoryDiagnostics(a)
+	diagnostics.Log(a.memoryDiagnosticsSnapshot)
 	a.mainMu.Lock()
 	defer a.mainMu.Unlock()
 	closedManagedSurface := false

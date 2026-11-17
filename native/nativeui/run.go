@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/locales"
+	"muse/nativeui/workbench/diagnostics"
 	"muse/nativeui/workbench/features/editor/surface"
 	searchui "muse/nativeui/workbench/features/search"
 	settingsui "muse/nativeui/workbench/features/settings"
@@ -23,7 +24,7 @@ import (
 func Run(dependencies Dependencies) {
 	app := New()
 	app.SetDependencies(dependencies)
-	startMemoryDiagnostics(app)
+	diagnostics.Start(mygo.RunOnMain, app.memoryDiagnosticsSnapshot)
 	mygo.App.SetName("Muse")
 	mygo.App.OnLocaleChanged(func(string) {
 		app.updateTitle()
