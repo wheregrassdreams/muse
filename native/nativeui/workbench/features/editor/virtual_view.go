@@ -391,19 +391,20 @@ func (e *Editor) captureVirtualLayoutIndex() {
 // every leaf of text it does not show, on the first frame as much as on
 // any other.
 func (e *Editor) virtualLayout() bool {
-	if len(e.leaves) >= virtualLayoutMin {
+	count := len(e.leaves)
+	if layout.ShouldVirtualize(count, false) {
 		return true
 	}
 	// A medium note with images can cost more to shape than a much longer
 	// prose note: each image view starts an asynchronous read/decode and keeps
 	// its bitmap alive. Use the viewport layout for these notes too, so their
 	// offscreen image leaves stay as estimates until the user reaches them.
-	if len(e.leaves) < virtualImageLayoutMin {
+	if count < layout.VirtualImageLimit {
 		return false
 	}
 	for _, l := range e.leaves {
 		if leafMayContainImage(e.Source(), l) {
-			return true
+			return layout.ShouldVirtualize(count, true)
 		}
 	}
 	return false
@@ -413,12 +414,12 @@ func (e *Editor) virtualLayout() bool {
 // virtualized. A note of a few dozen paragraphs can already contain enough
 // rich text, tables, images or formulas to make shaping the whole document
 // on its first frame visible; 64 leaves keeps that work near the viewport.
-const virtualLayoutMin = 64
+const virtualLayoutMin = layout.VirtualBlockLimit
 
 // virtualImageLayoutMin starts viewport layout earlier for notes with images.
 // Smaller image notes remain exact, while medium image notes avoid decoding
 // every offscreen bitmap during their first layout.
-const virtualImageLayoutMin = 16
+const virtualImageLayoutMin = layout.VirtualImageLimit
 
 // View builds the editor: a scroll view of the document as one surface
 // the user writes on.

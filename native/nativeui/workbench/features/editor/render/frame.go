@@ -67,6 +67,18 @@ type Block struct {
 	HorizontalOffset float32
 }
 
+// CalloutLine is the immutable geometry and presentation metadata for one
+// visible line inside a callout. The editor host supplies source-derived IDs,
+// indentation and title-edit state; render composes those lines into cards.
+type CalloutLine struct {
+	ID                   int
+	X, Y, Height, Right  float32
+	FontSize             float32
+	Title                string
+	Alert                AlertKind
+	HeaderSourceRevealed bool
+}
+
 // OverlayKind identifies a backend-neutral visual primitive whose geometry is
 // already resolved by the host. Overlays contain no source or editor state.
 type OverlayKind uint8

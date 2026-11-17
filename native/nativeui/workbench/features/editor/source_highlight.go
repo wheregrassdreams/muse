@@ -11,15 +11,7 @@ import (
 // bytes. Syntax owns lexical ranges; the render package maps token kinds to
 // the configured presentation palette.
 func renderSourceTokens(b *builder, offset int, text string, tokens []syntax.SourceToken, base ui.Span) {
-	at := 0
-	for _, tok := range tokens {
-		start, end := max(0, tok.Start), min(len(text), tok.End)
-		if end <= start || start < at {
-			continue
-		}
-		b.codeRun(offset+at, offset+start, base)
-		b.codeRun(offset+start, offset+end, render.SourceTokenSpan(base, tok.Kind, b.e.lk.code))
-		at = end
+	for _, run := range render.ProjectSourceTokens(len(text), tokens, base, b.e.lk.code) {
+		b.codeRun(offset+run.Start, offset+run.End, run.Style)
 	}
-	b.codeRun(offset+at, offset+len(text), base)
 }

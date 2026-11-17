@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	textnav "muse/editor/navigation"
 	sourceview "muse/editor/source"
 	syntax "muse/markdown/syntax"
 	"muse/ui/scrollbar"
@@ -807,7 +808,7 @@ func spanEnd(src string, d sourceview.SyntaxView, c int) int {
 			// The closing $$ (or \]) ends the content's line, or the next.
 			if rest := src[b.End:end]; !strings.Contains(rest, "$$") && !strings.Contains(rest, `\]`) && end < len(src) {
 				next := lineEndAt(src, end+1)
-				if t := trimPrefixChars(src[end+1 : next]); strings.HasPrefix(t, "$$") || strings.HasPrefix(t, `\]`) {
+				if t := textnav.TrimBlockPrefix(src[end+1 : next]); strings.HasPrefix(t, "$$") || strings.HasPrefix(t, `\]`) {
 					end = next
 				}
 			}

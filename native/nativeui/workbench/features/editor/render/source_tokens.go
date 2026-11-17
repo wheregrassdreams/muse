@@ -27,6 +27,38 @@ func SourceTokenSpan(base ui.Span, kind syntax.SourceTokenKind, palette *uiedito
 	return span
 }
 
+// SourceTokenRun is a styled byte range within one code/source line.
+type SourceTokenRun struct {
+	Start, End int
+	Style      ui.Span
+}
+
+// ProjectSourceTokens clips and orders syntax token ranges, filling gaps with
+// the base span. The editor host applies the resulting ranges to its display
+// pieces and handles toolkit-specific tab expansion.
+func ProjectSourceTokens(textLength int, tokens []syntax.SourceToken, base ui.Span, palette *uieditor.Theme) []SourceTokenRun {
+	if textLength <= 0 {
+		return nil
+	}
+	runs := make([]SourceTokenRun, 0, len(tokens)*2+1)
+	at := 0
+	for _, token := range tokens {
+		start, end := max(0, token.Start), min(textLength, token.End)
+		if end <= start || start < at {
+			continue
+		}
+		if start > at {
+			runs = append(runs, SourceTokenRun{Start: at, End: start, Style: base})
+		}
+		runs = append(runs, SourceTokenRun{Start: start, End: end, Style: SourceTokenSpan(base, token.Kind, palette)})
+		at = end
+	}
+	if at < textLength {
+		runs = append(runs, SourceTokenRun{Start: at, End: textLength, Style: base})
+	}
+	return runs
+}
+
 // SourceTokenKind maps Markdown token semantics to the editor palette.
 func SourceTokenKind(kind syntax.SourceTokenKind) uieditor.TokenKind {
 	switch kind {

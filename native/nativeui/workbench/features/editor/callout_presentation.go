@@ -38,53 +38,36 @@ func isCalloutContainer(c cont) bool { return c.kind == cQuote && c.alert != syn
 // paintCallouts must run before quote bars and text. The caller excludes
 // isCalloutContainer containers from ordinary quotation bars.
 func (e *Editor) paintCallouts(p *ui.Painter, ox, oy float32) {
-	type card struct {
-		c             cont
-		x, y, z       float32
-		headerEditing bool
-	}
-	var cards []*card
-	byID := map[int]*card{}
 	vis := p.Visible()
 	top, bottom := vis.Y-oy-40, vis.Y-oy+vis.H+40
 	// Only leaves that can contribute pixels to this frame are needed here.
 	// A callout that extends beyond the viewport is clipped by the painter, so
 	// its visible portion can be accumulated from the visible leaves alone.
-	for _, l := range e.paintVisibleSpan(top, bottom) {
+	lines := e.calloutLines(e.paintVisibleSpan(top, bottom))
+	for _, block := range render.ProjectCallouts(lines, top, bottom) {
+		block.Bounds.X += ox
+		block.Bounds.Y += oy
+		e.renderScratch.addBlock(block)
+	}
+}
+
+func (e *Editor) calloutLines(visible []*leaf) []render.CalloutLine {
+	var lines []render.CalloutLine
+	for _, l := range visible {
 		x := e.colX
 		for _, c := range l.conts {
 			if isCalloutContainer(c) {
-				v := byID[c.id]
-				if v == nil {
-					v = &card{c: c, x: x, y: l.y - e.lk.size*.45, z: l.y + l.h}
-					byID[c.id] = v
-					cards = append(cards, v)
-				}
-				v.z = l.y + l.h
+				header := &leaf{lineStart: lineStartAt(e.Source(), c.start), conts: []cont{c}}
+				lines = append(lines, render.CalloutLine{
+					ID: c.id, X: x, Y: l.y, Height: l.h, Right: e.colX + e.colW,
+					FontSize: e.lk.size, Title: c.title, Alert: renderAlertKind(c.alert),
+					HeaderSourceRevealed: e.calloutHeaderSourceOpen(header),
+				})
 			}
 			x += e.indentOf([]cont{c})
 		}
-		if c, _, ok := e.calloutHeader(l); ok {
-			if v := byID[c.id]; v != nil {
-				v.headerEditing = e.calloutHeaderSourceOpen(l)
-			}
-		}
 	}
-	for _, v := range cards {
-		if v.z < top || v.y > bottom {
-			continue
-		}
-		title := v.c.title
-		if v.headerEditing {
-			title = ""
-		}
-		block := render.Block{
-			Kind:   render.CalloutBlock,
-			Bounds: ui.Rect{X: ox + v.x, Y: oy + v.y, W: e.colW - (v.x - e.colX), H: v.z - v.y + e.lk.size*.6},
-			Title:  title, Alert: renderAlertKind(v.c.alert),
-		}
-		e.renderScratch.addBlock(block)
-	}
+	return lines
 }
 
 func renderAlertKind(alert syntax.IncrementalAlert) render.AlertKind {

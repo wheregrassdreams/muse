@@ -11,10 +11,8 @@ func TestRendererBuildCarriesBorrowedVisibleSnapshot(t *testing.T) {
 	behind := []Overlay{{Kind: FillOverlay, Bounds: ui.Rect{W: 3, H: 5}}}
 	front := []Overlay{{Kind: StrokeOverlay, Bounds: ui.Rect{X: 1, Y: 1, W: 2, H: 2}}}
 	snapshot := Snapshot{
-		Revision: 17, Source: "source", Caret: 2, Selection: SourceRange{Start: 1, End: 3}, HasSelection: true,
-		Reveal: []SourceRange{{Start: 0, End: 4}}, Highlights: []SourceRange{{Start: 5, End: 7}},
-		Viewport: ui.Rect{X: 2, Y: 3, W: 100, H: 60}, Style: Style{Font: "sans", FontSize: 14},
-		Options: ProjectionOptions{SmartTypography: true}, Behind: behind, Blocks: blocks, InFront: front,
+		Revision: 17, Viewport: ui.Rect{X: 2, Y: 3, W: 100, H: 60}, Style: Style{Font: "sans", FontSize: 14},
+		Behind: behind, Blocks: blocks, InFront: front,
 	}
 
 	frame := (Renderer{}).Build(snapshot, Resources{})

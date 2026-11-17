@@ -239,6 +239,17 @@ func (b *builder) spanAtom(s, e int, text string, sp ui.Span) {
 	b.add(piece{kind: pAtom, s0: s - b.base, s1: e - b.base, text: text, span: sp})
 }
 
+// atomSpan adds an object atom whose presentation style was resolved by the
+// renderer from a detached HTML style value.
+func (b *builder) atomSpan(s, e int, text string, sp ui.Span, obj *object) {
+	if b.box(&sp, obj) {
+		text = objectRune
+	} else {
+		obj = nil
+	}
+	b.add(piece{kind: pAtom, s0: s - b.base, s1: e - b.base, text: text, span: sp, obj: obj})
+}
+
 // textRun adds source text from s to e as it is.
 func (b *builder) textRun(s, e int, st istyle) { b.lineRun(s, e, b.span(st), false) }
 

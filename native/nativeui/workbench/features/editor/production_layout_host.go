@@ -2,7 +2,6 @@ package editor
 
 import (
 	"image/color"
-	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 	syntax "muse/markdown/syntax"
 
+	"muse/editor/layout"
 	"muse/markdown/diagrams"
 	media "muse/nativeui/workbench/features/editor/blocks/media"
 	render "muse/nativeui/workbench/features/editor/render"
@@ -138,12 +138,12 @@ func headingWeight(level int) int { return render.HeadingWeight(level) }
 
 // Spacing, in ems of the body text.
 const (
-	quoteIndent = 1.2
-	itemIndent  = 1.75
-	codePadX    = 1.0
-	codePadY    = 0.875
-	cellPadX    = 0.7
-	cellPadY    = 0.55
+	quoteIndent = layout.QuoteIndentEm
+	itemIndent  = layout.ListIndentEm
+	codePadX    = layout.CodePaddingXEm
+	codePadY    = layout.CodePaddingYEm
+	cellPadX    = layout.TablePaddingXEm
+	cellPadY    = layout.TablePaddingYEm
 )
 
 // leafView is a leaf as the editor shows it: its display, laid out, and
@@ -1020,18 +1020,15 @@ func (e *Editor) ruleView(l *leaf, width float32, at int, withCompose bool) *lea
 func (e *Editor) indentOf(conts []cont) float32 {
 	x := float32(0)
 	for _, c := range conts {
+		kind := layout.ListContainer
 		switch c.kind {
 		case cQuote:
-			if isCalloutContainer(c) {
-				x += e.lk.size * 1.4
-			} else {
-				x += e.lk.size * quoteIndent
-			}
+			kind = layout.QuoteContainer
 		case cFootnote:
 			x += e.footnoteIndent(c)
-		default:
-			x += e.lk.size * itemIndent
+			continue
 		}
+		x += layout.ContainerIndent(kind, e.lk.size, 0, isCalloutContainer(c))
 	}
 	return x
 }
@@ -1040,7 +1037,7 @@ func (e *Editor) footnoteIndent(c cont) float32 {
 	sp := ui.Span{Text: c.label + ": ", Size: e.lk.size, Color: e.lk.accent}
 	l := ui.ShapeRichTextWith([]ui.Span{sp}, ui.Font{Family: e.lk.font, Size: e.lk.size}, ui.TextShape{})
 	w, _ := l.Size()
-	return max(w, e.lk.size*itemIndent)
+	return layout.ContainerIndent(layout.FootnoteContainer, e.lk.size, w, false)
 }
 
 func sameContainerPath(a, b []cont) bool {
@@ -1058,29 +1055,39 @@ func sameContainerPath(a, b []cont) bool {
 // margins returns the room above and below a leaf.
 func (e *Editor) margins(l *leaf) (top, bottom float32) {
 	s := e.lk.size
+	callout := false
 	for _, i := range l.firstOf {
 		if i < len(l.conts) && isCalloutContainer(l.conts[i]) {
-			return s * .7, s * .7
+			callout = true
+			break
 		}
 	}
+	kind := layout.ParagraphBlock
 	switch l.kind {
 	case kHeading:
-		if l.pending {
-			return s * 0.5, s * 0.5
-		}
-		return render.HeadingTopMargin(l.level, s), s * 0.35
-	case kCode, kMath, kTable, kHTML:
-		return s * 0.6, s * 0.6
+		kind = layout.HeadingBlock
+	case kCode:
+		kind = layout.CodeBlock
+	case kMath:
+		kind = layout.MathBlock
+	case kTable:
+		kind = layout.TableBlock
+	case kHTML:
+		kind = layout.HTMLBlock
 	case kRule:
-		return s * 0.6, s * 0.6
+		kind = layout.RuleBlock
 	case kRaw:
-		return s * 0.6, s * 0.6
-	case kPhantom, kBlank:
-		// A line of its own: the line is the space, and it has no margins
-		// of its own to add to the lines around it.
-		return 0, 0
+		kind = layout.RawBlock
+	case kBlank:
+		kind = layout.BlankBlock
+	case kPhantom:
+		kind = layout.PhantomBlock
 	}
-	return s * 0.5, s * 0.5
+	headingTop := float32(0)
+	if l.kind == kHeading && !l.pending {
+		headingTop = render.HeadingTopMargin(l.level, s)
+	}
+	return layout.BlockMargins(kind, s, headingTop, l.pending, callout)
 }
 
 // tightAfter reports whether a leaf follows the one before it closely: an
@@ -1262,9 +1269,11 @@ func (e *Editor) layoutDoc(x, width float32, virtual bool) {
 		// A leaf near the viewport is shaped, and so is the one the caret
 		// is in, wherever that is: the caret has to be drawn on the frame
 		// it moves. Everything else keeps its estimate.
-		show := !virtual ||
-			at <= e.viewBottom+s && at+max(est, s) >= e.viewTop ||
-			e.Caret() >= leafLo(e, l) && e.Caret() <= l.end
+		show := layout.ShouldShapeBlock(layout.ShapeQuery{
+			Virtualized: virtual, Y: at, Height: est,
+			ViewportTop: e.viewTop, ViewportBottom: e.viewBottom, Overscan: s,
+			Caret: e.Caret(), SourceStart: leafLo(e, l), SourceEnd: l.end,
+		})
 		switch {
 		case l.kind == kTable:
 			// The cells are laid out below, once the table has its y.
@@ -1396,42 +1405,25 @@ func (e *Editor) estimateHeight(l *leaf, width float32) float32 {
 	s := e.lk.size
 	switch l.kind {
 	case kCode, kMath, kHTML:
-		h := e.linesEstimate(l, width, s)
-		if l.kind != kHTML && !l.whole {
-			h += 2 * s * codePadY
-		}
-		return h
+		lineCount, byteCount := codeLineMetrics(l)
+		return layout.EstimateCodeLines(lineCount, byteCount, width, s, l.whole, l.kind != kHTML)
 	case kRaw:
-		return e.linesEstimate(l, width, s)
+		lineCount, byteCount := codeLineMetrics(l)
+		return layout.EstimateCodeLines(lineCount, byteCount, width, s, l.whole, false)
 	case kTable:
 		return e.tableEstimate(l, width, s)
 	case kRule:
 		return s * 1.2
 	}
-	line := s * e.lk.lh
-	if l.kind == kHeading {
-		line = s * 1.35
-	}
-	// About as many bytes as a line of mixed text takes at this width.
-	perLine := max(width/s*1.8, 8)
-	lines := float32(math.Ceil(float64(len(viewText(e.Source(), l))) / float64(perLine)))
-	return max(lines, 1) * line
+	return layout.EstimateText(len(viewText(e.Source(), l)), width, s, e.lk.lh, l.kind == kHeading)
 }
 
-// linesEstimate returns the height of a leaf of lines as they are, in the
-// code font, counting the lines their length wraps them to.
-func (e *Editor) linesEstimate(l *leaf, width, s float32) float32 {
-	if !l.whole {
-		width = max(width-2*s*codePadX, 40)
+func codeLineMetrics(l *leaf) (count, byteCount int) {
+	lines := l.codeLines()
+	for _, line := range lines {
+		byteCount += len(line.text)
 	}
-	// A monospaced character takes about 0.6 of the code font's size.
-	perLine := max(width/(s*0.875*0.6), 8)
-	total := 0
-	for _, ln := range l.codeLines() {
-		total += len(ln.text)
-	}
-	visual := max(len(l.codeLines()), int(math.Ceil(float64(total)/float64(perLine))))
-	return float32(max(visual, 1)) * s * 0.875 * 1.6
+	return len(lines), byteCount
 }
 
 // tableEstimate returns the height of a table that is not laid out: its
@@ -1440,19 +1432,15 @@ func (e *Editor) linesEstimate(l *leaf, width, s float32) float32 {
 func (e *Editor) tableEstimate(l *leaf, width, s float32) float32 {
 	t := l.tab
 	cols := max(t.cols(), 1)
-	cellW := max(width/float32(cols)-2*s*cellPadX, 10)
-	// Mixed text takes about half a font size a character.
-	perLine := max(cellW/(s*0.5), 4)
-	line := s * e.lk.lh
 	total := float32(0)
 	for _, row := range t.rows {
-		lines := 1.0
+		maxCellBytes := 0
 		for _, cell := range row {
-			lines = max(lines, math.Ceil(float64(max(cell.end-cell.start, 0))/float64(perLine)))
+			maxCellBytes = max(maxCellBytes, max(cell.end-cell.start, 0))
 		}
-		total += float32(lines)*line + 2*s*cellPadY
+		total += layout.EstimateTableRow(maxCellBytes, cols, width, s, e.lk.lh)
 	}
-	return max(total, line)
+	return max(total, s*e.lk.lh)
 }
 
 // layoutTable lays a table out: its columns as wide as their widest
