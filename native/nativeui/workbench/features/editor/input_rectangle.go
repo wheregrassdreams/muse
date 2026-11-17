@@ -170,7 +170,10 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	e.invalidate()
 }
 
-type blockInput struct{ points []int }
+type blockInput struct {
+	points  []int
+	started bool
+}
 type blockVisualRow struct {
 	leaf    *leaf
 	view    *leafView
@@ -359,7 +362,7 @@ func (e *Editor) typeBlockInput(text string) {
 	}
 	points := append([]int(nil), b.points...)
 	sort.Sort(sort.Reverse(sort.IntSlice(points)))
-	e.begin(stepTyping)
+	e.beginBlockInputEdit(b, stepTyping)
 	for _, at := range points {
 		e.replace(at, at, text)
 	}
@@ -376,9 +379,20 @@ func (e *Editor) typeBlockInput(text string) {
 	if len(b.points) > 0 {
 		e.setSessionSelection(b.points[len(b.points)-1], b.points[len(b.points)-1])
 	}
-	e.sync()
-	e.changed()
+	e.commit(e.Caret(), e.Caret())
 	e.invalidate()
+}
+
+// Block insert input arrives as independent IME/native events. Close every
+// Session transaction at that boundary; use MergePrevious for later events
+// so a multi-row/multi-character block edit still has one undo step.
+func (e *Editor) beginBlockInputEdit(b *blockInput, kind stepKind) {
+	if b.started {
+		e.beginMergePrevious(kind)
+	} else {
+		e.begin(kind)
+		b.started = true
+	}
 }
 
 func (e *Editor) finishBlockInput() {
@@ -411,7 +425,7 @@ func (e *Editor) editBlockInputDelete(backward bool) {
 	if len(ds) == 0 {
 		return
 	}
-	e.begin(stepDelete)
+	e.beginBlockInputEdit(b, stepDelete)
 	for i := len(ds) - 1; i >= 0; i-- {
 		r := ds[i]
 		e.replace(r.Start, r.End, "")
@@ -428,8 +442,7 @@ func (e *Editor) editBlockInputDelete(backward bool) {
 	if len(b.points) > 0 {
 		e.setSessionSelection(b.points[len(b.points)-1], b.points[len(b.points)-1])
 	}
-	e.sync()
-	e.changed()
+	e.commit(e.Caret(), e.Caret())
 	e.invalidate()
 }
 

@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"muse/editor/input/vim"
 	"muse/editor/navigation"
 )
 
@@ -133,9 +134,22 @@ func (e *Editor) nativeHorizontal(dir int, extend bool) {
 			e.setCaret(off, extend)
 		}
 	}
+	if e.block != nil && e.vimController().Mode() == vim.ModeBlockVisual {
+		e.blockChanged()
+	}
 }
 
 func (e *Editor) nativeVertical(dir int, extend bool) {
+	blockSelection := e.block != nil && e.vimController().Mode() == vim.ModeBlockVisual
+	if blockSelection {
+		defer func() {
+			if e.hasGoal {
+				e.blockChangedVertical(e.goalX)
+			} else {
+				e.blockChanged()
+			}
+		}()
+	}
 	e.layoutIfNeeded()
 	from := e.unitAt(e.Caret())
 	targetRow := -1

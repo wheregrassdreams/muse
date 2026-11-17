@@ -278,11 +278,12 @@ func (e *Editor) applyModalOperator(intent vim.Intent) {
 			for i := len(ranges) - 1; i >= 0; i-- {
 				e.replace(ranges[i].Start, ranges[i].End, "")
 			}
-			e.blockInput = &blockInput{points: points}
-			e.sync()
+			e.blockInput = &blockInput{points: points, started: true}
 			if len(points) > 0 {
 				at = points[0]
 			}
+			e.setSessionSelection(at, at)
+			e.commit(at, at)
 		} else {
 			at = e.deleteBlock()
 		}
