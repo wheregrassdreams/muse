@@ -28,6 +28,7 @@ import (
 	workspaceapp "muse/application/workspace"
 	"muse/config"
 	"muse/document"
+	"muse/document/frontmatter"
 	doctypes "muse/document/types"
 	editormodel "muse/editor"
 	"muse/editor/findreplace"
@@ -271,7 +272,7 @@ type App struct {
 	treeHelpOpen            bool
 	panelActions            *commands.ActionDispatcher
 	lastPanelAction         commands.ActionID
-	propertiesPanel         propertypanel.Handle
+	propertiesPanel         *propertypanel.Controller
 
 	// The active note pane is the sole owner of document identity, source,
 	// line-ending policy, selection, and persistence state.
@@ -394,6 +395,32 @@ func New() *App {
 			}
 		}
 	})
+	a.propertiesPanel = propertypanel.NewController(propertypanel.ControllerPorts{
+		Document: func() propertypanel.DocumentSnapshot {
+			path := a.documentPath()
+			return propertypanel.DocumentSnapshot{
+				Path: path, Source: a.documentSource(),
+				Markdown: !a.imageDocumentOpen() && doctypes.IsMarkdownPath(path),
+			}
+		},
+		Preferences: appPropertyPreferences{app: a},
+		Metadata:    appPropertyMetadata{app: a},
+		SystemProperties: func(doc propertypanel.DocumentSnapshot) []propertypanel.SystemProperty {
+			return a.propertySystemProperties(doc)
+		},
+		Backlinks: func() []propertypanel.BacklinkSource {
+			sources := a.documentBacklinkSources()
+			result := make([]propertypanel.BacklinkSource, 0, len(sources))
+			for _, source := range sources {
+				result = append(result, propertypanel.BacklinkSource{Path: source.Source, Offset: source.Start, Count: source.Count})
+			}
+			return result
+		},
+		OpenBacklink:  func(path string, offset int) { a.navigateIndexed(path, offset) },
+		OpenBacklinks: a.openLinks,
+		OpenMigration: a.openCoreMigrationPreview,
+		Invalidate:    a.invalidate,
+	})
 	a.navIconPicker = naviconpicker.NewController(naviconpicker.Ports{
 		Preferences: navIconPreferences{app: a},
 		RelativePath: func(path string) (string, bool) {
@@ -423,6 +450,199 @@ func New() *App {
 	}
 	a.loadDoc("")
 	return a
+}
+
+type appPropertyPreferences struct{ app *App }
+
+func (p appPropertyPreferences) Load(path string) (map[string]propertypanel.FieldPreference, error) {
+	if p.app == nil {
+		return nil, errors.New("properties: application is unavailable")
+	}
+	stored, err := applicationconfig.NewService(p.app.configRepository).LoadDocumentPropertyPreferences(path)
+	if err != nil {
+		return nil, err
+	}
+	return fieldPreferencesFromConfig(stored), nil
+}
+
+func (p appPropertyPreferences) Save(path string, preferences map[string]propertypanel.FieldPreference) error {
+	if p.app == nil {
+		return errors.New("properties: application is unavailable")
+	}
+	return applicationconfig.NewService(p.app.configRepository).SaveDocumentPropertyPreferences(path, fieldPreferencesToConfig(preferences))
+}
+
+type appPropertyMetadata struct{ app *App }
+
+func (m appPropertyMetadata) SetProperty(key, value string) error {
+	if m.app == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return documentsave.NewMetadataEditor(m.app.noteEditor()).SetProperty(key, value)
+}
+
+func (m appPropertyMetadata) AddProperty(key, value string, kind propertypanel.FieldKind) error {
+	if m.app == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return documentsave.NewMetadataEditor(m.app.noteEditor()).AddProperty(key, value, appPropertyValueKind(kind))
+}
+
+func (m appPropertyMetadata) DeleteProperty(key string) error {
+	if m.app == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return documentsave.NewMetadataEditor(m.app.noteEditor()).DeleteProperty(key)
+}
+
+func (m appPropertyMetadata) ReplaceYAML(source string) error {
+	if m.app == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return documentsave.NewMetadataEditor(m.app.noteEditor()).ReplaceYAML(source)
+}
+
+func appPropertyValueKind(kind propertypanel.FieldKind) documentsave.PropertyValueKind {
+	switch kind {
+	case propertypanel.List:
+		return documentsave.PropertyList
+	case propertypanel.Boolean:
+		return documentsave.PropertyBoolean
+	case propertypanel.Number:
+		return documentsave.PropertyNumber
+	case propertypanel.Date:
+		return documentsave.PropertyDate
+	case propertypanel.Structure:
+		return documentsave.PropertyStructure
+	default:
+		return documentsave.PropertyText
+	}
+}
+
+func fieldPreferencesFromConfig(prefs config.DocumentPropertyPreferences) map[string]propertypanel.FieldPreference {
+	if len(prefs.Fields) == 0 {
+		return nil
+	}
+	fields := make(map[string]propertypanel.FieldPreference, len(prefs.Fields))
+	for key, pref := range prefs.Fields {
+		fields[key] = propertypanel.FieldPreference{Pinned: pref.Pinned, Hidden: pref.Hidden, Order: pref.Order}
+	}
+	return fields
+}
+
+func fieldPreferencesToConfig(fields map[string]propertypanel.FieldPreference) config.DocumentPropertyPreferences {
+	if len(fields) == 0 {
+		return config.DocumentPropertyPreferences{}
+	}
+	prefs := config.DocumentPropertyPreferences{Fields: make(map[string]config.FieldDisplayPreference, len(fields))}
+	for key, pref := range fields {
+		prefs.Fields[key] = config.FieldDisplayPreference{Pinned: pref.Pinned, Hidden: pref.Hidden, Order: pref.Order}
+	}
+	return prefs
+}
+
+func (a *App) propertySystemProperties(doc propertypanel.DocumentSnapshot) []propertypanel.SystemProperty {
+	body := doc.Source
+	if parsed := frontmatter.Parse(doc.Source); parsed.Err == nil && parsed.End > 0 && parsed.End <= len(body) {
+		body = body[parsed.End:]
+	}
+	snapshot := documentsave.Inspect(doc.Source, body, doc.Path, a.metadataReader)
+	properties := []propertypanel.SystemProperty{
+		{Key: propertypanel.SystemPropertyFileName, Value: filepath.Base(doc.Path)},
+		{Key: propertypanel.SystemPropertyPath, Value: doc.Path},
+		{Key: propertypanel.SystemPropertyWordCount, Value: locales.PropertyWordCount(snapshot.Text.Characters, snapshot.BodyWords)},
+	}
+	if snapshot.HasMetadata {
+		metadata := snapshot.Metadata
+		if !metadata.CreatedAt.IsZero() {
+			properties = append(properties, propertypanel.SystemProperty{Key: propertypanel.SystemPropertyCreatedAt, Value: locales.PropertyDateTime(metadata.CreatedAt.Local())})
+		}
+		properties = append(properties,
+			propertypanel.SystemProperty{Key: propertypanel.SystemPropertyFileSize, Value: formatPropertySize(metadata.Size)},
+			propertypanel.SystemProperty{Key: propertypanel.SystemPropertyUpdatedAt, Value: locales.PropertyDateTime(metadata.ModifiedAt.Local())},
+		)
+	}
+	return properties
+}
+
+func formatPropertySize(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	return fmt.Sprintf("%.1f KB", float64(size)/1024)
+}
+
+func (a *App) propertiesEnabled() bool {
+	return a != nil && a.propertiesPanel != nil && a.propertiesPanel.Enabled()
+}
+
+func (a *App) openProperties() {
+	if a != nil && a.propertiesPanel != nil {
+		a.propertiesPanel.Open()
+	}
+}
+
+func (a *App) dispatchPropertyAction(action propertypanel.Action) {
+	if a != nil && a.propertiesPanel != nil {
+		a.propertiesPanel.Dispatch(action)
+	}
+}
+
+func (a *App) propertyDocument() frontmatter.Document {
+	if a == nil || a.propertiesPanel == nil {
+		return frontmatter.Document{}
+	}
+	return a.propertiesPanel.Document()
+}
+
+func (a *App) propertySet(key, value string) error {
+	if a == nil || a.propertiesPanel == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return a.propertiesPanel.SetProperty(key, value)
+}
+
+func (a *App) propertyDelete(key string) error {
+	if a == nil || a.propertiesPanel == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return a.propertiesPanel.DeleteProperty(key)
+}
+
+func (a *App) applyPropertyYAMLSource(draft string) error {
+	if a == nil || a.propertiesPanel == nil {
+		return propertypanel.ErrDocumentUnavailable
+	}
+	return a.propertiesPanel.ApplyYAMLSource(draft)
+}
+
+func (a *App) moveProperty(key string, delta int) {
+	if a != nil && a.propertiesPanel != nil {
+		a.propertiesPanel.MoveProperty(key, delta)
+	}
+}
+
+func (a *App) documentBacklinkSources() []vaultlinks.BacklinkSource {
+	if a == nil {
+		return nil
+	}
+	vault := a.vault
+	path := a.documentPath()
+	if a.imageDocumentOpen() && a.imageDocumentPath() != "" {
+		path = a.imageDocumentPath()
+	}
+	if vault == nil || path == "" || !a.vaultSnapshot.Ready {
+		return nil
+	}
+	return vault.BacklinkSources(propertyVaultPath(a.vaultSnapshot.Root, path))
+}
+
+func propertyVaultPath(root, path string) string {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(relative)
 }
 
 type navIconPreferences struct{ app *App }
@@ -1008,7 +1228,7 @@ func (a *App) View(c *ui.Context) {
 		a.contextPanel(c)
 		a.canvas(c)
 		if a.propertiesPanel.IsOpen() {
-			a.propertiesSidebar(c)
+			a.propertiesPanel.RenderSidebar(c)
 		}
 	})
 	if a.noteEditor() != nil && a.noteEditor().FocusCommands().Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
@@ -2201,7 +2421,7 @@ func (a *App) editorHeader(c *ui.Context) {
 		if a.documentDirty() && !a.imageDocumentOpen() {
 			a.smallIcon(c, componenticons.Save(), locales.MenuSave(), func() { a.save() })
 		}
-		if a.propertiesEnabled() {
+		if a.propertiesPanel.Enabled() {
 			a.smallIconTint(c, componenticons.Info(), locales.DocumentInfo(), func() { a.openProperties() }, tint)
 		} else {
 			info := a.smallIconTint(c, componenticons.Info(), locales.DocumentInfo(), nil, tint)
@@ -3060,8 +3280,8 @@ func (a *App) docDir() string {
 func (a *App) editorOptions() editorui.Options {
 	var header func(*ui.Context)
 	headerHeight := float32(0)
-	if a.propertiesEnabled() {
-		header = a.documentMetadata
+	if a.propertiesPanel.Enabled() {
+		header = a.propertiesPanel.RenderSummary
 		headerHeight = 160
 	}
 	return editorui.Options{
@@ -3078,7 +3298,7 @@ func (a *App) editorOptions() editorui.Options {
 		HideMouseCursor:         a.mouseCursorHidden,
 		Header:                  header,
 		HeaderHeight:            headerHeight,
-		HideFrontmatter:         a.propertiesEnabled() && !a.propertiesPanel.IsSourceMode() && a.propertyDocument().Err == nil,
+		HideFrontmatter:         a.propertiesPanel.Enabled() && !a.propertiesPanel.IsSourceMode() && a.propertiesPanel.Document().Err == nil,
 		FontSize:                float32(a.fontSize),
 		LineHeight:              float32(a.lineHeight),
 		MaxWidth:                800,
