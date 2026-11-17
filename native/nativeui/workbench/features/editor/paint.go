@@ -815,7 +815,7 @@ func (e *Editor) itemMarkerOverlays(p *ui.Painter, c cont, x, baseline, w float3
 // paintTable draws a table's grid and its header row's fill.
 func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme) {
 	g := l.geom
-	if g == nil {
+	if g == nil || len(g.rowY) < 2 || len(g.colX) < 2 {
 		return
 	}
 	x, y := ox+tableContentX(l), oy+l.y
@@ -842,11 +842,11 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 				selected = ui.Rect{X: x + g.colX[left], Y: y + g.rowY[top], W: g.colX[right+1] - g.colX[left], H: g.rowY[bottom+1] - g.rowY[top]}
 			}
 		case tableRows:
-			first, last := s.first, s.last
+			first, last := clampPaintSelection(s.first, s.last, len(g.rowY)-1)
 			selected.Y = y + g.rowY[first]
 			selected.H = g.rowY[last+1] - g.rowY[first]
 		case tableColumns:
-			first, last := s.first, s.last
+			first, last := clampPaintSelection(s.first, s.last, len(g.colX)-1)
 			selected.X = x + g.colX[first]
 			selected.W = g.colX[last+1] - g.colX[first]
 		}
@@ -879,6 +879,18 @@ func (e *Editor) paintTable(p *ui.Painter, l *leaf, ox, oy float32, t *ui.Theme)
 	for _, overlay := range overlays {
 		e.addRenderOverlay(overlay, false)
 	}
+}
+
+// clampPaintSelection keeps a structurally selected range inside the current
+// layout. A document transaction can temporarily shrink a table while a
+// visual delete/paste sequence still owns the previous range.
+func clampPaintSelection(first, last, count int) (int, int) {
+	if count <= 0 {
+		return 0, 0
+	}
+	first = max(0, min(first, count-1))
+	last = max(first, min(last, count-1))
+	return first, last
 }
 
 // paintCaret draws the caret, blinking, while the editor has the focus.

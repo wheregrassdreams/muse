@@ -55,7 +55,10 @@ func (c Component) EdgesView(ctx *ui.Context, viewport ui.Rect, pointer ui.Point
 		if len(table.Rows) == 0 || table.Bounds.H <= 0 {
 			continue
 		}
-		x, y := viewport.X+table.Bounds.X, viewport.Y+table.Bounds.Y-frame.ScrollY
+		// Edge controls follow the visible table content. In particular, the
+		// trailing edge moves into the viewport as a wide table scrolls, which
+		// keeps the add-column affordance reachable at the exposed right edge.
+		x, y := viewport.X+table.Bounds.X-table.HorizontalOffset, viewport.Y+table.Bounds.Y-frame.ScrollY
 		width, height := table.Bounds.W, table.Rows[len(table.Rows)-1]
 		for _, column := range []bool{false, true} {
 			bounds := ui.Rect{X: x, Y: y + height - 6, W: width, H: 24}
