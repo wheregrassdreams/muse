@@ -329,7 +329,7 @@ func TestLiteralProjectionFollowsApplyAndClose(t *testing.T) {
 
 func openTestIndex(t *testing.T) *Index {
 	t.Helper()
-	idx, err := Open(t.TempDir())
+	idx, err := openLocalTestIndex(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

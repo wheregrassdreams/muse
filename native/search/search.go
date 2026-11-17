@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	tantivy "github.com/anyproto/tantivy-go"
+	"muse/search/rank"
 )
 
 type storedHit struct {
@@ -76,7 +77,10 @@ func (i *Index) search(ctx context.Context, query string, limit int, overlays ..
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if score, ok := overlayScore(d, query); ok {
+		if score, ok := rank.ScoreOverlay(rank.OverlayInput{
+			Query: query, Title: d.Title, Path: d.Path, Source: d.Source,
+			Aliases: d.Metadata.Aliases, Tags: d.Metadata.Tags,
+		}); ok {
 			start, end := findFold(d.Source, query)
 			hits = append(hits, Hit{Path: d.Path, Revision: d.Revision, Start: start, End: end, Score: score, Snippet: makeSnippet(d.Source, start, end)})
 		}
@@ -144,51 +148,6 @@ func readSearchHits(result *tantivy.SearchResult, engine *tantivy.TantivyContext
 func hitFromStored(d storedHit, query string) Hit {
 	start, end := findFold(d.Source, query)
 	return Hit{Path: d.Path, Revision: d.Revision, Start: start, End: end, Score: d.Score, Snippet: makeSnippet(d.Source, start, end)}
-}
-
-// Overlays have no corpus statistics, so this score approximates field boosts
-// with exact/prefix/substring matches; Tantivy and overlay scores are not on a
-// calibrated common scale.
-func overlayScore(d Document, query string) (float64, bool) {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return 0, false
-	}
-	score := 0.0
-	title := strings.ToLower(d.Title)
-	path := strings.ToLower(d.Path)
-	if title == q {
-		score += 24
-	} else if strings.HasPrefix(title, q) {
-		score += 18
-	} else if strings.Contains(title, q) {
-		score += 12
-	}
-	if strings.HasPrefix(path, q) {
-		score += 10
-	} else if strings.Contains(path, q) {
-		score += 8
-	}
-	for _, value := range append(append([]string(nil), d.Metadata.Aliases...), d.Metadata.Tags...) {
-		if strings.Contains(strings.ToLower(value), q) {
-			score += 7
-			break
-		}
-	}
-	body := strings.ToLower(d.Source)
-	if strings.Contains(body, q) {
-		score += 2
-	}
-	if score == 0 {
-		for _, token := range strings.Fields(q) {
-			if strings.Contains(title, token) {
-				score += 4
-			} else if strings.Contains(body, token) {
-				score += 0.5
-			}
-		}
-	}
-	return score, score > 0
 }
 
 // findFold returns byte offsets in the original source while comparing Unicode

@@ -119,7 +119,10 @@ func (i *Index) SearchQuery(ctx context.Context, expression string, limit int, o
 		score := 0.0
 		if compiled.Text != "" {
 			var ok bool
-			score, ok = overlayScore(d, compiled.Text)
+			score, ok = rank.ScoreOverlay(rank.OverlayInput{
+				Query: compiled.Text, Title: d.Title, Path: d.Path, Source: d.Source,
+				Aliases: d.Metadata.Aliases, Tags: d.Metadata.Tags,
+			})
 			if !ok {
 				continue
 			}
