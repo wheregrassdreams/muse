@@ -8,6 +8,22 @@ import (
 	domain "muse/workspace"
 )
 
+func TestSetVaultPathPreservesTabsAndLayout(t *testing.T) {
+	initial := splitWorkspace()
+	session, err := NewSession(nil, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SetVaultPath("/vault"); err != nil {
+		t.Fatal(err)
+	}
+	want := initial
+	want.VaultPath = "/vault"
+	if got := session.Snapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SetVaultPath snapshot = %+v, want %+v", got, want)
+	}
+}
+
 func TestSetSplitRatioRejectsInvalidValuesWithoutChangingState(t *testing.T) {
 	session, err := NewSession(nil, splitWorkspace())
 	if err != nil {

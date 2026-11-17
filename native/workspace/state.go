@@ -49,6 +49,26 @@ type Tab struct {
 	ActivePaneID PaneID     `json:"activePaneId,omitempty"`
 }
 
+// Panes returns the leaf descriptors in layout order. Callers receive values,
+// not pointers into the persisted tree.
+func (t Tab) Panes() []Pane {
+	var panes []Pane
+	var visit func(LayoutNode)
+	visit = func(node LayoutNode) {
+		if node.Pane != nil {
+			panes = append(panes, *node.Pane)
+			return
+		}
+		if node.Split == nil {
+			return
+		}
+		visit(node.Split.First)
+		visit(node.Split.Next)
+	}
+	visit(t.Layout)
+	return panes
+}
+
 // State is the durable workspace snapshot. ActivePaneID is stored per tab so
 // switching tabs restores that tab's focused pane independently.
 type State struct {

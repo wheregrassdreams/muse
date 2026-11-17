@@ -56,6 +56,21 @@ func (s *Session) Snapshot() domain.State {
 	return cloneState(s.state)
 }
 
+// SetVaultPath updates the active workspace identity without replacing its
+// tabs, pane layout, or transient focus history.
+func (s *Session) SetVaultPath(path string) error {
+	if s == nil {
+		return ErrSessionClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrSessionClosed
+	}
+	s.state.VaultPath = path
+	return nil
+}
+
 // Restore atomically replaces the session model after validating the full
 // tree, and seeds transient recent-focus order from each tab's active pane.
 func (s *Session) Restore(state domain.State) error {

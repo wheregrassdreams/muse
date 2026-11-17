@@ -19,6 +19,24 @@ func TestActiveDocumentUsesActiveTabAndPane(t *testing.T) {
 	}
 }
 
+func TestTabPanesReturnsLayoutOrderWithoutExposingTreePointers(t *testing.T) {
+	tab := Tab{Layout: Branch(Horizontal, .5,
+		Leaf(Pane{ID: "left", Document: Document{Path: "/left.md"}}),
+		Branch(Vertical, .5,
+			Leaf(Pane{ID: "top", Document: Document{Path: "/top.md"}}),
+			Leaf(Pane{ID: "bottom", Document: Document{Path: "/bottom.md"}}),
+		),
+	)}
+	panes := tab.Panes()
+	if len(panes) != 3 || panes[0].ID != "left" || panes[1].ID != "top" || panes[2].ID != "bottom" {
+		t.Fatalf("Panes() = %+v, want depth-first layout order", panes)
+	}
+	panes[0].Document.Path = "/changed.md"
+	if got := tab.Layout.Split.First.Pane.Document.Path; got != "/left.md" {
+		t.Fatalf("Panes() exposed tree storage: path = %q", got)
+	}
+}
+
 func TestValidateRejectsMalformedAndUnboundedLayouts(t *testing.T) {
 	tests := map[string]State{
 		"unsupported version": {Version: 2},
