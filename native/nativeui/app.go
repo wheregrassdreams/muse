@@ -2460,7 +2460,12 @@ func (a *App) editorHeader(c *ui.Context) {
 func (a *App) setWorkspace(root string) {
 	// A workspace is the start of a new editing context. Do not leave the
 	// previous vault's document or pane descriptors visible after switching folders.
-	if filepath.Clean(root) != filepath.Clean(a.root) {
+	documentOutsideWorkspace := false
+	if root != "" && a.documentPath() != "" {
+		relative, err := filepath.Rel(root, a.documentPath())
+		documentOutsideWorkspace = err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative)
+	}
+	if filepath.Clean(root) != filepath.Clean(a.root) || documentOutsideWorkspace {
 		a.activeLinkIndex.Clear()
 		a.clearWikiSuggestionCache()
 		a.closeWorkspacePaneSurfaces()
