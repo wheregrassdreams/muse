@@ -24,7 +24,7 @@ type Action struct {
 
 func Render(c *ui.Context, model Model, scroll *ui.ScrollState, indicator *scrollbar.Indicator, dispatch func(Action)) {
 	t := c.Theme()
-	backdrop := ui.Box(c).Fill().Center().Modal().Background(ui.RGBA(0, 0, 0, 0.32))
+	backdrop := ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Modal().Background(ui.RGBA(0, 0, 0, 0.32))
 	backdrop.Children(func() {
 		ui.Column(c).Width(540).MaxHeight(600).
 			Padding(20).Gap(10).Background(t.Background).Radius(12).
