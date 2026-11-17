@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -58,6 +59,7 @@ func (e *Editor) updateWikiSuggestions() {
 		}
 	}
 	seen := make(map[string]struct{}, len(suggestions))
+	order := make(map[string]int, len(suggestions))
 	candidates := make([]quickopen.Candidate, 0, len(suggestions))
 	details := make(map[string]vaultlinks.Suggestion, len(suggestions))
 	for _, suggestion := range suggestions {
@@ -69,6 +71,7 @@ func (e *Editor) updateWikiSuggestions() {
 			continue
 		}
 		seen[target] = struct{}{}
+		order[target] = len(candidates)
 		suggestion.Target = target
 		details[target] = suggestion
 		candidates = append(candidates, quickopen.Candidate{
@@ -76,6 +79,16 @@ func (e *Editor) updateWikiSuggestions() {
 		})
 	}
 	matches := quickopen.Rank(query, candidates)
+	// Quick Open uses path order to break score ties, and sorts an empty query
+	// alphabetically. Wiki suggestions are already ordered by the vault's
+	// catalogue; keep that order for ties so keyboard selection accepts the row
+	// the user sees at that index.
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].Score != matches[j].Score {
+			return matches[i].Score < matches[j].Score
+		}
+		return order[matches[i].Path] < order[matches[j].Path]
+	})
 	items := make([]inline.Suggestion, 0, min(len(matches), inline.SuggestionLimit))
 	for i := 0; i < len(matches) && i < inline.SuggestionLimit; i++ {
 		detail := details[matches[i].Path]
