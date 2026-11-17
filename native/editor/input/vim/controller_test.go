@@ -52,17 +52,21 @@ func TestExpiredPrefixFallsThroughAndStateViewIsDetached(t *testing.T) {
 	}
 }
 
-func TestInterpretTextPassesTypedIntentsThroughHost(t *testing.T) {
+func TestInterpretTextReturnsIntentsForHostDispatch(t *testing.T) {
 	c := New()
 	c.SetKeymap("vim")
 	host := &intentHost{}
 	now := time.Now()
-	if intent, handled := c.InterpretText("z", now, host); !handled || intent.Kind != IntentPrefix || len(host.intents) != 1 {
-		t.Fatalf("prefix should reach the host as a typed intent: %+v", host.intents)
+	intent, handled := c.InterpretText("z", now)
+	if !handled || intent.Kind != IntentPrefix || len(host.intents) != 0 {
+		t.Fatalf("prefix parse should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
 	}
-	if intent, handled := c.InterpretText("M", now.Add(time.Millisecond), host); !handled || intent.Kind != IntentCommand || len(host.intents) != 2 {
-		t.Fatalf("fold-all command was not dispatched as an intent: %+v", host.intents)
+	host.DispatchVimIntent(intent)
+	intent, handled = c.InterpretText("M", now.Add(time.Millisecond))
+	if !handled || intent.Kind != IntentCommand || len(host.intents) != 1 {
+		t.Fatalf("fold-all parse should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
 	}
+	host.DispatchVimIntent(intent)
 	if got := host.intents[1]; got.Kind != IntentCommand || got.Command.Kind != CommandFoldAll || got.Command.Fold != FoldCloseAll {
 		t.Fatalf("dispatched intent = %+v", got)
 	}

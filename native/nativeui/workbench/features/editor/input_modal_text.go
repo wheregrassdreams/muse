@@ -30,7 +30,7 @@ func (e *Editor) modalText(text string) bool {
 			}
 		}
 	}
-	intent, handled := e.vimController().InterpretText(text, time.Now(), e)
+	intent, handled := controller.InterpretText(text, time.Now())
 	e.smoothCursorNavigation = e.opts.SmoothCursor && mode == vim.ModeNormal && !searching &&
 		(intent.Motion != 0 || intent.Kind == vim.IntentFindCharacter || intent.Kind == vim.IntentRepeatCharacterFind ||
 			intent.Kind == vim.IntentRepeatSearch || intent.Kind == vim.IntentCommand &&
@@ -39,6 +39,7 @@ func (e *Editor) modalText(text string) bool {
 	if !handled {
 		return false
 	}
+	e.DispatchVimIntent(intent)
 	defer e.invalidate()
 	return true
 }

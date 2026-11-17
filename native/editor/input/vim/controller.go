@@ -162,13 +162,6 @@ type Intent struct {
 	Command   Command
 }
 
-// Host receives typed keymap intents. Implementations resolve source positions
-// and dispatch editor operations without exposing editor state to the
-// controller.
-type Host interface {
-	DispatchVimIntent(Intent)
-}
-
 type ScrollPlacement uint8
 
 const (
@@ -371,15 +364,11 @@ func (c *Controller) feedSequenceText(text string, now time.Time) (command Comma
 	return Command{}, false
 }
 
-// InterpretText interprets printable text once, then passes the resulting typed
-// intent to the host. The returned intent is a detached value for host-side
-// transient presentation decisions such as cursor animation.
-func (c *Controller) InterpretText(text string, now time.Time, host Host) (Intent, bool) {
-	intent, handled := c.interpretText(text, now)
-	if handled && host != nil {
-		host.DispatchVimIntent(intent)
-	}
-	return intent, handled
+// InterpretText parses printable text into a detached intent. It updates only
+// keymap-owned state; the feature host decides when and how to dispatch the
+// returned intent against the document and UI.
+func (c *Controller) InterpretText(text string, now time.Time) (Intent, bool) {
+	return c.interpretText(text, now)
 }
 
 // interpretText owns printable-key grammar for Vim and Helix. It only emits
