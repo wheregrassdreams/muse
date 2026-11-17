@@ -5,7 +5,7 @@ package workspacepresenter
 import (
 	"github.com/egoist/mygo/ui"
 
-	"muse/nativeui/workbench/hosting"
+	hosting "muse/nativeui/workbench/hosting"
 	"muse/workspace"
 )
 
