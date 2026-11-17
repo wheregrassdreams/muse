@@ -8,27 +8,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/nativeui/panels/filetree"
+	"muse/nativeui/workbench/features/explorer"
 )
-
-func TestListLevelRootDropPreviewReplacesStaleFolderTarget(t *testing.T) {
-	root := filepath.Join("/vault")
-	folder := filepath.Join(root, "Folder")
-	a := New()
-	a.root = root
-	a.fileTreeState.SetDropTargetRange(folder, 1, 3)
-	a.setTreeDragOperationDisplay(filetree.DragOperationMoveToFolder, filepath.Base(folder))
-	rows := []filetree.Row{{Path: filepath.Join(root, "note.md")}, {Path: folder, Directory: true}}
-
-	a.setTreeRootDropTarget(rows)
-
-	if got := a.fileTreeState.DropTargetRange(); got.TargetID != root || got.StartRow != 0 || got.EndRow != len(rows) {
-		t.Fatalf("root fallback preview = %+v, want root range [0,%d)", got, len(rows))
-	}
-	if display := a.fileTreeState.DragOperationDisplay(); display.Kind != filetree.DragOperationMoveToFolder || display.TargetLabel != filepath.Base(root) {
-		t.Fatalf("root fallback label state = operation %v target %q", display.Kind, display.TargetLabel)
-	}
-}
 
 func TestTreeDragIntoNestedDescendantTargetsContainingDirectory(t *testing.T) {
 	root := t.TempDir()

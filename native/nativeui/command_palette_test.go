@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/nativeui/panels/commandpalette"
+	"muse/nativeui/workbench/features/commandpalette"
 )
 
 // ⌘P 命令面板：打开 → 模糊过滤 → 运行选中命令。
@@ -20,7 +20,15 @@ func TestCommandPalette(t *testing.T) {
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 
+	seen := make(map[commandpalette.CommandID]bool)
 	for _, cmd := range a.paletteCommands() {
+		if cmd.id == "" {
+			t.Fatalf("command %q has no stable ID", cmd.name)
+		}
+		if seen[cmd.id] {
+			t.Fatalf("duplicate command ID %q", cmd.id)
+		}
+		seen[cmd.id] = true
 		if strings.Contains(cmd.name, "主题") || strings.Contains(cmd.name, "AI 助手") {
 			t.Fatalf("disabled AI or theme control is still a command: %q", cmd.name)
 		}

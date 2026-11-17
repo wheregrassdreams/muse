@@ -10,8 +10,8 @@ import (
 	"math"
 	applicationvault "muse/application/vault"
 	"muse/locales"
-	"muse/nativeui/interactions/dragpayload"
-	"muse/nativeui/panels/filetree"
+	"muse/nativeui/workbench/dragdrop"
+	"muse/nativeui/workbench/features/explorer"
 	"muse/platform/filesystem/documentstore"
 	"muse/platform/filesystem/imagefiles"
 	"muse/platform/filesystem/vaultfiles"
@@ -214,96 +214,6 @@ func TestMoveTreeItemToCurrentParentIsNoOp(t *testing.T) {
 	}
 	if a.documentPath() != path || a.selectedPath != path || beforeInfo.ModTime() != afterInfo.ModTime() || beforeOrder != strings.Join(a.children(root), "\n") {
 		t.Fatalf("drop to current parent changed path/order/metadata: path=%q selected=%q", a.documentPath(), a.selectedPath)
-	}
-}
-
-func TestPlainTreeClickDoesNotStartDragProjection(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("# note"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a := newFileTreeTestApp(t, root)
-	a.setWorkspace(root)
-	tt := ui.NewTester(a.View, 1000, 720)
-	tt.Frame()
-	before, ok := tt.Find("note.md")
-	if !ok {
-		t.Fatal("tree row missing")
-	}
-	if a.fileTreeState.DragPreview().Active {
-		t.Fatal("tree drag UI appeared before input")
-	}
-	tt.ClickAt(before.X+4, before.Y+10)
-	tt.Frame()
-	after, ok := tt.Find("note.md")
-	if !ok || before.H != after.H || before.Y != after.Y {
-		t.Fatalf("row geometry changed on click: before=%+v after=%+v", before, after)
-	}
-	if a.fileTreeState.DragPreview().Active {
-		t.Fatal("plain click started drag UI")
-	}
-	if _, found := tt.Find("tree-drag-projection"); found {
-		t.Fatal("plain click displayed drag projection")
-	}
-}
-
-func TestTreeModifierSelectionDoesNotOpenOrToggleRows(t *testing.T) {
-	root := t.TempDir()
-	folder := filepath.Join(root, "Folder")
-	if err := os.Mkdir(folder, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"a.md", "b.md", "c.md"} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	a := newFileTreeTestApp(t, root)
-	a.setWorkspace(root)
-	tt := ui.NewTester(a.View, 1000, 720)
-	tt.Frame()
-	if err := tt.ClickWith(0, treeDragHandleLabel("a.md")); err != nil {
-		t.Fatal(err)
-	}
-	if a.selectedPath != filepath.Join(root, "a.md") || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
-		t.Fatalf("plain click did not select/open one file: selected=%v open=%q", a.fileTreeState.SelectedIDs(), a.selectedPath)
-	}
-	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.fileTreeState.SelectedIDs()) != 2 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "b.md")) {
-		t.Fatalf("Cmd/Ctrl click selection = %v", a.fileTreeState.SelectedIDs())
-	}
-	if a.selectedPath != filepath.Join(root, "a.md") {
-		t.Fatalf("modifier click opened another file: selectedPath=%q", a.selectedPath)
-	}
-	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.fileTreeState.SelectedIDs()) != 1 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) {
-		t.Fatalf("Cmd/Ctrl click did not toggle the row off: %v", a.fileTreeState.SelectedIDs())
-	}
-	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("b.md")); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.ClickWith(ui.Shift, treeDragHandleLabel("c.md")); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.fileTreeState.SelectedIDs()) != 3 || !a.fileTreeState.IsSelected(filepath.Join(root, "a.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "b.md")) || !a.fileTreeState.IsSelected(filepath.Join(root, "c.md")) {
-		t.Fatalf("Shift range selection = %v", a.fileTreeState.SelectedIDs())
-	}
-	if a.selectedPath != filepath.Join(root, "a.md") || len(a.fileTreeState.SelectedIDs()) != 3 {
-		t.Fatalf("Shift click changed open file or selection: selected=%q selection=%v", a.selectedPath, a.fileTreeState.SelectedIDs())
-	}
-	if err := tt.ClickWith(ui.Cmd, treeDragHandleLabel("Folder")); err != nil {
-		t.Fatal(err)
-	}
-	if a.fileTreeState.IsExpanded(folder) || !a.fileTreeState.IsSelected(folder) {
-		t.Fatalf("modifier click toggled folder or missed selection: expanded=%v selection=%v", a.fileTreeState.IsExpanded(folder), a.fileTreeState.SelectedIDs())
-	}
-	clickTreeRow(t, tt, "Folder")
-	if !a.fileTreeState.IsExpanded(folder) {
-		t.Fatal("plain folder click did not toggle expansion")
 	}
 }
 

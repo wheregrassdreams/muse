@@ -28,6 +28,7 @@ import (
 	workspaceapp "muse/application/workspace"
 	"muse/config"
 	"muse/document"
+	doctypes "muse/document/types"
 	editormodel "muse/editor"
 	"muse/editor/findreplace"
 	editorsource "muse/editor/source"
@@ -37,27 +38,28 @@ import (
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	markdownsyntax "muse/markdown/syntax"
-	doctypes "muse/nativeui/components/doctypes"
-	"muse/nativeui/components/documentdialogs"
-	editorui "muse/nativeui/components/editor"
-	inlineui "muse/nativeui/components/editor/blocks/inline"
 	componenticons "muse/nativeui/components/icons"
-	linkpreview "muse/nativeui/components/linkpreview"
-	"muse/nativeui/components/windowcontrols"
-	"muse/nativeui/interactions"
-	"muse/nativeui/interactions/dragpayload"
-	"muse/nativeui/panels/commandpalette"
-	"muse/nativeui/panels/filetree"
-	findreplaceui "muse/nativeui/panels/findreplace"
-	naviconpicker "muse/nativeui/panels/naviconpicker"
-	outlineui "muse/nativeui/panels/outline"
-	propertypanel "muse/nativeui/panels/properties"
-	searchui "muse/nativeui/panels/search"
-	settingsui "muse/nativeui/panels/settings"
-	"muse/nativeui/surfaces/mermaidpreview"
-	"muse/nativeui/surfaces/noteeditor"
-	"muse/nativeui/window"
-	"muse/nativeui/workspacepresenter"
+	commands "muse/nativeui/workbench/commands"
+	"muse/nativeui/workbench/dragdrop"
+	"muse/nativeui/workbench/features/commandpalette"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
+	editorui "muse/nativeui/workbench/features/editor"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	noteeditor "muse/nativeui/workbench/features/editor/surface"
+	filetree "muse/nativeui/workbench/features/explorer"
+	linkpreview "muse/nativeui/workbench/features/linkpreview"
+	"muse/nativeui/workbench/features/mermaidpreview"
+	naviconpicker "muse/nativeui/workbench/features/naviconpicker"
+	outlineui "muse/nativeui/workbench/features/outline"
+	propertypanel "muse/nativeui/workbench/features/properties"
+	searchui "muse/nativeui/workbench/features/search"
+	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
+	settingsui "muse/nativeui/workbench/features/settings"
+	vaulthome "muse/nativeui/workbench/features/workspace"
+	"muse/nativeui/workbench/hosting"
+	keybindings "muse/nativeui/workbench/keybindings"
+	windowcontrols "muse/nativeui/workbench/shell/windowcontrols"
+	"muse/nativeui/workbench/workspace"
 	vaultsearch "muse/search"
 	appearance "muse/theme"
 	vaultfiles "muse/vault/files"
@@ -165,6 +167,7 @@ type App struct {
 	openExternal              func(string) error
 	workspaceEvents           *events.Dispatcher[workspace.WorkspaceRestored]
 	workspaceRestorer         *workspaceapp.Restorer
+	workspaceSession          *workspaceapp.Session
 	workspaceSubscription     *events.Subscription
 	documents                 *documentdialogs.Handle
 	vault                     *applicationvault.Session
@@ -182,6 +185,7 @@ type App struct {
 	workspacePresenter        *workspacepresenter.Presenter
 	workspacePane             window.PaneID
 	editorPaneHandle          window.Handle
+	workspacePaneHandles      map[window.PaneID]window.Handle
 	imagePreviewHandle        window.Handle
 	imageDocumentHandle       window.Handle
 	quickOpenHandle           window.Handle
@@ -255,15 +259,15 @@ type App struct {
 	outlinePanel            *outlineui.Handle
 	findReplace             *findreplaceui.Handle
 	selectedPath            string
-	focusedPanel            interactions.PanelID
+	focusedPanel            commands.PanelID
 	treeFocusHandle         ui.Handle
 	treeFocusRequested      bool
-	treeKeySequences        *interactions.KeySequenceMatcher
-	panelKeySequences       *interactions.KeySequenceMatcher
+	treeKeySequences        *keybindings.KeySequenceMatcher
+	panelKeySequences       *keybindings.KeySequenceMatcher
 	treeSequenceKeymap      string
 	treeHelpOpen            bool
-	panelActions            *interactions.ActionDispatcher
-	lastPanelAction         interactions.ActionID
+	panelActions            *commands.ActionDispatcher
+	lastPanelAction         commands.ActionID
 	propertiesPanel         propertypanel.Handle
 
 	// The active note pane is the sole owner of document identity, source,
@@ -347,33 +351,36 @@ type Dependencies struct {
 // New returns the app on an empty untitled document, with the panel on files.
 func New() *App {
 	a := &App{
-		themeMode:          themeSystem,
-		accentID:           "red",
-		panel:              panelFiles,
-		focusedPanel:       interactions.PanelIDEditor,
-		panelOpen:          true,
-		flat:               true,
-		headerFade:         true,
-		panelWidth:         panelDefaultWidth,
-		panelW:             panelDefaultWidth,
-		themeApplied:       -1,
-		directoryCatalog:   applicationvault.NewDirectoryCatalog(),
-		navigationHistory:  workspaceapp.NewDocumentHistory(),
-		fileTreeState:      filetree.NewHandle(),
-		navIconPicker:      naviconpicker.NewHandle(),
-		settingsPanel:      settingsui.NewHandle(),
-		findReplace:        findreplaceui.NewHandle(),
-		outlinePanel:       outlineui.NewHandle(),
-		workspaceSearch:    searchui.NewHandle(),
-		linkPreviewHandle:  linkpreview.NewHandle(),
-		fontSize:           16,
-		lineHeight:         1.7,
-		smartTypography:    true,
-		ai:                 config.DefaultAssistantSettings(),
-		aiModelCatalog:     &applicationagent.ModelCatalog{},
-		activeLinkIndex:    &applicationvault.ActiveLinkIndex{},
-		documents:          documentdialogs.NewHandle(),
-		workspacePresenter: workspacepresenter.New(),
+		themeMode:            themeSystem,
+		accentID:             "red",
+		panel:                panelFiles,
+		focusedPanel:         commands.PanelIDEditor,
+		panelOpen:            true,
+		flat:                 true,
+		headerFade:           true,
+		panelWidth:           panelDefaultWidth,
+		panelW:               panelDefaultWidth,
+		themeApplied:         -1,
+		directoryCatalog:     applicationvault.NewDirectoryCatalog(),
+		navigationHistory:    workspaceapp.NewDocumentHistory(),
+		fileTreeState:        filetree.NewHandle(),
+		navIconPicker:        naviconpicker.NewHandle(),
+		settingsPanel:        settingsui.NewHandle(),
+		findReplace:          findreplaceui.NewHandle(),
+		outlinePanel:         outlineui.NewHandle(),
+		workspaceSearch:      searchui.NewHandle(),
+		commandPalette:       commandpalette.NewHandle(),
+		linkPreviewHandle:    linkpreview.NewHandle(),
+		fontSize:             16,
+		lineHeight:           1.7,
+		smartTypography:      true,
+		ai:                   config.DefaultAssistantSettings(),
+		aiModelCatalog:       &applicationagent.ModelCatalog{},
+		activeLinkIndex:      &applicationvault.ActiveLinkIndex{},
+		documents:            documentdialogs.NewHandle(),
+		workspacePresenter:   workspacepresenter.New(),
+		workspaceSession:     newWorkspaceSession(nil),
+		workspacePaneHandles: make(map[window.PaneID]window.Handle),
 	}
 	a.assistant = newAssistantPanel(a)
 	// 新窗口就是一张空白未命名文档：光标停在空段落里，直接就能写。
@@ -500,11 +507,20 @@ func (a *App) View(c *ui.Context) {
 		}
 	})
 	if a.noteEditor() != nil && a.noteEditor().FocusCommands().Focused() && !a.treeFocusRequested && !a.treeFocusHandle.Focused(c) {
-		a.setFocusedPanel(interactions.PanelIDEditor)
+		a.setFocusedPanel(commands.PanelIDEditor)
 	}
 
 	a.sidebarToggle(c)
-	a.windowControls(c)
+	if win := a.win; win != nil && windowcontrols.Visible() {
+		windowcontrols.Render(c, windowcontrols.Model{
+			Top:       canvasPadding + cardBorder + (editorHeaderH-26)/2,
+			Maximized: win.IsMaximized(),
+			Minimize:  win.Minimize,
+			Maximize:  win.Maximize,
+			Restore:   win.Unmaximize,
+			Close:     win.Close,
+		})
+	}
 	// Keyboard ownership controls input routing, not whether an open dialog
 	// gets rendered. Each dialog checks its own active state; keeping this
 	// render path unconditional avoids a modal hiding itself from the frame.
@@ -1282,8 +1298,9 @@ func (a *App) fileRows() []filetree.Row {
 	if a == nil || a.fileTreeState == nil {
 		return nil
 	}
-	return a.fileTreeState.Rows(a.root, a.children, func(path string) bool {
-		return a.catalogIsDirectory(path)
+	return filetree.BuildRows(a.fileTreeState, a.root, filetree.CatalogPort{
+		Children:    a.treeCatalogChildren,
+		VisibleFile: doctypes.IsVisibleWorkspacePath,
 	})
 }
 
@@ -1533,7 +1550,15 @@ func (a *App) editorContent(c *ui.Context) {
 		return
 	}
 	if a.root != "" && a.documentPath() == "" && a.documentSource() == "" {
-		a.vaultHome(c)
+		model := vaulthome.DefaultViewModel(componenticons.Edit(), componenticons.Search())
+		vaulthome.Render(c, model, func(action vaulthome.Action) {
+			switch action {
+			case vaulthome.NewDocument:
+				a.newFileIn(a.fileTreeState.CreateTarget(a.root, a.selectedPath, a.catalogIsDirectory(a.selectedPath)))
+			case vaulthome.OpenFile:
+				a.openFileDialog()
+			}
+		})
 		return
 	}
 	ui.Column(c).Fill().Children(func() {
@@ -1547,7 +1572,11 @@ func (a *App) editorContent(c *ui.Context) {
 		opts.TopInset = a.headerH(c)
 		a.configureActiveNote(opts.TopInset)
 		a.renderEditorPane(c)
-		a.headerVeil(c)
+		var scrollY float32
+		if editor := a.noteEditor(); editor != nil {
+			scrollY = editor.NavigationCommands().ScrollY()
+		}
+		windowcontrols.RenderHeaderFade(c, &a.headerFadeCache, a.headerFade, a.headerH(c), scrollY, a.windowBG())
 		a.editorHeader(c)
 	})
 }
@@ -1557,6 +1586,9 @@ func (a *App) editorContent(c *ui.Context) {
 func (a *App) focusedPane() window.PaneID {
 	if a.windows != nil {
 		if pane, ok := a.windows.FocusedPane("main"); ok {
+			if handle := a.workspacePaneHandles[pane]; !handle.IsZero() {
+				a.editorPaneHandle = handle
+			}
 			return pane
 		}
 	}
@@ -1574,44 +1606,40 @@ func (a *App) renderFocusedPane(c *ui.Context) {
 }
 
 func (a *App) renderEditorPane(c *ui.Context) {
-	if a.windows == nil || !a.windows.Contains(a.editorPaneHandle) {
+	if a.windows == nil {
 		return
 	}
 	pane := a.focusedPane()
-	if err := a.windows.Place(a.editorPaneHandle, window.Placement{Host: "main", Pane: pane, Layer: window.PaneContent}); err != nil {
-		a.notice(err.Error())
-		return
+	state := workspace.State{Version: 1}
+	if a.workspaceSession != nil {
+		state = a.workspaceSession.Snapshot()
 	}
-	path := a.documentPath()
-	if path == "" || a.workspacePresenter == nil {
+	if state.ActiveTab == "" || a.workspacePresenter == nil {
 		a.windows.RenderPane(c, "main", pane)
 		return
 	}
-	paneID := workspace.PaneID(pane)
-	state := workspace.State{
-		Version:   1,
-		ActiveTab: "main",
-		Tabs: []workspace.Tab{{
-			ID: "main", ActivePaneID: paneID,
-			Layout: workspace.Leaf(workspace.Pane{
-				ID: paneID,
-				Document: workspace.Document{
-					Path: path, CursorOffset: a.noteEditor().NavigationCommands().SelectionRange().End,
-				},
-			}),
-		}},
-	}
 	a.workspacePresenter.Render(c, state, "main", func(c *ui.Context, host window.HostID, renderedPane window.PaneID) {
-		if string(renderedPane) == string(paneID) {
-			a.windows.RenderPane(c, host, renderedPane)
-		}
+		a.windows.RenderPane(c, host, renderedPane)
 	}, func(action workspacepresenter.Action) {
-		if action.Kind != workspacepresenter.FocusPane || action.TabID != "main" {
+		if a.workspaceSession == nil {
 			return
 		}
-		a.workspacePane = window.PaneID(action.PaneID)
-		a.windows.Place(a.editorPaneHandle, window.Placement{Host: "main", Pane: a.workspacePane, Layer: window.PaneContent})
-		a.windows.Focus(a.editorPaneHandle)
+		switch action.Kind {
+		case workspacepresenter.FocusPane:
+			if err := a.syncWorkspaceDocument(); err != nil {
+				a.notice(err.Error())
+			}
+			a.workspacePane = window.PaneID(action.PaneID)
+			_ = a.workspaceSession.Focus(action.TabID, action.PaneID)
+			a.editorPaneHandle = a.workspacePaneHandles[a.workspacePane]
+			if !a.editorPaneHandle.IsZero() {
+				a.windows.Focus(a.editorPaneHandle)
+			}
+		case workspacepresenter.SplitRatioChanged:
+			if err := a.workspaceSession.SetSplitRatio(action.TabID, action.SplitPath, action.Ratio); err != nil {
+				a.notice(err.Error())
+			}
+		}
 	})
 }
 
@@ -1723,10 +1751,20 @@ func (a *App) editorHeader(c *ui.Context) {
 
 func (a *App) setWorkspace(root string) {
 	// A workspace is the start of a new editing context. Do not leave the
-	// previous vault's document visible after switching folders.
+	// previous vault's document or pane descriptors visible after switching folders.
 	if filepath.Clean(root) != filepath.Clean(a.root) {
 		a.activeLinkIndex.Clear()
 		a.clearWikiSuggestionCache()
+		a.closeWorkspacePaneSurfaces()
+		a.workspacePane = "editor"
+		if a.workspaceSession != nil {
+			if err := a.workspaceSession.Restore(workspace.State{Version: 1, VaultPath: root}); err != nil {
+				a.notice(err.Error())
+			}
+		}
+		if err := a.createActiveNote(document.NewNote("", "", document.RevisionOf("")), 0); err != nil {
+			a.notice(err.Error())
+		}
 		a.resetDoc()
 		if a.vault != nil {
 			old := a.vault
@@ -1737,7 +1775,7 @@ func (a *App) setWorkspace(root string) {
 		}
 	}
 	a.root = root
-	a.directoryCatalog.Invalidate()
+	a.clearTreeCache()
 	a.fileTreeState.CollapseAll()
 	a.fileTreeState.SetSelection(nil)
 	a.fileTreeState.SetFocusID("")
@@ -1750,7 +1788,17 @@ func (a *App) setWorkspace(root string) {
 }
 
 func (a *App) children(dir string) []string {
-	if a.vault == nil || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(a.root) {
+	if a == nil || a.root == "" {
+		return nil
+	}
+	return filetree.ProjectChildren(a.root, a.treeCatalogChildren(dir), doctypes.IsVisibleWorkspacePath)
+}
+
+// treeCatalogChildren adapts the active vault catalog to the explorer's
+// narrow, backend-neutral catalog facts. Filtering, ordering, and flattening
+// remain owned by the explorer feature.
+func (a *App) treeCatalogChildren(dir string) []filetree.CatalogEntry {
+	if a == nil || a.root == "" || a.vault == nil || a.directoryCatalog == nil || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(a.root) {
 		return nil
 	}
 	rel, err := filepath.Rel(a.root, dir)
@@ -1767,7 +1815,7 @@ func (a *App) children(dir string) []string {
 			children = append(children, filetree.CatalogEntry{Path: entry.Path, Kind: filetree.CatalogFile})
 		}
 	}
-	return filetree.ProjectChildren(a.root, children, doctypes.IsVisibleWorkspacePath)
+	return children
 }
 
 func (a *App) catalogEntry(path string) (vaultfiles.Entry, bool) {
@@ -1868,13 +1916,18 @@ func (a *App) openFileDialog() {
 	if a.busy {
 		return
 	}
+	imageExtensions := doctypes.ImageExtensions()
+	for i := range imageExtensions {
+		imageExtensions[i] = strings.TrimPrefix(imageExtensions[i], ".")
+	}
+	filters := append(doctypes.EditableExtensions(), imageExtensions...)
 	a.startBusy()
 	go func() {
 		paths, err := openDialog(mygo.OpenDialogOptions{
 			Parent: a.win,
 			Title:  locales.CommonDialogFileTitle(),
 			Filters: []mygo.FileFilter{
-				{Name: locales.CommonDialogOpenFileFilter(), Extensions: append(textFileFilter(), imageFileExtensions()...)},
+				{Name: locales.CommonDialogOpenFileFilter(), Extensions: filters},
 			},
 		})
 		if err != nil || len(paths) == 0 {
@@ -2103,7 +2156,7 @@ func (a *App) confirmDiscardOffUI() bool {
 				Parent:      a.win,
 				Title:       locales.CommonSaveFile(),
 				DefaultPath: defaultName,
-				Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: textFileFilter()}},
+				Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: doctypes.EditableExtensions()}},
 			})
 			if err != nil || savePath == "" {
 				return false
@@ -2150,7 +2203,7 @@ func (a *App) saveAs() {
 			Parent:      a.win,
 			Title:       locales.CommonSaveFile(),
 			DefaultPath: name,
-			Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: textFileFilter()}},
+			Filters:     []mygo.FileFilter{{Name: locales.CommonTextFiles(), Extensions: doctypes.EditableExtensions()}},
 		})
 		if err != nil || path == "" {
 			a.finish(nil)
@@ -2500,6 +2553,12 @@ func (a *App) docDir() string {
 // editorOptions are the editor's options, from the settings and the
 // document being edited.
 func (a *App) editorOptions() editorui.Options {
+	var header func(*ui.Context)
+	headerHeight := float32(0)
+	if a.propertiesEnabled() {
+		header = a.documentMetadata
+		headerHeight = 160
+	}
 	return editorui.Options{
 		DisableSmartTypography:  !a.smartTypography,
 		HeadingMarkerReveal:     a.headingMarkerReveal,
@@ -2512,8 +2571,8 @@ func (a *App) editorOptions() editorui.Options {
 		SearchMatchPulse:        a.searchMatchPulse,
 		VimYankFlash:            a.vimYankFlash,
 		HideMouseCursor:         a.mouseCursorHidden,
-		Header:                  a.propertyHeader(),
-		HeaderHeight:            a.propertyHeaderHeight(),
+		Header:                  header,
+		HeaderHeight:            headerHeight,
 		HideFrontmatter:         a.propertiesEnabled() && !a.propertiesPanel.IsSourceMode() && a.propertyDocument().Err == nil,
 		FontSize:                float32(a.fontSize),
 		LineHeight:              float32(a.lineHeight),
@@ -2580,8 +2639,21 @@ func (a *App) configureActiveNote(topInset float32) {
 // createActiveNote creates the pane-owned document and editor session. The
 // production renderer attaches to that same session through window.Content.
 func (a *App) createActiveNote(note document.Note, cursorOffset int) error {
+	pane := a.focusedPane()
+	handle, err := a.createNotePane(pane, note, cursorOffset)
+	if err != nil {
+		return err
+	}
+	a.editorPaneHandle = handle
+	if err := a.syncWorkspaceDocument(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *App) createNotePane(pane window.PaneID, note document.Note, cursorOffset int) (window.Handle, error) {
 	content, err := noteeditor.NewContent(
-		workspace.PaneID(a.focusedPane()), note,
+		workspace.PaneID(pane), note,
 		cursorOffset,
 		noteeditor.Dependencies{
 			Documents: a.documentRepository,
@@ -2596,7 +2668,7 @@ func (a *App) createActiveNote(note document.Note, cursorOffset int) error {
 			}
 			view := editorui.NewFromSession(session, opts)
 			view.SetKeymap(a.loadEditorSettings().Keymap)
-			return &editorSurfaceAdapter{Editor: view}
+			return noteeditor.NewEditorSurface(view)
 		},
 		func(action noteeditor.Action) {
 			if action.Kind == noteeditor.DocumentChanged {
@@ -2608,22 +2680,25 @@ func (a *App) createActiveNote(note document.Note, cursorOffset int) error {
 		},
 	)
 	if err != nil {
-		return err
+		return window.Handle{}, err
 	}
 	if a.windows == nil {
 		content.Close()
-		return errors.New("window manager is not configured")
+		return window.Handle{}, errors.New("window manager is not configured")
 	}
-	handle, err := a.windows.Open(content, window.Placement{Host: "main", Pane: a.focusedPane(), Layer: window.PaneContent})
+	handle, err := a.windows.Open(content, window.Placement{Host: "main", Pane: pane, Layer: window.PaneContent})
 	if err != nil {
 		content.Close()
-		return err
+		return window.Handle{}, err
 	}
-	if !a.editorPaneHandle.IsZero() {
-		_ = a.windows.Close(a.editorPaneHandle)
+	if a.workspacePaneHandles == nil {
+		a.workspacePaneHandles = make(map[window.PaneID]window.Handle)
 	}
-	a.editorPaneHandle = handle
-	return nil
+	if previous := a.workspacePaneHandles[pane]; !previous.IsZero() && previous != handle {
+		_ = a.windows.Close(previous)
+	}
+	a.workspacePaneHandles[pane] = handle
+	return handle, nil
 }
 
 func (a *App) editorLinkRevision() uint64 {
@@ -2692,6 +2767,11 @@ func (a *App) loadDocumentAt(path, src string) {
 	a.propertiesPanel.CancelEdit()
 	if a.noteEditor() != nil {
 		_ = a.noteEditor().Open(document.NewNote(path, src, document.RevisionOf(src)), 0)
+	}
+	if path != "" {
+		if err := a.syncWorkspaceDocument(); err != nil {
+			a.notice(err.Error())
+		}
 	}
 	a.configureActiveNote(0)
 	a.findReplace.Invalidate()

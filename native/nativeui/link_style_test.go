@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	inlineui "muse/nativeui/components/editor/blocks/inline"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 )
 
 func TestEditorOptionsResolveWikiLinksFromCurrentVaultContext(t *testing.T) {

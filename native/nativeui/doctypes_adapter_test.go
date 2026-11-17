@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/nativeui/components/doctypes"
+	doctypes "muse/document/types"
 )
 
 func TestChildrenShowsImagesButHidesOtherBinaryFiles(t *testing.T) {

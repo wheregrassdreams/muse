@@ -6,7 +6,7 @@ import (
 	"time"
 
 	componenticons "muse/nativeui/components/icons"
-	"muse/ui/iconlibrary"
+	"muse/nativeui/workbench/features/naviconpicker"
 )
 
 func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
@@ -17,11 +17,12 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	if err := tt.ChooseMenuItem("更改图标…"); err != nil {
 		t.Fatalf("open tree icon picker from context menu: %v", err)
 	}
-	var matches []iconlibrary.Icon
+	var matches []naviconpicker.Option
 	var loading bool
 	for i := 0; i < 100; i++ {
 		tt.Frame()
-		matches, loading = a.navIconSearchSnapshot()
+		snapshot := a.navIconPicker.Snapshot()
+		matches, loading = snapshot.Results, snapshot.Loading
 		if !loading {
 			break
 		}
@@ -61,7 +62,8 @@ func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {
 	tt.Type("bookmark")
 	for i := 0; i < 100; i++ {
 		tt.Frame()
-		matches, loading = a.navIconSearchSnapshot()
+		snapshot := a.navIconPicker.Snapshot()
+		matches, loading = snapshot.Results, snapshot.Loading
 		if !loading && len(matches) > 0 {
 			break
 		}

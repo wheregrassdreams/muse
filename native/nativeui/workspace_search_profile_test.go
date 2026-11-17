@@ -1,7 +1,7 @@
 package nativeui
 
 import (
-	searchui "muse/nativeui/panels/search"
+	searchui "muse/nativeui/workbench/features/search"
 	vaultsearch "muse/search"
 	"os"
 	"path/filepath"

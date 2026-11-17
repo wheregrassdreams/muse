@@ -15,8 +15,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	editorui "muse/nativeui/components/editor"
-	findreplaceui "muse/nativeui/panels/findreplace"
+	editorui "muse/nativeui/workbench/features/editor"
+	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
 )
 
 // save() writes asynchronously on the UI queue; tests poll the file like a

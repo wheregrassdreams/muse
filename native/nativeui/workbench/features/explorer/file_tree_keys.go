@@ -9,8 +9,10 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	applicationvault "muse/application/vault"
-	"muse/nativeui/interactions"
-	"muse/nativeui/panels/filetree"
+	commands "muse/nativeui/workbench/commands"
+	filetree "muse/nativeui/workbench/features/explorer"
+	focus "muse/nativeui/workbench/focus"
+	keybindings "muse/nativeui/workbench/keybindings"
 )
 
 func (a *App) anyModalOwnsKeyboard() bool {
@@ -23,35 +25,35 @@ func (a *App) ensurePanelActions() {
 	if a.panelActions != nil {
 		return
 	}
-	dispatcher, _ := interactions.NewActionDispatcher(
-		interactions.PanelAction{ID: interactions.ActionFocusPanel, Run: func(ctx interactions.ActionContext) error {
-			panel, _ := ctx.Values["panel"].(interactions.PanelID)
+	dispatcher, _ := commands.NewActionDispatcher(
+		commands.PanelAction{ID: commands.ActionFocusPanel, Run: func(ctx commands.ActionContext) error {
+			panel, _ := ctx.Values["panel"].(commands.PanelID)
 			if panel == "" {
-				panel = interactions.PanelIDFiles
+				panel = commands.PanelIDFiles
 			}
 			a.focusPanel(panel)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionFocusEditor, Run: func(interactions.ActionContext) error {
-			a.focusPanel(interactions.PanelIDEditor)
+		commands.PanelAction{ID: commands.ActionFocusEditor, Run: func(commands.ActionContext) error {
+			a.focusPanel(commands.PanelIDEditor)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionFocusDirection, Run: func(ctx interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionFocusDirection, Run: func(ctx commands.ActionContext) error {
 			direction, _ := ctx.Values["direction"].(int)
 			a.focusPanelDirection(direction)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionFocusNextPanel, Run: func(interactions.ActionContext) error { a.cycleFocusPanel(false); return nil }},
-		interactions.PanelAction{ID: interactions.ActionFocusPreviousPanel, Run: func(interactions.ActionContext) error { a.cycleFocusPanel(true); return nil }},
-		interactions.PanelAction{ID: interactions.ActionNavigate, Run: func(ctx interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionNavigate, ctx.Values)
+		commands.PanelAction{ID: commands.ActionFocusNextPanel, Run: func(commands.ActionContext) error { a.cycleFocusPanel(false); return nil }},
+		commands.PanelAction{ID: commands.ActionFocusPreviousPanel, Run: func(commands.ActionContext) error { a.cycleFocusPanel(true); return nil }},
+		commands.PanelAction{ID: commands.ActionNavigate, Run: func(ctx commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionNavigate, ctx.Values)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionSelectRange, Run: func(ctx interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionSelectRange, ctx.Values)
+		commands.PanelAction{ID: commands.ActionSelectRange, Run: func(ctx commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionSelectRange, ctx.Values)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionOpen, Run: func(ctx interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionOpen, Run: func(ctx commands.ActionContext) error {
 			path := actionPath(ctx, a.fileTreeState.FocusID())
 			if path == "" {
 				return nil
@@ -64,36 +66,36 @@ func (a *App) ensurePanelActions() {
 			}
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionToggleExpanded, Run: func(ctx interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionToggleExpanded, ctx.Values)
+		commands.PanelAction{ID: commands.ActionToggleExpanded, Run: func(ctx commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionToggleExpanded, ctx.Values)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionCloseNode, Run: func(interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionCloseNode, nil)
+		commands.PanelAction{ID: commands.ActionCloseNode, Run: func(commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionCloseNode, nil)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionCollapseAll, Run: func(interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionCollapseAll, nil)
+		commands.PanelAction{ID: commands.ActionCollapseAll, Run: func(commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionCollapseAll, nil)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionSelectAll, Run: func(interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionSelectAll, nil)
+		commands.PanelAction{ID: commands.ActionSelectAll, Run: func(commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionSelectAll, nil)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionToggleSelection, Run: func(interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionToggleSelection, nil)
+		commands.PanelAction{ID: commands.ActionToggleSelection, Run: func(commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionToggleSelection, nil)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionInvertSelection, Run: func(interactions.ActionContext) error {
-			a.applyTreeKeyAction(interactions.ActionInvertSelection, nil)
+		commands.PanelAction{ID: commands.ActionInvertSelection, Run: func(commands.ActionContext) error {
+			a.applyTreeKeyAction(commands.ActionInvertSelection, nil)
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionRename, CanRun: func(ctx interactions.ActionContext) bool {
+		commands.PanelAction{ID: commands.ActionRename, CanRun: func(ctx commands.ActionContext) bool {
 			if path, ok := ctx.Values["path"].(string); ok && path != "" {
 				return true
 			}
 			return len(a.fileTreeState.SelectedPaths(a.fileRows(), a.fileTreeState.FocusID())) == 1
-		}, Run: func(ctx interactions.ActionContext) error {
+		}, Run: func(ctx commands.ActionContext) error {
 			path := actionPath(ctx, "")
 			if path == "" {
 				paths := a.fileTreeState.SelectedPaths(a.fileRows(), a.fileTreeState.FocusID())
@@ -107,16 +109,16 @@ func (a *App) ensurePanelActions() {
 			a.renamePath, a.renameValue, a.renameOpen = path, filepath.Base(path), true
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionCopy, Run: func(interactions.ActionContext) error { a.captureTreeClipboard(false); return nil }},
-		interactions.PanelAction{ID: interactions.ActionCut, Run: func(interactions.ActionContext) error { a.captureTreeClipboard(true); return nil }},
-		interactions.PanelAction{ID: interactions.ActionPaste, CanRun: func(interactions.ActionContext) bool { return len(a.fileTreeState.Clipboard().IDs) > 0 }, Run: func(interactions.ActionContext) error { return a.pasteTreeClipboard() }},
-		interactions.PanelAction{ID: interactions.ActionTrash, Run: func(interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionCopy, Run: func(commands.ActionContext) error { a.captureTreeClipboard(false); return nil }},
+		commands.PanelAction{ID: commands.ActionCut, Run: func(commands.ActionContext) error { a.captureTreeClipboard(true); return nil }},
+		commands.PanelAction{ID: commands.ActionPaste, CanRun: func(commands.ActionContext) bool { return len(a.fileTreeState.Clipboard().IDs) > 0 }, Run: func(commands.ActionContext) error { return a.pasteTreeClipboard() }},
+		commands.PanelAction{ID: commands.ActionTrash, Run: func(commands.ActionContext) error {
 			a.trashTreeItems(a.treeActionPaths())
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionCreateFile, Run: func(interactions.ActionContext) error { a.newFileIn(a.treeActionTarget()); return nil }},
-		interactions.PanelAction{ID: interactions.ActionCreateFolder, Run: func(interactions.ActionContext) error { a.newFolderIn(a.treeActionTarget()); return nil }},
-		interactions.PanelAction{ID: interactions.ActionCopyPath, Run: func(ctx interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionCreateFile, Run: func(commands.ActionContext) error { a.newFileIn(a.treeActionTarget()); return nil }},
+		commands.PanelAction{ID: commands.ActionCreateFolder, Run: func(commands.ActionContext) error { a.newFolderIn(a.treeActionTarget()); return nil }},
+		commands.PanelAction{ID: commands.ActionCopyPath, Run: func(ctx commands.ActionContext) error {
 			if path := actionPath(ctx, a.fileTreeState.FocusID()); path != "" {
 				relative, ok := ctx.Values["relative"].(bool)
 				if !ok {
@@ -126,15 +128,15 @@ func (a *App) ensurePanelActions() {
 			}
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionRevealInFinder, Run: func(ctx interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionRevealInFinder, Run: func(ctx commands.ActionContext) error {
 			if path := actionPath(ctx, a.fileTreeState.FocusID()); path != "" {
 				mygo.Shell.ShowItemInFolder(path)
 			}
 			return nil
 		}},
-		interactions.PanelAction{ID: interactions.ActionRefreshPanel, Run: func(interactions.ActionContext) error { a.clearTreeCache(); a.invalidate(); return nil }},
-		interactions.PanelAction{ID: interactions.ActionCancel, Run: func(interactions.ActionContext) error { a.focusPanel(interactions.PanelIDEditor); return nil }},
-		interactions.PanelAction{ID: interactions.ActionShowHelp, Run: func(interactions.ActionContext) error {
+		commands.PanelAction{ID: commands.ActionRefreshPanel, Run: func(commands.ActionContext) error { a.clearTreeCache(); a.invalidate(); return nil }},
+		commands.PanelAction{ID: commands.ActionCancel, Run: func(commands.ActionContext) error { a.focusPanel(commands.PanelIDEditor); return nil }},
+		commands.PanelAction{ID: commands.ActionShowHelp, Run: func(commands.ActionContext) error {
 			a.notice(locales.FilesTreeKeyHelp())
 			return nil
 		}},
@@ -142,28 +144,28 @@ func (a *App) ensurePanelActions() {
 	a.panelActions = dispatcher
 }
 
-func actionPath(ctx interactions.ActionContext, fallback string) string {
+func actionPath(ctx commands.ActionContext, fallback string) string {
 	if path, ok := ctx.Values["path"].(string); ok && path != "" {
 		return path
 	}
 	return fallback
 }
 
-func (a *App) dispatchPanelAction(id interactions.ActionID, values map[string]any) bool {
+func (a *App) dispatchPanelAction(id commands.ActionID, values map[string]any) bool {
 	a.ensurePanelActions()
 	a.cancelPanelSequences()
 	a.cancelTreeSequences()
 	a.lastPanelAction = id
-	target := interactions.FocusTargetEditor
-	panel := interactions.PanelIDEditor
-	if a.focusedPanel == interactions.PanelIDFiles {
-		target, panel = interactions.FocusTargetTree, interactions.PanelIDFiles
+	target := commands.FocusTargetEditor
+	panel := commands.PanelIDEditor
+	if a.focusedPanel == commands.PanelIDFiles {
+		target, panel = commands.FocusTargetTree, commands.PanelIDFiles
 	}
 	focusID := a.fileTreeState.FocusID()
 	selectedPaths := a.fileTreeState.SelectedPaths(a.fileRows(), focusID)
-	ctx := interactions.ActionContext{Panel: panel, Focus: interactions.FocusState{Target: target, HasSelection: len(selectedPaths) > 0, SelectionSize: len(selectedPaths)}, Values: values}
+	ctx := commands.ActionContext{Panel: panel, Focus: commands.FocusState{Target: target, HasSelection: len(selectedPaths) > 0, SelectionSize: len(selectedPaths)}, Values: values}
 	if err := a.panelActions.Dispatch(id, ctx); err != nil {
-		if !errors.Is(err, interactions.ErrActionDisabled) {
+		if !errors.Is(err, commands.ErrActionDisabled) {
 			a.notice(err.Error())
 		}
 		return false
@@ -172,9 +174,9 @@ func (a *App) dispatchPanelAction(id interactions.ActionID, values map[string]an
 	return true
 }
 
-func (a *App) dispatchTreeAction(path string, id interactions.ActionID, values map[string]any) bool {
+func (a *App) dispatchTreeAction(path string, id commands.ActionID, values map[string]any) bool {
 	if path != "" {
-		a.focusedPanel = interactions.PanelIDFiles
+		a.focusedPanel = commands.PanelIDFiles
 		a.applyTreeKey(filetree.KeyCommand{Operation: filetree.KeyFocus, TargetID: path})
 		if values == nil {
 			values = make(map[string]any)
@@ -188,33 +190,17 @@ func (a *App) anyModalOwnsKeyboardShortcut() bool { return a.anyModalOwnsKeyboar
 
 // applyTreeKeyAction translates the stable interaction action ID into the
 // filetree package's typed, panel-owned keyboard command.
-func (a *App) applyTreeKeyAction(id interactions.ActionID, values map[string]any) {
-	command := filetree.KeyCommand{PreferredIDs: []string{a.selectedPath, a.documentPath()}}
-	switch id {
-	case interactions.ActionNavigate:
-		command.Operation = filetree.KeyNavigate
-	case interactions.ActionSelectRange:
-		command.Operation = filetree.KeySelectRange
-	case interactions.ActionToggleExpanded:
-		command.Operation = filetree.KeyToggleExpanded
-	case interactions.ActionCloseNode:
-		command.Operation = filetree.KeyCloseNode
-	case interactions.ActionCollapseAll:
-		command.Operation = filetree.KeyCollapseAll
-	case interactions.ActionSelectAll:
-		command.Operation = filetree.KeySelectAll
-	case interactions.ActionToggleSelection:
-		command.Operation = filetree.KeyToggleSelection
-	case interactions.ActionInvertSelection:
-		command.Operation = filetree.KeyInvertSelection
-	default:
-		return
-	}
+func (a *App) applyTreeKeyAction(id commands.ActionID, values map[string]any) {
+	args := filetree.TreeBindingArgs{}
 	if values != nil {
-		command.Delta, _ = values["delta"].(int)
-		command.Direction, _ = values["direction"].(int)
-		command.Index, command.HasIndex = values["index"].(int)
-		command.TargetID, _ = values["path"].(string)
+		args.Delta, _ = values["delta"].(int)
+		args.Direction, _ = values["direction"].(int)
+		args.Index, args.HasIndex = values["index"].(int)
+		args.TargetID, _ = values["path"].(string)
+	}
+	command, ok := filetree.KeyCommandForAction(id, args, []string{a.selectedPath, a.documentPath()})
+	if !ok {
+		return
 	}
 	a.applyTreeKey(command)
 }
@@ -271,7 +257,7 @@ func (a *App) handlePanelShortcuts(c *ui.Context) bool {
 		if !a.panelKeySequences.Pending() && candidate.Mods == 0 {
 			continue
 		}
-		isStandardFocus := candidate.Key == "E" && candidate.Mods == uint32(ui.Cmd|ui.Shift)
+		isStandardFocus := candidate.Key == "E" && candidate.Mods == keybindings.ModPrimary|keybindings.ModShift
 		if !a.panelKeySequences.Pending() && !isStandardFocus && !vimGlobal {
 			continue
 		}
@@ -299,7 +285,7 @@ func (a *App) handleTreeKey(mods ui.Modifiers, key ui.Key) bool {
 	a.cancelChangedTreeKeymap()
 	if a.noteEditor() != nil && a.noteEditor().ModalCommands().Keymap() == "vim" {
 		if strokeName := keyStrokeName(key); strokeName != "" {
-			if a.feedKeySequence(a.treeKeySequences, interactions.KeyStroke{Key: strokeName, Mods: uint32(mods)}) {
+			if a.feedKeySequence(a.treeKeySequences, keybindings.KeyStroke{Key: strokeName, Mods: keybindingModifiers(mods)}) {
 				return true
 			}
 		}
@@ -314,45 +300,25 @@ func (a *App) handleTreeKey(mods ui.Modifiers, key ui.Key) bool {
 		return false
 	}
 	if binding.Action != "" {
-		a.dispatchPanelAction(binding.Action, treeBindingValues(binding.Args))
+		a.dispatchPanelAction(binding.Action, binding.Args.Values())
 	}
 	return true
 }
 
-func treeBindingValues(args filetree.TreeBindingArgs) map[string]any {
-	values := make(map[string]any, 4)
-	if args.Delta != 0 {
-		values["delta"] = args.Delta
-	}
-	if args.Direction != 0 {
-		values["direction"] = args.Direction
-	}
-	if args.HasIndex {
-		values["index"] = args.Index
-	}
-	if args.RelativePath {
-		values["relative"] = true
-	}
-	if args.TargetPanel != "" {
-		values["panel"] = args.TargetPanel
-	}
-	return values
-}
-
 func (a *App) ensureKeySequenceMatcher() {
 	if a.treeKeySequences == nil {
-		matcher, _ := interactions.NewKeySequenceMatcher(800*time.Millisecond, nil, filetree.VimTreeBindings{}.Sequences()...)
+		matcher, _ := keybindings.NewKeySequenceMatcher(800*time.Millisecond, nil, filetree.VimTreeBindings{}.Sequences()...)
 		a.treeKeySequences = matcher
 	}
 	if a.panelKeySequences == nil {
-		bindings := append(filetree.StandardTreeBindings{}.Sequences(), filetree.VimTreeBindings{}.PanelSequences()...)
-		matcher, _ := interactions.NewKeySequenceMatcher(800*time.Millisecond, nil, bindings...)
+		bindings := append(keybindings.StandardPanelBindings(), keybindings.VimPanelBindings()...)
+		matcher, _ := keybindings.NewKeySequenceMatcher(800*time.Millisecond, nil, bindings...)
 		a.panelKeySequences = matcher
 	}
 	a.cancelChangedTreeKeymap()
 }
 
-func (a *App) feedKeySequence(matcher *interactions.KeySequenceMatcher, stroke interactions.KeyStroke) bool {
+func (a *App) feedKeySequence(matcher *keybindings.KeySequenceMatcher, stroke keybindings.KeyStroke) bool {
 	for tries := 0; tries < 2; tries++ {
 		result := matcher.Match(stroke)
 		if result.ActionID != "" {
@@ -389,11 +355,54 @@ func keyStrokeName(key ui.Key) string {
 }
 
 func uiModifiersFor(mods uint32) (ui.Modifiers, bool) {
-	value := ui.Modifiers(mods)
-	if value & ^(ui.Cmd|ui.Ctrl|ui.Shift|ui.Alt|ui.Super) != 0 {
+	var value ui.Modifiers
+	known := uint32(0)
+	if mods&keybindings.ModShift != 0 {
+		value |= ui.Shift
+		known |= keybindings.ModShift
+	}
+	if mods&keybindings.ModCtrl != 0 {
+		value |= ui.Ctrl
+		known |= keybindings.ModCtrl
+	}
+	if mods&keybindings.ModAlt != 0 {
+		value |= ui.Alt
+		known |= keybindings.ModAlt
+	}
+	if mods&keybindings.ModSuper != 0 {
+		value |= ui.Super
+		known |= keybindings.ModSuper
+	}
+	if mods&keybindings.ModPrimary != 0 {
+		value |= ui.Cmd
+		known |= keybindings.ModPrimary
+	}
+	if mods != known {
 		return 0, false
 	}
 	return value, true
+}
+
+func keybindingModifiers(mods ui.Modifiers) uint32 {
+	var value uint32
+	if mods&ui.Shift != 0 {
+		value |= keybindings.ModShift
+	}
+	if mods&ui.Alt != 0 {
+		value |= keybindings.ModAlt
+	}
+	if mods&ui.Cmd != 0 {
+		value |= keybindings.ModPrimary
+	}
+	// Cmd may alias Ctrl off macOS or Super on macOS. Preserve the physical
+	// modifier separately only when it is distinct from the platform primary.
+	if ui.Cmd != ui.Ctrl && mods&ui.Ctrl != 0 {
+		value |= keybindings.ModCtrl
+	}
+	if ui.Cmd != ui.Super && mods&ui.Super != 0 {
+		value |= keybindings.ModSuper
+	}
+	return value
 }
 
 func uiKeyForName(name string) (ui.Key, bool) {
@@ -420,19 +429,19 @@ func uiKeyForName(name string) (ui.Key, bool) {
 	return 0, false
 }
 
-func focusablePanelOrder() []interactions.PanelID {
-	return []interactions.PanelID{interactions.PanelIDFiles, interactions.PanelIDEditor}
+func focusablePanelOrder() []commands.PanelID {
+	return []commands.PanelID{commands.PanelIDFiles, commands.PanelIDEditor}
 }
 
-func (a *App) focusPanel(panel interactions.PanelID) bool {
+func (a *App) focusPanel(panel commands.PanelID) bool {
 	switch panel {
-	case interactions.PanelIDFiles:
+	case commands.PanelIDFiles:
 		a.showPanel(panelFiles)
-		a.setFocusedPanel(interactions.PanelIDFiles)
+		a.setFocusedPanel(commands.PanelIDFiles)
 		a.ensureTreeFocus()
 		a.treeFocusRequested = true
-	case interactions.PanelIDEditor:
-		a.setFocusedPanel(interactions.PanelIDEditor)
+	case commands.PanelIDEditor:
+		a.setFocusedPanel(commands.PanelIDEditor)
 		a.treeFocusRequested = false
 		a.treeFocusHandle.CancelFocus()
 		a.noteEditor().FocusCommands().Focus()
@@ -445,7 +454,7 @@ func (a *App) focusPanel(panel interactions.PanelID) bool {
 // setFocusedPanel is the transition hook for toolkit focus as well as routed
 // focus actions. Pointer clicks can move focus without passing through
 // focusPanel, so any panel transition must also discard pending sequences.
-func (a *App) setFocusedPanel(panel interactions.PanelID) {
+func (a *App) setFocusedPanel(panel commands.PanelID) {
 	if panel == "" || a.focusedPanel == panel {
 		return
 	}
@@ -455,7 +464,7 @@ func (a *App) setFocusedPanel(panel interactions.PanelID) {
 }
 
 func (a *App) focusPanelDirection(direction int) {
-	router, err := interactions.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
+	router, err := focus.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
 	if err != nil {
 		return
 	}
@@ -467,7 +476,7 @@ func (a *App) focusPanelDirection(direction int) {
 }
 
 func (a *App) cycleFocusPanel(reverse bool) {
-	router, err := interactions.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
+	router, err := focus.NewFocusRouter(focusablePanelOrder(), a.focusedPanel)
 	if err != nil {
 		return
 	}
