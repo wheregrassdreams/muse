@@ -14,6 +14,7 @@ import (
 	"muse/document"
 	"muse/editor"
 	editorinput "muse/editor/input"
+	editorsource "muse/editor/source"
 	"muse/events"
 	"muse/nativeui/workbench/hosting"
 	"muse/workspace"
@@ -163,6 +164,18 @@ type PresentationCommands interface {
 	Settings() PresentationSettings
 }
 
+// DocumentOpenCommands clears presentation state owned by the editor widget
+// before this pane's canonical session is replaced with another document.
+type DocumentOpenCommands interface {
+	ResetForDocumentOpen()
+}
+
+// SystemEditCommands applies application-owned document changes as a system
+// patch, preserving editor history and selection semantics.
+type SystemEditCommands interface {
+	ReplaceSystemAll(string)
+}
+
 // SurfaceFactory adapts a backend-neutral editor session to generic window
 // content. Composition injects the concrete MyGo component adapter.
 type SurfaceFactory func(*editor.Session, SurfaceOptions) window.Content
@@ -217,6 +230,8 @@ type Commands interface {
 	PreserveDraft() (string, error)
 	SetConflict(path string)
 	Rebase(path string, revision document.Revision, source string) bool
+	DeferExternal(note document.Note) bool
+	TakeDeferredExternal() (document.Note, bool)
 	ClearAutosave()
 	ClearMetadataDeadline()
 }
@@ -383,6 +398,15 @@ func NewContent(
 		doc.Close()
 		return nil, ErrIncompleteSurface
 	}
+	// The surface's presentation settings determine which source ranges are
+	// visible. Apply the same source-to-display start mapping on first mount as
+	// on later document opens, once those settings are available.
+	cursorOffset = initialVisibleOffset(source, cursorOffset, content.surface)
+	cursorOffset = clampOffset(source, cursorOffset)
+	if err := session.SetSelection(editor.Selection{Anchor: cursorOffset, Head: cursorOffset}); err != nil {
+		content.Close()
+		return nil, err
+	}
 	return content, nil
 }
 
@@ -397,8 +421,10 @@ func surfaceHasRequiredCommands(surface window.Content) bool {
 	_, clipboard := surface.(ClipboardCommands)
 	_, formatting := surface.(FormattingCommands)
 	_, presentation := surface.(PresentationCommands)
+	_, documentOpen := surface.(DocumentOpenCommands)
+	_, systemEdit := surface.(SystemEditCommands)
 	_, undo := surface.(interface{ Undo() bool })
-	return focus && modal && navigation && search && clipboard && formatting && presentation && undo
+	return focus && modal && navigation && search && clipboard && formatting && presentation && documentOpen && systemEdit && undo
 }
 
 func NewUntitled(
@@ -593,10 +619,12 @@ func (c *Content) ReplaceSystem(source string) error {
 	if c.session.Source() == source {
 		return nil
 	}
-	c.document.SetApplyingMetadata(true)
-	c.mutateSession(func() { c.session.ReplaceSource(source) })
-	c.document.SetApplyingMetadata(false)
-	c.editorChanged()
+	systemEdit, ok := c.surface.(SystemEditCommands)
+	if !ok {
+		return ErrIncompleteSurface
+	}
+	c.mutateSession(func() { systemEdit.ReplaceSystemAll(source) })
+	c.metadataChanged()
 	return nil
 }
 
@@ -605,11 +633,51 @@ func (c *Content) Open(note document.Note, cursorOffset int) error {
 		return err
 	}
 	source, crlf := normalizeDiskSource(note.Source)
+	// The renderer can retain transient state from its previous document (for
+	// example, the phantom first line of an empty note). Reset it before the
+	// shared session is replaced and parsed again.
+	if lifecycle, ok := c.surface.(DocumentOpenCommands); ok {
+		lifecycle.ResetForDocumentOpen()
+	}
 	c.mutateSession(func() { c.session.ReplaceSource(source) })
 	c.crlf, c.dirty = crlf, false
 	c.document.Open(note.Path, note.Source)
+	cursorOffset = initialVisibleOffset(source, cursorOffset, c.surface)
 	cursorOffset = clampOffset(source, cursorOffset)
 	return c.session.SetSelection(editor.Selection{Anchor: cursorOffset, Head: cursorOffset})
+}
+
+func initialVisibleOffset(source string, requested int, surface window.Content) int {
+	if requested != 0 {
+		return requested
+	}
+	presentation, ok := surface.(PresentationCommands)
+	if !ok || !presentation.Settings().HideFrontmatter {
+		return requested
+	}
+	frontmatterEnd := editorsource.FrontmatterEnd(source)
+	if frontmatterEnd == 0 {
+		return requested
+	}
+	for offset := frontmatterEnd; offset < len(source); {
+		for offset < len(source) && (source[offset] == '\r' || source[offset] == '\n') {
+			offset++
+		}
+		if offset >= len(source) {
+			return len(source)
+		}
+		end := strings.IndexByte(source[offset:], '\n')
+		if end < 0 {
+			end = len(source)
+		} else {
+			end += offset
+		}
+		if strings.TrimSpace(source[offset:end]) != "" {
+			return offset
+		}
+		offset = end + 1
+	}
+	return len(source)
 }
 
 // Relocate changes the document's durable identity after a vault move while
@@ -670,7 +738,10 @@ func (c *Content) CompleteSave(result documentapp.SaveResult) bool {
 	snapshot := c.Snapshot()
 	current := c.document.CompleteSave(result, snapshot.Path, snapshot.DiskSource)
 	if current && result.Err == nil {
-		c.dirty = snapshot.DiskSource != result.Request.Source
+		// A conflict save writes a recovery draft instead of changing the
+		// durable note. Keep the live document dirty so the conflict remains
+		// visible and an explicit resolution is still required.
+		c.dirty = result.Request.Conflict || snapshot.DiskSource != result.Request.Source
 	}
 	return current
 }
@@ -730,6 +801,17 @@ func (c *Content) Rebase(path string, revision document.Revision, source string)
 	return true
 }
 
+func (c *Content) DeferExternal(note document.Note) bool {
+	return c != nil && !c.closed && c.document.DeferExternal(note)
+}
+
+func (c *Content) TakeDeferredExternal() (document.Note, bool) {
+	if c == nil || c.closed {
+		return document.Note{}, false
+	}
+	return c.document.TakeDeferredExternal()
+}
+
 func (c *Content) ClearAutosave() {
 	if c != nil && !c.closed {
 		c.document.ClearAutosave()
@@ -743,6 +825,14 @@ func (c *Content) ClearMetadataDeadline() {
 }
 
 func (c *Content) editorChanged() {
+	c.sourceChanged(false)
+}
+
+func (c *Content) metadataChanged() {
+	c.sourceChanged(true)
+}
+
+func (c *Content) sourceChanged(metadata bool) {
 	if c == nil || c.closed {
 		return
 	}
@@ -750,7 +840,11 @@ func (c *Content) editorChanged() {
 		return
 	}
 	c.dirty = true
-	c.document.Changed(time.Now())
+	if metadata {
+		c.document.MetadataChanged(time.Now())
+	} else {
+		c.document.Changed(time.Now())
+	}
 	if c.onAction != nil {
 		c.onAction(Action{Kind: DocumentChanged, PaneID: c.paneID, Snapshot: c.Snapshot()})
 	}

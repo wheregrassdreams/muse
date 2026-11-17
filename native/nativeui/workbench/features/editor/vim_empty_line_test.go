@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -56,6 +57,106 @@ func TestTypingSpaceOnEmptySourceLineKeepsCaretOnThatLine(t *testing.T) {
 			}
 			if h.e.Caret() != 6 {
 				t.Fatalf("Backspace left caret at %d, want 6", h.e.Caret())
+			}
+		})
+	}
+}
+
+func TestSpaceOnBlankLineSurvivesMovingAwayAndBack(t *testing.T) {
+	h := newHarness(t, "alpha\n\nbeta")
+	h.caretAt(6)
+	h.typ(" ")
+	if got := h.e.Source(); got != "alpha\n \nbeta" {
+		t.Fatalf("source after typing space = %q", got)
+	}
+	// Move through another source line and return through the editor's public
+	// caret path, allowing layout and source/display mapping to run each time.
+	h.caretAt(9)
+	h.caretAt(7)
+	h.e.layoutIfNeeded()
+	if got := h.e.Source(); got != "alpha\n \nbeta" {
+		t.Fatalf("moving the caret changed source to %q", got)
+	}
+	blank := h.e.leafAt(h.e.Caret())
+	if blank == nil || blank.kind != kBlank || blank.view == nil {
+		t.Fatalf("blank line view after returning: leaf=%+v", blank)
+	}
+	if got := blank.view.disp.text; got != " " {
+		t.Fatalf("blank line display = %q, want one visible source space", got)
+	}
+}
+
+func TestLeadingSpaceAtParagraphStartIsVisibleWhileEditing(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, prefix string
+	}{
+		{name: "continuation line", source: "alpha\nbeta", prefix: "alpha\n"},
+		{name: "new paragraph", source: "alpha\n\nbeta", prefix: "alpha\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, tc.source)
+			h.caretAt(len(tc.prefix))
+			h.typ(" ")
+			wantSource := tc.prefix + " beta"
+			if got := h.e.Source(); got != wantSource {
+				t.Fatalf("source after leading space = %q, want %q", got, wantSource)
+			}
+			h.e.layoutIfNeeded()
+			line := h.e.leafAt(h.e.Caret())
+			if line == nil || line.kind != kPara || line.view == nil {
+				t.Fatalf("paragraph view after leading space: leaf=%+v", line)
+			}
+			if got := line.view.disp.text; !strings.Contains(got, " beta") {
+				t.Fatalf("paragraph display = %q, want leading space visible", got)
+			}
+		})
+	}
+}
+
+func TestBackspaceAfterLeadingParagraphSpaceRemovesOnlyThatSpace(t *testing.T) {
+	for _, tc := range []struct {
+		name, source, prefix string
+	}{
+		{name: "continuation line", source: "alpha\nbeta", prefix: "alpha\n"},
+		{name: "new paragraph", source: "alpha\n\nbeta", prefix: "alpha\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, tc.source)
+			h.caretAt(len(tc.prefix))
+			h.typ(" ")
+			if got := h.e.Source(); got != tc.prefix+" beta" {
+				t.Fatalf("source after leading space = %q", got)
+			}
+			h.key(0, ui.KeyBackspace)
+			if got := h.e.Source(); got != tc.source {
+				t.Fatalf("Backspace after leading space produced %q, want %q", got, tc.source)
+			}
+			if got := h.e.Caret(); got != len(tc.prefix) {
+				t.Fatalf("caret after Backspace = %d, want %d", got, len(tc.prefix))
+			}
+		})
+	}
+}
+
+func TestVimEscapeAfterLeadingSpaceStaysOnInsertedLine(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		start  int
+	}{
+		{name: "first line", source: "alpha", start: 0},
+		{name: "following line", source: "alpha\nbeta", start: len("alpha\n")},
+		{name: "paragraph after blank", source: "alpha\n\nbeta", start: len("alpha\n\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, tc.source)
+			h.e.SetKeymap("vim")
+			h.caretAt(tc.start)
+			sendVim(h, "i")
+			h.typ(" ")
+			h.key(0, ui.KeyEscape)
+			if got, want := lineStartAt(h.e.Source(), h.e.Caret()), tc.start; got != want {
+				t.Fatalf("Vim Escape moved cursor to line starting at %d, want %d (caret=%d source=%q)", got, want, h.e.Caret(), h.e.Source())
 			}
 		})
 	}

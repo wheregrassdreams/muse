@@ -606,6 +606,28 @@ func (e *Editor) Source() string { return e.Session.Source() }
 // SetSource replaces the document, as opening another file does: the
 // caret goes to its start and the history of undo is cleared.
 func (e *Editor) SetSource(src string) {
+	e.ResetForDocumentOpen()
+	e.Session.ReplaceSource(src)
+	e.setSessionSelection(0, 0)
+	e.sync()
+	if src == "" {
+		// The empty document is the one line the source does not hold: a
+		// line break is content, and gives the document its lines.
+		e.phantom = &phantom{at: 0}
+		e.sync()
+	}
+	e.setSessionHead(e.firstStop())
+	e.setSessionAnchor(e.Caret())
+	for _, l := range e.leaves {
+		l.horizontal = blockHorizontalState{}
+	}
+}
+
+// ResetForDocumentOpen releases editor-local state from the current document
+// without changing the shared source session. The note surface calls it before
+// replacing that session, so transient placeholders and document caches cannot
+// leak across opens.
+func (e *Editor) ResetForDocumentOpen() {
 	e.finishBlockInput()
 	if e.editBatch != nil {
 		e.commit(e.Caret(), e.Caret())
@@ -649,7 +671,7 @@ func (e *Editor) SetSource(src string) {
 	e.block, e.blockInput = nil, nil
 	e.tableHandleDrag = nil
 	e.horizontalDrag = nil
-	e.Session.ReplaceSource(src)
+	e.phantom = nil
 	e.imageAlignments.Clear()
 	e.largeDataImageCache.Reset()
 	e.p.Clear()
@@ -664,18 +686,6 @@ func (e *Editor) SetSource(src string) {
 	e.feedbackState.CancelSearchPulse()
 	e.scroll.Y = 0
 	e.hasGoal = false
-	e.sync()
-	if src == "" {
-		// The empty document is the one line the source does not hold: a
-		// line break is content, and gives the document its lines.
-		e.phantom = &phantom{at: 0}
-		e.sync()
-	}
-	e.setSessionHead(e.firstStop())
-	e.setSessionAnchor(e.Caret())
-	for _, l := range e.leaves {
-		l.horizontal = blockHorizontalState{}
-	}
 }
 
 // sync parses the source again when it changed, and makes the leaves.
@@ -973,7 +983,14 @@ func (e *Editor) leafIndex(off int) int {
 			continue
 		}
 		if l.isLine() {
-			if line < 0 && off == l.start {
+			// A whitespace-only source line owns its complete editable span,
+			// including the stop after its final space. Phantom lines remain a
+			// single-position stop because their source span is empty.
+			ownsOffset := off == l.start
+			if l.kind == kBlank {
+				ownsOffset = off >= l.start && off <= l.end
+			}
+			if line < 0 && ownsOffset {
 				line = i
 			}
 			continue

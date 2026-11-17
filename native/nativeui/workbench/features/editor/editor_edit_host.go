@@ -560,13 +560,19 @@ func (e *Editor) backspace(word bool) {
 	// edge stop. Only Backspace at the content start converts the heading;
 	// before it, delete backward normally without consuming syntax ahead.
 	beforeHeadingContent := u.kind == kHeading && off < u.start
+	insideParagraphIndent := u.kind == kPara && paragraph.CaretAfterLeadingIndent(e.Source(), u.lineStart, u.start, off)
 	_, tableEdge := e.tableAtEdge(off)
-	if first, ok := e.edgeStop(u, false); ok && off <= first && !tableEdge && !beforeHeadingContent && !(u.kind == kCode && u.fenced && off >= u.infoStartOffset() && off <= u.infoEndOffset() && off > u.infoStartOffset()) {
+	if first, ok := e.edgeStop(u, false); ok && off <= first && !tableEdge && !beforeHeadingContent && !insideParagraphIndent && !(u.kind == kCode && u.fenced && off >= u.infoStartOffset() && off <= u.infoEndOffset() && off > u.infoStartOffset()) {
 		e.backspaceAtStart(u)
 		return
 	}
 	prev := e.step(off, -1, word)
-	if u.kind == kBlank && u.end > u.start && off > u.start {
+	if insideParagraphIndent {
+		// The display step before a paragraph's first inline may be the
+		// structural break before the paragraph. Indentation is real source
+		// text, so Backspace at its end removes one source grapheme first.
+		prev = e.previousGraphemeBoundary(off)
+	} else if u.kind == kBlank && u.end > u.start && off > u.start {
 		prev = e.previousGraphemeBoundary(off)
 	}
 	if prev >= off {

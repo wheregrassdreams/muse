@@ -458,7 +458,27 @@ func (b *builder) walk(ins []syntax.IncrementalInline, i, end int, st istyle) {
 					break
 				}
 			}
-			b.atom(in.Start, end, text, st, nil)
+			// The parser folds indentation after a line ending into the break's
+			// source range. Reveal that indentation when the caret is on it, so
+			// paragraph-leading spaces remain editable and visible. Away from the
+			// caret keep the normal Markdown projection.
+			newlineEnd := in.Start
+			for newlineEnd < in.End && b.src[newlineEnd] != '\n' && b.src[newlineEnd] != '\r' {
+				newlineEnd++
+			}
+			if newlineEnd < in.End {
+				newlineEnd++
+				if b.src[newlineEnd-1] == '\r' && newlineEnd < in.End && b.src[newlineEnd] == '\n' {
+					newlineEnd++
+				}
+			}
+			revealIndent := newlineEnd < end && b.reveal >= newlineEnd && b.reveal <= end
+			if revealIndent {
+				b.atom(in.Start, newlineEnd, text, st, nil)
+				b.textRun(newlineEnd, end, st)
+			} else {
+				b.atom(in.Start, end, text, st, nil)
+			}
 			b.pos = end
 		case syntax.IncrementalCode:
 			b.codeSpan(in, st)

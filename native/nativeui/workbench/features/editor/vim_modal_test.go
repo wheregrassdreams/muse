@@ -31,8 +31,23 @@ func TestProductionViewRoutesVimInputThroughSession(t *testing.T) {
 	if got, want := e.Session.Source(), "aXbc"; got != want {
 		t.Fatalf("Session source = %q, want %q", got, want)
 	}
+	if got := e.Session.Selection().Head; got != 1 {
+		t.Fatalf("Session selection head = %d, want Vim's inserted-character offset 1", got)
+	}
+}
+
+func TestVimAppendEscapeLeavesCursorOnInsertedCharacter(t *testing.T) {
+	e := New("abc", Options{})
+	e.SetKeymap("vim")
+	e.Select(1, 1)
+	e.modalText("a")
+	e.typeText("X")
+	e.modalKey(ui.KeyEscape, 0)
+	if got, want := e.Source(), "abXc"; got != want {
+		t.Fatalf("source = %q, want %q", got, want)
+	}
 	if got := e.Session.Selection().Head; got != 2 {
-		t.Fatalf("Session selection head = %d, want 2", got)
+		t.Fatalf("normal-mode cursor = %d, want inserted character at offset 2", got)
 	}
 }
 

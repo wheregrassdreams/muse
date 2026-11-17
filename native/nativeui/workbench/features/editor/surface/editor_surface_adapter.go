@@ -15,6 +15,7 @@ type editorSurfaceAdapter struct {
 
 var (
 	_ window.Content       = (*editorSurfaceAdapter)(nil)
+	_ DocumentOpenCommands = (*editorSurfaceAdapter)(nil)
 	_ FocusCommands        = (*editorSurfaceAdapter)(nil)
 	_ ModalCommands        = (*editorSurfaceAdapter)(nil)
 	_ NavigationCommands   = (*editorSurfaceAdapter)(nil)
@@ -28,6 +29,10 @@ var (
 // command ports without exposing renderer-specific types through App.
 func NewEditorSurface(editor *editorui.Editor) window.Content {
 	return &editorSurfaceAdapter{Editor: editor}
+}
+
+func (e *editorSurfaceAdapter) ResetForDocumentOpen() {
+	e.Editor.ResetForDocumentOpen()
 }
 
 func (e *editorSurfaceAdapter) SelectionRange() TextRange {

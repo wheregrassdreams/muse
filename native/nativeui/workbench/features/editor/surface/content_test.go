@@ -3,6 +3,7 @@ package noteeditor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -32,6 +33,8 @@ var (
 	_ ClipboardCommands        = (*testSurface)(nil)
 	_ FormattingCommands       = (*testSurface)(nil)
 	_ PresentationCommands     = (*testSurface)(nil)
+	_ DocumentOpenCommands     = (*testSurface)(nil)
+	_ SystemEditCommands       = (*testSurface)(nil)
 	_ interface{ Undo() bool } = (*testSurface)(nil)
 )
 
@@ -86,9 +89,17 @@ func (*testSurface) InsertRule()                               {}
 func (*testSurface) InsertLink()                               {}
 func (s *testSurface) Configure(settings PresentationSettings) { s.presentation = settings }
 func (s *testSurface) Settings() PresentationSettings          { return s.presentation }
+func (*testSurface) ResetForDocumentOpen()                     {}
 func (s *testSurface) Undo() bool {
 	result, err := s.session.Undo()
 	return err == nil && result.Changed
+}
+func (s *testSurface) ReplaceSystemAll(source string) {
+	patch, ok := s.session.PlanSystemPatch(source)
+	if !ok {
+		return
+	}
+	_, _ = s.session.ApplySystemPatch(patch, nil, nil)
 }
 
 func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
@@ -147,6 +158,56 @@ func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
 	}
 	if string(got) != "changed\r\n" || content.Snapshot().Dirty {
 		t.Fatalf("saved pane source = %q, dirty=%v", got, content.Snapshot().Dirty)
+	}
+}
+
+func TestOpenPlacesCaretAtFirstVisibleLineAfterHiddenFrontmatter(t *testing.T) {
+	source := "---\ntype: note\ntags: []\n---\n\n# Body\ntext\n"
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	var hosted *testSurface
+	content, err := NewContent("pane-frontmatter", document.NewNote("note.md", source, document.RevisionOf(source)), 0, Dependencies{
+		Documents: store, Recovery: store, History: store,
+	}, func(session *editor.Session, _ SurfaceOptions) window.Content {
+		hosted = &testSurface{session: session}
+		return hosted
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(content.Close)
+	hosted.Configure(PresentationSettings{HideFrontmatter: true})
+	if err := content.Open(document.NewNote("note.md", source, document.RevisionOf(source)), 0); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Index(source, "# Body")
+	if got := content.NavigationCommands().Caret(); got != want {
+		t.Fatalf("open caret = %d, want first visible body offset %d", got, want)
+	}
+	if got := content.Snapshot().Source; got != source {
+		t.Fatalf("opening changed source: %q", got)
+	}
+}
+
+func TestNewContentPlacesCaretAtFirstVisibleLineAfterHiddenFrontmatter(t *testing.T) {
+	source := "---\ntype: note\ntags: []\n---\n\n# Body\ntext\n"
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	var hosted *testSurface
+	content, err := NewContent("pane-frontmatter", document.NewNote("note.md", source, document.RevisionOf(source)), 0, Dependencies{
+		Documents: store, Recovery: store, History: store,
+	}, func(session *editor.Session, options SurfaceOptions) window.Content {
+		hosted = &testSurface{session: session, options: options, presentation: PresentationSettings{HideFrontmatter: true}}
+		return hosted
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(content.Close)
+	want := strings.Index(source, "# Body")
+	if got := content.NavigationCommands().Caret(); got != want {
+		t.Fatalf("initial pane caret = %d, want first visible body offset %d", got, want)
+	}
+	if got := content.Snapshot().Source; got != source {
+		t.Fatalf("initial mount changed source: %q", got)
 	}
 }
 
