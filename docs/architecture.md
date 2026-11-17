@@ -91,7 +91,7 @@ native/
 │   ├── components/
 │   │   ├── icons/                  # MyGo adapter for the UI-independent ui/iconlibrary catalog
 │   │   ├── windowcontrols/         # native window shell controls
-│   │   ├── editor/                  # MyGo input/render adapter over editor.Session
+│   │   ├── editor/                  # MyGo editor host, adapter subsystems, and composition
 │   │   │   └── textlayout/           # MyGo-backed shaping helpers used by the editor view
 │   │   ├── markdown/                # MyGo painter over neutral Markdown models
 │   │   ├── doctypes/                # backend-neutral document type registry/open policy
@@ -163,7 +163,8 @@ The editor source adapter does not duplicate Markdown grammar or AST ownership. 
 
 | Target package | Owns | Candidate current files / required seam |
 |---|---|---|
-| `components/editor` | Editor host, session synchronization, construction, lifecycle, scroll event translation, and composition of UI adapters | Keep the host lifecycle, source/frame synchronization, MyGo scroll input/indicator handling, and orchestration here; do not keep input policy or semantic edit/selection rules here, and do not export broad mutable state to make extraction easier |
+| `components/editor` | Editor host, construction, lifecycle, scroll event translation, and composition of UI adapters | Keep the host lifecycle, MyGo scroll input/indicator handling, and orchestration here; do not keep input policy or semantic edit/selection rules here, and do not export broad mutable state to make extraction easier |
+| `components/editor/session` | Presentation-to-session synchronization and history participation | `session_adapter.go`, `editor_transaction.go`, `history.go`, and `history_participant.go`; the domain `editor.Session` remains authoritative for source, selection, revision, and edit history |
 | `components/editor/inputadapter` | MyGo key/text normalization and presentation-side adaptation of Vim intents to editor host actions | `production_input.go`, `modal_text.go`, and `modal_vim_adapter.go`; key grammar and command meaning stay in `editor/input/vim`, while this adapter resolves host-dependent facts and applies the resulting actions |
 | `components/editor/ime` | MyGo text-composition lifecycle, UTF-16 range conversion, and Editor-host composition bridge | `ime.go` and `ime_host.go`; the client owns composition state and text-session contracts, while the host bridge supplies document edits and geometry |
 | `components/editor/blocks/inline` | Inline-link suggestion/hover UI and host-side inline actions | Move wiki suggestion popup state and link interaction adapters here; consume `editor/blocks/inline` source ranges and typed actions |
