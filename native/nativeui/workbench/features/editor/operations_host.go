@@ -218,7 +218,7 @@ func (e *Editor) revealFoldsAtCaret() {
 }
 
 func (e *Editor) findCharacter(char string, dir int, till bool, count int) bool {
-	character := modalGrapheme(char)
+	character := vim.FirstGrapheme(char)
 	e.vimController().SetLastFind(character, dir, till)
 	sequence := e.vimController().Sequence()
 	at, ok := e.modalFind(character, dir, till, count)

@@ -641,20 +641,6 @@ func displayRangeHasSource(d *display, start, end int) bool {
 	return d.dispToSrc(end, true) > d.dispToSrc(start, false)
 }
 
-// nearestStop returns the stop at or before rel, or the first one after it.
-func nearestStop(stops []int, rel int) (int, bool) {
-	if len(stops) == 0 {
-		return 0, false
-	}
-	best := stops[0]
-	for _, s := range stops {
-		if s <= rel {
-			best = s
-		}
-	}
-	return best, true
-}
-
 // ---------------------------------------------------------------------------
 // Geometry
 
@@ -700,7 +686,7 @@ func (e *Editor) caretRect(off int) (ui.Rect, bool) {
 		// An offset the display has no place for — the inside of an object,
 		// which is one unit — draws the caret at the nearest place it does,
 		// so that the caret is never invisible.
-		at, sok := nearestStop(v.disp.stops(), off-u.lineStart)
+		at, sok := navigation.NearestStopAtOrBefore(v.disp.stops(), off-u.lineStart)
 		if !sok {
 			return ui.Rect{}, false
 		}
@@ -1464,43 +1450,19 @@ var isMac = runtime.GOOS == "darwin"
 // blockEnd returns where the source of a leaf ends: after a fence's
 // closing line, a heading's underline, a table's last row.
 func blockEnd(src string, l *leaf) int {
-	end := lineEndAt(src, max(l.end, l.lineStart))
+	kind := navigation.SourceBlockKind(0)
 	switch l.kind {
-	case kCode, kMath:
-		if l.kind == kCode && !l.fenced {
-			return end
-		}
-		// The closing fence: the line after the last line of content.
-		if end < len(src) {
-			next := lineEndAt(src, end+1)
-			if isClosingFence(src[end+1:next], l) {
-				return next
-			}
-		}
+	case kCode:
+		kind = navigation.SourceBlockCode
+	case kMath:
+		kind = navigation.SourceBlockMath
 	case kHeading:
-		if l.setext && end < len(src) {
-			return lineEndAt(src, end+1)
-		}
+		kind = navigation.SourceBlockHeading
 	}
-	return end
-}
-
-// isClosingFence reports whether a line closes a leaf's fence.
-func isClosingFence(line string, l *leaf) bool {
-	t := trimPrefixChars(line)
-	if l.kind == kMath {
-		return len(t) >= 2 && (t[:2] == "$$" || t[:2] == `\]`)
-	}
-	return len(t) >= 3 && (t[:3] == "```" || t[:3] == "~~~")
-}
-
-// trimPrefixChars trims the spaces and quotation markers a line of a
-// container starts with.
-func trimPrefixChars(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '>') {
-		s = s[1:]
-	}
-	return s
+	return navigation.BlockEnd(src, navigation.SourceBlock{
+		LineStart: l.lineStart, ContentEnd: l.end, Kind: kind,
+		Fenced: l.fenced, Setext: l.setext,
+	})
 }
 
 // sourceChip returns the box of a block's source control: the little button
