@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 )
 
 func TestOpeningChineseDocumentDoesNotLoadWordDictionary(t *testing.T) {

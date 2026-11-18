@@ -1,6 +1,6 @@
 package editor
 
-import textnav "muse/editor/navigation"
+import textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 
 // graphemeEdges returns the revision-owned source boundary index used by
 // editing interactions. Boundary construction and indexed movement live in

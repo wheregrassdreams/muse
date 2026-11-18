@@ -5,7 +5,7 @@ import (
 	tablemodel "muse/editor/blocks/table"
 	"muse/editor/input"
 	"muse/editor/input/vim"
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 	"muse/nativeui/workbench/features/editor/inputadapter"
 	"strings"

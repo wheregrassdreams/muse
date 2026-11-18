@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/editor/blocks/paragraph"
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	syntax "muse/markdown/syntax"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )

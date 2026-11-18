@@ -6,7 +6,7 @@ import (
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
 	"github.com/wheregrassdreams/muse-editor/text"
 	"muse/editor"
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 )
 
 // Edit and FormatPlan keep the editor package API stable while source

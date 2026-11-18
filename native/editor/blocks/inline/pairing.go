@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 )
 
 var autoPairClosers = map[rune]rune{

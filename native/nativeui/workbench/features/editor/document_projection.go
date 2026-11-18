@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	textnav "muse/editor/navigation"
+	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	sourceview "muse/editor/source"
 	syntax "muse/markdown/syntax"
 	"muse/ui/scrollbar"

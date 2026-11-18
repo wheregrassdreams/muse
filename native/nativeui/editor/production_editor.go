@@ -19,7 +19,7 @@ import (
 	"muse/editor/input"
 	"muse/editor/input/vim"
 	layoutindex "muse/editor/layout"
-	textnav "muse/editor/navigation"
+	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	"muse/editor/source"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"

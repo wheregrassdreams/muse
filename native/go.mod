@@ -39,6 +39,7 @@ require (
 	github.com/tdewolff/minify/v2 v2.24.11 // indirect
 	github.com/tdewolff/parse/v2 v2.8.11 // indirect
 	github.com/vcaesar/cedar v0.50.1 // indirect
+	github.com/wheregrassdreams/muse-editor v0.0.0
 	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

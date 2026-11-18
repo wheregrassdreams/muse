@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 
 	"muse/editor/input/vim"
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 )
 
 // displayWordIndex adapts a display string's UTF-16 coordinates to the

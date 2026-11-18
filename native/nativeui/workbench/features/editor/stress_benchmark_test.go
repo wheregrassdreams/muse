@@ -18,7 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/navigation"
+	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	"muse/markdown/images"
 	syntax "muse/markdown/syntax"
 )
