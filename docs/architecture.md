@@ -134,11 +134,13 @@ native/
 │       ├── context/               # scoped UI facts and composable command conditions
 │       ├── focus/                 # ordered panel focus movement, independent of toolkit handles
 │       ├── keybindings/           # platform-neutral key strokes and sequence matching
-│       ├── dragdrop/              # typed payloads shared across feature modules
+│       ├── dragdrop/              # native transfer encoding/decoding adapters
+│       ├── dragpayload/           # typed in-process values shared across features
 │       ├── diagnostics/           # opt-in runtime and resource diagnostics
 │       └── features/              # first-party feature-owned UI modules
 │           ├── editor/            # note editor surface and its UI-specific subsystems
-│           ├── explorer/          # file tree and vault navigation view
+│           ├── explorer/          # file tree and vault navigation feature
+│           │   └── filetree/      # isolated tree projection, transient state and rendering subsystem
 │           ├── outline/
 │           ├── search/            # workspace search and current-document find/replace views
 │           ├── quickopen/         # transient file chooser surface; matching stays in search/quickopen
@@ -202,7 +204,7 @@ The role is not to force every feature into the same subdirectory template. The 
 
 | Existing NativeUI area | Target feature/core owner |
 |---|---|
-| `panels/filetree`, `filetree_panel.go`, and tree-local state in `app.go` | `workbench/features/explorer` |
+| `panels/filetree`, `filetree_panel.go`, and tree-local state in `app.go` | `workbench/features/explorer`; generic list/tree mechanics are private to its `filetree` child package |
 | `panels/outline` | `workbench/features/outline` |
 | `panels/search` and `panels/findreplace` | `workbench/features/search` (query and replacement semantics stay in `search` / `editor/findreplace`) |
 | `surfaces/noteeditor` and `components/editor` | `workbench/features/editor` |
@@ -343,7 +345,7 @@ After migration, `nativeui/app.go` may retain dependency fields as references to
 | Feature package | Legitimate owned behavior | Application/domain boundary to keep |
 |---|---|---|
 | `features/editor` and `features/markdown` | MyGo editor surface, input normalization, Vim interaction, selection/viewport/layout/painting, rich Markdown projection and block-specific UI controls | Editing transactions, undo/history, Vim command semantics and block transformations belong to `editor`; syntax/render values and image/diagram/math interpretation belong to `markdown`. App callbacks may expose narrow link/asset/open capabilities; do not make the editor surface the owner of vault resolution or persistence. |
-| `features/explorer`, `features/outline`, `features/backlinks` | Tree expansion/selection/flattened rows/drop feedback; outline and backlink presentation, row navigation and scrolling | Catalog/link facts come from `application/vault` and `vault`; open/navigation goes through document/workspace use cases. File mutation and path rules are not tree policies. |
+| `features/explorer`, `features/outline`, `features/backlinks` | Tree expansion/selection/flattened rows/drop feedback; outline and backlink presentation, row navigation and scrolling. `features/explorer/filetree` owns the generic tree view model, transient interaction state and rendering; the parent Explorer feature owns the public host/action boundary. | Catalog/link facts come from `application/vault` and `vault`; open/navigation goes through document/workspace use cases. File mutation and path rules are not tree policies. |
 | `features/search`, `features/search/findreplace`, `features/quickopen` | Search/find panel query text, mode, selection, list/scroll state; Quick Open window lifecycle and chosen row | Query parsing/execution/ranking, interactive scheduling and result freshness belong to `search` / `application/search`; current-buffer find/replace ranges and replacements belong to `editor/findreplace`; Quick Open candidates/matching live in `application/vault` plus `search/quickopen`. |
 | `features/properties` | Inspector presentation, edit drafts, source-mode UI, per-field display preferences and mapping typed facts to rows | Frontmatter value rules belong to `document/frontmatter`; inspect/edit workflows to `application/document`; backlinks to `application/vault`/`vault/links`; durable user settings to `application/config`. |
 | `features/agent` | Transcript, approval UI, model-picker view and pending presentation state | Conversation/session, tool authorization, model/provider operations and typed workspace mutation requests belong to `application/agent`; transport belongs to `platform/agent`; mutations route through document/vault use cases. |
@@ -507,5 +509,6 @@ Measured during the layout checkpoint: baseline `main` at `c250b054` has 68,289 
 - 2026-11-16: Refactor execution is layout-first. First relocate implementation and test files to the target package tree without changing package declarations, imports, APIs, or behavior; then perform package/API wiring against that completed tree. The layout-only intermediate may not compile, so do not use build success as its acceptance criterion. The completed wiring phase must remove all migration shells and satisfy the full completion gate above.
 - 2026-11-18: Document persistence uses one revision-based reconciliation state machine. Saves are identified by their exact submitted snapshot; disk echoes acknowledge that write, and newer disk versions observed during a write are deferred until its result is applied. External clean reloads never mutate metadata or write back. Reconciliation decisions belong to `application/document`; editor source/selection changes remain behind the editor feature capability, while NativeUI presents the typed outcome. Existing `ReconcileExternal` behavior is only a partial implementation until the state machine and listed acceptance tests are complete.
 - 2026-11-18: NativeUI responsibility is defined by policy ownership, not by package/file placement or the presence of a controller. Feature-local input, view projection, host lifecycle, native event pumping and typed action translation stay in NativeUI; persistence, cross-module transition ordering, stale-result acceptance, domain interpretation and mutation policy stay in application/domain modules. The current audit makes `application/search` a focused target for interactive query scheduling and stale-result navigation, while vault/index session lifetime remains in `application/vault`.
+- 2026-11-18: Explorer's `filetree` child package owns generic tree mechanics. The parent `features/explorer` package owns a per-window controller, immutable row/model snapshots, toolkit capabilities, and typed feature actions; it adapts those values to application/workspace APIs without taking `*App`. Vault mutation/path/drop rules remain in `application/vault`. Cross-feature drag values live in `workbench/dragpayload`; `workbench/dragdrop` is the native transfer codec/adapter, not the payload's package.
 
 Do not weaken these criteria to close the goal. If any criterion remains open, keep the goal active and continue the refactor.
