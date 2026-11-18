@@ -28,11 +28,11 @@ func StandardPanelBindings() []KeyBinding {
 // focused-panel endpoints selected by the host.
 func VimPanelBindings() []KeyBinding {
 	return []KeyBinding{
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "H"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": -1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "Left"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": -1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "L"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": 1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "Right"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": 1}},
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "W"}}, ActionID: commands.ActionFocusNextPanel},
-		{Sequence: []KeyStroke{{Key: "W", Mods: ModPrimary}, {Key: "W", Mods: ModShift}}, ActionID: commands.ActionFocusPreviousPanel},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "H"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": -1}},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "Left"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": -1}},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "L"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": 1}},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "Right"}}, ActionID: commands.ActionFocusDirection, Values: map[string]any{"direction": 1}},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "W"}}, ActionID: commands.ActionFocusNextPanel},
+		{Sequence: []KeyStroke{{Key: "W", Mods: ModCtrl}, {Key: "W", Mods: ModShift}}, ActionID: commands.ActionFocusPreviousPanel},
 	}
 }

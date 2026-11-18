@@ -231,7 +231,7 @@ func TestWorkbenchFocusBindingsAreOwnedByKeybindings(t *testing.T) {
 	for i, direction := range []int{-1, -1, 1, 1} {
 		binding := vim[i]
 		if binding.ActionID != commands.ActionFocusDirection || binding.Values["direction"] != direction ||
-			len(binding.Sequence) != 2 || binding.Sequence[0] != (KeyStroke{Key: "W", Mods: ModPrimary}) {
+			len(binding.Sequence) != 2 || binding.Sequence[0] != (KeyStroke{Key: "W", Mods: ModCtrl}) {
 			t.Fatalf("Vim focus direction binding[%d] = %+v", i, binding)
 		}
 	}
