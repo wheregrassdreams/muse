@@ -15,13 +15,27 @@ func (c *Controller) AddColumnRight(host Host, lineStart int) (bool, error) {
 	if !ok || len(view.Lines) == 0 {
 		return false, nil
 	}
-	snapshot := mdedit.ParseSource(view.Source)
-	table, ok := snapshot.TableAt(text.Offset(view.LineStart))
+	at, ok := tableContentAnchor(view)
 	if !ok {
 		return false, nil
 	}
-	plan, ok := snapshot.InsertTableColumn(text.Offset(view.LineStart), len(table.Lines[0].Cells))
+	// Give the parser a line boundary at EOF so its table range includes a
+	// final row that has no trailing newline.
+	plannerSource := view.Source
+	if !strings.HasSuffix(plannerSource, "\n") {
+		if strings.HasSuffix(plannerSource, "\r") || strings.Contains(plannerSource, "\r\n") {
+			plannerSource += "\r\n"
+		} else {
+			plannerSource += "\n"
+		}
+	}
+	snapshot := mdedit.ParseSource(plannerSource)
+	table, ok := snapshot.TableAt(at)
 	if !ok {
+		return false, nil
+	}
+	plan, ok := snapshot.InsertTableColumn(at, len(table.Lines[0].Cells))
+	if !ok || !minimizeTableLineEdits(view, &plan) {
 		return false, nil
 	}
 	tx := editor.TransactionFromPlan(plan, host.TextSelection())
@@ -35,18 +49,140 @@ func (c *Controller) AddRowBelow(host Host, lineStart int) (bool, error) {
 	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 {
 		return false, nil
 	}
-	snapshot := mdedit.ParseSource(view.Source)
-	table, ok := snapshot.TableAt(text.Offset(view.LineStart))
-	if !ok || len(table.Lines) < 2 {
-		return false, nil
-	}
-	plan, ok := snapshot.InsertTableRow(text.Offset(view.LineStart), len(table.Lines)-1)
+	at, ok := tableContentAnchor(view)
 	if !ok {
 		return false, nil
 	}
+	snapshot := mdedit.ParseSource(view.Source)
+	table, ok := snapshot.TableAt(at)
+	if !ok || len(table.Lines) < 2 {
+		return false, nil
+	}
+	plan, ok := snapshot.InsertTableRow(at, len(table.Lines)-1)
+	if !ok || len(plan.Edits) != 1 {
+		return false, nil
+	}
+	lastLine := view.Lines[len(view.Lines)-1].Range
+	edit := &plan.Edits[0]
+	oldEnd := int(edit.Range.To)
+	oldStart := int(edit.Range.From)
+	if oldEnd < oldStart || oldEnd-oldStart > 2 || oldStart > lastLine.End {
+		return false, nil
+	}
+	// The syntax projection may stop at the last text node (before trailing
+	// cell padding and pipe). Reanchor the planner's final-row insertion to the
+	// host's complete source line, preserving a real line ending if it consumed
+	// one.
+	edit.Range = text.Range{From: text.Offset(lastLine.End), To: text.Offset(lastLine.End + oldEnd - oldStart)}
+	if view.ContinuationPrefix != "" {
+		rowStart := 0
+		if strings.HasPrefix(edit.Insert, "\r\n") {
+			rowStart = 2
+		} else if strings.HasPrefix(edit.Insert, "\n") {
+			rowStart = 1
+		}
+		row := edit.Insert[rowStart:]
+		if strings.HasPrefix(row, table.Prefix) {
+			row = view.ContinuationPrefix + row[len(table.Prefix):]
+		} else {
+			row = view.ContinuationPrefix + row
+		}
+		edit.Insert = edit.Insert[:rowStart] + row
+	}
+	selection := text.Cursor(text.Offset(int(edit.Range.From) + len(edit.Insert)))
+	plan.Selection = &selection
 	tx := editor.TransactionFromPlan(plan, host.TextSelection())
 	err := host.Apply(tx)
 	return err == nil, err
+}
+
+// tableContentAnchor is a source position within a parsed table cell. The
+// Markdown AST's table range begins at its first text node, which may be after
+// the leading pipe and cell padding, so the table's first line offset is not
+// necessarily a valid lookup position.
+func tableContentAnchor(view DocumentView) (text.Offset, bool) {
+	for _, row := range view.Rows {
+		for _, cell := range row {
+			if cell.Start < cell.End {
+				return text.Offset(cell.Start), true
+			}
+		}
+	}
+	// AddColumnRight only needs parser-projected line/pipe positions. Some
+	// callers do not need the rendered cell ranges and omit Rows entirely.
+	for lineIndex, line := range view.Lines {
+		if lineIndex == 1 { // skip the GFM delimiter row when possible
+			continue
+		}
+		if at, ok := contentInTableLine(view.Source, line); ok {
+			return text.Offset(at), true
+		}
+	}
+	if len(view.Lines) > 1 {
+		if at, ok := contentInTableLine(view.Source, view.Lines[1]); ok {
+			return text.Offset(at), true
+		}
+	}
+	return 0, false
+}
+
+func contentInTableLine(source string, line LineView) (int, bool) {
+	if line.Range.Start < 0 || line.Range.End < line.Range.Start || line.Range.End > len(source) {
+		return 0, false
+	}
+	start := line.Range.Start
+	for _, pipe := range line.Pipes {
+		if pipe < start || pipe >= line.Range.End {
+			return 0, false
+		}
+		if at, ok := firstTableContent(source, start, pipe); ok {
+			return at, true
+		}
+		start = pipe + 1
+	}
+	return firstTableContent(source, start, line.Range.End)
+}
+
+func firstTableContent(source string, start, end int) (int, bool) {
+	for start < end {
+		switch source[start] {
+		case ' ', '\t', '>':
+			start++
+		default:
+			return start, true
+		}
+	}
+	return 0, false
+}
+
+func minimizeTableLineEdits(view DocumentView, plan *mdedit.Plan) bool {
+	if plan == nil || len(plan.Edits) != len(view.Lines) {
+		return false
+	}
+	edits := make([]text.Edit, len(plan.Edits))
+	for i, edit := range plan.Edits {
+		line := view.Lines[i].Range
+		if line.Start < 0 || line.End < line.Start || line.End > len(view.Source) ||
+			int(edit.Range.From) != line.Start || int(edit.Range.To) != line.End {
+			return false
+		}
+		original := view.Source[line.Start:line.End]
+		prefix := 0
+		for prefix < len(original) && prefix < len(edit.Insert) && original[prefix] == edit.Insert[prefix] {
+			prefix++
+		}
+		suffix := 0
+		for suffix < len(original)-prefix && suffix < len(edit.Insert)-prefix &&
+			original[len(original)-1-suffix] == edit.Insert[len(edit.Insert)-1-suffix] {
+			suffix++
+		}
+		edits[i] = text.Edit{
+			Range:  text.Range{From: text.Offset(line.Start + prefix), To: text.Offset(line.End - suffix)},
+			Insert: edit.Insert[prefix : len(edit.Insert)-suffix],
+		}
+	}
+	plan.Edits = edits
+	return true
 }
 
 // InsertRowAfter inserts a blank row after a displayed row and returns the
@@ -83,7 +219,8 @@ func (c *Controller) InsertRowAfter(host Host, lineStart, row, column int) (bool
 		rowStart++
 	}
 	caret := rowStart + len(table.Prefix) + 2 + column*4
-	plan.Selection = text.Cursor(text.Offset(caret))
+	selection := text.Cursor(text.Offset(caret))
+	plan.Selection = &selection
 	tx := editor.TransactionFromPlan(plan, host.TextSelection())
 	err := host.Apply(tx)
 	return err == nil, caret, err
