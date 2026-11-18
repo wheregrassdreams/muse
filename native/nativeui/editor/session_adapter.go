@@ -58,12 +58,18 @@ func (e *Editor) drainSessionChanges() {
 		return
 	}
 	for _, change := range changes {
-		if e.p.Source() != change.BeforeSource || change.Kind == editormodel.ChangeReplaceSource || len(change.Edits) == 0 && change.BeforeSource != change.AfterSource {
-			e.resetParserForSource(change.AfterSource)
+		if change.Kind == editormodel.ChangeSelection {
+			continue
+		}
+		if change.Kind == editormodel.ChangeReplaceSource || e.parserRevision != change.BeforeRevision {
+			e.resetParserForChange(e.Session.Source(), e.Session.Revision())
 			continue
 		}
 		ok := true
-		for _, edit := range change.Edits {
+		// Edits address the transaction's original source. Apply right to left
+		// so replacing a later range cannot shift an earlier range.
+		for i := len(change.Edits) - 1; i >= 0; i-- {
+			edit := change.Edits[i]
 			if edit.Range.Start < 0 || edit.Range.End < edit.Range.Start || edit.Range.End > len(e.p.Source()) {
 				ok = false
 				break
@@ -73,13 +79,19 @@ func (e *Editor) drainSessionChanges() {
 				break
 			}
 		}
-		if !ok || e.p.Source() != change.AfterSource {
-			e.resetParserForSource(change.AfterSource)
+		if !ok {
+			e.resetParserForChange(e.Session.Source(), e.Session.Revision())
+			continue
 		}
+		e.parserRevision = change.Revision
 	}
 }
 
 func (e *Editor) resetParserForSource(source string) {
+	e.resetParserForChange(source, e.Session.Revision())
+}
+
+func (e *Editor) resetParserForChange(source string, revision uint64) {
 	frontmatterEnd := sourceModelFrontmatterEnd(source)
 	var imageInlines []syntax.IncrementalInline
 	if frontmatterEnd == 0 {
@@ -87,6 +99,7 @@ func (e *Editor) resetParserForSource(source string) {
 	}
 	e.p.Set(source, frontmatterEnd, imageInlines)
 	e.pending, e.pendingMulti = nil, false
+	e.parserRevision = revision
 }
 
 func sourceModelFrontmatterEnd(source string) int {

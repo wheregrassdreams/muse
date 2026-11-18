@@ -25,14 +25,16 @@ import (
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
 	"muse/markdown/syntax"
-	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
-	media "muse/nativeui/workbench/features/editor/blocks/media"
-	tableui "muse/nativeui/workbench/features/editor/blocks/table"
-	"muse/nativeui/workbench/features/editor/feedback"
-	"muse/nativeui/workbench/features/editor/ime"
-	"muse/nativeui/workbench/features/editor/navigationrail"
-	"muse/nativeui/workbench/features/editor/render"
-	"muse/nativeui/workbench/features/editor/textlayout"
+	inlineui "muse/nativeui/editor/blocks/inline"
+	media "muse/nativeui/editor/blocks/media"
+	tableui "muse/nativeui/editor/blocks/table"
+	"muse/nativeui/editor/feedback"
+	"muse/nativeui/editor/ime"
+	editornavigation "muse/nativeui/editor/navigation"
+	"muse/nativeui/editor/navigationrail"
+	editorprojection "muse/nativeui/editor/projection"
+	"muse/nativeui/editor/render"
+	"muse/nativeui/editor/textlayout"
 	"muse/ui/scrollbar"
 	vaultlinks "muse/vault/links"
 )
@@ -246,15 +248,16 @@ type Editor struct {
 	// arena holds the leaves of the parse before and the one being built:
 	// a leaf the edit did not change keeps its view, so the leaves of the
 	// parse before have to stay whole while the next is built.
-	arena    [2]leafArena
-	arenaCur int
+	arena              [2]leafArena
+	arenaCur           int
+	documentProjection editorprojection.Projector
 	// leafSrc is the source the leaves were built from, which an edit has
 	// usually moved on from by the time they are compared with the next.
 	leafSrc string
 	// leafComment is the comment the leaves were built for: a comment's own
 	// leaves are dropped from the layout unless the caret is in it, and the
 	// caret moving in or out rebuilds the leaves (never the parse).
-	leafComment   cmt
+	leafComment   source.Comment
 	leafCommentOK bool
 	// pending is the one source edit not yet given to the parser;
 	// pendingMulti says a committed step changed more than one range, which
@@ -263,16 +266,18 @@ type Editor struct {
 	pendingMulti bool
 	// parsed is the source revision the leaves reflect.
 	parsed uint64
+	// parserRevision is the source revision currently held by p. It is advanced
+	// from committed text-engine deltas, independently of layout's parsed rev.
+	parserRevision uint64
 
 	smoothCursorNavigation bool
 	feedbackState          feedback.Handle
-	vimImageRow            *vimImageRowCaret
+	vimImageRows           media.VirtualImageRows
 	block                  *blockSelection
 	blockAnchorOffset      int
 	blockInput             *blockInput
 	graphemeCache          textnav.GraphemeBoundaryCache
-	wordIndexCache         []*displayWordIndex
-	wordIndexCacheCost     int
+	wordIndexCache         editornavigation.WordIndexCache
 	// tableSelection owns table-cell presentation. anchor/caret retain the
 	// document range, whose outside-table text and table structure are projected
 	// independently.
@@ -436,6 +441,12 @@ type Editor struct {
 	railDesc    string
 	railTextRev uint64
 	railTextIdx int
+}
+
+// wordsForDisplay keeps a small feature-owned cache of immutable navigation
+// indexes. The index semantics themselves live in the navigation subsystem.
+func (e *Editor) wordsForDisplay(text string) *editornavigation.WordIndex {
+	return e.wordIndexCache.Get(text)
 }
 
 // SetMathRenderer installs the presentation adapter used to paint math
@@ -648,7 +659,7 @@ func (e *Editor) ResetForDocumentOpen() {
 	e.railLeaves, e.railNext = nil, nil
 	e.railText, e.railDesc = "", ""
 	e.railTextRev, e.railTextIdx = 0, 0
-	e.wordIndexCache, e.wordIndexCacheCost = nil, 0
+	e.wordIndexCache.Reset()
 	e.tableEdgeIndex = nil
 	e.typographyCache.Clear()
 	e.virtualIndex.Release()
@@ -657,6 +668,7 @@ func (e *Editor) ResetForDocumentOpen() {
 	e.unitIndexCache.first, e.unitIndexCache.valid = nil, false
 	e.arena[0].release()
 	e.arena[1].release()
+	e.documentProjection.Release()
 	e.clearTableVirtualEdit()
 	e.inlineMath.SetPreviewHidden(false)
 	e.clearVimImageRow()
@@ -697,7 +709,7 @@ func (e *Editor) sync() {
 		// The caret may have moved into or out of a comment: the leaves are
 		// built for the comment it is in (its own show, the others do not),
 		// so that a caret moving there rebuilds leaves, not the parse.
-		if f, ok := commentAt(e.p.Comments(), e.Caret()); ok != e.leafCommentOK || (ok && f != e.leafComment) {
+		if f, ok := source.FindComment(e.p.Comments(), e.Caret()); ok != e.leafCommentOK || (ok && f != e.leafComment) {
 			e.parsed = invalidParsedRevision
 		} else {
 			return
@@ -732,8 +744,7 @@ func (e *Editor) sync() {
 	e.pending, e.pendingMulti = nil, false
 	old := e.leaves
 	e.arenaCur ^= 1
-	e.leaves = buildLeaves(e.Source(), e.p.Parser(), e.p.FrontmatterEnd(), &e.arena[e.arenaCur])
-	e.leaves = addBlankLeaves(&e.arena[e.arenaCur], e.Source(), e.leaves)
+	e.leaves = buildLeaves(e.Source(), e.p.Parser(), e.p.FrontmatterEnd(), &e.arena[e.arenaCur], &e.documentProjection)
 	if e.opts.HideFrontmatter {
 		hideFMEnd := hideFrontMatterEnd(e.Source())
 		if hideFMEnd > 0 {
@@ -779,7 +790,7 @@ func (e *Editor) sync() {
 	// phantom — and the comment shows when the caret is in it.
 	if len(e.p.Comments()) > 0 {
 		kept := e.leaves[:0]
-		e.leafComment, e.leafCommentOK = commentAt(e.p.Comments(), e.Caret())
+		e.leafComment, e.leafCommentOK = source.FindComment(e.p.Comments(), e.Caret())
 		for _, l := range e.leaves {
 			if e.insideComment(l.start, l.end) {
 				continue
@@ -894,7 +905,7 @@ func (e *Editor) insideComment(start, end int) bool {
 }
 
 // touchesComment reports whether the edit range reached a comment.
-func touchesComment(cmts []cmt, from, to int) bool {
+func touchesComment(cmts []source.Comment, from, to int) bool {
 	for _, c := range cmts {
 		if from <= c.End && to >= c.Start {
 			return true
@@ -1111,7 +1122,7 @@ func (e *Editor) SelectedText() string {
 		if s := e.tableSelection; s != nil {
 			if t := e.tableSelectionLeaf(); t != nil {
 				if r := e.tableRegisterForSelection(t, s); r != nil {
-					return r.markdown()
+					return r.Markdown()
 				}
 			}
 		}
@@ -1120,8 +1131,8 @@ func (e *Editor) SelectedText() string {
 	for _, part := range e.selectionParts() {
 		if part.structure != nil {
 			t := e.tableByLineStart(part.structure.lineStart)
-			if reg := e.tableRegisterForSelection(t, part.structure); reg != nil && reg.region && part.structure.axis != tableWhole {
-				selected.WriteString(reg.markdown())
+			if reg := e.tableRegisterForSelection(t, part.structure); reg != nil && reg.Region() && part.structure.axis != tableWhole {
+				selected.WriteString(reg.Markdown())
 				continue
 			}
 		}
@@ -1218,7 +1229,7 @@ func (e *Editor) setCaret(off int, extend bool) {
 		// navigation moves the source caret, later puts resolve from that caret.
 		e.clearTableVirtualEdit()
 	}
-	if e.vimImageRow != nil && off != e.vimImageRow.lineStart {
+	if state, ok := e.vimImageRowState(); ok && off != state.LineStart {
 		e.clearVimImageRow()
 	}
 	if e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeNormal && !extend {

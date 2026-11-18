@@ -24,9 +24,13 @@ func TestSessionChangeHookObservesCommittedStateOutsideLock(t *testing.T) {
 	var changes []Change
 	s.SetChangeHook(func(change Change) {
 		// Reading through the public API from the hook must not deadlock and
-		// must see the already-committed source revision.
-		if got := s.Source(); got != change.AfterSource {
-			t.Errorf("hook observed source %q, want committed source %q", got, change.AfterSource)
+		// must see the already-committed source revision. Ordinary changes carry
+		// deltas, avoiding a full-document copy in the hot path.
+		if got := s.Revision(); got < change.Revision {
+			t.Errorf("hook observed revision %d, want committed revision at least %d", got, change.Revision)
+		}
+		if change.Kind == ChangeReplaceSource && s.Source() != change.AfterSource {
+			t.Errorf("replacement hook observed source %q, want %q", s.Source(), change.AfterSource)
 		}
 		changes = append(changes, change)
 	})
@@ -59,7 +63,7 @@ func TestSessionChangeHookObservesCommittedStateOutsideLock(t *testing.T) {
 			t.Errorf("change %d kind = %v, want %v", i, changes[i].Kind, kind)
 		}
 	}
-	if changes[1].BeforeSource != "abc" || changes[1].AfterSource != "aXbc" || changes[1].Revision != 1 {
+	if changes[1].BeforeSource != "" || changes[1].AfterSource != "" || changes[1].BeforeRevision != 0 || changes[1].Revision != 1 {
 		t.Fatalf("edit change does not describe the committed transaction: %+v", changes[1])
 	}
 	if len(changes[1].Edits) != 1 || changes[1].Edits[0] != (TextEdit{Range: TextRange{Start: 1, End: 1}, Text: "X"}) {
@@ -104,7 +108,7 @@ func TestSessionHistoryParticipantRestoresTypedSnapshots(t *testing.T) {
 	}
 }
 
-func TestSessionTypingCoalescingAndWordBoundary(t *testing.T) {
+func TestSessionTypingCoalescingTreatsWhitespaceLikeOtherText(t *testing.T) {
 	s := NewSession("")
 	start := time.Now()
 	insert := func(text string, at int, now time.Time) {
@@ -127,14 +131,8 @@ func TestSessionTypingCoalescingAndWordBoundary(t *testing.T) {
 	if _, err := s.Undo(); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.Source(); got != "a " {
-		t.Fatalf("undo crossed a word boundary: source=%q, want %q", got, "a ")
-	}
-	if _, err := s.Undo(); err != nil {
-		t.Fatal(err)
-	}
 	if got := s.Source(); got != "" {
-		t.Fatalf("coalesced typing undo left source %q, want empty", got)
+		t.Fatalf("one coalesced typing undo left source %q, want empty", got)
 	}
 }
 

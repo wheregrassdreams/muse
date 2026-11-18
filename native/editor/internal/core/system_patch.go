@@ -2,18 +2,19 @@ package core
 
 import (
 	"fmt"
-	"strings"
-	"time"
+
+	"github.com/wheregrassdreams/muse-editor/text"
 )
 
 // SystemPatch is one minimal source replacement and its selection transition.
 // It can be planned before a UI adapter adjusts feature-owned ranges, then
-// committed atomically to the Session.
+// committed atomically to the text engine.
 type SystemPatch struct {
 	BeforeSource string
 	Edit         TextEdit
 	Before       Selection
 	After        Selection
+	Policy       text.SystemPatchPolicy
 }
 
 // PlanSystemPatch computes a rune-aligned replacement from source to target.
@@ -40,14 +41,14 @@ func PlanSystemPatch(source, target string, selection Selection) (SystemPatch, b
 	for newEnd < len(target) && !runeBoundary(target, newEnd) {
 		newEnd++
 	}
-	text := target[from:newEnd]
-	delta := len(text) - (oldEnd - from)
+	insert := target[from:newEnd]
+	delta := len(insert) - (oldEnd - from)
 	mapOffset := func(offset int) int {
 		switch {
 		case offset >= oldEnd:
 			return offset + delta
 		case offset > from:
-			return from + len(text)
+			return from + len(insert)
 		default:
 			return offset
 		}
@@ -57,9 +58,10 @@ func PlanSystemPatch(source, target string, selection Selection) (SystemPatch, b
 	after.Head = mapOffset(selection.Head)
 	return SystemPatch{
 		BeforeSource: source,
-		Edit:         TextEdit{Range: TextRange{Start: from, End: oldEnd}, Text: text},
+		Edit:         TextEdit{Range: TextRange{Start: from, End: oldEnd}, Text: insert},
 		Before:       selection,
 		After:        after,
+		Policy:       text.SystemPatchFoldIntoPrevious,
 	}, true
 }
 
@@ -69,71 +71,71 @@ func (s *Session) PlanSystemPatch(target string) (SystemPatch, bool) {
 	if s == nil {
 		return SystemPatch{}, false
 	}
-	s.mu.RLock()
-	patch, ok := PlanSystemPatch(s.src, target, s.selectionLocked())
-	s.mu.RUnlock()
-	return patch, ok
+	return PlanSystemPatch(s.Source(), target, s.Selection())
 }
 
-// ApplySystemPatch commits a system-owned source change without adding a
-// separate user-visible undo item. The patch is folded into the previous user
-// history step; if no such step exists, the system change remains the baseline.
+// ApplySystemPatch delegates source correction and history policy to the text
+// engine. The adapter only validates the plan against the current revision and
+// publishes the resulting delta to the parser/projection layer.
 func (s *Session) ApplySystemPatch(patch SystemPatch, beforeMetadata, afterMetadata HistorySnapshot) (DispatchResult, error) {
 	if s == nil {
 		return DispatchResult{}, fmt.Errorf("nil editor session")
 	}
 	s.editMu.Lock()
-	s.mu.Lock()
-	if s.src != patch.BeforeSource || s.selectionLocked() != patch.Before {
-		s.mu.Unlock()
+	state := s.engine.Snapshot()
+	before := s.Selection()
+	if state.Text() != patch.BeforeSource || before != patch.Before {
 		s.editMu.Unlock()
 		return DispatchResult{}, fmt.Errorf("system patch is stale")
 	}
-	tx := Transaction{Edits: []TextEdit{patch.Edit}, Before: patch.Before, After: patch.After}
-	if err := validateTransactionSource(s.src, tx); err != nil {
-		s.mu.Unlock()
+	if err := validateTransactionSource(patch.BeforeSource, Transaction{
+		Before: patch.Before,
+		After:  patch.After,
+		Edits:  []TextEdit{patch.Edit},
+	}); err != nil {
 		s.editMu.Unlock()
 		return DispatchResult{}, err
 	}
-	if patch.Edit.Range.Start == patch.Edit.Range.End && patch.Edit.Text == "" {
-		revision := s.rev
-		s.mu.Unlock()
+	metadataBefore := historyMetadataWithSelection(s.historyMetadata(beforeMetadata), patch.Before)
+	metadataAfter := historyMetadataWithSelection(s.historyMetadata(afterMetadata), patch.After)
+	selection := text.NewSelection(text.Offset(patch.After.Anchor), text.Offset(patch.After.Head))
+	policy := patch.Policy
+	if policy == 0 {
+		policy = text.SystemPatchFoldIntoPrevious
+	}
+	result, err := s.engine.ApplySystemPatch(text.SystemPatch{
+		Edits: []text.Edit{{
+			Range:  text.Range{From: text.Offset(patch.Edit.Range.Start), To: text.Offset(patch.Edit.Range.End)},
+			Insert: patch.Edit.Text,
+		}},
+		Selection:     &selection,
+		Policy:        policy,
+		HistoryBefore: metadataBefore,
+		HistoryAfter:  metadataAfter,
+	})
+	if err != nil {
 		s.editMu.Unlock()
-		return DispatchResult{Handled: true, Revision: revision}, nil
+		return DispatchResult{}, err
 	}
-	beforeSource := s.src
-	old := s.src[patch.Edit.Range.Start:patch.Edit.Range.End]
-	s.src = strings.Clone(s.src[:patch.Edit.Range.Start] + patch.Edit.Text + s.src[patch.Edit.Range.End:])
-	s.setSelection(patch.After)
-	s.rev++
-	s.redo = nil
-	step := sessionStep{
-		edits:          []historyEdit{{at: patch.Edit.Range.Start, old: old, new: patch.Edit.Text}},
-		before:         patch.Before,
-		after:          patch.After,
-		group:          HistoryGroupExplicit,
-		at:             time.Now(),
-		closed:         true,
-		beforeMetadata: cloneHistorySnapshot(beforeMetadata),
-		afterMetadata:  cloneHistorySnapshot(afterMetadata),
-	}
-	if n := len(s.undo); n > 0 {
-		mergeHistoryStep(&s.undo[n-1], step)
-		s.undo[n-1].group = HistoryGroupExplicit
-		s.undo[n-1].closed = true
-	}
-	change := Change{
-		Kind:         ChangeEdit,
-		BeforeSource: beforeSource,
-		AfterSource:  s.src,
-		Before:       patch.Before,
-		After:        patch.After,
-		Revision:     s.rev,
-		Edits:        []TextEdit{patch.Edit},
-	}
-	revision := s.rev
+	s.mu.Lock()
+	s.selectionInclusive, s.selectionLinewise = patch.After.Inclusive, patch.After.Linewise
+	s.cacheValid = false
 	s.mu.Unlock()
+	after := s.Selection()
 	s.editMu.Unlock()
+	change := Change{
+		Kind:           ChangeEdit,
+		BeforeRevision: state.Revision(),
+		Revision:       result.State.Revision(),
+		Before:         before,
+		After:          after,
+		Edits:          []TextEdit{patch.Edit},
+	}
 	s.notifyChange(change)
-	return DispatchResult{Handled: true, Changed: true, SelectionChanged: patch.Before != patch.After, Revision: revision}, nil
+	return DispatchResult{
+		Handled:          true,
+		Changed:          true,
+		SelectionChanged: before != after,
+		Revision:         result.State.Revision(),
+	}, nil
 }
