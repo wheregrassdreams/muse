@@ -21,6 +21,10 @@ if rg -n '^package nativeui$' native/nativeui --glob '*.go' | rg -v '^native/nat
   fail "nativeui child directories contain files that masquerade as the parent package"
 fi
 
+if rg -n '"muse/nativeui/workbench/(commands|context|focus|keybindings|dragpayload)"' native --glob '*.go'; then
+  fail "obsolete workbench interaction or drag payload package imports remain"
+fi
+
 if rg -n '\b(documentdialogs|commandpalette|filetree|findreplaceui|naviconpicker|outlineui|propertypanel|searchui|settingsui|agentpanel)\.State\b' native/nativeui/app.go; then
   fail "nativeui.App retains concrete panel/component state instead of handles"
 fi
@@ -168,10 +172,10 @@ for package in \
   native/ui/scrollbar \
   native/ui/iconlibrary \
   native/nativeui \
-  native/nativeui/workbench/commands \
-  native/nativeui/workbench/context \
-  native/nativeui/workbench/focus \
-  native/nativeui/workbench/keybindings \
+  native/nativeui/workbench/interactions/commands \
+  native/nativeui/workbench/interactions/context \
+  native/nativeui/workbench/interactions/focus \
+  native/nativeui/workbench/interactions/keybindings \
   native/nativeui/workbench/dragdrop \
   native/nativeui/workbench/diagnostics \
   native/nativeui/workbench/hosting \
@@ -181,7 +185,7 @@ for package in \
   native/nativeui/workbench/features/editor/session \
   native/nativeui/workbench/features/editor/navigation \
   native/nativeui/workbench/features/editor/textlayout \
-  native/nativeui/workbench/features/markdown \
+  native/nativeui/workbench/rendering/markdown \
   native/nativeui/workbench/features/dialogs/document \
   native/nativeui/workbench/features/linkpreview \
   native/nativeui/workbench/features/editor/surface \
@@ -195,7 +199,7 @@ for package in \
   native/nativeui/workbench/features/search \
   native/nativeui/workbench/features/commandpalette \
   native/nativeui/workbench/features/naviconpicker \
-  native/nativeui/workbench/features/workspace \
+  native/nativeui/workbench/features/vaulthome \
   native/nativeui/workbench/features/properties \
   native/nativeui/workbench/features/agent \
   native/nativeui/workbench/features/settings \
