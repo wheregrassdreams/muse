@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"muse/platform/filesystem/atomicfile"
 	"muse/workspace"
 )
 
@@ -77,28 +78,8 @@ func (s *Store) Save(state workspace.State) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".workspace-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, s.path)
+	_, err = atomicfile.Write(s.path, ".workspace-*.tmp", data, 0o600)
+	return err
 }
 
 type legacyState struct {

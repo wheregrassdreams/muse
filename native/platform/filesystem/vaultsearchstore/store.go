@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/gofrs/flock"
+	"muse/platform/filesystem/atomicfile"
 	"muse/search"
 )
 
@@ -83,29 +84,9 @@ func (f *Filesystem) WriteAtomic(relative string, data []byte, perm fs.FileMode)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".manifest-*.tmp")
+	stage, err := atomicfile.Write(path, ".manifest-*.tmp", data, perm)
 	if err != nil {
-		return fmt.Errorf("create temporary file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("set temporary file mode: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temporary file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync temporary file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temporary file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace file: %w", err)
+		return fmt.Errorf("%s: %w", stage, err)
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	workspaceapp "muse/application/workspace"
+	"muse/platform/filesystem/atomicfile"
 )
 
 type Store struct{ path string }
@@ -56,28 +57,8 @@ func (s *Store) Save(entries []workspaceapp.RecentEntry) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".recent-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, s.path)
+	_, err = atomicfile.Write(s.path, ".recent-*.tmp", data, 0o600)
+	return err
 }
 
 func (s *Store) Exists(path string) bool {

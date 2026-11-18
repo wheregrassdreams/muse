@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"muse/platform/filesystem/atomicfile"
 )
 
 const fileMode = 0o600
@@ -62,29 +64,15 @@ func (s *Store) SaveVault(vaultRoot string, icons map[string]string) error {
 		return fmt.Errorf("naviconstore: encode: %w", err)
 	}
 	file := filepath.Join(s.dir, key+".json")
-	tmp, err := os.CreateTemp(s.dir, ".navicons-*.tmp")
+	stage, err := atomicfile.Write(file, ".navicons-*.tmp", data, fileMode)
 	if err != nil {
-		return fmt.Errorf("naviconstore: create temporary file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(fileMode); err != nil {
-		_ = tmp.Close()
+		switch stage {
+		case atomicfile.CreateTemp:
+			return fmt.Errorf("naviconstore: create temporary file: %w", err)
+		case atomicfile.RenameFile:
+			return fmt.Errorf("naviconstore: publish store: %w", err)
+		}
 		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, file); err != nil {
-		return fmt.Errorf("naviconstore: publish store: %w", err)
 	}
 	return nil
 }

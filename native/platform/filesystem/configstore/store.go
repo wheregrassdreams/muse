@@ -10,6 +10,7 @@ import (
 
 	applicationconfig "muse/application/config"
 	"muse/config"
+	"muse/platform/filesystem/atomicfile"
 )
 
 type Store struct {
@@ -144,26 +145,6 @@ func (s *Store) write(name string, data []byte) error {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(s.root, ".config-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmp := file.Name()
-	defer os.Remove(tmp)
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(s.root, name))
+	_, err := atomicfile.Write(filepath.Join(s.root, name), ".config-*.tmp", data, 0o600)
+	return err
 }

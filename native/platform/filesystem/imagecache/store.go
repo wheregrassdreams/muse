@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"muse/platform/filesystem/atomicfile"
 )
 
 var validKey = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -33,28 +35,8 @@ func (s *Store) Write(key string, data []byte) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return fmt.Errorf("imagecache: create cache directory: %w", err)
 	}
-	tmp, err := os.CreateTemp(s.dir, ".image-*.tmp")
-	if err != nil {
-		return err
-	}
-	path := tmp.Name()
-	defer os.Remove(path)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(path, filepath.Join(s.dir, key))
+	_, err := atomicfile.Write(filepath.Join(s.dir, key), ".image-*.tmp", data, 0o600)
+	return err
 }
 
 func (s *Store) Delete(key string) error {
