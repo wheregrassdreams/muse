@@ -1,6 +1,6 @@
 package input
 
-import "github.com/wheregrassdreams/muse-editor/text"
+import text "github.com/wheregrassdreams/muse-editor/text/input"
 
 type EventKind = text.EventKind
 

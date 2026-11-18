@@ -1,6 +1,6 @@
 package input
 
-import text "github.com/wheregrassdreams/muse-editor/text"
+import text "github.com/wheregrassdreams/muse-editor/text/input"
 
 // Key and KeyEvent use the editor engine's stable logical key contract.
 // Native toolkit normalization lives in muse-editor-mygo/inputadapter.
@@ -68,7 +68,7 @@ const (
 
 const (
 	ModShift   = text.ModShift
-	ModCtrl    = text.ModControl
+	ModCtrl    = text.ModCtrl
 	ModAlt     = text.ModAlt
-	ModCommand = text.ModMeta
+	ModCommand = text.ModCommand
 )
