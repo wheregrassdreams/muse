@@ -132,8 +132,6 @@ func TestVimHorizontalMotionFromBodyLicenseToHeaderSourceKeepsRow(t *testing.T) 
 	physicalVim(t, h, ui.KeyV, "V", ui.Shift)
 	for i := 0; i < 48; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
-		if i == 0 || i == 7 || i == 15 || i == 31 || i == 47 {
-		}
 	}
 }
 
@@ -163,8 +161,6 @@ func TestVimTextVisualHorizontalMotionFromBodyLicenseKeepsCellFocusConsistent(t 
 				t.Fatalf("h%d changed the lowercase-v anchor: %+v", i+1, s)
 			}
 		}
-		if i == 0 || i == 3 || i == 7 || i == 15 || i == 31 || i == 63 || i == 119 {
-		}
 		if i == 3 {
 			h.shot("body-license-v-leftmost-cell")
 		}
@@ -191,8 +187,6 @@ func TestNormalVimHorizontalMotionFromBodyLicense(t *testing.T) {
 	h.frame()
 	for i := 0; i < 80; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
-		if i == 0 || i == 7 || i == 15 || i == 31 || i == 47 || i == 63 || i == 79 {
-		}
 	}
 }
 
