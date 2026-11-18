@@ -3,9 +3,8 @@
 package editor
 
 import (
-	"sort"
-
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
+	mdtable "github.com/wheregrassdreams/muse-editor/markdown/table"
 	"github.com/wheregrassdreams/muse-editor/text/session"
 )
 
@@ -48,23 +47,5 @@ func NewSession(source string) *Session { return session.NewSession(source) }
 // Muse's atomic editor transaction. The plan selection wins when present;
 // otherwise the prior selection is mapped through the edits.
 func TransactionFromPlan(plan mdedit.Plan, before Selection) Transaction {
-	tx := Transaction{Before: before}
-	tx.Edits = make([]TextEdit, 0, len(plan.Edits))
-	for _, edit := range plan.Edits {
-		tx.Edits = append(tx.Edits, TextEdit{
-			Range: TextRange{Start: int(edit.Range.From), End: int(edit.Range.To)},
-			Text:  edit.Insert,
-		})
-	}
-	sort.SliceStable(tx.Edits, func(i, j int) bool {
-		if tx.Edits[i].Range.Start == tx.Edits[j].Range.Start {
-			return tx.Edits[i].Range.End < tx.Edits[j].Range.End
-		}
-		return tx.Edits[i].Range.Start < tx.Edits[j].Range.Start
-	})
-	tx.After = tx.MapSelection(before)
-	if plan.Selection != nil {
-		tx.After = Selection{Anchor: int(plan.Selection.Anchor), Head: int(plan.Selection.Head)}
-	}
-	return tx
+	return mdtable.TransactionFromPlan(plan, before)
 }
