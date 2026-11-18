@@ -1,49 +1,48 @@
-// Package editor exposes the backend-neutral editing session contract.
-// Source parsing, keymap input, navigation, and block policies live in focused
-// child modules; this package keeps the shared session and transaction API.
+// Package editor re-exports the standalone source-editor engine for Muse's
+// model and feature packages. Rendering and MyGo adaptation live in nativeui.
 package editor
 
 import (
 	"sort"
 
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
-	"muse/editor/internal/core"
+	"github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // Session is the authoritative editing buffer and history for one document.
-// Its implementation is backend-neutral and lives in editor/internal/core.
-type Session = core.Session
-type EditBatch = core.EditBatch
-type Selection = core.Selection
-type Transaction = core.Transaction
-type TextEdit = core.TextEdit
-type TextRange = core.TextRange
-type DispatchResult = core.DispatchResult
-type ChangeKind = core.ChangeKind
-type Change = core.Change
-type PresentationAdapter = core.PresentationAdapter
-type HistoryGroup = core.HistoryGroup
-type TransactionOptions = core.TransactionOptions
-type HistorySnapshot = core.HistorySnapshot
-type HistoryParticipant = core.HistoryParticipant
-type Frame = core.Frame
-type SystemPatch = core.SystemPatch
+// Its implementation lives in the independent muse-editor module.
+type Session = session.Session
+type EditBatch = session.EditBatch
+type Selection = session.Selection
+type Transaction = session.Transaction
+type TextEdit = session.TextEdit
+type TextRange = session.TextRange
+type DispatchResult = session.DispatchResult
+type ChangeKind = session.ChangeKind
+type Change = session.Change
+type PresentationAdapter = session.PresentationAdapter
+type HistoryGroup = session.HistoryGroup
+type TransactionOptions = session.TransactionOptions
+type HistorySnapshot = session.HistorySnapshot
+type HistoryParticipant = session.HistoryParticipant
+type Frame = session.Frame
+type SystemPatch = session.SystemPatch
 
 const (
-	ChangeSelection     = core.ChangeSelection
-	ChangeEdit          = core.ChangeEdit
-	ChangeUndo          = core.ChangeUndo
-	ChangeRedo          = core.ChangeRedo
-	ChangeReplaceSource = core.ChangeReplaceSource
+	ChangeSelection     = session.ChangeSelection
+	ChangeEdit          = session.ChangeEdit
+	ChangeUndo          = session.ChangeUndo
+	ChangeRedo          = session.ChangeRedo
+	ChangeReplaceSource = session.ChangeReplaceSource
 
-	HistoryGroupNone     = core.HistoryGroupNone
-	HistoryGroupTyping   = core.HistoryGroupTyping
-	HistoryGroupDelete   = core.HistoryGroupDelete
-	HistoryGroupExplicit = core.HistoryGroupExplicit
+	HistoryGroupNone     = session.HistoryGroupNone
+	HistoryGroupTyping   = session.HistoryGroupTyping
+	HistoryGroupDelete   = session.HistoryGroupDelete
+	HistoryGroupExplicit = session.HistoryGroupExplicit
 )
 
 // NewSession creates a backend-neutral editing session.
-func NewSession(source string) *Session { return core.NewSession(source) }
+func NewSession(source string) *Session { return session.NewSession(source) }
 
 // TransactionFromPlan converts a backend-neutral Markdown source plan into
 // Muse's atomic editor transaction. The plan selection wins when present;

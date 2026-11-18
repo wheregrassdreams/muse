@@ -1,49 +1,47 @@
 package input
 
-import "muse/editor/blocks/paragraph"
+import "github.com/wheregrassdreams/muse-editor/text"
 
-// OperationKind names editor semantics independently of any keymap or UI
-// toolkit. Adapters translate physical events into these intents.
-type OperationKind string
+type OperationKind = text.OperationKind
 
 const (
-	OperationBeginCharacterFind  OperationKind = "begin-character-find"
-	OperationFindCharacter       OperationKind = "find-character"
-	OperationRepeatCharacterFind OperationKind = "repeat-character-find"
-	OperationBeginReplace        OperationKind = "begin-replace"
-	OperationMoveHorizontal      OperationKind = "move-horizontal"
-	OperationPutRegister         OperationKind = "put-register"
-	OperationReplaceCharacter    OperationKind = "replace-character"
-	OperationBeginSearch         OperationKind = "begin-search"
-	OperationSubmitSearch        OperationKind = "submit-search"
-	OperationCancelSearch        OperationKind = "cancel-search"
-	OperationRepeatSearch        OperationKind = "repeat-search"
-	OperationScrollCaretLine     OperationKind = "scroll-caret-line"
-	OperationFoldAtCaret         OperationKind = "fold-at-caret"
-	OperationFoldAll             OperationKind = "fold-all"
-	OperationRevealCaret         OperationKind = "reveal-caret"
+	OperationBeginCharacterFind  = text.OperationBeginCharacterFind
+	OperationFindCharacter       = text.OperationFindCharacter
+	OperationRepeatCharacterFind = text.OperationRepeatCharacterFind
+	OperationBeginReplace        = text.OperationBeginReplace
+	OperationMoveHorizontal      = text.OperationMoveHorizontal
+	OperationPutRegister         = text.OperationPutRegister
+	OperationReplaceCharacter    = text.OperationReplaceCharacter
+	OperationBeginSearch         = text.OperationBeginSearch
+	OperationSubmitSearch        = text.OperationSubmitSearch
+	OperationCancelSearch        = text.OperationCancelSearch
+	OperationRepeatSearch        = text.OperationRepeatSearch
+	OperationScrollCaretLine     = text.OperationScrollCaretLine
+	OperationFoldAtCaret         = text.OperationFoldAtCaret
+	OperationFoldAll             = text.OperationFoldAll
+	OperationRevealCaret         = text.OperationRevealCaret
 )
 
-type CaretLinePlacement uint8
+type CaretLinePlacement = text.CaretLinePlacement
 
 const (
-	CaretLineTop CaretLinePlacement = iota + 1
-	CaretLineCenter
-	CaretLineBottom
+	CaretLineTop    = text.CaretLineTop
+	CaretLineCenter = text.CaretLineCenter
+	CaretLineBottom = text.CaretLineBottom
 )
 
-// Operation is a keymap-neutral editor intent. Fields unused by Kind are
-// ignored. It contains no input-device or presentation types.
-type Operation struct {
-	Kind       OperationKind
-	Count      int
-	Direction  int
-	Character  string
-	Till       bool
-	Reverse    bool
-	WithinLine bool
-	Extend     bool
-	Before     bool
-	Placement  CaretLinePlacement
-	Fold       paragraph.FoldOperation
-}
+type FoldOperation = text.FoldOperation
+
+const (
+	FoldToggle          = text.FoldToggle
+	FoldClose           = text.FoldClose
+	FoldOpen            = text.FoldOpen
+	FoldToggleRecursive = text.FoldToggleRecursive
+	FoldCloseRecursive  = text.FoldCloseRecursive
+	FoldOpenRecursive   = text.FoldOpenRecursive
+	FoldReveal          = text.FoldReveal
+	FoldCloseAll        = text.FoldCloseAll
+	FoldOpenAll         = text.FoldOpenAll
+)
+
+type Operation = text.Operation

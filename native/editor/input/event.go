@@ -1,27 +1,17 @@
 package input
 
-// EventKind names source-editing intents independently of a UI toolkit.
-type EventKind uint8
+import "github.com/wheregrassdreams/muse-editor/text"
+
+type EventKind = text.EventKind
 
 const (
-	InsertText EventKind = iota + 1
-	DeleteBackward
-	DeleteForward
-	MoveHorizontal
-	SetSelection
-	Undo
-	Redo
+	InsertText     = text.InsertText
+	DeleteBackward = text.DeleteBackward
+	DeleteForward  = text.DeleteForward
+	MoveHorizontal = text.MoveHorizontal
+	SetSelection   = text.SetSelection
+	Undo           = text.Undo
+	Redo           = text.Redo
 )
 
-// Event carries a keymap-neutral editing intent. Coordinates are UTF-8 byte
-// offsets into the current source snapshot.
-type Event struct {
-	Kind      EventKind
-	Text      string
-	Direction int
-	Extend    bool
-	Anchor    int
-	Head      int
-	Inclusive bool
-	Linewise  bool
-}
+type Event = text.Event

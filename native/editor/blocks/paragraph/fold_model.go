@@ -1,6 +1,10 @@
 package paragraph
 
-import "sort"
+import (
+	"sort"
+
+	editortext "github.com/wheregrassdreams/muse-editor/text"
+)
 
 // HeadingContentStart advances a parser-projected heading block end past its
 // optional CR and LF line-ending bytes. The returned value is a source byte
@@ -48,18 +52,18 @@ func (section FoldSection) Hides(folded bool, offset int) bool {
 
 // FoldOperation is a paragraph-owned folding intent. Input keymaps may
 // produce these values, but section and folded-state policy stays here.
-type FoldOperation uint8
+type FoldOperation = editortext.FoldOperation
 
 const (
-	FoldToggle FoldOperation = iota + 1
-	FoldClose
-	FoldOpen
-	FoldToggleRecursive
-	FoldCloseRecursive
-	FoldOpenRecursive
-	FoldReveal
-	FoldCloseAll
-	FoldOpenAll
+	FoldToggle          = editortext.FoldToggle
+	FoldClose           = editortext.FoldClose
+	FoldOpen            = editortext.FoldOpen
+	FoldToggleRecursive = editortext.FoldToggleRecursive
+	FoldCloseRecursive  = editortext.FoldCloseRecursive
+	FoldOpenRecursive   = editortext.FoldOpenRecursive
+	FoldReveal          = editortext.FoldReveal
+	FoldCloseAll        = editortext.FoldCloseAll
+	FoldOpenAll         = editortext.FoldOpenAll
 )
 
 // FoldResult is the detached state transition produced by one folding intent.
