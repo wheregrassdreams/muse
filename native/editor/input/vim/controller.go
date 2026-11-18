@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"muse/editor/input"
 )
 
 type Mode string
@@ -285,12 +283,12 @@ func (c *Controller) SetPending(prefix string, started time.Time) {
 }
 
 // Sequence returns the current multi-key sequence as a detached value.
-func (c *Controller) Sequence() input.Sequence {
+func (c *Controller) Sequence() Sequence {
 	if c == nil {
-		return input.Sequence{}
+		return Sequence{}
 	}
 	s := c.state
-	return input.Sequence{Count: s.Count, OperatorCount: s.OperatorCount, Pending: s.Pending, Linewise: s.Linewise}
+	return Sequence{Count: s.Count, OperatorCount: s.OperatorCount, Pending: s.Pending, Linewise: s.Linewise}
 }
 
 // feedSequenceText interprets count digits and Vim's g/z prefix commands.

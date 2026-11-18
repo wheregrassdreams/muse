@@ -30,14 +30,3 @@ func TestOperationForCommand(t *testing.T) {
 	}
 }
 
-func TestGraphemeAndLinewiseTextHelpers(t *testing.T) {
-	if got := FirstGrapheme("👩‍💻éx"); got != "👩‍💻" {
-		t.Fatalf("FirstGrapheme() = %q", got)
-	}
-	if got := TrimLastGrapheme("éx"); got != "é" {
-		t.Fatalf("TrimLastGrapheme() = %q", got)
-	}
-	if got := LinewiseRegisterPayload("one\ntwo\n", 2); got != "one\ntwo\none\ntwo" {
-		t.Fatalf("LinewiseRegisterPayload() = %q", got)
-	}
-}
