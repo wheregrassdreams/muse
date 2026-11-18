@@ -32,7 +32,6 @@ func TestPointerPlacedWrappedHeaderVJKeepsHeaderRowSelected(t *testing.T) {
 	h.frame()
 	table := documentTestTable(t, h.e)
 	_, row, col := cellAt(table, h.e.Caret())
-	t.Logf("pointer state: caret=%d cell=(%d,%d) textSelection=[%d,%d) modal=%s tableSelection=%+v", h.e.Caret(), row, col, h.e.Session.Selection().Anchor, h.e.Caret(), h.e.vimController().Mode(), h.e.tableSelection)
 	if row != 0 || col != 1 {
 		t.Fatalf("pointer landed at (%d,%d), expected header cell (0,1)", row, col)
 	}
@@ -40,12 +39,10 @@ func TestPointerPlacedWrappedHeaderVJKeepsHeaderRowSelected(t *testing.T) {
 	h.frame()
 	h.tt.Type("V")
 	h.frame()
-	t.Logf("V state: caret=%d anchor=%d mode=%s line=%v selection=%+v", h.e.Caret(), h.e.Session.Selection().Anchor, h.e.vimController().Mode(), h.e.vimController().View().Linewise, h.e.tableSelection)
 	h.tt.Key(0, ui.KeyJ)
 	h.frame()
 	h.tt.Type("j")
 	h.frame()
-	t.Logf("Vj state: caret=%d anchor=%d mode=%s line=%v selection=%+v ranges=%+v", h.e.Caret(), h.e.Session.Selection().Anchor, h.e.vimController().Mode(), h.e.vimController().View().Linewise, h.e.tableSelection, h.e.SelectionRanges())
 	s := h.e.tableSelection
 	if s == nil || s.axis != tableRows || s.first != 0 || s.last != 1 {
 		t.Fatalf("Vj from wrapped header omitted header row: %+v", s)
@@ -54,7 +51,6 @@ func TestPointerPlacedWrappedHeaderVJKeepsHeaderRowSelected(t *testing.T) {
 	h.frame()
 	h.tt.Type("k")
 	h.frame()
-	t.Logf("Vjk state: caret=%d anchor=%d mode=%s line=%v selection=%+v ranges=%+v", h.e.Caret(), h.e.Session.Selection().Anchor, h.e.vimController().Mode(), h.e.vimController().View().Linewise, h.e.tableSelection, h.e.SelectionRanges())
 	s = h.e.tableSelection
 	if s == nil || s.axis != tableRows || s.first != 0 || s.last != 0 {
 		t.Fatalf("Vjk did not shrink back to header row: %+v", s)

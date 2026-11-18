@@ -7,34 +7,6 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-func TestBlankAreaClickInTallLicenseCellPlacesCaretInThatCell(t *testing.T) {
-	src := "| Local file | Source page | Creator / source | License |\n| --- | --- | --- | --- |\n| `Attachments/landscape.webp` | [File:Webp (1).webp](https://commons.wikimedia.org/wiki/File:Webp_(1).webp) | Churchill Machine Tool Co. Ltd.; source: picryl.com | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |\n| another file | [File:A](https://example.test) | Public-domain artist | Public domain |"
-	h := &harness{t: t, e: New(src, Options{FontSize: 18, MaxWidth: 820, PadX: 32})}
-	h.e.SetKeymap("vim")
-	h.tt = ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Fill().Children(func() { h.e.View(c).Grow(1) })
-	}, 1040, 520)
-	h.frame()
-	h.e.Focus()
-	h.frame()
-	table := documentTestTable(t, h.e)
-	rowTop, rowBottom := table.geom.rowY[1], table.geom.rowY[2]
-	x := table.x + (table.geom.colX[3]+table.geom.colX[4])/2
-	y := table.y + rowTop + (rowBottom-rowTop)*0.78 - h.e.scroll.Y
-	if y < table.y+rowTop || y > table.y+rowBottom {
-		t.Fatalf("test point outside License body cell: x=%f y=%f table=%+v", x, y, table.geom.rowY)
-	}
-	h.tt.Move(x, y)
-	h.tt.Press(x, y)
-	h.tt.Release(x, y)
-	h.frame()
-	_, row, col := cellAt(table, h.e.Caret())
-	t.Logf("blank License click: point=(%.1f,%.1f) caret=%d cell=(%d,%d) drag=%+v", x, y, h.e.Caret(), row, col, h.e.tableCellDrag)
-	if row != 1 || col != 3 {
-		t.Fatalf("blank click in body License landed at (%d,%d), caret=%d, want (1,3)", row, col, h.e.Caret())
-	}
-}
-
 func TestLowercaseVHorizontalCellSelectionThemes(t *testing.T) {
 	src := "| Local file | Source page | Creator / source | License |\n| --- | --- | --- | --- |\n| `Attachments/landscape.webp` | [File:Webp (1).webp](https://commons.wikimedia.org/wiki/File:Webp_(1).webp) | Churchill Machine Tool Co. Ltd.; source: picryl.com | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |\n| another file | [File:A](https://example.test) | Public-domain artist | Public domain |"
 	for _, dark := range []bool{false, true} {

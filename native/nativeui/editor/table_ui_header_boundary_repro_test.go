@@ -22,7 +22,6 @@ func pointerPlaceVimCaret(t *testing.T, h *harness, needle string, delta int) {
 	x, y := caret.X, caret.Y+caret.H/2-h.e.scroll.Y
 	h.tt.Move(x, y)
 	h.tt.Press(x, y)
-	t.Logf("after blank-area press: tableCellDrag=%+v caret=%d tableSelection=%+v", h.e.tableCellDrag, h.e.Caret(), h.e.tableSelection)
 	h.tt.Release(x, y)
 	h.frame()
 }
@@ -33,15 +32,6 @@ func physicalVim(t *testing.T, h *harness, key ui.Key, text string, mods ui.Modi
 	h.frame()
 	h.tt.Type(text)
 	h.frame()
-}
-
-func logHeaderSelection(t *testing.T, label string, h *harness) {
-	t.Helper()
-	row, col := -1, -1
-	if table := documentTestTable(t, h.e); table != nil {
-		_, row, col = cellAt(table, h.e.Caret())
-	}
-	t.Logf("%s: caret=%d cell=(%d,%d) anchor=%d mode=%s line=%v table=%+v documentRegion=%+v bridge=%+v ranges=%+v", label, h.e.Caret(), row, col, h.e.Session.Selection().Anchor, h.e.vimController().Mode(), h.e.vimController().View().Linewise, h.e.tableSelection, h.e.tableDocumentRegion, h.e.tableBridge, h.e.SelectionRanges())
 }
 
 func TestTextVisualHFromBodyLicenseAcrossWrappedTableTracksSelectionState(t *testing.T) {
@@ -66,12 +56,9 @@ func TestTextVisualHFromBodyLicenseAcrossWrappedTableTracksSelectionState(t *tes
 	h.tt.Press(x, y)
 	h.tt.Release(x, y)
 	h.frame()
-	logHeaderSelection(t, "pointer-license", h)
 	physicalVim(t, h, ui.KeyV, "v", 0)
-	logHeaderSelection(t, "v", h)
 	for i := 0; i < 240; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
-		logHeaderSelection(t, "v-h"+strings.Repeat("h", i), h)
 		table = documentTestTable(t, h.e)
 		_, row, col := cellAt(table, h.e.Caret())
 		if row == 0 && col == 1 {
@@ -112,16 +99,13 @@ func TestTextVisualHAfterPointerClickInWrappedLicenseCellBlankArea(t *testing.T)
 	h.tt.Press(x, y)
 	h.tt.Release(x, y)
 	h.frame()
-	logHeaderSelection(t, "pointer-license-blank", h)
 	_, row, col := cellAt(table, h.e.Caret())
 	if row != 1 || col != 3 {
 		t.Fatalf("blank-area click caret mapped to (%d,%d), want body License (1,3), caret=%d", row, col, h.e.Caret())
 	}
 	physicalVim(t, h, ui.KeyV, "v", 0)
-	logHeaderSelection(t, "blank-v", h)
 	for i := 0; i < 10; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
-		logHeaderSelection(t, "blank-v-h"+strings.Repeat("h", i), h)
 	}
 }
 
@@ -145,17 +129,11 @@ func TestVimHorizontalMotionFromBodyLicenseToHeaderSourceKeepsRow(t *testing.T) 
 	if row != 1 || col != 3 {
 		t.Fatalf("pointer landed at (%d,%d), want first body row License cell", row, col)
 	}
-	logHeaderSelection(t, "pointer-body-license", h)
 	physicalVim(t, h, ui.KeyV, "V", ui.Shift)
-	logHeaderSelection(t, "V", h)
 	for i := 0; i < 48; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
 		if i == 0 || i == 7 || i == 15 || i == 31 || i == 47 {
-			logHeaderSelection(t, "h"+strings.Repeat("h", i), h)
 		}
-	}
-	if s := h.e.tableSelection; s != nil {
-		t.Logf("final row structure after h motion: %+v", s)
 	}
 }
 
@@ -178,7 +156,6 @@ func TestVimTextVisualHorizontalMotionFromBodyLicenseKeepsCellFocusConsistent(t 
 	h.tt.Release(x, y)
 	h.frame()
 	physicalVim(t, h, ui.KeyV, "v", 0)
-	logHeaderSelection(t, "body-v", h)
 	for i := 0; i < 120; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
 		if s := h.e.tableSelection; s != nil && s.cellRegion {
@@ -187,7 +164,6 @@ func TestVimTextVisualHorizontalMotionFromBodyLicenseKeepsCellFocusConsistent(t 
 			}
 		}
 		if i == 0 || i == 3 || i == 7 || i == 15 || i == 31 || i == 63 || i == 119 {
-			logHeaderSelection(t, "body-v"+strings.Repeat("h", i+1), h)
 		}
 		if i == 3 {
 			h.shot("body-license-v-leftmost-cell")
@@ -216,7 +192,6 @@ func TestNormalVimHorizontalMotionFromBodyLicense(t *testing.T) {
 	for i := 0; i < 80; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
 		if i == 0 || i == 7 || i == 15 || i == 31 || i == 47 || i == 63 || i == 79 {
-			logHeaderSelection(t, "normal-h"+strings.Repeat("h", i+1), h)
 		}
 	}
 }
@@ -235,13 +210,10 @@ func TestBodyLicenseVimVKHRetainsHeaderAndBodyRows(t *testing.T) {
 	h.tt.Release(x, y)
 	h.frame()
 	physicalVim(t, h, ui.KeyV, "V", ui.Shift)
-	logHeaderSelection(t, "body-V", h)
 	physicalVim(t, h, ui.KeyK, "k", 0)
-	logHeaderSelection(t, "body-Vk", h)
 	for i := 0; i < 20; i++ {
 		physicalVim(t, h, ui.KeyH, "h", 0)
 	}
-	logHeaderSelection(t, "body-Vk-h20", h)
 	if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 1 {
 		t.Fatalf("Vk followed by horizontal motion omitted header row: %+v", s)
 	}
@@ -260,16 +232,12 @@ func TestHeaderVimSelectionBoundaryRoundTrips(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, headerBoundarySource)
 			pointerPlaceVimCaret(t, h, tc.cell, tc.delta)
-			logHeaderSelection(t, "pointer", h)
 			physicalVim(t, h, ui.KeyV, "V", ui.Shift)
-			logHeaderSelection(t, "V", h)
 			physicalVim(t, h, ui.KeyJ, "j", 0)
-			logHeaderSelection(t, "Vj", h)
 			if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 1 {
 				t.Fatalf("Vj omitted header: %+v", s)
 			}
 			physicalVim(t, h, ui.KeyK, "k", 0)
-			logHeaderSelection(t, "Vjk", h)
 			if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 0 {
 				t.Fatalf("Vjk did not shrink to header: %+v", s)
 			}
@@ -284,9 +252,7 @@ func TestHeaderVimSelectionLeavesAndReturnsAcrossTableBoundary(t *testing.T) {
 	physicalVim(t, h, ui.KeyJ, "j", 0)
 	physicalVim(t, h, ui.KeyJ, "j", 0)
 	physicalVim(t, h, ui.KeyJ, "j", 0)
-	logHeaderSelection(t, "Vjjj-outside", h)
 	physicalVim(t, h, ui.KeyK, "k", 0)
-	logHeaderSelection(t, "Vjjjk-return", h)
 	if s := h.e.tableSelection; s == nil || s.axis != tableRows || s.first != 0 || s.last != 2 {
 		t.Fatalf("returning into table lost header row selection: %+v", s)
 	}
