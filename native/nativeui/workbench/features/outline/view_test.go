@@ -47,6 +47,30 @@ func TestStateOwnsSelectionAndScroll(t *testing.T) {
 	}
 }
 
+func TestRenderSnapshotSynchronizesCaretAndRoutesSelection(t *testing.T) {
+	headings := []Heading{
+		{Level: 1, Text: "Overview", Offset: 12},
+		{Level: 2, Text: "Details", Offset: 48},
+	}
+	handle := NewHandle()
+	var actions []Action
+	tester := ui.NewTester(func(c *ui.Context) {
+		handle.RenderSnapshot(c, Snapshot{Headings: headings, Caret: 48}, func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 360, 180)
+	tester.Frame()
+	if handle.state.activeRow != 1 {
+		t.Fatalf("active row = %d, want caret's heading row 1", handle.state.activeRow)
+	}
+	if err := tester.Click("Overview"); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0] != (Action{Kind: SelectHeading, Offset: 12}) {
+		t.Fatalf("actions = %+v, want typed selection at source offset 12", actions)
+	}
+}
+
 func TestRenderEmptyOutline(t *testing.T) {
 	handle := NewHandle()
 	tester := ui.NewTester(func(c *ui.Context) { handle.Render(c, ViewModel{}, nil) }, 320, 160)

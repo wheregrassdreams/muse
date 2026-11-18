@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	applicationsearch "muse/application/search"
 	"muse/search"
 	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
@@ -76,7 +77,7 @@ type Session struct {
 	closed                       bool
 	queryCancel                  context.CancelFunc
 	queryMu                      sync.Mutex
-	searchSchedule               search.QueryScheduler
+	searchSchedule               applicationsearch.QueryScheduler
 
 	queryJobs   chan queryRequest
 	refreshJobs chan struct{}
@@ -108,7 +109,7 @@ func (s *Session) ScheduleSearch(query string, literal bool, activePath, activeS
 		return 0, nil
 	}
 	snapshot := s.Snapshot()
-	request := search.QueryRequest{Text: query, Literal: literal}
+	request := applicationsearch.QueryRequest{Text: query, Literal: literal}
 	remaining := s.searchSchedule.Schedule(request, snapshot.Search.Cost, snapshot.Search.Busy, now)
 	if remaining > 0 {
 		return remaining, nil

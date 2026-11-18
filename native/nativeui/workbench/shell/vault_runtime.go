@@ -1,6 +1,5 @@
 package nativeui
 
-
 func (a *App) activeVaultRoot() string {
 	if a.vault != nil && a.vaultSnapshot.Root != "" {
 		return a.vaultSnapshot.Root
@@ -19,6 +18,9 @@ func (a *App) vaultTick(c *ui.Context) {
 			old := a.vault
 			a.vault = nil
 			a.vaultSnapshot = applicationvault.Snapshot{}
+			if a.quickOpenCandidates != nil {
+				a.quickOpenCandidates.SetVault(nil)
+			}
 			a.directoryCatalog.CloseSession(old)
 			go old.Close()
 		}
@@ -29,6 +31,9 @@ func (a *App) vaultTick(c *ui.Context) {
 		if a.vault != nil {
 			old := a.vault
 			a.vault = nil
+			if a.quickOpenCandidates != nil {
+				a.quickOpenCandidates.SetVault(nil)
+			}
 			a.directoryCatalog.CloseSession(old)
 			go old.Close()
 		}
@@ -42,6 +47,9 @@ func (a *App) vaultTick(c *ui.Context) {
 			return
 		}
 		a.vault = session
+		if a.quickOpenCandidates != nil {
+			a.quickOpenCandidates.SetVault(session)
+		}
 		a.vaultSnapshot = session.Snapshot()
 		a.vaultResultNavigation = make(chan vaultNavigationResult, 1)
 		a.invalidate()
@@ -152,6 +160,9 @@ func (a *App) closeVaultSessionNow() {
 	session := a.vault
 	a.vault = nil
 	a.vaultSnapshot = applicationvault.Snapshot{}
+	if a.quickOpenCandidates != nil {
+		a.quickOpenCandidates.SetVault(nil)
+	}
 	a.directoryCatalog.CloseSession(session)
 	_ = session.Close()
 }

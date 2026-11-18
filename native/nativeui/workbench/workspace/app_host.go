@@ -57,6 +57,9 @@ func (a *App) setWorkspace(root string) {
 			old := a.vault
 			a.vault = nil
 			a.vaultSnapshot = applicationvault.Snapshot{}
+			if a.quickOpenCandidates != nil {
+				a.quickOpenCandidates.SetVault(nil)
+			}
 			a.directoryCatalog.CloseSession(old)
 			go old.Close()
 		}

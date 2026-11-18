@@ -17,6 +17,13 @@ type Heading struct {
 	Offset int
 }
 
+// Snapshot contains the immutable heading projection and active source
+// position supplied by the editor feature.
+type Snapshot struct {
+	Headings []Heading
+	Caret    int
+}
+
 // ViewModel contains the immutable heading projection supplied by the caller.
 type ViewModel struct{ Headings []Heading }
 
@@ -68,6 +75,17 @@ func (h *Handle) Render(c *ui.Context, model ViewModel, dispatch func(Action)) {
 		return
 	}
 	render(c, &h.state, model, dispatch)
+}
+
+// RenderSnapshot synchronizes the outline's active row with the editor caret,
+// then renders the supplied immutable snapshot. The caller routes the typed
+// selection action back to the editor navigation API.
+func (h *Handle) RenderSnapshot(c *ui.Context, snapshot Snapshot, dispatch func(Action)) {
+	if h == nil {
+		return
+	}
+	h.SyncActiveHeading(snapshot.Headings, snapshot.Caret)
+	h.Render(c, ViewModel{Headings: snapshot.Headings}, dispatch)
 }
 
 func render(c *ui.Context, s *state, model ViewModel, dispatch func(Action)) {

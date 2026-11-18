@@ -74,20 +74,6 @@ import (
 	"muse/workspace"
 )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
 	configRepository          applicationconfig.Repository
@@ -134,6 +120,7 @@ type App struct {
 	imagePreview              *imagepreviewui.Controller
 	imageDocument             *imagedocumentui.Controller
 	quickOpen                 *quickopenui.Controller
+	quickOpenCandidates       *quickopenui.VaultCandidates
 	mermaidPreviewHandle      window.Handle
 	backlinksHandle           window.Handle
 	linkPreview               *linkpreview.Controller
@@ -374,8 +361,9 @@ func New() *App {
 		Invalidate: a.invalidate,
 		Notify:     a.handleNavIconNotice,
 	})
+	a.quickOpenCandidates = quickopenui.NewVaultCandidates(a.vault)
 	a.quickOpen = quickopenui.NewController(quickopenui.ControllerOptions{
-		Candidates: appQuickOpenCandidates{app: a},
+		Candidates: a.quickOpenCandidates,
 		FileIcon:   componenticons.File(),
 		IconTint:   func(theme *ui.Theme) ui.Color { return iconTint(theme) },
 		Windows:    a.windows,
@@ -395,4 +383,52 @@ func New() *App {
 	}
 	a.loadDoc("")
 	return a
+}
+
+func (a *App) openQuickOpen() {
+	if a == nil {
+		return
+	}
+	if a.root == "" {
+		a.openFileDialog()
+		return
+	}
+	if a.quickOpen == nil {
+		a.notice(quickopenui.ErrWindowHostUnavailable.Error())
+		return
+	}
+	if err := a.quickOpen.Open(); err != nil {
+		a.notice(err.Error())
+	}
+}
+
+func (a *App) closeQuickOpen() {
+	if a != nil && a.quickOpen != nil {
+		_ = a.quickOpen.Close()
+	}
+}
+
+func (a *App) quickOpenOpen() bool {
+	return a != nil && a.quickOpen != nil && a.quickOpen.IsOpen()
+}
+
+// outlineView adapts the editor's heading projection to the Outline feature
+// and routes its typed selection action back through editor navigation.
+func (a *App) outlineView(c *ui.Context) {
+	if a == nil || a.noteEditor() == nil {
+		return
+	}
+	navigation := a.noteEditor().NavigationCommands()
+	parsed := navigation.Headings()
+	headings := make([]outlineui.Heading, 0, len(parsed))
+	for _, heading := range parsed {
+		headings = append(headings, outlineui.Heading{Level: heading.Level, Text: heading.Text, Offset: heading.Offset})
+	}
+	a.outlinePanel.RenderSnapshot(c, outlineui.Snapshot{Headings: headings, Caret: navigation.Caret()}, func(action outlineui.Action) {
+		if action.Kind != outlineui.SelectHeading {
+			return
+		}
+		navigation.NavigateToOffset(action.Offset)
+		a.noteEditor().FocusCommands().Focus()
+	})
 }
