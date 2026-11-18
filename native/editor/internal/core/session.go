@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/wheregrassdreams/muse-editor/text"
+	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
 	editorinput "muse/editor/input"
 )
 
@@ -87,7 +88,9 @@ type Frame struct {
 }
 
 type Session struct {
-	engine *text.Session
+	engine   *text.Session
+	vim      *textvim.Keymap
+	commands *text.Commands
 
 	// editMu serializes composite Muse operations around engine transactions.
 	editMu sync.Mutex
@@ -155,12 +158,95 @@ const (
 
 func NewSession(source string) *Session {
 	engine := text.MustSession(source)
-	s := &Session{engine: engine}
+	commands := text.NewCommands()
+	if err := textvim.RegisterCommands(commands); err != nil {
+		panic(err)
+	}
+	s := &Session{engine: engine, vim: textvim.New(), commands: commands}
 	_, err := text.BindHistoryParticipant(engine, selectionHistoryKey, selectionParticipant{session: s})
 	if err != nil {
 		panic(err)
 	}
 	return s
+}
+
+// HandleVimKey translates a host key event through muse-editor's generic Vim
+// keymap. It changes only keymap state; the host may handle an intent requiring
+// layout, block, clipboard, or platform behavior before calling ExecuteVimIntent.
+func (s *Session) HandleVimKey(event text.KeyEvent) (text.Intent, bool) {
+	if s == nil {
+		return text.Intent{}, false
+	}
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	return s.vim.Handle(event, s.engine.Snapshot())
+}
+
+// ExecuteVimIntent runs a generic text/Vim command registered in the engine.
+// Muse may register additional commands with RegisterVimCommand; those
+// commands still execute against the same engine-owned document session.
+func (s *Session) ExecuteVimIntent(intent text.Intent) (bool, error) {
+	if s == nil {
+		return false, fmt.Errorf("nil editor session")
+	}
+	s.editMu.Lock()
+	beforeState := s.engine.Snapshot()
+	beforeSelection := s.Selection()
+	handled, err := s.commands.Execute(s.engine, intent)
+	if err != nil || !handled {
+		s.editMu.Unlock()
+		return handled, err
+	}
+	afterState := s.engine.Snapshot()
+	if afterState.Revision() != beforeState.Revision() {
+		s.mu.Lock()
+		s.cacheValid = false
+		s.mu.Unlock()
+	}
+	afterSelection := s.Selection()
+	var edits []TextEdit
+	if edit, changed := sourceDiff(beforeState.Text(), afterState.Text()); changed {
+		edits = []TextEdit{edit}
+	}
+	s.editMu.Unlock()
+	if afterState.Revision() != beforeState.Revision() || beforeSelection != afterSelection {
+		kind := ChangeSelection
+		if len(edits) != 0 {
+			kind = ChangeEdit
+		}
+		s.notifyChange(Change{Kind: kind, BeforeRevision: beforeState.Revision(), Revision: afterState.Revision(), Before: beforeSelection, After: afterSelection, Edits: edits})
+	}
+	return true, nil
+}
+
+// RegisterVimCommand adds a host extension to the generic text/Vim intent
+// registry. The command is passed engine-owned source/session state, not a UI
+// object; UI geometry commands should be handled by the host before execution.
+func (s *Session) RegisterVimCommand(command text.Command) error {
+	if s == nil {
+		return fmt.Errorf("nil editor session")
+	}
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	return s.commands.Register(command)
+}
+
+func (s *Session) VimMode() string {
+	if s == nil {
+		return "normal"
+	}
+	s.editMu.Lock()
+	defer s.editMu.Unlock()
+	return s.vim.Mode()
+}
+
+func (s *Session) ResetVim() {
+	if s == nil {
+		return
+	}
+	s.editMu.Lock()
+	s.vim.Reset()
+	s.editMu.Unlock()
 }
 
 func (s *Session) BindPresentationAdapter(adapter PresentationAdapter) {
