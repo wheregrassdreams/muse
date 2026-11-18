@@ -19,7 +19,6 @@ import (
 	syntax "muse/markdown/syntax"
 	media "muse/nativeui/editor/blocks/media"
 	tableui "muse/nativeui/editor/blocks/table"
-	"muse/nativeui/editor/inputadapter"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.
@@ -225,7 +224,7 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 	m := mods &^ editorinput.ModShift
 	word := (isMac && m == editorinput.ModAlt) || (!isMac && m == editorinput.ModCtrl)
 	if m == editorinput.ModCommand || m == editorinput.ModCommand|editorinput.ModAlt {
-		if e.shortcut(key, shift, m&editorinput.ModAlt != 0) {
+		if e.shortcut(event) {
 			return true
 		}
 	}
@@ -364,61 +363,61 @@ func (e *Editor) key(event editorinput.KeyEvent) bool {
 }
 
 // shortcut runs the editor's own shortcut of Cmd (Ctrl) with key.
-func (e *Editor) shortcut(key editorinput.Key, shift, alt bool) bool {
-	command := inputadapter.Shortcut(key, shift, alt, isMac)
+func (e *Editor) shortcut(event editorinput.KeyEvent) bool {
+	command := mygoinputadapter.Shortcut(event, isMac)
 	switch command {
-	case inputadapter.ShortcutNone:
+	case mygoinputadapter.ShortcutNone:
 		return false
-	case inputadapter.ShortcutToggleTask:
+	case mygoinputadapter.ShortcutToggleTask:
 		e.ToggleList("- [ ]")
-	case inputadapter.ShortcutInsertCodeBlock:
+	case mygoinputadapter.ShortcutInsertCodeBlock:
 		e.InsertCodeBlock()
-	case inputadapter.ShortcutInsertTable:
+	case mygoinputadapter.ShortcutInsertTable:
 		e.InsertTable(3, 3)
-	case inputadapter.ShortcutToggleStrike:
+	case mygoinputadapter.ShortcutToggleStrike:
 		e.ToggleStrike()
-	case inputadapter.ShortcutUndo:
+	case mygoinputadapter.ShortcutUndo:
 		e.Undo()
-	case inputadapter.ShortcutRedo:
+	case mygoinputadapter.ShortcutRedo:
 		e.Redo()
-	case inputadapter.ShortcutSelectAll:
+	case mygoinputadapter.ShortcutSelectAll:
 		e.SelectAll()
-	case inputadapter.ShortcutCopy:
+	case mygoinputadapter.ShortcutCopy:
 		e.Copy()
-	case inputadapter.ShortcutCut:
+	case mygoinputadapter.ShortcutCut:
 		e.Cut()
-	case inputadapter.ShortcutPaste:
-		e.Paste(shift)
-	case inputadapter.ShortcutToggleBold:
+	case mygoinputadapter.ShortcutPaste:
+		e.Paste(event.Modifiers&editorinput.ModShift != 0)
+	case mygoinputadapter.ShortcutToggleBold:
 		e.ToggleBold()
-	case inputadapter.ShortcutToggleItalic:
+	case mygoinputadapter.ShortcutToggleItalic:
 		e.ToggleItalic()
-	case inputadapter.ShortcutToggleUnderline:
+	case mygoinputadapter.ShortcutToggleUnderline:
 		e.ToggleUnderline()
-	case inputadapter.ShortcutToggleCode:
+	case mygoinputadapter.ShortcutToggleCode:
 		e.ToggleCode()
-	case inputadapter.ShortcutToggleHighlight:
+	case mygoinputadapter.ShortcutToggleHighlight:
 		e.ToggleHighlight()
-	case inputadapter.ShortcutInsertLink:
+	case mygoinputadapter.ShortcutInsertLink:
 		e.InsertLink()
-	case inputadapter.ShortcutSelectWord:
+	case mygoinputadapter.ShortcutSelectWord:
 		a, z := e.wordRangeAt(e.Caret())
 		e.Select(a, z)
-	case inputadapter.ShortcutSetHeading:
-		e.SetHeading(int(key[0] - '0'))
-	case inputadapter.ShortcutShiftHeadingUp:
+	case mygoinputadapter.ShortcutSetHeading:
+		e.SetHeading(int(event.Key[0] - '0'))
+	case mygoinputadapter.ShortcutShiftHeadingUp:
 		e.ShiftHeading(1)
-	case inputadapter.ShortcutShiftHeadingDown:
+	case mygoinputadapter.ShortcutShiftHeadingDown:
 		e.ShiftHeading(-1)
-	case inputadapter.ShortcutToggleQuote:
+	case mygoinputadapter.ShortcutToggleQuote:
 		e.ToggleQuote()
-	case inputadapter.ShortcutToggleOrderedList:
+	case mygoinputadapter.ShortcutToggleOrderedList:
 		e.ToggleList("1.")
-	case inputadapter.ShortcutToggleUnorderedList:
+	case mygoinputadapter.ShortcutToggleUnorderedList:
 		e.ToggleList("-")
-	case inputadapter.ShortcutInsertMathBlock:
+	case mygoinputadapter.ShortcutInsertMathBlock:
 		e.InsertMathBlock()
-	case inputadapter.ShortcutInsertTableRow:
+	case mygoinputadapter.ShortcutInsertTableRow:
 		t, r, c := e.cellPos(e.Caret())
 		if t == nil {
 			return false
