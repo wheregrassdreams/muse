@@ -3,6 +3,8 @@ package table
 import (
 	"strings"
 
+	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
+	mdtext "github.com/wheregrassdreams/muse-editor/text"
 	"muse/editor"
 )
 
@@ -10,28 +12,22 @@ import (
 // leftmost selected cell of each row, clearing the remaining selected cells.
 func (c *Controller) TypeColumnSelection(host Host, lineStart, first, last int, text string) (bool, int, error) {
 	view, ok := host.TableView(lineStart)
-	if !ok || first < 0 || last < first {
+	if !ok || first < 0 || last < first || len(view.Rows) == 0 {
 		return false, 0, nil
 	}
-	var edits []editor.TextEdit
-	for _, row := range view.Rows {
-		for col := first; col <= last && col < len(row); col++ {
-			value := ""
-			if col == first {
-				value = text
-			}
-			edits = append(edits, editor.TextEdit{Range: row[col], Text: value})
-		}
-	}
-	if len(edits) == 0 {
+	plan, ok := mdedit.ParseSource(view.Source).FillTableSelection(mdtext.Offset(view.LineStart), mdedit.CellRect{
+		FirstRow: 0, LastRow: len(view.Rows) - 1, FirstColumn: first, LastColumn: last,
+	}, text)
+	if !ok || len(plan.Edits) == 0 {
 		return false, 0, nil
 	}
-	caret := edits[0].Range.Start + len(text)
-	transaction := editor.Transaction{
-		Edits: edits, Before: host.TextSelection(),
-		After: editor.Selection{Anchor: caret, Head: caret},
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
+	caret := tx.After.Anchor
+	if plan.Selection == nil {
+		caret = tx.Edits[0].Range.Start + len(text)
+		tx.After = editor.Selection{Anchor: caret, Head: caret}
 	}
-	err := host.Apply(transaction)
+	err := host.Apply(tx)
 	return err == nil, caret, err
 }
 
@@ -67,24 +63,12 @@ func (c *Controller) BackspaceBlock(host Host, lineStart, column int, remove str
 	if !ok || column < 0 || remove == "" {
 		return false, nil
 	}
-	var edits []editor.TextEdit
-	for _, row := range view.Rows {
-		if column >= len(row) {
-			continue
-		}
-		end := row[column].End
-		start := end - len(remove)
-		if start >= row[column].Start && end <= len(view.Source) && view.Source[start:end] == remove {
-			edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: start, End: end}})
-		}
-	}
-	if len(edits) == 0 {
+	plan, ok := mdedit.ParseSource(view.Source).BackspaceTableColumnIncludingHeader(mdtext.Offset(view.LineStart), column, remove)
+	if !ok {
 		return false, nil
 	}
-	selection := host.TextSelection()
-	transaction := editor.Transaction{Edits: edits, Before: selection}
-	transaction.After = transaction.MapSelection(selection)
-	err := host.Apply(transaction)
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
+	err := host.Apply(tx)
 	return err == nil, err
 }
 

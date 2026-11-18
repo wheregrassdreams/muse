@@ -6,8 +6,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	editormodel "muse/editor"
 	tablemodel "muse/editor/blocks/table"
-	tableui "muse/nativeui/workbench/features/editor/blocks/table"
-	sessionadapter "muse/nativeui/workbench/features/editor/session"
+	tableui "muse/nativeui/editor/blocks/table"
+	sessionadapter "muse/nativeui/editor/session"
 )
 
 // editorTableHost adapts the editor's private parser/history state to the
@@ -143,15 +143,11 @@ func tableRowIndexAt(leaf *leaf, y float32) int {
 	return min(tableui.RowAtPoint(leaf.geom.rowY, y-leaf.y), max(len(leaf.tab.rows)-1, 0))
 }
 
-func tableColumnIndexAt(leaf *leaf, x float32) int {
-	if leaf == nil || leaf.geom == nil || len(leaf.geom.colX) < 2 || leaf.tab == nil {
-		return 0
-	}
-	return min(tableui.ColumnAtPoint(leaf.geom.colX, x), max(leaf.tab.cols()-1, 0))
-}
-
 func (h editorTableUIHost) Dispatch(action tableui.Action) (tableui.Result, error) {
 	e := h.editor
+	if result, handled, err := tableui.DispatchDocumentAction(&e.tableController, editorTableHost{editor: e}, action); handled {
+		return result, err
+	}
 	switch action.Kind {
 	case tableui.BeginHandleDrag:
 		t := e.tableByLineStart(action.LineStart)
@@ -220,18 +216,6 @@ func (h editorTableUIHost) Dispatch(action tableui.Action) (tableui.Result, erro
 		e.preserveTableHorizontal(action.LineStart, horizontal)
 		e.Focus()
 		return tableui.Result{Changed: true, Mapping: mapping}, nil
-	case tableui.AddRow:
-		changed, err := e.tableController.AddRowBelow(editorTableHost{editor: e}, action.LineStart)
-		return tableui.Result{Changed: changed}, err
-	case tableui.AddColumn:
-		changed, err := e.tableController.AddColumnRight(editorTableHost{editor: e}, action.LineStart)
-		return tableui.Result{Changed: changed}, err
-	case tableui.InsertRowAfter:
-		changed, insertion, err := e.tableController.InsertRowAfter(editorTableHost{editor: e}, action.LineStart, action.First, action.Focus.Col)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.InsertColumnBefore:
-		changed, err := e.tableController.InsertColumnBefore(editorTableHost{editor: e}, action.LineStart, action.First)
-		return tableui.Result{Changed: changed}, err
 	case tableui.DeleteTable:
 		t := e.tableByLineStart(action.LineStart)
 		changed, insertion, err := e.tableController.DeleteTable(editorTableHost{editor: e}, action.LineStart)
@@ -242,54 +226,6 @@ func (h editorTableUIHost) Dispatch(action tableui.Action) (tableui.Result, erro
 			}
 		}
 		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.DeleteRows:
-		changed, insertion, err := e.tableController.DeleteRows(editorTableHost{editor: e}, action.LineStart, action.First, action.Last, action.Whole, action.Change)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.DeleteColumns:
-		changed, insertion, err := e.tableController.DeleteColumns(editorTableHost{editor: e}, action.LineStart, action.First, action.Last, action.Change)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.ReorderRows, tableui.ReorderColumns:
-		changed, insertion, err := e.tableController.Reorder(editorTableHost{editor: e}, action.LineStart, action.Axis, action.First, action.Last, action.Gap)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.ClearRegion:
-		if action.Selection == nil {
-			return tableui.Result{}, nil
-		}
-		changed, err := e.tableController.ClearRegion(editorTableHost{editor: e}, *action.Selection)
-		return tableui.Result{Changed: changed}, err
-	case tableui.ReplaceRegion:
-		if action.Selection == nil {
-			return tableui.Result{}, nil
-		}
-		changed, err := e.tableController.ReplaceRegion(editorTableHost{editor: e}, *action.Selection, action.Matrix)
-		return tableui.Result{Changed: changed}, err
-	case tableui.TypeColumnSelection:
-		changed, insertion, err := e.tableController.TypeColumnSelection(editorTableHost{editor: e}, action.LineStart, action.First, action.Last, action.Text)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.TypeBlock:
-		changed, insertion, err := e.tableController.TypeBlock(editorTableHost{editor: e}, action.LineStart, action.Focus.Col, action.Text)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.PasteRows:
-		changed, insertion, err := e.tableController.PasteRows(editorTableHost{editor: e}, action.LineStart, action.First, action.Before, action.Matrix.Cells)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.PasteColumns:
-		changed, insertion, err := e.tableController.PasteColumns(editorTableHost{editor: e}, action.LineStart, action.First, action.Focus.Col, action.Matrix)
-		return tableui.Result{Changed: changed, Insertion: insertion}, err
-	case tableui.PasteBlock:
-		changed, err := e.tableController.PasteBlock(editorTableHost{editor: e}, action.First, action.Text)
-		return tableui.Result{Changed: changed}, err
-	case tableui.BackspaceBlock:
-		changed, err := e.tableController.BackspaceBlock(editorTableHost{editor: e}, action.LineStart, action.Focus.Col, action.Text)
-		return tableui.Result{Changed: changed}, err
-	case tableui.ResetNavigation:
-		e.tableController.ResetNavigation()
-		return tableui.Result{}, nil
-	case tableui.ReplayNavigation:
-		snapshot, ok := e.tableController.Replay(action.BeforeState, action.RowDelta, action.ColDelta)
-		return tableui.Result{Found: ok, Snapshot: snapshot}, nil
-	case tableui.RecordNavigation:
-		e.tableController.Record(action.BeforeState, action.AfterState, action.RowDelta, action.ColDelta)
-		return tableui.Result{}, nil
 	default:
 		return tableui.Result{}, fmt.Errorf("unknown table UI action %d", action.Kind)
 	}

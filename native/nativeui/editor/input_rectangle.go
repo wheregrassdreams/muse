@@ -322,21 +322,6 @@ func (e *Editor) blockChangedVertical(x float32) {
 	e.invalidate()
 }
 
-func (e *Editor) editRanges(ranges []Range, insert string) int {
-	ranges = normalizeRanges(ranges)
-	if len(ranges) == 0 {
-		return e.Caret()
-	}
-	e.begin(stepEdit)
-	for i := len(ranges) - 1; i >= 0; i-- {
-		r := ranges[i]
-		e.replace(r.Start, r.End, insert)
-	}
-	at := ranges[0].Start
-	e.commit(at, at)
-	return at
-}
-
 func (e *Editor) deleteBlock() int {
 	ranges := e.blockRanges()
 	if len(ranges) == 0 {
