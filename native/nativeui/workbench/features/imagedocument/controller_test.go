@@ -2,13 +2,21 @@ package imagedocument
 
 import (
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"muse/markdown/images"
 	hosting "muse/nativeui/workbench/hosting"
+	"muse/platform/filesystem/imagefiles"
 )
 
 type fakeHost struct {
 	manager    *hosting.Manager
+	content    hosting.Content
 	placements []hosting.Placement
 	openErr    error
 }
@@ -20,10 +28,56 @@ func (h *fakeHost) Open(content hosting.Content, placement hosting.Placement) (h
 	if h.openErr != nil {
 		return hosting.Handle{}, h.openErr
 	}
+	h.content = content
 	return h.manager.Open(content, placement)
 }
 func (h *fakeHost) Close(handle hosting.Handle) error   { return h.manager.Close(handle) }
 func (h *fakeHost) Contains(handle hosting.Handle) bool { return h.manager.Contains(handle) }
+
+func TestControllerOpensLocalImageThroughTypedPorts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "image.jpg")
+	img := image.NewRGBA(image.Rect(0, 0, 24, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 24; x++ {
+			img.Set(x, y, color.RGBA{R: 30, G: 140, B: 210, A: 255})
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(f, img, nil); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	host := newFakeHost()
+	placement := hosting.Placement{Host: "main", Pane: "editor-1", Layer: hosting.PaneContent}
+	selected, recorded := "", ""
+	controller := NewController(Ports{
+		Host:            host,
+		Placement:       func() hosting.Placement { return placement },
+		Files:           func() images.LocalFiles { return imagefiles.New() },
+		OnSelectedPath:  func(path string) { selected = path },
+		OnRecordHistory: func(path string) { recorded = path },
+	})
+	if err := controller.Open(path, true); err != nil {
+		t.Fatal(err)
+	}
+	content, ok := host.content.(*Content)
+	if !ok || content.IsClosed() || !content.state.HasImage() {
+		t.Fatalf("hosted content = %T; closed=%v image=%v", host.content, !ok || content.IsClosed(), ok && content.state.HasImage())
+	}
+	if got := host.placements[len(host.placements)-1]; got != placement {
+		t.Fatalf("placement = %+v, want %+v", got, placement)
+	}
+	if controller.Path() != path || selected != path || recorded != path {
+		t.Fatalf("open path=%q selected=%q recorded=%q", controller.Path(), selected, recorded)
+	}
+}
 
 func TestControllerOpenReplacesImageAndRecordsSelection(t *testing.T) {
 	host := newFakeHost()
