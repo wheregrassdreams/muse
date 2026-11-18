@@ -2,6 +2,8 @@ package document
 
 import (
 	"errors"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,6 +16,9 @@ var (
 	ErrWorkflowUnavailable = errors.New("document workflow is unavailable")
 	ErrNotText             = errors.New("document source is not valid text")
 	ErrMergeConflict       = errors.New("external changes overlap with local edits")
+	ErrSaveAsRequired      = errors.New("document needs a destination path")
+	ErrStaleSavePlan       = errors.New("document changed while preparing the save")
+	ErrUnsupportedPath     = errors.New("document path is not editable")
 )
 
 type EditingSnapshot struct {
@@ -36,8 +41,10 @@ type EditingPort interface {
 	BeginSave(time.Time) (SaveRequest, bool)
 	StartSave(SaveRequest)
 	CompleteSave(SaveResult) bool
+	InvalidatePendingSave(draftKey string) (SaveResult, bool, error)
 	DestinationRevision(path string, expected domain.Revision) (domain.Revision, error)
 	Rebase(path string, revision domain.Revision, source string) bool
+	Relocate(path string, revision domain.Revision, source string) error
 	DeferExternal(note domain.Note) bool
 	TakeDeferredExternal() (domain.Note, bool)
 	ReplaceUser(source string) error
@@ -61,6 +68,23 @@ type DirtyTransitionOutcome struct {
 	Allowed bool
 	Saved   bool
 	Path    string
+}
+
+// SaveAsPlan is a revision-checked snapshot prepared after the UI chooses a
+// destination. The UI applies Source through the editor's system-edit port on
+// its owner thread, then asks the workflow to commit the same snapshot.
+type SaveAsPlan struct {
+	Path           string
+	Source         string
+	OriginalPath   string
+	OriginalSource string
+	Expected       domain.Revision
+	Generation     uint64
+}
+
+type ReconcileCurrentOutcome struct {
+	Change  ExternalChangeOutcome
+	Missing bool
 }
 
 type ReplaceDocument func(path, source string, dirty bool) error
@@ -141,6 +165,126 @@ func (w SessionWorkflows) CompleteSave(result SaveResult) bool {
 	return w.Editing != nil && w.Editing.CompleteSave(result)
 }
 
+// Open reads and validates a note before the presentation replaces its active
+// editing session.
+func (w SessionWorkflows) Open(path string) (domain.Note, error) {
+	return OpenDocument(w.Repository, path)
+}
+
+// SaveCurrent commits the current editor snapshot through the document
+// session. Metadata ordering and recovery cleanup belong to this workflow.
+func (w SessionWorkflows) SaveCurrent() error {
+	if w.Editing == nil || w.Save == nil {
+		return ErrWorkflowUnavailable
+	}
+	if err := w.FlushManagedTimestamp(); err != nil {
+		return err
+	}
+	snapshot := w.Editing.Snapshot()
+	if snapshot.Path == "" {
+		return ErrSaveAsRequired
+	}
+	if err := w.Save(snapshot.Path, snapshot.DiskSource, snapshot.Revision); err != nil {
+		return err
+	}
+	if !w.Editing.Rebase(snapshot.Path, domain.RevisionOf(snapshot.DiskSource), snapshot.DiskSource) {
+		return ErrStaleSavePlan
+	}
+	return nil
+}
+
+// PrepareSaveAs owns document creation metadata and destination revision
+// policy. It does not mutate the editor so the caller can marshal the planned
+// source replacement to the UI thread before CommitSaveAs writes it.
+func (w SessionWorkflows) PrepareSaveAs(path string, now time.Time) (SaveAsPlan, error) {
+	if w.Editing == nil {
+		return SaveAsPlan{}, ErrWorkflowUnavailable
+	}
+	if !doctypes.IsEditablePath(path) {
+		return SaveAsPlan{}, ErrUnsupportedPath
+	}
+	if err := w.FlushManagedTimestampAt(now); err != nil {
+		return SaveAsPlan{}, err
+	}
+	snapshot := w.Editing.Snapshot()
+	state := w.Editing.PersistenceState()
+	source := snapshot.DiskSource
+	if snapshot.Path == "" && doctypes.IsMarkdownPath(path) {
+		var err error
+		source, _, err = EnsureCreatedAt(source, now)
+		if err != nil {
+			return SaveAsPlan{}, err
+		}
+		// Frontmatter serialization uses LF. Keep the new document's original
+		// newline convention across the metadata insertion instead of creating
+		// a mixed-ending file.
+		if strings.Contains(snapshot.DiskSource, "\r\n") {
+			source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\n", "\r\n")
+		}
+	}
+	expected, err := w.Editing.DestinationRevision(path, snapshot.Revision)
+	if err != nil {
+		return SaveAsPlan{}, err
+	}
+	return SaveAsPlan{
+		Path: path, Source: source, OriginalPath: snapshot.Path,
+		OriginalSource: snapshot.DiskSource, Expected: expected,
+		Generation: state.Generation,
+	}, nil
+}
+
+// ApplySaveAsSource applies any planned metadata through the editor's system
+// edit capability. Call on the editor's UI-owner thread.
+func (w SessionWorkflows) ApplySaveAsSource(plan SaveAsPlan) error {
+	if w.Editing == nil {
+		return ErrWorkflowUnavailable
+	}
+	if !w.matchesSaveAsPlan(plan, false) {
+		return ErrStaleSavePlan
+	}
+	if plan.Source != plan.OriginalSource {
+		return w.Editing.ReplaceSystem(strings.ReplaceAll(plan.Source, "\r\n", "\n"))
+	}
+	return nil
+}
+
+// CommitSaveAs writes only the plan that was prepared for the still-active
+// document generation. A stale plan never overwrites a newer editor buffer.
+func (w SessionWorkflows) CommitSaveAs(plan SaveAsPlan) error {
+	if w.Editing == nil || w.Save == nil {
+		return ErrWorkflowUnavailable
+	}
+	if !w.matchesSaveAsPlan(plan, true) {
+		return ErrStaleSavePlan
+	}
+	if err := w.Save(plan.Path, plan.Source, plan.Expected); err != nil {
+		return err
+	}
+	if err := w.Editing.Relocate(plan.Path, domain.RevisionOf(plan.Source), plan.Source); err != nil {
+		return err
+	}
+	key := plan.OriginalPath
+	if key == "" {
+		key = w.Editing.PersistenceState().DraftKey
+	}
+	if key != "" {
+		_ = w.Editing.DeleteDraft(key)
+	}
+	return nil
+}
+
+func (w SessionWorkflows) matchesSaveAsPlan(plan SaveAsPlan, sourceApplied bool) bool {
+	snapshot := w.Editing.Snapshot()
+	state := w.Editing.PersistenceState()
+	if state.Generation != plan.Generation || snapshot.Path != plan.OriginalPath {
+		return false
+	}
+	if sourceApplied {
+		return snapshot.DiskSource == plan.Source
+	}
+	return snapshot.DiskSource == plan.OriginalSource
+}
+
 type MergeOutcome uint8
 
 const (
@@ -202,6 +346,11 @@ func (w SessionWorkflows) ResolveDirtyTransition(decision DirtyTransitionDecisio
 	if w.Editing == nil {
 		return DirtyTransitionOutcome{}, ErrWorkflowUnavailable
 	}
+	if decision == DirtyTransitionSave {
+		if err := w.FlushManagedTimestamp(); err != nil {
+			return DirtyTransitionOutcome{}, err
+		}
+	}
 	snapshot := w.Editing.Snapshot()
 	if !snapshot.Dirty {
 		return DirtyTransitionOutcome{Allowed: true, Path: snapshot.Path}, nil
@@ -210,7 +359,17 @@ func (w SessionWorkflows) ResolveDirtyTransition(decision DirtyTransitionDecisio
 	case DirtyTransitionCancel:
 		return DirtyTransitionOutcome{}, nil
 	case DirtyTransitionDiscard:
-		return DirtyTransitionOutcome{Allowed: true}, nil
+		key := snapshot.Path
+		if key == "" {
+			key = w.Editing.PersistenceState().DraftKey
+		}
+		completed, committed, err := w.Editing.InvalidatePendingSave(key)
+		if err != nil {
+			return DirtyTransitionOutcome{}, err
+		}
+		saved := committed && completed.Err == nil &&
+			completed.Request.Path == snapshot.Path && completed.Request.Source == snapshot.DiskSource
+		return DirtyTransitionOutcome{Allowed: true, Saved: saved, Path: snapshot.Path}, nil
 	case DirtyTransitionSave:
 		if savePath == "" {
 			savePath = snapshot.Path
@@ -225,7 +384,20 @@ func (w SessionWorkflows) ResolveDirtyTransition(decision DirtyTransitionDecisio
 		if err := w.Save(savePath, snapshot.DiskSource, expected); err != nil {
 			return DirtyTransitionOutcome{}, err
 		}
-		_ = w.Editing.DeleteDraft(savePath)
+		if savePath == snapshot.Path {
+			if !w.Editing.Rebase(savePath, domain.RevisionOf(snapshot.DiskSource), snapshot.DiskSource) {
+				return DirtyTransitionOutcome{}, ErrStaleSavePlan
+			}
+		} else if err := w.Editing.Relocate(savePath, domain.RevisionOf(snapshot.DiskSource), snapshot.DiskSource); err != nil {
+			return DirtyTransitionOutcome{}, err
+		}
+		key := snapshot.Path
+		if key == "" {
+			key = w.Editing.PersistenceState().DraftKey
+		}
+		if key != "" {
+			_ = w.Editing.DeleteDraft(key)
+		}
 		return DirtyTransitionOutcome{Allowed: true, Saved: true, Path: savePath}, nil
 	default:
 		return DirtyTransitionOutcome{}, ErrWorkflowUnavailable
@@ -405,6 +577,35 @@ func (w SessionWorkflows) ReconcileExternal(external domain.Note) (ExternalChang
 		return ExternalChangeNoop, err
 	}
 	return ExternalChangeLoaded, nil
+}
+
+// ReconcileCurrent rereads the selected Markdown note from the repository and
+// applies external-change policy. The watcher/catalog remains an invalidation
+// source; its stale payload is never treated as the bytes to reconcile.
+func (w SessionWorkflows) ReconcileCurrent(path, vaultRoot string) (ReconcileCurrentOutcome, error) {
+	if w.Editing == nil || w.Repository == nil {
+		return ReconcileCurrentOutcome{}, ErrWorkflowUnavailable
+	}
+	snapshot := w.Editing.Snapshot()
+	if path == "" || snapshot.Path != path || !doctypes.IsMarkdownPath(path) || vaultRoot == "" {
+		return ReconcileCurrentOutcome{}, nil
+	}
+	rel, err := filepath.Rel(vaultRoot, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ReconcileCurrentOutcome{}, nil
+	}
+	external, err := w.Repository.Read(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if markErr := w.MarkExternalMissing(); markErr != nil {
+			return ReconcileCurrentOutcome{Missing: true}, markErr
+		}
+		return ReconcileCurrentOutcome{Missing: true}, nil
+	}
+	if err != nil {
+		return ReconcileCurrentOutcome{}, err
+	}
+	change, err := w.ReconcileExternal(external)
+	return ReconcileCurrentOutcome{Change: change}, err
 }
 
 // MarkExternalMissing records the conflict state when the active file was

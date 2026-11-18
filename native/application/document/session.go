@@ -22,16 +22,18 @@ const (
 // session. It deliberately contains no editor buffer, widget, focus, or view
 // state. A UI adapter observes Snapshot and drives Tick/Save when appropriate.
 type Session struct {
-	mu         sync.Mutex
-	saveMu     sync.Mutex
-	token      atomic.Uint64
-	repository domain.Repository
-	recovery   domain.RecoveryRepository
-	history    domain.HistoryRepository
-	saver      *Saver
-	state      SessionState
-	results    chan SaveResult
-	closed     bool
+	mu          sync.Mutex
+	saveMu      sync.Mutex
+	token       atomic.Uint64
+	repository  domain.Repository
+	recovery    domain.RecoveryRepository
+	history     domain.HistoryRepository
+	saver       *Saver
+	state       SessionState
+	results     chan SaveResult
+	closed      bool
+	lastSave    SaveResult
+	hasLastSave bool
 }
 
 // SessionState is an immutable copy of the persistence state needed by a
@@ -408,6 +410,8 @@ func (s *Session) Save(request SaveRequest) SaveResult {
 	}
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	s.lastSave = SaveResult{}
+	s.hasLastSave = false
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
@@ -424,7 +428,45 @@ func (s *Session) Save(request SaveRequest) SaveResult {
 	} else if request.Key != "" {
 		err = s.recovery.WriteDraft(request.Key, request.Path, request.Source)
 	}
-	return SaveResult{Request: request, Note: note, Err: err}
+	result := SaveResult{Request: request, Note: note, Err: err}
+	s.lastSave, s.hasLastSave = result, true
+	return result
+}
+
+// InvalidatePendingSave serializes a document transition and removal of its
+// recovery draft with the save commit gate, then invalidates all claimed work.
+// It returns the completed result for an active save that committed first.
+func (s *Session) InvalidatePendingSave(draftKey string) (SaveResult, bool, error) {
+	if s == nil {
+		return SaveResult{}, false, errors.New("document session is unavailable")
+	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var completed SaveResult
+	committed := false
+	if s.hasLastSave && s.lastSave.Request.Path == s.state.Path {
+		completed = s.lastSave
+		committed = completed.Err == nil && completed.Note.Path != ""
+	}
+	s.state.Generation = s.token.Add(1)
+	s.state.Saving = false
+	s.state.InFlight = SaveRequest{}
+	s.state.HasInFlight = false
+	s.state.DeferredExternal = domain.Note{}
+	s.state.HasDeferred = false
+	s.state.AutosaveDue = time.Time{}
+	s.state.MetadataDue = time.Time{}
+	s.state.ConflictPath = ""
+	s.lastSave = SaveResult{}
+	s.hasLastSave = false
+	if draftKey != "" && s.recovery != nil {
+		if err := s.recovery.DeleteDraft(draftKey); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return completed, committed, err
+		}
+	}
+	return completed, committed, nil
 }
 
 // SaveNow serializes an explicit save with any autosave already in flight.
@@ -437,6 +479,12 @@ func (s *Session) SaveNow(key, path, source string, expected domain.Revision) (d
 	}
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return domain.Note{}, errors.New("document session is closed")
+	}
 	note, err := s.saver.Save(key, path, source, expected)
 	if errors.Is(err, domain.ErrConflict) {
 		s.mu.Lock()

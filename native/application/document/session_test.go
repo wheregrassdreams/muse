@@ -1,6 +1,8 @@
 package document
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -268,6 +270,147 @@ func TestSessionCloseInvalidatesClaimedSave(t *testing.T) {
 	state := session.Snapshot()
 	if state.Saving || !state.AutosaveDue.IsZero() || !state.MetadataDue.IsZero() {
 		t.Fatalf("closed session retained pending work: %+v", state)
+	}
+}
+
+type blockingSaveRepository struct {
+	domain.Repository
+	entered chan struct{}
+	release chan struct{}
+	saves   int
+}
+
+func (r *blockingSaveRepository) Save(path, source string, expected domain.Revision) (domain.Revision, error) {
+	r.saves++
+	close(r.entered)
+	<-r.release
+	return r.Repository.Save(path, source, expected)
+}
+
+func TestInvalidatePendingSaveDrainsWriterAndRejectsQueuedGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	repository := &blockingSaveRepository{
+		Repository: store,
+		entered:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	session := NewSession(repository, store, store, nil)
+	session.Open(path, "before")
+	now := time.Now()
+	session.Changed(now)
+	session.ClearMetadataDeadline()
+	request, ok := session.BeginSave(path, "after", true, now.Add(AutosaveDelay))
+	if !ok {
+		t.Fatal("save request was not claimed")
+	}
+	writeDone := make(chan SaveResult, 1)
+	go func() { writeDone <- session.Save(request) }()
+	<-repository.entered // The writer passed its generation check and owns saveMu.
+
+	transitionStarted := make(chan struct{})
+	transitionDone := make(chan struct {
+		result    SaveResult
+		committed bool
+		err       error
+	}, 1)
+	go func() {
+		close(transitionStarted)
+		result, committed, err := session.InvalidatePendingSave("")
+		transitionDone <- struct {
+			result    SaveResult
+			committed bool
+			err       error
+		}{result, committed, err}
+	}()
+	<-transitionStarted
+	select {
+	case <-transitionDone:
+		t.Fatal("discard returned while a durable writer still held the commit gate")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(repository.release)
+	if result := <-writeDone; result.Err != nil {
+		t.Fatalf("writer failed: %v", result.Err)
+	}
+	transition := <-transitionDone
+	if transition.err != nil {
+		t.Fatalf("invalidate pending save: %v", transition.err)
+	}
+	if !transition.committed || transition.result.Request != request || transition.result.Note.Source != "after" {
+		t.Fatalf("transition did not report the committed active buffer: %+v", transition)
+	}
+	if stale := session.Save(request); stale.Note.Path != "" {
+		t.Fatalf("stale queued request wrote after invalidation: %+v", stale)
+	}
+	if repository.saves != 1 {
+		t.Fatalf("durable writes = %d, want exactly one before discard returns", repository.saves)
+	}
+}
+
+type blockingDraftRecovery struct {
+	domain.RecoveryRepository
+	entered chan struct{}
+	release chan struct{}
+	writes  int
+}
+
+func (r *blockingDraftRecovery) WriteDraft(key, path, source string) error {
+	r.writes++
+	close(r.entered)
+	<-r.release
+	return r.RecoveryRepository.WriteDraft(key, path, source)
+}
+
+func TestInvalidatePendingSaveDeletesDraftAfterBlockedConflictWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.md")
+	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
+	recovery := &blockingDraftRecovery{
+		RecoveryRepository: store,
+		entered:            make(chan struct{}),
+		release:            make(chan struct{}),
+	}
+	session := NewSession(store, recovery, store, nil)
+	session.Open(path, "before")
+	session.SetConflict(path)
+	now := time.Now()
+	session.Changed(now)
+	session.ClearMetadataDeadline()
+	request, ok := session.BeginSave(path, "local draft", true, now.Add(AutosaveDelay))
+	if !ok || !request.Conflict {
+		t.Fatalf("conflict save request = %+v, ok=%t", request, ok)
+	}
+	writeDone := make(chan SaveResult, 1)
+	go func() { writeDone <- session.Save(request) }()
+	<-recovery.entered
+	transitionDone := make(chan error, 1)
+	go func() {
+		_, _, err := session.InvalidatePendingSave(path)
+		transitionDone <- err
+	}()
+	select {
+	case err := <-transitionDone:
+		t.Fatalf("discard returned before conflict draft write drained: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(recovery.release)
+	if result := <-writeDone; result.Err != nil {
+		t.Fatalf("conflict draft write failed: %v", result.Err)
+	}
+	if err := <-transitionDone; err != nil {
+		t.Fatalf("invalidate and delete draft: %v", err)
+	}
+	if _, err := recovery.ReadDraft(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("discard left a recovery draft: %v", err)
+	}
+	if stale := session.Save(request); stale.Err != nil || stale.Request != request {
+		t.Fatalf("stale request result = %+v", stale)
+	}
+	if recovery.writes != 1 {
+		t.Fatalf("recovery writes = %d, want exactly one before deletion", recovery.writes)
 	}
 }
 
