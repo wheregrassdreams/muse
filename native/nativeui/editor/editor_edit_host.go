@@ -4,11 +4,14 @@ import (
 	"sort"
 	"strings"
 
+	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
+	mdtext "github.com/wheregrassdreams/muse-editor/text"
+	editormodel "muse/editor"
 	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
 	syntax "muse/markdown/syntax"
-	tableui "muse/nativeui/workbench/features/editor/blocks/table"
+	tableui "muse/nativeui/editor/blocks/table"
 )
 
 // Editing works on the source, as Typora's editing reads: typing goes in
@@ -979,17 +982,15 @@ func (e *Editor) enterItem(l *leaf, off int) {
 		e.leaveItem(l)
 		return
 	}
-	plan, ok := paragraph.PlanListContinuation(paragraph.ListContinuationInput{
-		Source: e.Source(), Caret: off, ItemStart: it.start, ContentStart: l.start, ItemEnd: l.end,
+	plan, ok := mdedit.ParseSource(e.Source()).ContinueListAt(mdedit.ListContinuationFacts{
+		Caret: mdtext.Offset(off), ItemStart: mdtext.Offset(it.start),
+		ContentStart: mdtext.Offset(l.start), ItemEnd: mdtext.Offset(l.end),
 		Marker: rune(it.marker), Ordered: it.ordered, Number: it.num,
 		Task: it.task != syntax.IncrementalNoTask, Tight: it.tight,
 	})
-	if !ok {
-		return
+	if ok {
+		e.applyMarkdownPlan(plan)
 	}
-	e.begin(stepEdit)
-	e.replace(plan.Edit.Start, plan.Edit.End, plan.Edit.Text)
-	e.commit(plan.Caret, plan.Caret)
 }
 
 // leaveItem takes an item out of its list: a nested item goes up a level,
@@ -1004,25 +1005,22 @@ func (e *Editor) leaveItem(l *leaf) {
 	}
 	lineStart := lineStartAt(e.Source(), it.start)
 	lineEnd := lineEndAt(e.Source(), lineStart)
-	plan, ok := paragraph.PlanListExit(paragraph.ListExitInput{
-		Source: e.Source(), MarkerStart: it.start, ContentStart: l.start,
-		LineStart: lineStart, LineEnd: lineEnd, ItemEnd: l.end, Caret: e.Caret(),
+	plan, ok := mdedit.ParseSource(e.Source()).ExitList(mdedit.ListExitFacts{
+		MarkerStart: mdtext.Offset(it.start), ContentStart: mdtext.Offset(l.start),
+		LineStart: mdtext.Offset(lineStart), LineEnd: mdtext.Offset(lineEnd),
+		ItemEnd: mdtext.Offset(l.end), Caret: mdtext.Offset(e.Caret()),
 		ItemDepth: nested, HasPreviousLeaf: lineStart > 0 && e.leafBefore(l) != nil,
 	})
 	if !ok {
 		return
 	}
-	if plan.Action == paragraph.ListExitOutdent {
+	if plan.Kind == mdedit.ListExitOutdent {
 		e.outdentItem(l)
 		return
 	}
 	outer := e.Source()[lineStart:it.start]
-	e.begin(stepEdit)
-	for _, edit := range plan.Edits {
-		e.replace(edit.Start, edit.End, edit.Text)
-	}
-	e.commit(plan.Caret, plan.Caret)
-	if plan.Action == paragraph.ListExitEmptyItem {
+	e.applyMarkdownPlan(plan.Plan)
+	if plan.Kind == mdedit.ListExitEmpty {
 		prefix := blankMarkers(outer)
 		blank := blankPrefix(prefix)
 		var conts []cont
@@ -1033,18 +1031,31 @@ func (e *Editor) leaveItem(l *leaf) {
 		}
 		if plan.AtDocumentEnd {
 			pre := "\n" + blank + "\n" + prefix
-			if plan.Caret == 0 {
+			if plan.Plan.Selection != nil && int(plan.Plan.Selection.Head) == 0 {
 				pre = prefix
 			}
-			e.setPhantom(&phantom{at: plan.Caret, pre: pre, conts: conts})
+			e.setPhantom(&phantom{at: int(plan.Plan.Selection.Head), pre: pre, conts: conts})
 			return
 		}
 		pre := blank + "\n" + prefix
 		if lineStart == 0 {
 			pre = prefix
 		}
-		e.setPhantom(&phantom{at: plan.Caret, pre: pre, post: "\n" + blank + "\n", before: true, conts: conts})
+		e.setPhantom(&phantom{at: int(plan.Plan.Selection.Head), pre: pre, post: "\n" + blank + "\n", before: true, conts: conts})
 	}
+}
+
+func (e *Editor) applyMarkdownPlan(plan mdedit.Plan) {
+	transaction := editormodel.TransactionFromPlan(plan, e.Session.Selection())
+	if len(transaction.Edits) == 0 {
+		return
+	}
+	e.begin(stepEdit)
+	for i := len(transaction.Edits) - 1; i >= 0; i-- {
+		edit := transaction.Edits[i]
+		e.replace(edit.Range.Start, edit.Range.End, edit.Text)
+	}
+	e.commit(transaction.After.Anchor, transaction.After.Head)
 }
 
 // leafBefore returns the leaf before l, or nil.
