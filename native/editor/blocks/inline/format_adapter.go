@@ -5,19 +5,13 @@ import (
 
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
 	"github.com/wheregrassdreams/muse-editor/text"
+	"muse/editor"
 	"muse/editor/navigation"
 )
 
 // Edit and FormatPlan keep the editor package API stable while source
 // transformation policy lives in muse-editor/markdown/edit.
-type Edit struct {
-	Start, End int
-	Text       string
-}
-type FormatPlan struct {
-	Edits     []Edit
-	Selection Range
-}
+type FormatPlan = editor.Transaction
 
 func WrapSelection(source string, selection, word Range, useWord bool, open, close string) (FormatPlan, bool) {
 	a, z := selection.Start, selection.End
@@ -131,14 +125,7 @@ func convertPlan(plan mdedit.Plan, ok bool) (FormatPlan, bool) {
 	if !ok {
 		return FormatPlan{}, false
 	}
-	out := FormatPlan{Edits: make([]Edit, 0, len(plan.Edits))}
-	for _, e := range plan.Edits {
-		out.Edits = append(out.Edits, Edit{Start: int(e.Range.From), End: int(e.Range.To), Text: e.Insert})
-	}
-	if plan.Selection != nil {
-		out.Selection = Range{Start: int(plan.Selection.Anchor), End: int(plan.Selection.Head)}
-	}
-	return out, true
+	return editor.TransactionFromPlan(plan, editor.Selection{}), true
 }
 
 func validRange(source string, r Range) bool {

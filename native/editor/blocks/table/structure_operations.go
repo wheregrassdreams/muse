@@ -3,6 +3,8 @@ package table
 import (
 	"strings"
 
+	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
+	"github.com/wheregrassdreams/muse-editor/text"
 	"muse/editor"
 )
 
@@ -13,27 +15,16 @@ func (c *Controller) AddColumnRight(host Host, lineStart int) (bool, error) {
 	if !ok || len(view.Lines) == 0 {
 		return false, nil
 	}
-	selection := host.TextSelection()
-	edits := make([]editor.TextEdit, 0, len(view.Lines))
-	for index, line := range view.Lines {
-		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
-			continue
-		}
-		text := "   |"
-		if index == 1 {
-			text = " --- |"
-		}
-		lastPipe := line.Pipes[len(line.Pipes)-1]
-		if lastPipe+1 < line.Range.End && strings.TrimSpace(view.Source[lastPipe+1:line.Range.End]) != "" {
-			text = " |" + text
-		}
-		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: line.Range.End, End: line.Range.End}, Text: text})
-	}
-	if len(edits) == 0 {
+	snapshot := mdedit.ParseSource(view.Source)
+	table, ok := snapshot.TableAt(text.Offset(view.LineStart))
+	if !ok {
 		return false, nil
 	}
-	tx := editor.Transaction{Edits: edits, Before: selection}
-	tx.After = mapSelection(tx, selection)
+	plan, ok := snapshot.InsertTableColumn(text.Offset(view.LineStart), len(table.Lines[0].Cells))
+	if !ok {
+		return false, nil
+	}
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
 	err := host.Apply(tx)
 	return err == nil, err
 }
@@ -44,20 +35,16 @@ func (c *Controller) AddRowBelow(host Host, lineStart int) (bool, error) {
 	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 {
 		return false, nil
 	}
-	columns := 0
-	for _, row := range view.Rows {
-		columns = max(columns, len(row))
-	}
-	if columns == 0 {
+	snapshot := mdedit.ParseSource(view.Source)
+	table, ok := snapshot.TableAt(text.Offset(view.LineStart))
+	if !ok || len(table.Lines) < 2 {
 		return false, nil
 	}
-	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
-	selection := host.TextSelection()
-	tx := editor.Transaction{
-		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.End, End: view.End}, Text: text}},
-		Before: selection,
+	plan, ok := snapshot.InsertTableRow(text.Offset(view.LineStart), len(table.Lines)-1)
+	if !ok {
+		return false, nil
 	}
-	tx.After = mapSelection(tx, selection)
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
 	err := host.Apply(tx)
 	return err == nil, err
 }
@@ -70,30 +57,35 @@ func (c *Controller) InsertRowAfter(host Host, lineStart, row, column int) (bool
 	if !ok || len(view.Lines) < 2 || len(view.Rows) == 0 || row < 0 || row >= len(view.Rows) {
 		return false, 0, nil
 	}
-	columns := 0
-	for _, cells := range view.Rows {
-		columns = max(columns, len(cells))
+	snapshot := mdedit.ParseSource(view.Source)
+	table, ok := snapshot.TableAt(text.Offset(view.LineStart))
+	if !ok || len(table.Lines) < 2 || row >= len(table.Lines)-1 {
+		return false, 0, nil
 	}
+	columns := len(table.Lines[0].Cells)
 	if columns == 0 {
 		return false, 0, nil
 	}
-	lineIndex := row + 1
-	if lineIndex >= len(view.Lines) {
+	sourceRow := row
+	if row > 0 {
+		sourceRow++ // the GFM delimiter separates the displayed rows
+	}
+	plan, ok := snapshot.InsertTableRow(text.Offset(view.LineStart), sourceRow)
+	if !ok || len(plan.Edits) != 1 {
 		return false, 0, nil
 	}
-	at := view.Lines[lineIndex].Range.End
-	if row == 0 {
-		at = view.Lines[1].Range.End
-	}
-	text := "\n" + view.ContinuationPrefix + "|" + strings.Repeat("   |", columns)
 	column = clamp(column, 0, columns-1)
-	caret := at + 1 + len(view.ContinuationPrefix) + 2 + column*4
-	selection := host.TextSelection()
-	err := host.Apply(editor.Transaction{
-		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: at, End: at}, Text: text}},
-		Before: selection,
-		After:  editor.Selection{Anchor: caret, Head: caret},
-	})
+	edit := plan.Edits[0]
+	rowStart := int(edit.Range.From)
+	if strings.HasPrefix(edit.Insert, "\r\n") {
+		rowStart += 2
+	} else if strings.HasPrefix(edit.Insert, "\n") {
+		rowStart++
+	}
+	caret := rowStart + len(table.Prefix) + 2 + column*4
+	plan.Selection = text.Cursor(text.Offset(caret))
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
+	err := host.Apply(tx)
 	return err == nil, caret, err
 }
 
@@ -104,36 +96,11 @@ func (c *Controller) InsertColumnBefore(host Host, lineStart, column int) (bool,
 	if !ok || len(view.Lines) < 2 || column < 0 {
 		return false, nil
 	}
-	columns := 0
-	for _, row := range view.Rows {
-		columns = max(columns, len(row))
-	}
-	if columns == 0 || column > columns {
+	plan, ok := mdedit.ParseSource(view.Source).InsertTableColumn(text.Offset(view.LineStart), column)
+	if !ok {
 		return false, nil
 	}
-	edits := make([]editor.TextEdit, 0, len(view.Lines))
-	for lineIndex, line := range view.Lines {
-		if len(line.Pipes) == 0 || line.Range.End < line.Range.Start || line.Range.End > len(view.Source) {
-			continue
-		}
-		at := line.Range.End
-		if column < len(line.Pipes)-1 {
-			at = line.Pipes[column] + 1
-		} else {
-			at = line.Pipes[len(line.Pipes)-1] + 1
-		}
-		text := "   |"
-		if lineIndex == 1 {
-			text = " --- |"
-		}
-		edits = append(edits, editor.TextEdit{Range: editor.TextRange{Start: at, End: at}, Text: text})
-	}
-	if len(edits) == 0 {
-		return false, nil
-	}
-	selection := host.TextSelection()
-	tx := editor.Transaction{Edits: edits, Before: selection}
-	tx.After = mapSelection(tx, selection)
+	tx := editor.TransactionFromPlan(plan, host.TextSelection())
 	err := host.Apply(tx)
 	return err == nil, err
 }
@@ -146,34 +113,37 @@ func (c *Controller) AlignColumn(host Host, lineStart, column int, alignment Ali
 	if !ok || len(view.Lines) < 2 || column < 0 || len(view.Lines[1].Pipes) <= column+1 {
 		return false, EditMapping{}, nil
 	}
-	spec := " --- "
+	name := "none"
 	switch alignment {
-	case AlignmentNone:
-		spec = " --- "
 	case AlignmentLeft:
-		spec = " :-- "
+		name = "left"
 	case AlignmentCenter:
-		spec = " :-: "
+		name = "center"
 	case AlignmentRight:
-		spec = " --: "
+		name = "right"
+	case AlignmentNone:
 	default:
 		return false, EditMapping{}, nil
 	}
-	from, to := view.Lines[1].Pipes[column]+1, view.Lines[1].Pipes[column+1]
-	if from < view.Lines[1].Range.Start || to < from || to > view.Lines[1].Range.End || to > len(view.Source) {
+	plan, ok := mdedit.ParseSource(view.Source).AlignTableColumn(text.Offset(view.LineStart), column, name)
+	if !ok || len(plan.Edits) != 1 {
 		return false, EditMapping{}, nil
 	}
-	if view.Source[from:to] == spec {
+	edit := plan.Edits[0]
+	if alignment == AlignmentLeft {
+		edit.Insert = " :-- "
+	} else if alignment == AlignmentCenter {
+		edit.Insert = " :-: "
+	} else if alignment == AlignmentRight {
+		edit.Insert = " --: "
+	}
+	from, to := int(edit.Range.From), int(edit.Range.To)
+	if view.Source[from:to] == edit.Insert {
 		return false, EditMapping{}, nil
 	}
-	selection := host.TextSelection()
-	tx := editor.Transaction{
-		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}},
-		Before: selection,
-		After:  mapSelection(editor.Transaction{Edits: []editor.TextEdit{{Range: editor.TextRange{Start: from, End: to}, Text: spec}}}, selection),
-	}
+	tx := editor.TransactionFromPlan(mdedit.Plan{Edits: []text.Edit{edit}}, host.TextSelection())
 	err := host.Apply(tx)
-	return err == nil, EditMapping{From: from, To: to, Inserted: len(spec)}, err
+	return err == nil, EditMapping{From: from, To: to, Inserted: len(edit.Insert)}, err
 }
 
 // EditMapping describes one replacement in source coordinates.
@@ -249,7 +219,7 @@ func (c *Controller) Reorder(host Host, lineStart int, axis Axis, first, last, g
 		Edits:  []editor.TextEdit{{Range: editor.TextRange{Start: view.LineStart, End: view.End}, Text: text}},
 		Before: selection,
 	}
-	tx.After = mapSelection(tx, selection)
+	tx.After = tx.MapSelection(selection)
 	err := host.Apply(tx)
 	return err == nil, insertion, err
 }

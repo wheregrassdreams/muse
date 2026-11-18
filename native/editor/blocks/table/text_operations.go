@@ -83,7 +83,7 @@ func (c *Controller) BackspaceBlock(host Host, lineStart, column int, remove str
 	}
 	selection := host.TextSelection()
 	transaction := editor.Transaction{Edits: edits, Before: selection}
-	transaction.After = mapSelection(transaction, selection)
+	transaction.After = transaction.MapSelection(selection)
 	err := host.Apply(transaction)
 	return err == nil, err
 }
@@ -308,28 +308,6 @@ func (c *Controller) PasteBlock(host Host, at int, fragment string) (bool, error
 	}
 	err := host.Apply(tx)
 	return err == nil, err
-}
-
-func mapSelection(transaction editor.Transaction, selection editor.Selection) editor.Selection {
-	mapOffset := func(offset int) int {
-		original := offset
-		deltaTotal := 0
-		for _, edit := range transaction.Edits {
-			delta := len(edit.Text) - (edit.Range.End - edit.Range.Start)
-			switch {
-			case original >= edit.Range.End:
-				deltaTotal += delta
-			case original > edit.Range.Start:
-				return edit.Range.Start + deltaTotal + len(edit.Text)
-			default:
-				return original + deltaTotal
-			}
-		}
-		return original + deltaTotal
-	}
-	selection.Anchor = mapOffset(selection.Anchor)
-	selection.Head = mapOffset(selection.Head)
-	return selection
 }
 
 func serialize(rows [][]string, alignments []Alignment, prefix, continuationPrefix string) string {

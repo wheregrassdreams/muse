@@ -36,6 +36,29 @@ type Transaction struct {
 	After  Selection
 }
 
+// MapSelection applies this transaction's offset changes to a source-relative
+// selection while preserving its Vim selection metadata.
+func (tx Transaction) MapSelection(selection Selection) Selection {
+	mapOffset := func(offset int) int {
+		original, deltaTotal := offset, 0
+		for _, edit := range tx.Edits {
+			delta := len(edit.Text) - (edit.Range.End - edit.Range.Start)
+			switch {
+			case original >= edit.Range.End:
+				deltaTotal += delta
+			case original > edit.Range.Start:
+				return edit.Range.Start + deltaTotal + len(edit.Text)
+			default:
+				return original + deltaTotal
+			}
+		}
+		return original + deltaTotal
+	}
+	selection.Anchor = mapOffset(selection.Anchor)
+	selection.Head = mapOffset(selection.Head)
+	return selection
+}
+
 // Validate checks that edits address the source snapshot and do not overlap.
 // Adjacent ranges are allowed. Edits must be ordered by ascending source byte
 // offset so callers can reason about their transaction deterministically.

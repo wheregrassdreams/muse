@@ -9,6 +9,7 @@ import (
 	"muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
 	syntax "muse/markdown/syntax"
+	tableui "muse/nativeui/editor/blocks/table"
 )
 
 // Inline formats: a command on a selection wraps it in the format's
@@ -90,10 +91,11 @@ func (e *Editor) wrapInline(open, close string) {
 
 func (e *Editor) applyInlinePlan(plan inline.FormatPlan) {
 	e.begin(stepEdit)
-	for _, edit := range plan.Edits {
-		e.replace(edit.Start, edit.End, edit.Text)
+	for index := len(plan.Edits) - 1; index >= 0; index-- {
+		edit := plan.Edits[index]
+		e.replace(edit.Range.Start, edit.Range.End, edit.Text)
 	}
-	e.commit(plan.Selection.Start, plan.Selection.End)
+	e.commit(plan.After.Anchor, plan.After.Head)
 }
 
 // ToggleBold, ToggleItalic, ToggleStrike, ToggleCode and ToggleUnderline
@@ -491,13 +493,13 @@ func (e *Editor) Copy() bool {
 		}
 		t := e.tableByLineStart(part.structure.lineStart)
 		reg := e.tableRegisterForSelection(t, part.structure)
-		if reg == nil || !reg.region || part.structure.axis == tableWhole {
+		if reg == nil || !reg.Region() || part.structure.axis == tableWhole {
 			htmlParts = append(htmlParts, syntax.ParseIncrementalSource(e.Source()[part.source.Start:part.source.End]).HTML())
 			continue
 		}
 		// Markdown uses the rectangle's first row as its header. HTML keeps
 		// source table header semantics through the register's sourceHeader.
-		htmlParts = append(htmlParts, reg.html())
+		htmlParts = append(htmlParts, tableui.ClipboardHTML(*reg))
 		hasStructure = true
 	}
 	if hasStructure {
