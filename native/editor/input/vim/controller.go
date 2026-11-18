@@ -80,10 +80,6 @@ const (
 	CommandPendingPrefix
 	CommandFirstLine
 	CommandVertical
-	CommandScrollLine
-	CommandFold
-	CommandFoldAll
-	CommandReveal
 )
 
 // Command is an immutable, toolkit-neutral result of interpreting a Vim
@@ -92,8 +88,6 @@ type Command struct {
 	Kind      CommandKind
 	Direction int
 	Count     int
-	Placement ScrollPlacement
-	Fold      FoldAction
 }
 
 // IntentKind is the result of parsing one printable keymap event. It names
@@ -111,11 +105,7 @@ const (
 	IntentEnterVisual
 	IntentEnterLineVisual
 	IntentFindCharacter
-	IntentRepeatCharacterFind
-	IntentBeginReplace
 	IntentReplaceCharacter
-	IntentBeginSearch
-	IntentRepeatSearch
 	IntentPutRegister
 	IntentUndo
 	IntentDeleteCharacter
@@ -159,27 +149,6 @@ type Intent struct {
 	InsertAt  string
 	Command   Command
 }
-
-type ScrollPlacement uint8
-
-const (
-	ScrollTop ScrollPlacement = iota + 1
-	ScrollCenter
-	ScrollBottom
-)
-
-type FoldAction uint8
-
-const (
-	FoldClose FoldAction = iota + 1
-	FoldCloseRecursive
-	FoldOpen
-	FoldOpenRecursive
-	FoldToggle
-	FoldToggleRecursive
-	FoldCloseAll
-	FoldOpenAll
-)
 
 func New() *Controller {
 	return &Controller{state: ViewState{Keymap: "default", Mode: ModeNormal}}
@@ -318,44 +287,7 @@ func (c *Controller) feedSequenceText(text string, now time.Time) (command Comma
 			return Command{}, true
 		}
 	}
-	if c.state.Pending == "z" {
-		if now.Sub(c.state.PrefixStartedAt) > 900*time.Millisecond {
-			c.ClearPending()
-			return Command{}, false
-		}
-		c.ClearPending()
-		count := max(1, c.state.Count)
-		c.state.Count = 0
-		switch text {
-		case "t":
-			return Command{Kind: CommandScrollLine, Placement: ScrollTop, Count: count}, true
-		case "z":
-			return Command{Kind: CommandScrollLine, Placement: ScrollCenter, Count: count}, true
-		case "b":
-			return Command{Kind: CommandScrollLine, Placement: ScrollBottom, Count: count}, true
-		case "c":
-			return Command{Kind: CommandFold, Fold: FoldClose}, true
-		case "C":
-			return Command{Kind: CommandFold, Fold: FoldCloseRecursive}, true
-		case "o":
-			return Command{Kind: CommandFold, Fold: FoldOpen}, true
-		case "O":
-			return Command{Kind: CommandFold, Fold: FoldOpenRecursive}, true
-		case "a":
-			return Command{Kind: CommandFold, Fold: FoldToggle}, true
-		case "A":
-			return Command{Kind: CommandFold, Fold: FoldToggleRecursive}, true
-		case "v":
-			return Command{Kind: CommandReveal}, true
-		case "M":
-			return Command{Kind: CommandFoldAll, Fold: FoldCloseAll}, true
-		case "R":
-			return Command{Kind: CommandFoldAll, Fold: FoldOpenAll}, true
-		default:
-			return Command{}, true
-		}
-	}
-	if text == "g" || text == "z" && c.Keymap() == "vim" {
+	if text == "g" {
 		c.SetPending(text, now)
 		return Command{Kind: CommandPendingPrefix}, true
 	}
@@ -431,45 +363,7 @@ func (c *Controller) interpretText(text string, now time.Time) (Intent, bool) {
 			BigWord: text == "W" || text == "B" || text == "E"}, true
 	}
 
-	vimOnly := c.Keymap() == "vim"
 	switch text {
-	case "f", "F", "t", "T":
-		if !vimOnly {
-			return Intent{Kind: IntentConsumed}, true
-		}
-		direction, till := 1, false
-		if text == "F" {
-			direction = -1
-		}
-		if text == "t" {
-			till = true
-		}
-		if text == "T" {
-			direction, till = -1, true
-		}
-		c.SetAwaitingCharacter(direction, till, combinedCount)
-		return Intent{Kind: IntentFindCharacter, Count: combinedCount, Direction: direction, Till: till}, true
-	case ";", ",":
-		if vimOnly {
-			return Intent{Kind: IntentRepeatCharacterFind, Count: count, Reverse: text == ","}, true
-		}
-	case "r":
-		if vimOnly {
-			c.SetAwaitingReplacement(combinedCount)
-			return Intent{Kind: IntentBeginReplace, Count: combinedCount}, true
-		}
-	case "/", "?":
-		if vimOnly {
-			direction := 1
-			if text == "?" {
-				direction = -1
-			}
-			return Intent{Kind: IntentBeginSearch, Direction: direction}, true
-		}
-	case "n", "N":
-		if vimOnly {
-			return Intent{Kind: IntentRepeatSearch, Count: count, Reverse: text == "N"}, true
-		}
 	case "i", "a":
 		place := text
 		return Intent{Kind: IntentEnterInsert, InsertAt: place}, true
@@ -481,7 +375,7 @@ func (c *Controller) interpretText(text string, now time.Time) (Intent, bool) {
 	case "o", "O":
 		return Intent{Kind: IntentOpenLine, Before: text == "O"}, true
 	case "v":
-		c.state.VimTextVisualActive = vimOnly
+		c.state.VimTextVisualActive = false
 		c.state.Mode = ModeVisual
 		return Intent{Kind: IntentEnterVisual}, true
 	case "V":

@@ -9,9 +9,9 @@ type intentHost struct{ intents []Intent }
 
 func (h *intentHost) DispatchVimIntent(intent Intent) { h.intents = append(h.intents, intent) }
 
-func TestSequenceCommands(t *testing.T) {
+func TestHelixSequenceCommands(t *testing.T) {
 	c := New()
-	c.SetKeymap("vim")
+	c.SetKeymap("helix")
 	now := time.Now()
 
 	if got, ok := c.feedSequenceText("2", now); !ok || got.Kind != CommandCountPrefix || c.Sequence().Count != 2 {
@@ -27,23 +27,10 @@ func TestSequenceCommands(t *testing.T) {
 	if c.Pending() != "" {
 		t.Fatalf("pending prefix after gj = %q", c.Pending())
 	}
-
-	_, _ = c.feedSequenceText("z", now)
-	got, ok := c.feedSequenceText("C", now.Add(time.Millisecond))
-	if !ok || got.Kind != CommandFold || got.Fold != FoldCloseRecursive {
-		t.Fatalf("zC command = (%+v, %v)", got, ok)
-	}
 }
 
-func TestExpiredPrefixFallsThroughAndStateViewIsDetached(t *testing.T) {
+func TestStateViewIsDetached(t *testing.T) {
 	c := New()
-	c.SetKeymap("vim")
-	now := time.Now()
-	_, _ = c.feedSequenceText("z", now)
-	if got, handled := c.feedSequenceText("x", now.Add(time.Second)); handled || got.Kind != CommandNone {
-		t.Fatalf("expired prefix = (%+v, %v)", got, handled)
-	}
-
 	c.SetBlockRegister([]string{"one", "two"})
 	view := c.View()
 	view.RegisterBlock[0] = "changed"
@@ -52,22 +39,22 @@ func TestExpiredPrefixFallsThroughAndStateViewIsDetached(t *testing.T) {
 	}
 }
 
-func TestInterpretTextReturnsIntentsForHostDispatch(t *testing.T) {
+func TestHelixInterpretTextReturnsIntentsForHostDispatch(t *testing.T) {
 	c := New()
-	c.SetKeymap("vim")
+	c.SetKeymap("helix")
 	host := &intentHost{}
 	now := time.Now()
-	intent, handled := c.InterpretText("z", now)
+	intent, handled := c.InterpretText("g", now)
 	if !handled || intent.Kind != IntentPrefix || len(host.intents) != 0 {
-		t.Fatalf("prefix parse should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
+		t.Fatalf("Helix prefix parse should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
 	}
 	host.DispatchVimIntent(intent)
-	intent, handled = c.InterpretText("M", now.Add(time.Millisecond))
+	intent, handled = c.InterpretText("j", now.Add(time.Millisecond))
 	if !handled || intent.Kind != IntentCommand || len(host.intents) != 1 {
-		t.Fatalf("fold-all parse should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
+		t.Fatalf("Helix motion prefix should return an undispatched typed intent: intent=%+v dispatched=%+v", intent, host.intents)
 	}
 	host.DispatchVimIntent(intent)
-	if got := host.intents[1]; got.Kind != IntentCommand || got.Command.Kind != CommandFoldAll || got.Command.Fold != FoldCloseAll {
-		t.Fatalf("dispatched intent = %+v", got)
+	if got := host.intents[1]; got.Kind != IntentCommand || got.Command.Kind != CommandVertical || got.Command.Direction != 1 {
+		t.Fatalf("dispatched Helix intent = %+v", got)
 	}
 }
