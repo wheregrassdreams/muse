@@ -357,6 +357,26 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	case "vim.replace-range":
 		e.modalReplaceRange(int(intent.Range.From), int(intent.Range.To), intent.Text)
 		return
+	case "vim.append", "vim.insert-line-first", "vim.insert-line-end", "vim.open-line-below", "vim.open-line-above":
+		focus := e.nativePrepareInsert()
+		switch key {
+		case "a":
+			if !e.modalEmptyLineAt(focus) {
+				e.setSessionHead(e.step(focus, 1, false))
+			}
+		case "I":
+			e.setSessionHead(e.nativeLineStart(focus, true))
+		case "A":
+			e.setSessionHead(e.nativeLineEndAt(focus))
+		case "o":
+			e.nativeOpenLine(false)
+		case "O":
+			e.nativeOpenLine(true)
+		}
+		e.setSessionAnchor(e.Caret())
+		e.modalSetMode(helix.ModeInsert)
+		e.breakCoalescing()
+		return
 	case textvim.IntentPasteBlockBefore, textvim.IntentPasteBlockAfter:
 		before := intent.Name == textvim.IntentPasteBlockBefore
 		e.putRegister(before, max(1, intent.Count))
