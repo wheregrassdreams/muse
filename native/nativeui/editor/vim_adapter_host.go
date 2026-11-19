@@ -71,6 +71,10 @@ func (c *editorVimController) View() vim.ViewState {
 		return e.legacyVimController().View()
 	}
 	state := e.Session.VimKeymap().View()
+	pending := state.Pending
+	if state.Searching {
+		pending = ""
+	}
 	registerKind := vim.RegisterNone
 	switch state.RegisterKind {
 	case textvim.RegisterText:
@@ -81,7 +85,7 @@ func (c *editorVimController) View() vim.ViewState {
 		registerKind = vim.RegisterTable
 	}
 	return vim.ViewState{
-		Keymap: state.Keymap, Mode: c.Mode(), Pending: state.Pending,
+		Keymap: state.Keymap, Mode: c.Mode(), Pending: pending,
 		Count: state.Count, OperatorCount: state.OperatorCount, Linewise: state.Linewise,
 		Searching: state.Searching, SearchDirection: state.SearchDirection, SearchQuery: state.SearchQuery,
 		SearchStartCaret: int(state.SearchStartCaret), SearchStartAnchor: int(state.SearchStartAnchor),
