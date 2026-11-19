@@ -1335,7 +1335,7 @@ func newImageDocumentController(a *App) *imagedocumentui.Controller {
 		Cache: func() images.CacheStore { return a.imageCacheStore },
 		Files: func() images.LocalFiles { return a.imageLocalFiles },
 		Surface: imagedocumentui.SurfaceOptions{
-			Header:        func(c *ui.Context) { a.editorHeader(c) },
+			Header:        func(c *ui.Context) { a.renderEditorHeader(c, a.flat) },
 			HeaderHeight:  func(c *ui.Context) float32 { return a.headerH(c) },
 			BacklinkCount: func() int { return len(a.currentBacklinkSources()) },
 			OnBacklinks:   a.openLinks,
