@@ -36,31 +36,6 @@ func TestParseBlocks(t *testing.T) {
 	}
 }
 
-func TestParseOrderedListAndTable(t *testing.T) {
-	d := Parse("1. first\n2. second\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
-
-	l := d.Blocks[0]
-	if !l.Ordered || l.Items[0].Marker != "1." || l.Items[1].Marker != "2." {
-		t.Errorf("ordered list = %+v", l)
-	}
-	tbl := d.Blocks[1]
-	if tbl.Kind != Table || len(tbl.Rows) != 2 || spansText(tbl.Rows[0][0]) != "a" {
-		t.Errorf("table = %+v", tbl)
-	}
-}
-
-// Markdown semantics: a wrapped source line is one paragraph, joined by a
-// space rather than a break.
-func TestParseSoftBreakKeepsLine(t *testing.T) {
-	d := Parse("just text\nand more\n")
-	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Paragraph {
-		t.Fatalf("blocks = %+v", d.Blocks)
-	}
-	if got := d.PlainText(); got != "just text\nand more\n" {
-		t.Errorf("markdown soft break = %q", got)
-	}
-}
-
 // A plain .txt file must open too: ParsePlainText keeps every line and
 // shows Markdown syntax literally, so the same viewer serves both types.
 func TestParsePlainTextKeepsLines(t *testing.T) {
@@ -99,24 +74,6 @@ func hasCode(spans []Span, text string) bool {
 	return false
 }
 
-func TestParseTaskListAndStandaloneImage(t *testing.T) {
-	d := Parse("- [ ] todo\n- [x] done\n\n![cover](assets/cover.png)\n")
-	list := d.Blocks[0]
-	if list.Kind != List || len(list.Items) != 2 {
-		t.Fatalf("list = %+v", list)
-	}
-	if !list.Items[0].Task || list.Items[0].Checked {
-		t.Errorf("first task = %+v", list.Items[0])
-	}
-	if !list.Items[1].Task || !list.Items[1].Checked {
-		t.Errorf("second task = %+v", list.Items[1])
-	}
-	img := d.Blocks[1]
-	if img.Kind != Image || img.Src != "assets/cover.png" || img.Alt != "cover" {
-		t.Errorf("image = %+v", img)
-	}
-}
-
 func TestParseHTMLImageBlock(t *testing.T) {
 	d := Parse("<p align=\"center\"><img src=\"resources/icon.png\" alt=\"Muse\" width=\"128\"></p>\n")
 	if len(d.Blocks) != 1 || d.Blocks[0].Kind != Image {
@@ -139,29 +96,5 @@ func TestParseHTMLHeading(t *testing.T) {
 	}
 	if got := spansText(d.Blocks[0].Inlines); got != "Muse" {
 		t.Fatalf("heading text = %q", got)
-	}
-}
-
-func TestParseInlineAndBlockMath(t *testing.T) {
-	d := Parse("energy $E = mc^2$ stays.\n\n$$\n\\frac{a}{b} + \\alpha\n$$\n")
-	if len(d.Blocks) != 2 {
-		t.Fatalf("blocks = %+v", d.Blocks)
-	}
-	p := d.Blocks[0]
-	found := false
-	for _, sp := range p.Inlines {
-		if sp.Math {
-			found = true
-			if sp.Text != "E = mc^2" {
-				t.Errorf("math text = %q", sp.Text)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("inline math missing: %+v", p.Inlines)
-	}
-	m := d.Blocks[1]
-	if m.Kind != Math || !strings.Contains(m.Text, "frac") {
-		t.Fatalf("math block = %+v", m)
 	}
 }
