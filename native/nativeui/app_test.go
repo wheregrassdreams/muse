@@ -11,7 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	workspaceapp "muse/application/workspace"
-	settingsui "muse/nativeui/settings"
+	settingsui "muse/nativeui/workbench/features/settings"
 	"muse/platform/filesystem/recentstore"
 )
 

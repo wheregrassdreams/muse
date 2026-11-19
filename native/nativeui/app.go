@@ -9,8 +9,10 @@ package nativeui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -40,37 +42,38 @@ import (
 	"muse/locales"
 	mdoc "muse/markdown"
 	"muse/markdown/images"
-	agentui "muse/nativeui/agent"
-	backlinksui "muse/nativeui/backlinks"
-	"muse/nativeui/commandpalette"
-	commands "muse/nativeui/commands"
-	"muse/nativeui/diagnostics"
-	documentdialogs "muse/nativeui/dialogs/document"
-	dialogsui "muse/nativeui/dialogs/export"
-	filedialogs "muse/nativeui/dialogs/files"
-	"muse/nativeui/dragdrop"
-	editorui "muse/nativeui/editor"
-	inlineui "muse/nativeui/editor/blocks/inline"
-	noteeditor "muse/nativeui/editor/surface"
-	explorer "muse/nativeui/explorer"
-	imagedocumentui "muse/nativeui/imagedocument"
-	imagepreviewui "muse/nativeui/imagepreview"
-	keybindings "muse/nativeui/keybindings"
-	linkpreview "muse/nativeui/linkpreview"
-	markdownui "muse/nativeui/markdown"
-	"muse/nativeui/mermaidpreview"
-	naviconpicker "muse/nativeui/naviconpicker"
-	outlineui "muse/nativeui/outline"
-	propertypanel "muse/nativeui/properties"
-	quickopenui "muse/nativeui/quickopen"
-	findreplaceui "muse/nativeui/search/findreplace"
-	searchui "muse/nativeui/search/workspace"
-	settingsui "muse/nativeui/settings"
-	shellui "muse/nativeui/shell"
-	windowcontrols "muse/nativeui/shell/windowcontrols"
-	componenticons "muse/nativeui/ui/icons"
-	workbenchui "muse/nativeui/workbench"
-	workspaceui "muse/nativeui/workspace"
+	agentui "muse/nativeui/workbench/features/agent"
+	backlinksui "muse/nativeui/workbench/features/backlinks"
+	"muse/nativeui/workbench/features/commandpalette"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
+	dialogsui "muse/nativeui/workbench/features/dialogs/export"
+	filedialogs "muse/nativeui/workbench/features/dialogs/files"
+	editorui "muse/nativeui/workbench/features/editor"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	noteeditor "muse/nativeui/workbench/features/editor/surface"
+	explorer "muse/nativeui/workbench/features/explorer"
+	imagedocumentui "muse/nativeui/workbench/features/imagedocument"
+	imagepreviewui "muse/nativeui/workbench/features/imagepreview"
+	linkpreview "muse/nativeui/workbench/features/linkpreview"
+	"muse/nativeui/workbench/features/mermaidpreview"
+	naviconpicker "muse/nativeui/workbench/features/naviconpicker"
+	outlineui "muse/nativeui/workbench/features/outline"
+	propertypanel "muse/nativeui/workbench/features/properties"
+	quickopenui "muse/nativeui/workbench/features/quickopen"
+	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
+	searchui "muse/nativeui/workbench/features/search/workspace"
+	settingsui "muse/nativeui/workbench/features/settings"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
+	"muse/nativeui/workbench/framework/diagnostics"
+	commands "muse/nativeui/workbench/framework/interactions/commands"
+	"muse/nativeui/workbench/framework/interactions/dragdrop"
+	keybindings "muse/nativeui/workbench/framework/interactions/keybindings"
+	markdownui "muse/nativeui/workbench/framework/markdown"
+	shellui "muse/nativeui/workbench/framework/shell"
+	windowcontrols "muse/nativeui/workbench/framework/shell/windowcontrols"
+
+	hostingui "muse/nativeui/workbench/framework/hosting"
+	workspaceui "muse/nativeui/workbench/framework/workspace"
 	vaultfiles "muse/vault/files"
 	vaultlinks "muse/vault/links"
 	"muse/workspace"
@@ -115,15 +118,15 @@ type App struct {
 	vaultSnapshot              applicationvault.Snapshot
 	pendingLinks               bool
 	pendingWiki                string
-	workspaceSearch            *searchui.Handle
+	workspaceSearch            *searchui.Host
 	indexedPath                string
 	indexedOffset              int
 	indexedRevision            string
 	win                        *mygo.Window
-	windows                    *workspaceui.Manager
+	windows                    *hostingui.Manager
 	workspaceSession           *workspaceapp.Session
 	workspaceHost              *workspaceui.Host
-	workbench                  *workbenchui.Host
+	workbench                  *shellui.WorkbenchHost
 	workspaceLifecycle         *shellui.WorkspaceLifecycle
 	workspaceState             workspace.State
 	activePane                 workspace.PaneID
@@ -131,8 +134,8 @@ type App struct {
 	imageDocument              *imagedocumentui.Controller
 	documentSave               *noteeditor.SaveActions
 	quickOpen                  *quickopenui.Controller
-	mermaidPreviewHandle       workspaceui.Handle
-	backlinksHandle            workspaceui.Handle
+	mermaidPreviewHandle       hostingui.Handle
+	backlinksHandle            hostingui.Handle
 	linkPreview                linkpreview.Host
 	navIconPicker              *naviconpicker.Host
 
@@ -188,7 +191,7 @@ type App struct {
 	nativeDropHandled       bool
 	treeNativeDropSuggested transfer.Operation
 	outlinePanel            *outlineui.Handle
-	findReplace             *findreplaceui.Handle
+	findReplace             *findreplaceui.Host
 	selectedPath            string
 	focusedPanel            commands.PanelID
 	treeFocusHandle         ui.Handle
@@ -296,13 +299,22 @@ func NewWithDependencies(deps Dependencies) *App {
 		directoryCatalog:          vaultfileapp.NewDirectoryCatalog(),
 		navigationHistory:         workspaceapp.NewDocumentHistory(),
 		fileTreeState:             explorer.NewController(),
-		findReplace:               findreplaceui.NewHandle(),
 		outlinePanel:              outlineui.NewHandle(),
-		workspaceSearch:           searchui.NewHandle(),
+		workspaceSearch:           searchui.NewHost(nil),
 		commandPalette:            commandpalette.NewHost(),
 		activeLinkIndex:           &vaultlinkapp.ActiveLinkIndex{},
 		documents:                 documentdialogs.NewHandle(),
 	}
+	a.findReplace = findreplaceui.NewHost(findreplaceui.Options{
+		Handle: findreplaceui.NewHandle(),
+		Ports: findreplaceui.Ports{
+			Editor: findreplaceui.NewEditorAdapter(
+				func() noteeditor.Commands { return a.noteEditor() },
+				func(err error) { a.notice(err.Error()) },
+			),
+			Invalidate: a.invalidate,
+		},
+	})
 	a.fileDialogs = filedialogs.NewHost(filedialogs.Ports{
 		Busy: func() bool { return a.busy },
 		Choose: func(_ context.Context, request filedialogs.Request) ([]string, error) {
@@ -433,7 +445,7 @@ func NewWithDependencies(deps Dependencies) *App {
 			}
 		},
 	})
-	a.windows = workspaceui.NewManager(func() {
+	a.windows = hostingui.NewManager(func() {
 		if commands := a.noteEditor(); commands != nil {
 			if focus := commands.FocusCommands(); focus != nil {
 				focus.Focus()
@@ -609,18 +621,18 @@ func (a *App) initializeWorkspace(repository workspace.Repository) {
 
 // openWorkspacePane translates one application restore descriptor into a
 // feature-owned note surface and a generic window slot.
-func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (workspaceui.Handle, error) {
+func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (hostingui.Handle, error) {
 	if a == nil || a.windows == nil {
-		return workspaceui.Handle{}, errors.New("nativeui: workspace window host is unavailable")
+		return hostingui.Handle{}, errors.New("nativeui: workspace window host is unavailable")
 	}
 	note := document.NewNote("", "", document.RevisionOf(""))
 	if request.Path != "" {
 		if a.documentRepository == nil {
-			return workspaceui.Handle{}, errors.New("nativeui: document repository is unavailable")
+			return hostingui.Handle{}, errors.New("nativeui: document repository is unavailable")
 		}
 		loaded, err := a.documentRepository.Read(request.Path)
 		if err != nil {
-			return workspaceui.Handle{}, err
+			return hostingui.Handle{}, err
 		}
 		note = loaded
 	}
@@ -635,17 +647,17 @@ func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (workspaceui.Ha
 			a.invalidate()
 		})
 	if err != nil {
-		return workspaceui.Handle{}, err
+		return hostingui.Handle{}, err
 	}
 	if modal := content.ModalCommands(); modal != nil && a.settingsPanel != nil {
 		modal.SetKeymap(a.settingsPanel.Runtime().Editor.Keymap)
 	}
-	handle, err := a.windows.Open(content, workspaceui.Placement{
-		Host: workspaceui.MainHost, Pane: workspaceui.PaneID(request.PaneID), Layer: workspaceui.PaneContent,
+	handle, err := a.windows.Open(content, hostingui.Placement{
+		Host: workspaceui.MainHost, Pane: hostingui.PaneID(request.PaneID), Layer: hostingui.PaneContent,
 	})
 	if err != nil {
 		content.Close()
-		return workspaceui.Handle{}, err
+		return hostingui.Handle{}, err
 	}
 	if request.Focused {
 		a.activePane = request.PaneID
@@ -656,7 +668,11 @@ func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (workspaceui.Ha
 
 func (a *App) editorOptions() editorui.Options {
 	options := editorui.Options{
-		ImageCacheStore: a.imageCacheStore, ImageLocalFiles: a.imageLocalFiles,
+		MaxWidth: 800, PadX: 56,
+		PreserveTypedLineBreaks: true,
+		Placeholder:             locales.DocumentStartWriting(),
+		Label:                   locales.DocumentDefaultLabel(),
+		ImageCacheStore:         a.imageCacheStore, ImageLocalFiles: a.imageLocalFiles,
 		Invalidate: a.invalidate, OnLink: a.openLink,
 		ResolveImage:              a.resolveVaultImage,
 		WikiLinkSuggestions:       a.wikiLinkSuggestions,
@@ -666,6 +682,13 @@ func (a *App) editorOptions() editorui.Options {
 		ResolveWikiLink:           a.resolveWikiLinkStyle,
 		OnImagePreview:            a.openImagePreview,
 		OnDiagramPreview:          a.openMermaidPreview,
+		SaveImage:                 a.saveEditorImage,
+		OnDropFiles:               a.openDroppedDocuments,
+		OnVaultItemDragOver: func() {
+			if a.fileTreeState != nil {
+				a.fileTreeState.SetDragOperationDisplay(explorer.DragOperationDisplay{Kind: explorer.DragOperationInsertIntoEditor})
+			}
+		},
 	}
 	if a.flat {
 		options.TopInset = editorHeaderH
@@ -695,7 +718,7 @@ func (a *App) editorOptions() editorui.Options {
 	if a.propertiesPanel != nil && a.propertiesPanel.Enabled() {
 		options.Header = func(c *ui.Context) { a.propertiesPanel.RenderSummary(c) }
 		options.HeaderHeight = 160
-		options.HideFrontmatter = a.propertiesPanel.ViewModel().Error == ""
+		options.HideFrontmatter = !a.propertiesPanel.IsSourceMode() && a.propertiesPanel.FrontmatterValid()
 	}
 	return options
 }
@@ -791,6 +814,7 @@ func (a *App) openWorkspaceSearch() {
 	if a.root == "" && a.documentPath() != "" {
 		a.root = filepath.Dir(a.documentPath())
 	}
+	a.workspaceSearch.Reset()
 	a.workspaceSearch.Open()
 	a.invalidate()
 }
@@ -997,9 +1021,79 @@ func (a *App) configureActiveNote(_ int) {
 	current.Header, current.HeaderHeight, current.HideFrontmatter = settings.Header, settings.HeaderHeight, settings.HideFrontmatter
 	current.TopInset = 0
 	if a.flat {
-		current.TopInset = editorHeaderH
+		current.TopInset = settings.TopInset
 	}
 	commands.PresentationCommands().Configure(current)
+}
+
+func (a *App) configureEditorTopInset(c *ui.Context, flat bool) {
+	commands := a.noteEditor()
+	if commands == nil || commands.PresentationCommands() == nil {
+		return
+	}
+	settings := commands.PresentationCommands().Settings()
+	inset := float32(0)
+	if flat {
+		inset = a.headerH(c)
+	}
+	if settings.TopInset == inset {
+		return
+	}
+	settings.TopInset = inset
+	commands.PresentationCommands().Configure(settings)
+}
+
+func (a *App) saveEditorImage(data []byte, ext string) (string, error) {
+	if a == nil {
+		return "", errors.New("editor image owner is unavailable")
+	}
+	if ext == "" {
+		ext = ".png"
+	}
+	directory := a.docDir()
+	if directory == "" {
+		if a.temporaryImageStore == nil {
+			return "", errors.New("temporary image store is unavailable")
+		}
+		path, err := a.temporaryImageStore.SaveTemporaryImage(data, ext)
+		return filepath.ToSlash(path), err
+	}
+	root := a.root
+	useCases := a.vaultFileUseCases()
+	if _, ok := a.vaultRelativePath(directory); !ok {
+		root = directory
+		useCases = vaultfileapp.NewFileUseCases(root, a.fileOperations, nil)
+	}
+	path, err := useCases.CreateAttachment(vaultfileapp.CreateAttachmentCommand{
+		Directory: filepath.Join(directory, "assets"),
+		Name:      "image-" + time.Now().Format("20060102-150405.000000000"),
+		Extension: ext,
+		Content:   data,
+	})
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(directory, path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+func (a *App) openDroppedDocuments(paths []string) {
+	if a == nil {
+		return
+	}
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			a.setWorkspace(path)
+			return
+		}
+		if doctypes.IsEditablePath(path) {
+			a.requestOpen(path)
+			return
+		}
+	}
 }
 
 // SetDependencies exists for in-process NativeUI fixtures that need to replace
@@ -1621,8 +1715,8 @@ func (a *App) quickOpenOpen() bool {
 func newImageDocumentController(a *App) *imagedocumentui.Controller {
 	return imagedocumentui.NewController(imagedocumentui.Ports{
 		Host: a.windows,
-		Placement: func() workspaceui.Placement {
-			return workspaceui.Placement{Host: "main", Pane: workspaceui.PaneID(a.focusedPane()), Layer: workspaceui.PaneContent}
+		Placement: func() hostingui.Placement {
+			return hostingui.Placement{Host: "main", Pane: hostingui.PaneID(a.focusedPane()), Layer: hostingui.PaneContent}
 		},
 		Cache: func() images.CacheStore { return a.imageCacheStore },
 		Files: func() images.LocalFiles { return a.imageLocalFiles },
@@ -1717,6 +1811,19 @@ func (a *App) routeExplorerAction(action explorer.Action) {
 	case explorer.EndDrag:
 		a.treeDragItem = dragdrop.VaultItem{}
 		return
+	case explorer.DropEntries:
+		paths := action.ItemIDs
+		if len(paths) == 0 && action.Payload.Path != "" {
+			paths = []string{action.Payload.Path}
+		}
+		a.moveTreeEntries(paths, a.vaultFileUseCases().DestinationForPath(action.ID))
+		return
+	case explorer.DropNative:
+		a.dropExplorerTransfer(action.Drop, a.vaultFileUseCases().DestinationForPath(action.ID))
+		return
+	case explorer.ImportFiles:
+		a.importExplorerFiles(action.Paths, a.vaultFileUseCases().DestinationForPath(action.ID))
+		return
 	case explorer.InvokeCommand, explorer.InvokeContextCommand:
 		if action.CommandID == explorer.CommandOpenFile {
 			a.openFileDialog()
@@ -1748,6 +1855,119 @@ func (a *App) routeExplorerAction(action explorer.Action) {
 			a.invalidate()
 		},
 	})
+}
+
+func (a *App) moveTreeEntries(paths []string, destination string) {
+	if a == nil || destination == "" || len(paths) == 0 {
+		return
+	}
+	mutation, err := a.vaultFileUseCases().MoveFiles(paths, destination)
+	if err != nil {
+		a.notice(locales.CommonMoveFailed(err.Error()))
+		return
+	}
+	a.applyTreeMoves(mutation.Moves)
+	a.invalidate()
+}
+
+func (a *App) importExplorerFiles(paths []string, destination string) {
+	if a == nil || destination == "" || len(paths) == 0 {
+		return
+	}
+	if _, err := a.vaultFileUseCases().ImportFiles(paths, destination); err != nil {
+		a.notice(locales.CommonImportFailed(err.Error()))
+		return
+	}
+	if a.directoryCatalog != nil {
+		a.directoryCatalog.Invalidate()
+	}
+	if a.fileTreeState != nil {
+		a.fileTreeState.InvalidateRows()
+	}
+	a.invalidate()
+}
+
+func (a *App) dropExplorerTransfer(drop transfer.Drop, destination string) {
+	b, err := drop.Data.Read(transfer.Format("application/x-muse-vault-item+json"))
+	if err != nil {
+		return
+	}
+	var payload struct {
+		Path  string `json:"path"`
+		Items []struct {
+			Path string `json:"path"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &payload); err != nil {
+		a.notice(locales.FilesReadDropFailed())
+		return
+	}
+	paths := make([]string, 0, len(payload.Items)+1)
+	for _, item := range payload.Items {
+		if item.Path != "" {
+			paths = append(paths, item.Path)
+		}
+	}
+	if len(paths) == 0 && payload.Path != "" {
+		paths = append(paths, payload.Path)
+	}
+	if len(paths) == 0 {
+		a.notice(locales.FilesReadDropFailed())
+		return
+	}
+	if drop.Operation == transfer.Move {
+		a.moveTreeEntries(paths, destination)
+		return
+	}
+	a.importExplorerFiles(paths, destination)
+}
+
+func (a *App) applyTreeMoves(moves []vaultfileapp.FileMove) {
+	if a == nil {
+		return
+	}
+	for _, move := range moves {
+		remap := func(path string) string { return remapMovedPath(path, move) }
+		if a.fileTreeState != nil {
+			a.fileTreeState.RemapIDs(remap)
+		}
+		a.selectedPath = remap(a.selectedPath)
+		if a.recentItems != nil {
+			_ = a.recentItems.Add(move.Target, false)
+		}
+		if filepath.Clean(a.documentPath()) == filepath.Clean(move.Source) && a.documentRepository != nil {
+			if note, err := a.documentRepository.Read(move.Target); err == nil {
+				if editor := a.noteEditor(); editor != nil {
+					_ = editor.Relocate(note)
+				}
+				if a.workspaceSession != nil {
+					if plan, err := a.workspaceSession.RecordActiveDocument(workspaceapp.ActiveDocumentSnapshot{Path: move.Target, PaneID: a.focusedPane()}); err == nil {
+						a.workspaceState = plan.State
+						if a.workspaceRestorer != nil {
+							_ = a.workspaceRestorer.Persist(plan.State)
+						}
+					}
+				}
+			}
+		}
+		if a.vault != nil {
+			_ = a.vault.Refresh(move.Source, move.Target)
+		}
+	}
+	if a.directoryCatalog != nil {
+		a.directoryCatalog.Invalidate()
+	}
+	if a.fileTreeState != nil {
+		a.fileTreeState.InvalidateRows()
+	}
+}
+
+func remapMovedPath(path string, move vaultfileapp.FileMove) string {
+	rel, err := filepath.Rel(move.Source, path)
+	if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return filepath.Join(move.Target, rel)
 }
 
 func (a *App) queueLinkIndexSnapshot() {
@@ -1827,7 +2047,7 @@ func (a *App) openLinks() {
 		_ = a.windows.Focus(a.backlinksHandle)
 		return
 	}
-	a.backlinksHandle = workspaceui.Handle{}
+	a.backlinksHandle = hostingui.Handle{}
 	path := a.documentPath()
 	if a.imageDocumentOpen() && a.imageDocumentPath() != "" {
 		path = a.imageDocumentPath()
@@ -1867,11 +2087,11 @@ func (a *App) openLinks() {
 			if a.vault == session {
 				a.vaultSnapshot = session.Snapshot()
 			}
-			a.backlinksHandle = workspaceui.Handle{}
+			a.backlinksHandle = hostingui.Handle{}
 			a.invalidate()
 		},
 	})
-	handle, err := a.windows.Open(content, workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay})
+	handle, err := a.windows.Open(content, hostingui.Placement{Host: "main", Layer: hostingui.ModalOverlay})
 	if err != nil {
 		_ = session.CloseLinks()
 		return
@@ -2163,13 +2383,13 @@ func (a *App) openMermaidPreview(source string, result diagrams.Result) {
 	}
 	if !a.mermaidPreviewHandle.IsZero() {
 		_ = a.windows.Close(a.mermaidPreviewHandle)
-		a.mermaidPreviewHandle = workspaceui.Handle{}
+		a.mermaidPreviewHandle = hostingui.Handle{}
 	}
 	content := mermaidpreview.NewContent(source, result, func() {
-		a.mermaidPreviewHandle = workspaceui.Handle{}
+		a.mermaidPreviewHandle = hostingui.Handle{}
 		a.invalidate()
 	})
-	handle, err := a.windows.Open(content, workspaceui.Placement{Host: workspaceui.MainHost, Layer: workspaceui.Overlay})
+	handle, err := a.windows.Open(content, hostingui.Placement{Host: workspaceui.MainHost, Layer: hostingui.Overlay})
 	if err != nil {
 		content.Close()
 		a.notice(err.Error())

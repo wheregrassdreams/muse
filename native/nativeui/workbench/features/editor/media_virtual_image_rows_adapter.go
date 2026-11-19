@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"github.com/wheregrassdreams/muse-editor/text/layout"
-	media "muse/nativeui/editor/blocks/media"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 func (e *Editor) clearVimImageRow() { e.vimImageRows.Clear() }

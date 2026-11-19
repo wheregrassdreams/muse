@@ -8,8 +8,8 @@ import (
 	applicationvault "muse/application/vault"
 	vaultfilesapp "muse/application/vault/files"
 	doctypes "muse/document/types"
-	explorer "muse/nativeui/explorer"
-	shellui "muse/nativeui/shell"
+	explorer "muse/nativeui/workbench/features/explorer"
+	shellui "muse/nativeui/workbench/framework/shell"
 	vaultfiles "muse/vault/files"
 )
 

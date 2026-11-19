@@ -9,7 +9,7 @@ import (
 	"github.com/wheregrassdreams/muse-editor/markdown/inline"
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // Inline formats: a command on a selection wraps it in the format's

@@ -10,10 +10,10 @@ import (
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
-	inlineui "muse/nativeui/editor/blocks/inline"
-	media "muse/nativeui/editor/blocks/media"
-	paragraphui "muse/nativeui/editor/blocks/paragraph"
-	"muse/nativeui/editor/render"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	paragraphui "muse/nativeui/workbench/features/editor/blocks/paragraph"
+	"muse/nativeui/workbench/features/editor/render"
 )
 
 // A leaf shows as display text: the characters drawn, each piece of which

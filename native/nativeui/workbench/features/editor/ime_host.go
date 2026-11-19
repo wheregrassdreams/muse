@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/nativeui/editor/ime"
+	"muse/nativeui/workbench/features/editor/ime"
 )
 
 // The host supplies only source/edit and leaf-backed geometry capabilities.

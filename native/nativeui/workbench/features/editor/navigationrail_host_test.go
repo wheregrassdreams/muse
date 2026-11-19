@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/nativeui/editor/navigationrail"
+	"muse/nativeui/workbench/features/editor/navigationrail"
 )
 
 func railDoc(heads int) string {

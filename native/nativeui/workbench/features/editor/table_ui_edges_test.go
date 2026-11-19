@@ -3,7 +3,7 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 	"strings"
 	"testing"
 	"time"

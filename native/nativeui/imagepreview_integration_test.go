@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	interactions "muse/nativeui/commands"
+	interactions "muse/nativeui/workbench/framework/interactions/commands"
 )
 
 func TestImagePreviewOwnsEscapeBeforeFileTreeActions(t *testing.T) {

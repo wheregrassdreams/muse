@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	media "muse/nativeui/editor/blocks/media"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 // imageHit and the adapter around it remain at the editor host because they

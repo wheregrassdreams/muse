@@ -121,8 +121,9 @@ func (e *Editor) moveHorizontal(dir int, extend bool) {
 	if e.replayTableNavigation(0, dir) {
 		return
 	}
+	wasNavigating := e.tableNavigating
 	e.tableNavigating = true
-	defer func() { e.tableNavigating = false }()
+	defer func() { e.tableNavigating = wasNavigating }()
 	if !e.tableHorizontalTransition(dir) {
 		e.setCaret(e.step(e.Caret(), dir, false), extend)
 	}

@@ -3,7 +3,7 @@ package nativeui
 import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	settingsui "muse/nativeui/settings"
+	settingsui "muse/nativeui/workbench/features/settings"
 	"os"
 	"path/filepath"
 	"testing"

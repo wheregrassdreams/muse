@@ -3,7 +3,7 @@ package media_test
 import (
 	"testing"
 
-	"muse/nativeui/editor/blocks/media"
+	"muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 func TestSizedImageDimensionsUsesIntrinsicRatioAndHTMLOverrides(t *testing.T) {

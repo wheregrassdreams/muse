@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"muse/markdown/images"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 var ErrHostUnavailable = errors.New("image document: window host is unavailable")
@@ -12,16 +12,16 @@ var ErrHostUnavailable = errors.New("image document: window host is unavailable"
 // Host is the generic window-manager capability needed to own a transient
 // image document. The feature does not know about App or other document types.
 type Host interface {
-	Open(workspaceui.Content, workspaceui.Placement) (workspaceui.Handle, error)
-	Close(workspaceui.Handle) error
-	Contains(workspaceui.Handle) bool
+	Open(hosting.Content, hosting.Placement) (hosting.Handle, error)
+	Close(hosting.Handle) error
+	Contains(hosting.Handle) bool
 }
 
 // Ports are supplied by the workbench composition root. Functions are used
 // for dependencies that can change when a vault is switched.
 type Ports struct {
 	Host      Host
-	Placement func() workspaceui.Placement
+	Placement func() hosting.Placement
 	Cache     func() images.CacheStore
 	Files     func() images.LocalFiles
 
@@ -38,7 +38,7 @@ type Ports struct {
 // Call it on the hosting manager's UI-owner thread.
 type Controller struct {
 	ports   Ports
-	handle  workspaceui.Handle
+	handle  hosting.Handle
 	content *Content
 	path    string
 }
@@ -98,7 +98,7 @@ func (c *Controller) Close() {
 		_ = c.ports.Host.Close(handle)
 	}
 	if c.handle == handle {
-		c.handle, c.content, c.path = workspaceui.Handle{}, nil, ""
+		c.handle, c.content, c.path = hosting.Handle{}, nil, ""
 	}
 }
 
@@ -113,9 +113,9 @@ func (c *Controller) Path() string {
 	return c.path
 }
 
-func (c *Controller) Handle() workspaceui.Handle {
+func (c *Controller) Handle() hosting.Handle {
 	if !c.IsOpen() {
-		return workspaceui.Handle{}
+		return hosting.Handle{}
 	}
 	return c.handle
 }
@@ -124,7 +124,7 @@ func (c *Controller) closed(content *Content) {
 	if c == nil || c.content != content {
 		return
 	}
-	c.handle, c.content, c.path = workspaceui.Handle{}, nil, ""
+	c.handle, c.content, c.path = hosting.Handle{}, nil, ""
 	if c.ports.OnChanged != nil {
 		c.ports.OnChanged()
 	}

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"muse/nativeui/naviconpicker"
-	componenticons "muse/nativeui/ui/icons"
+	"muse/nativeui/workbench/features/naviconpicker"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 func TestNavTreeIconPickerFiltersAndPersistsVaultRelativeChoice(t *testing.T) {

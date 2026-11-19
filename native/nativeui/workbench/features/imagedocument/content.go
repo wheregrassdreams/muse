@@ -3,7 +3,7 @@ package imagedocument
 import (
 	"github.com/egoist/mygo/ui"
 	"muse/markdown/images"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 type SurfaceOptions struct {
@@ -21,7 +21,7 @@ type SurfaceOptions struct {
 type Content struct {
 	state    state
 	options  SurfaceOptions
-	controls workspaceui.Controls
+	controls hosting.Controls
 	closed   bool
 }
 
@@ -31,7 +31,7 @@ func NewContent(path string, cache images.CacheStore, options SurfaceOptions) (*
 	return content, content.state.HasImage()
 }
 
-func (s *Content) Bind(controls workspaceui.Controls) { s.controls = controls }
+func (s *Content) Bind(controls hosting.Controls) { s.controls = controls }
 
 func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
@@ -84,6 +84,6 @@ func (s *Content) Blurred() {}
 
 func (s *Content) IsClosed() bool { return s == nil || s.closed }
 
-var _ workspaceui.Content = (*Content)(nil)
-var _ workspaceui.Bindable = (*Content)(nil)
-var _ workspaceui.FocusLifecycle = (*Content)(nil)
+var _ hosting.Content = (*Content)(nil)
+var _ hosting.Bindable = (*Content)(nil)
+var _ hosting.FocusLifecycle = (*Content)(nil)

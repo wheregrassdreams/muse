@@ -3,8 +3,8 @@ package noteeditor
 import (
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/document"
-	editorui "muse/nativeui/editor"
-	workspaceui "muse/nativeui/workspace"
+	editorui "muse/nativeui/workbench/features/editor"
+	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/workspace"
 )
 
@@ -27,7 +27,7 @@ func NewNativeContent(
 	options NativeEditorOptions,
 	onAction func(Action),
 ) (*Content, error) {
-	return NewContent(paneID, note, cursorOffset, dependencies, func(session *editormodel.Session, surface SurfaceOptions) workspaceui.Content {
+	return NewContent(paneID, note, cursorOffset, dependencies, func(session *editormodel.Session, surface SurfaceOptions) hosting.Content {
 		editorOptions := options.Editor
 		editorOptions.OnChange = surface.OnChange
 		editorOptions.OnClose = surface.OnClose

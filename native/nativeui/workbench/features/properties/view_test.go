@@ -70,7 +70,7 @@ func TestAddFieldEmitsCallerDraftAndKind(t *testing.T) {
 	state.Apply(Action{Kind: OpenAddForm})
 	state.Apply(Action{Kind: AddDraftChanged, AddDraft: AddDraft{Key: "priority", Value: "2", Kind: Number}})
 	model := ViewModel{}
-	tester := ui.NewTester(func(c *ui.Context) { renderPanel(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
+	tester := ui.NewTester(func(c *ui.Context) { renderPanel(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 420)
 	tester.Frame()
 	if err := tester.Click(locales.CommonAdd()); err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestBooleanAddDraftReportsKeyChanges(t *testing.T) {
 	state.Apply(Action{Kind: OpenAddForm})
 	state.Apply(Action{Kind: AddDraftChanged, AddDraft: AddDraft{Kind: Boolean}})
 	model := ViewModel{}
-	tester := ui.NewTester(func(c *ui.Context) { renderPanel(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 260)
+	tester := ui.NewTester(func(c *ui.Context) { renderPanel(c, state, model, func(a Action) { actions = append(actions, a) }) }, 360, 420)
 	tester.Frame()
 	if err := tester.Click(locales.PropertyName()); err != nil {
 		t.Fatal(err)
@@ -109,6 +109,50 @@ func TestEmptyPropertiesStateUsesCallerMessage(t *testing.T) {
 	tester.Frame()
 	if !tester.HasText("No metadata yet") {
 		t.Fatalf("empty message missing: %q", tester.Texts())
+	}
+}
+
+func TestEmptyBacklinksCardRemainsVisible(t *testing.T) {
+	tester := ui.NewTester(func(c *ui.Context) {
+		renderBacklinks(c, nil, nil)
+	}, 360, 120)
+	tester.Frame()
+	for _, text := range []string{locales.VaultBacklinksTitle(), locales.PropertyNoValue()} {
+		if !tester.HasText(text) {
+			t.Errorf("missing empty backlinks text %q: %q", text, tester.Texts())
+		}
+	}
+}
+
+func TestPropertiesHeaderRoutesOverflowActions(t *testing.T) {
+	var actions []Action
+	tester := ui.NewTester(func(c *ui.Context) {
+		renderHeader(c, ViewModel{DocumentType: "note"}, locales.PropertyTitle(), func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 360, 100)
+	tester.Frame()
+	if tester.HasText(locales.PropertyAdd()) || tester.HasText(locales.PropertyYAMLSource()) {
+		t.Fatal("Add and YAML source should remain in the overflow menu")
+	}
+	for _, item := range []struct {
+		label string
+		kind  ActionKind
+	}{
+		{locales.PropertyAdd(), OpenAddForm},
+		{locales.PropertyMigrationPreviewMenu(), OpenMigrationPreview},
+		{locales.PropertyYAMLSource(), OpenSource},
+		{locales.PropertyCloseSidebar(), ClosePanel},
+	} {
+		if err := tester.Click(locales.PropertyMenu()); err != nil {
+			t.Fatalf("open overflow menu: %v", err)
+		}
+		if err := tester.ChooseMenuItem(item.label); err != nil {
+			t.Fatalf("choose %q: %v; menu=%v", item.label, err, tester.Menu())
+		}
+		if got := actions[len(actions)-1].Kind; got != item.kind {
+			t.Fatalf("%q action kind = %v, want %v", item.label, got, item.kind)
+		}
 	}
 }
 

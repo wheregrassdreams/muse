@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 	"muse/ui/scrollbar"
 )
 
@@ -198,34 +199,41 @@ func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatc
 
 func renderHeader(c *ui.Context, model ViewModel, title string, dispatch func(Action)) {
 	t := c.Theme()
-	ui.Row(c).Height(58).Shrink(0).Padding(0, 18).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, title).FontSize(17).FontWeight(600).TextColor(t.Text)
+	ui.Row(c).Height(70).Shrink(0).Padding(0, 20).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, title).FontSize(18).FontWeight(600).TextColor(t.Text)
 		ui.Spacer(c)
 		if model.SourceMode {
 			propertyButton(c, locales.PropertyBackToProperties(), func() {
 				dispatchAction(dispatch, Action{Kind: ReturnToProperties})
 			})
 		} else {
-			if model.DocumentType != "" {
-				propertyButton(c, locales.PropertyEditType(), func() {
-					dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: "type"})
-				})
-			}
-			propertyButton(c, locales.PropertyAdd(), func() {
-				dispatchAction(dispatch, Action{Kind: OpenAddForm})
+			typeButton := ui.ButtonBase(c).Height(34).Padding(0, 14).Radius(17).
+				Background(propertyCardColor(t)).Label(locales.PropertyEditType())
+			typeButton.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: "type"}) })
+			typeButton.Children(func() {
+				ui.Text(c, locales.PropertyEditType()).FontSize(13).FontWeight(500).TextColor(t.Text)
 			})
-			propertyButton(c, locales.PropertyYAMLSource(), func() {
-				dispatchAction(dispatch, Action{Kind: OpenSource})
-			})
-			menu := ui.ButtonBase(c).Height(25).Padding(0, 7).Radius(5).Label(locales.PropertyMenu())
-			menu.Menu(func(m *ui.Menu) {
-				if m.Item(locales.PropertyMigrationPreviewMenu()).Chosen() {
-					dispatchAction(dispatch, Action{Kind: OpenMigrationPreview})
-				}
-			})
-			menu.Children(func() { ui.Text(c, "⋯").FontSize(14).TextColor(c.Theme().TextMuted) })
 		}
-		propertyButton(c, "×", func() { dispatchAction(dispatch, Action{Kind: ClosePanel}) })
+		menu := ui.ButtonBase(c).Size(26, 26).Radius(6).Padding(0).Label(locales.PropertyMenu())
+		if menu.Hovered() {
+			menu.Background(t.SurfaceHover)
+		}
+		menu.Menu(func(m *ui.Menu) {
+			if m.Item(locales.PropertyAdd()).Chosen() {
+				dispatchAction(dispatch, Action{Kind: OpenAddForm})
+			}
+			if m.Item(locales.PropertyMigrationPreviewMenu()).Chosen() {
+				dispatchAction(dispatch, Action{Kind: OpenMigrationPreview})
+			}
+			if m.Item(locales.PropertyYAMLSource()).Chosen() {
+				dispatchAction(dispatch, Action{Kind: OpenSource})
+			}
+			m.Separator()
+			if m.Item(locales.PropertyCloseSidebar()).Chosen() {
+				dispatchAction(dispatch, Action{Kind: ClosePanel})
+			}
+		})
+		menu.Children(func() { ui.Icon(c, componenticons.More()).Size(16, 16).TextColor(t.TextMuted) })
 	})
 }
 
@@ -258,9 +266,7 @@ func renderContent(c *ui.Context, model ViewModel, dispatch func(Action)) {
 			for _, field := range model.Fields {
 				renderField(c, field, model, dispatch)
 			}
-			if len(model.Backlinks) > 0 {
-				renderBacklinks(c, model.Backlinks, dispatch)
-			}
+			renderBacklinks(c, model.Backlinks, dispatch)
 			if len(model.HiddenFields) > 0 || len(model.SystemFields) > 0 {
 				renderHiddenFields(c, model, dispatch)
 			}
@@ -293,15 +299,15 @@ func renderSummary(c *ui.Context, fields []Field, model ViewModel, dispatch func
 func renderField(c *ui.Context, field Field, model ViewModel, dispatch func(Action)) {
 	t := c.Theme()
 	editing := model.EditingKey == field.Key && field.Editable
-	ui.Column(c).Key("property-card-"+field.Key).FillWidth().MinHeight(60).Gap(8).Padding(16, 18).Radius(17).Background(propertyCardColor(t)).Children(func() {
+	ui.Column(c).Key("property-card-"+field.Key).FillWidth().MinHeight(64).Gap(8).Padding(18, 22).Radius(20).Background(propertyCardColor(t)).Children(func() {
 		if editing {
-			ui.Text(c, field.Label).FontSize(13).TextColor(t.TextMuted)
+			ui.Text(c, field.Label).FontSize(14).TextColor(t.TextMuted)
 			renderEditor(c, field, model.Draft, dispatch)
 			return
 		}
 		stacked := field.Kind == Date || field.Kind == Structure || len([]rune(fieldDisplay(field))) > 26
 		content := func() {
-			ui.Text(c, field.Label).FontSize(13).TextColor(t.TextMuted).Shrink(0)
+			ui.Text(c, field.Label).FontSize(14).TextColor(t.TextMuted).Shrink(0)
 			if field.Editable {
 				value := ui.ButtonBase(c).Key("property-value-" + field.Key).Label(field.Label + " " + fieldDisplay(field)).Grow(1).MinWidth(0).MinHeight(28).Padding(0).Justify(ui.Start)
 				value.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: field.Key}) })
@@ -311,9 +317,9 @@ func renderField(c *ui.Context, field Field, model ViewModel, dispatch func(Acti
 			}
 		}
 		if stacked {
-			ui.Column(c).FillWidth().Gap(7).Children(content)
+			ui.Column(c).FillWidth().Gap(8).Children(content)
 		} else {
-			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(content)
+			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(content)
 		}
 		if !field.System {
 			renderFieldActions(c, field, dispatch)
@@ -399,22 +405,29 @@ func renderFieldValue(c *ui.Context, field Field, compact bool) {
 
 func renderBacklinks(c *ui.Context, backlinks []Backlink, dispatch func(Action)) {
 	t := c.Theme()
-	ui.Column(c).Key("property-card-backlinks").FillWidth().MinHeight(60).Gap(7).Padding(16, 18).Radius(17).Background(propertyCardColor(t)).Children(func() {
-		ui.Text(c, locales.VaultBacklinksTitle()).FontSize(13).TextColor(t.TextMuted)
-		for _, backlink := range backlinks {
-			backlink := backlink
-			label := backlink.Label
-			if label == "" {
-				label = backlink.Path
-			}
-			if backlink.Count > 1 {
-				label += locales.VaultBacklinkCountSuffix(backlink.Count)
-			}
-			b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).
-				Label(locales.CorePropertyBacklinkLabel(backlink.Path))
-			b.OnClick(func() { dispatchAction(dispatch, Action{Kind: OpenBacklink, Backlink: backlink}) })
-			b.Children(func() { ui.Text(c, label).FontSize(14).TextColor(t.Text).SingleLine().Ellipsis("…") })
+	ui.Row(c).Key("property-card-backlinks").FillWidth().MinHeight(64).Padding(18, 22).Gap(12).AlignItems(ui.Center).
+		Radius(20).Background(propertyCardColor(t)).Children(func() {
+		ui.Text(c, locales.VaultBacklinksTitle()).FontSize(14).TextColor(t.TextMuted).Shrink(0)
+		if len(backlinks) == 0 {
+			ui.Text(c, locales.PropertyNoValue()).FontSize(14).TextColor(t.TextMuted)
+			return
 		}
+		ui.Column(c).Grow(1).MinWidth(0).Gap(6).Children(func() {
+			for _, backlink := range backlinks {
+				backlink := backlink
+				label := backlink.Label
+				if label == "" {
+					label = backlink.Path
+				}
+				if backlink.Count > 1 {
+					label += locales.VaultBacklinkCountSuffix(backlink.Count)
+				}
+				b := ui.ButtonBase(c).FillWidth().MinHeight(28).Padding(0).Justify(ui.Start).
+					Label(locales.CorePropertyBacklinkLabel(backlink.Path))
+				b.OnClick(func() { dispatchAction(dispatch, Action{Kind: OpenBacklink, Backlink: backlink}) })
+				b.Children(func() { ui.Text(c, label).FontSize(15).TextColor(t.Text).SingleLine().Ellipsis("…") })
+			}
+		})
 	})
 }
 

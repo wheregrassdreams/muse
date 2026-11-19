@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	settingsui "muse/nativeui/settings"
-	"muse/nativeui/shell/windowcontrols"
+	settingsui "muse/nativeui/workbench/features/settings"
+	"muse/nativeui/workbench/framework/shell/windowcontrols"
 )
 
 // fadeDoc is long enough to scroll, and dense: a line of text sits under

@@ -10,7 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/document/frontmatter"
 	"muse/locales"
-	propertypanel "muse/nativeui/properties"
+	propertypanel "muse/nativeui/workbench/features/properties"
 )
 
 const referencePage = "---\ntitle: Legacy title kept in YAML\ntype: Note\ntags: [图形学]\ncreated: 2026-06-22T23:58:00+08:00\nmodified: 2026-11-12T11:05:00+08:00\ncreated_by: Zane\nlinks: internal-data\n---\n" +

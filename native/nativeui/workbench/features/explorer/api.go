@@ -13,11 +13,11 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/markdown/images"
-	"muse/nativeui/commands"
-	"muse/nativeui/dragdrop"
-	"muse/nativeui/explorer/filetree"
-	"muse/nativeui/keybindings"
-	componenticons "muse/nativeui/ui/icons"
+	"muse/nativeui/workbench/framework/interactions/commands"
+	"muse/nativeui/workbench/framework/interactions/dragdrop"
+	"muse/nativeui/workbench/features/explorer/filetree"
+	"muse/nativeui/workbench/framework/interactions/keybindings"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 // Controller owns Explorer's per-window transient presentation state. It is

@@ -3,7 +3,7 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 	texmath "muse/markdown/math"
-	media "muse/nativeui/editor/blocks/media"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 // InlineMathPreview is the editor host seam for the media-owned preview

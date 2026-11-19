@@ -4,7 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	editorprojection "github.com/wheregrassdreams/muse-editor/markdown/render"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	render "muse/nativeui/editor/render"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 // quoteContainer preserves parser-owned containers and extends alert headers

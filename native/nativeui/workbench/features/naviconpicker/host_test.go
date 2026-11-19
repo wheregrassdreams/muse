@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	componenticons "muse/nativeui/ui/icons"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 type memoryPreferences struct {

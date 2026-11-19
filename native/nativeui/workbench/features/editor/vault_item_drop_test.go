@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/nativeui/dragdrop"
+	"muse/nativeui/workbench/framework/interactions/dragdrop"
 	"testing"
 
 	"github.com/egoist/mygo/ui"

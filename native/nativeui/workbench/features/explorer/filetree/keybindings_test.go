@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	commands "muse/nativeui/commands"
+	commands "muse/nativeui/workbench/framework/interactions/commands"
 )
 
 func TestDesktopTreeBindingsUseTypedActionsAndArguments(t *testing.T) {

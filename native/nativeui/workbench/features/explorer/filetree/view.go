@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 type EntryKind uint8
@@ -289,8 +290,8 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 	list := ui.List(c, listState, len(entries), func(i int) {
 		entry := entries[i]
 		selected, focused := state.owns(entry.ID), state.focusID == entry.ID
-		row := ui.ButtonBase(c).Label(entry.Label).Height(28).FillWidth().Radius(5).Padding(0, 8, 0, 4+float32(max(entry.Depth, 0))*14).
-			Gap(7).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		row := ui.ButtonBase(c).Label(entry.Label).Height(28).FillWidth().Radius(6).Padding(0, 8, 0, 4+float32(max(entry.Depth, 0))*14).
+			Gap(5).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 		if entry.ID == model.PopoverAnchorID {
 			popoverAnchor = row
 		}
@@ -300,35 +301,35 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 		dropTarget := row
 		row.Children(func() {
 			if entry.Kind == Directory {
-				label := ""
+				chevron := componenticons.Chevron()
 				if state.IsExpanded(entry.ID) {
-					label = "⌄"
-				} else {
-					label = "›"
+					chevron = componenticons.ChevronDown()
 				}
-				toggle := ui.ButtonBase(c).Label(label).Size(16, 20).Disabled(!entry.CanExpand).Padding(0).TextColor(t.TextMuted)
+				toggle := ui.ButtonBase(c).Label(entry.Label).Size(12, 20).Disabled(!entry.CanExpand).Padding(0).Children(func() {
+					ui.Icon(c, chevron).Size(12, 12).TextColor(t.TextMuted)
+				})
 				if toggle.Clicked() && entry.CanExpand {
 					pointerActivated = true
 					dispatchState(Action[T]{Kind: ToggleEntry, ID: entry.ID, Modifiers: toggle.ClickModifiers()})
 				}
 			} else {
-				ui.Box(c).Size(16, 20)
+				ui.Box(c).Width(12).Height(20)
 			}
 			if entry.Icon != nil {
-				ui.Icon(c, entry.Icon).Size(15, 15).TextColor(entry.IconTint)
+				ui.Icon(c, entry.Icon).Size(14, 14).TextColor(entry.IconTint)
 			} else {
-				glyph := "▤"
+				icon := componenticons.File()
 				if entry.Kind == Directory {
-					glyph = "▱"
+					icon = componenticons.Folder()
 				}
-				ui.Text(c, glyph).Width(15).FontSize(13).TextColor(t.TextMuted)
+				ui.Icon(c, icon).Size(14, 14).TextColor(t.TextMuted)
 			}
 			ui.Column(c).FillWidth().MinWidth(0).Gap(1).Children(func() {
 				labelColor := t.Text
 				if state.IsCut(entry.ID) {
 					labelColor = t.TextMuted
 				}
-				label := ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12).TextColor(labelColor)
+				label := ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12.5).TextColor(labelColor)
 				if selected || focused {
 					label.FontWeight(600)
 				}
@@ -347,39 +348,8 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 				dragItems = []string{entry.ID}
 			}
 			payload := drag.Make(entry.ID, dragItems)
-			handle := ui.Box(c).Key("tree-drag-handle-" + entry.ID).Absolute().Left(0).Top(0).Right(0).Height(28).
+			handle := ui.Box(c).Key("tree-drag-handle-" + entry.ID).Absolute().Left(16 + float32(max(entry.Depth, 0))*14).Top(0).Right(0).Height(28).
 				Cursor(ui.CursorPointer).Opacity(0).Label(locales.TreeDragHandleLabel(entry.Label)).Drag(payload)
-			itemID := entry.ID
-			if model.RootLabel != "" {
-				if relative, err := filepath.Rel(model.RootLabel, entry.ID); err == nil {
-					itemID = filepath.ToSlash(relative)
-				}
-			}
-			theme := c.Theme()
-			cardWidth, cardHeight := float32(260), float32(28)
-			cardLeft := float32(0)
-			if handle.Dragging() {
-				drag := state.DragPreview()
-				if !drag.StartedAt.IsZero() && c.Now().Sub(drag.StartedAt) >= 120*time.Millisecond {
-					cardWidth, cardHeight = 220, 50
-					cardLeft = 20
-				} else {
-					c.After(60 * time.Millisecond)
-				}
-			}
-			handle.Children(func() {
-				card := ui.Row(c).Absolute().Left(cardLeft).Top(0).Key("tree-drag-projection-card-"+itemID).
-					Label(locales.TreeDragProjectionLabel(itemID)).Width(cardWidth).MinWidth(0).Height(cardHeight).
-					IgnoreInput(true).Radius(8).Background(theme.SurfaceHover).
-					Border(1, theme.Border).Padding(0, 8).Gap(8).AlignItems(ui.Center)
-				card.Children(func() {
-					if entry.Icon != nil {
-						ui.Icon(c, entry.Icon).Size(14, 14).TextColor(entry.IconTint)
-					}
-					ui.Text(c, entry.Label).FontSize(12.5).FontWeight(600).
-						TextColor(theme.Text).SingleLine().Ellipsis("…")
-				})
-			})
 			dropTarget = handle
 			handle.HandleInput(func(ev ui.InputEvent) bool {
 				switch ev.Kind {
@@ -466,7 +436,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 			}
 		}
 		attachContextMenu(row, entry.ID, entry.ContextActions, dispatchState)
-		if (entry.CanSelect || entry.CanExpand || entry.CanOpen) && (!entry.CanDrag || drag.Make == nil) {
+		if entry.CanSelect || entry.CanExpand || entry.CanOpen {
 			row.OnClick(func() {
 				pointerActivated = true
 				mods := row.ClickModifiers()
@@ -479,7 +449,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 				if mods&(ui.Cmd|ui.Shift) != 0 {
 					return
 				}
-				emitDefaultAction(entry, dispatch)
+				emitDefaultAction(entry, dispatchState)
 			})
 		}
 	})

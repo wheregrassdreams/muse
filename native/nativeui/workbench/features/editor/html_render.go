@@ -1,7 +1,7 @@
 package editor
 
 import (
-	render "muse/nativeui/editor/render"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 // imgSize is the source-facing image size hint used by the editor's layout

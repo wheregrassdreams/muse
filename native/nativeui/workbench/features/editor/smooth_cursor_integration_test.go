@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	"muse/nativeui/editor/feedback"
+	"muse/nativeui/workbench/features/editor/feedback"
 )
 
 func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {

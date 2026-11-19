@@ -10,7 +10,7 @@ import (
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"github.com/wheregrassdreams/muse-editor/text/input"
 	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // modalText is the UI host for the keymap controller. Vim printable-key
@@ -259,6 +259,7 @@ func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengi
 	for range max(1, intent.Count) {
 		e.modalHorizontal(direction, true)
 	}
+	e.recordVisualTextTablePromotion(before, key, max(1, intent.Count))
 	return true
 }
 
@@ -383,7 +384,7 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 }
 
 func (e *Editor) recordVisualTextTablePromotion(before tablemodel.Snapshot, key string, count int) {
-	if before.Mode != string(helix.ModeVisual) || before.Selection != nil || before.Bridge != nil || before.DocumentRegion != nil {
+	if before.Mode != string(helix.ModeVisual) || before.Selection != nil || before.DocumentRegion != nil {
 		return
 	}
 	selection := e.tableSelection
@@ -430,6 +431,20 @@ func (e *Editor) restoreTextVisualAfterTableMotion(before tablemodel.Snapshot) {
 func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	keymap := e.vimController()
 	visual := keymap.Mode() == helix.ModeVisual || keymap.Mode() == helix.ModeSelect || keymap.Mode() == helix.ModeBlockVisual
+	if e.Keymap() == "vim" && key == "y" && intent.Name == "vim.collapse-selection" {
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.vimController().SetLinewise(true)
+			e.modalApply("y", a, z)
+			return
+		}
+	}
+	if e.Keymap() == "vim" && key == "x" && intent.Name == "vim.delete-range" {
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.vimController().SetLinewise(true)
+			e.modalApply("d", a, z)
+			return
+		}
+	}
 	if e.dispatchVimWordIntent(key, intent, visual) {
 		return
 	}
@@ -440,6 +455,19 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	}
 	switch intent.Name {
 	case "vim.extend-caret":
+		if e.Keymap() == "vim" {
+			if _, virtualImageRow := e.vimImageRowState(); virtualImageRow &&
+				(key == "j" || key == "k" || key == "ArrowDown" || key == "ArrowUp") {
+				direction := 1
+				if key == "k" || key == "ArrowUp" {
+					direction = -1
+				}
+				for range max(1, intent.Count) {
+					e.nativeVertical(direction, true)
+				}
+				return
+			}
+		}
 		// Structural and bridge selections own their focus. Applying an engine
 		// source offset here can turn a reversible row/column selection into a
 		// cell rectangle and discard the bridge provenance.
@@ -463,7 +491,13 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 			e.moveTableVisualColumn(direction, count)
 			return
 		}
-		if intent.Name == "vim.move-vertical" && (e.tableSelection == nil || !e.tableSelection.cellRegion) {
+		_, virtualImageRow := e.vimImageRowState()
+		if intent.Name == "vim.move-vertical" && virtualImageRow {
+			// The engine's source target may span several logical lines for a
+			// single key while the caret is inside a tall image. Virtual rows are
+			// visual positions over one source line, so preserve the key count.
+			count = max(1, intent.Count)
+		} else if intent.Name == "vim.move-vertical" && (e.tableSelection == nil || !e.tableSelection.cellRegion) {
 			count = e.vimLineDistance(e.Caret(), int(intent.Range.From))
 		}
 		for range count {

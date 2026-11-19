@@ -6,7 +6,7 @@ import (
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 type tableAxis = tablemodel.Axis
@@ -213,7 +213,8 @@ func (e *Editor) replayTableNavigation(rowDelta, colDelta int) bool {
 }
 
 func (e *Editor) recordTableNavigation(before tablemodel.Snapshot, rowDelta, colDelta int) {
-	_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.RecordNavigation, BeforeState: before, AfterState: e.tableNavigationState(), RowDelta: rowDelta, ColDelta: colDelta})
+	after := e.tableNavigationState()
+	_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.RecordNavigation, BeforeState: before, AfterState: after, RowDelta: rowDelta, ColDelta: colDelta})
 }
 
 // selectionFocus is the active variant's focus, never the dormant text head.

@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
-	media "muse/nativeui/editor/blocks/media"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 // previewDiagram exports a detached diagram model to the app-owned preview

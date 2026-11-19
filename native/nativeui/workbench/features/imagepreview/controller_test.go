@@ -10,8 +10,8 @@ import (
 
 	"muse/locales"
 	"muse/markdown/images"
-	markdownui "muse/nativeui/markdown"
-	workspaceui "muse/nativeui/workspace"
+	markdownui "muse/nativeui/workbench/framework/markdown"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 type missingImageFiles struct{}
@@ -33,11 +33,11 @@ type hostedContentStub struct{}
 func (hostedContentStub) Render(*ui.Context) {}
 func (hostedContentStub) Close()             {}
 
-func controllerTestOptions(manager *workspaceui.Manager) ControllerOptions {
+func controllerTestOptions(manager *hosting.Manager) ControllerOptions {
 	return ControllerOptions{
 		Windows: manager,
-		Placement: workspaceui.Placement{
-			Host: "main", Layer: workspaceui.ModalOverlay,
+		Placement: hosting.Placement{
+			Host: "main", Layer: hosting.ModalOverlay,
 		},
 		ImageCache: previewCache{},
 		LocalFiles: missingImageFiles{},
@@ -49,7 +49,7 @@ func controllerTestOptions(manager *workspaceui.Manager) ControllerOptions {
 }
 
 func TestControllerHostsReplacesAndClosesPreview(t *testing.T) {
-	manager := workspaceui.NewManager(nil)
+	manager := hosting.NewManager(nil)
 	invalidations := 0
 	options := controllerTestOptions(manager)
 	options.Invalidate = func() { invalidations++ }
@@ -63,7 +63,7 @@ func TestControllerHostsReplacesAndClosesPreview(t *testing.T) {
 		t.Fatalf("first preview state handle=%v open=%v modal=%v", first, controller.IsOpen(), manager.HasModal())
 	}
 	var firstContent *Content
-	if err := manager.WithContent(first, func(content workspaceui.Content) error {
+	if err := manager.WithContent(first, func(content hosting.Content) error {
 		var ok bool
 		firstContent, ok = content.(*Content)
 		if !ok {
@@ -91,7 +91,7 @@ func TestControllerHostsReplacesAndClosesPreview(t *testing.T) {
 }
 
 func TestControllerRenderUsesInjectedLabelAndCopyCallback(t *testing.T) {
-	manager := workspaceui.NewManager(nil)
+	manager := hosting.NewManager(nil)
 	var copied string
 	options := controllerTestOptions(manager)
 	options.CopyImage = func(source string) { copied = source }
@@ -101,7 +101,7 @@ func TestControllerRenderUsesInjectedLabelAndCopyCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	tester := ui.NewTester(func(c *ui.Context) {
-		manager.Render(c, workspaceui.HostID("main"), workspaceui.ModalOverlay)
+		manager.Render(c, hosting.HostID("main"), hosting.ModalOverlay)
 	}, 900, 600)
 	tester.Frame()
 	if want := markdownui.MissingImageMessage("test: diagram.png"); !tester.HasText(want) {
@@ -124,24 +124,24 @@ func TestControllerRenderUsesInjectedLabelAndCopyCallback(t *testing.T) {
 }
 
 func TestControllerReportsHostOpenFailure(t *testing.T) {
-	manager := workspaceui.NewManager(nil)
-	if _, err := manager.Open(hostedContentStub{}, workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay}); err != nil {
+	manager := hosting.NewManager(nil)
+	if _, err := manager.Open(hostedContentStub{}, hosting.Placement{Host: "main", Layer: hosting.ModalOverlay}); err != nil {
 		t.Fatal(err)
 	}
 	var reported error
 	options := controllerTestOptions(manager)
 	options.OnError = func(err error) { reported = err }
 	controller := NewController(options)
-	if err := controller.Open("image.png"); !errors.Is(err, workspaceui.ErrModalAlreadyOpen) {
+	if err := controller.Open("image.png"); !errors.Is(err, hosting.ErrModalAlreadyOpen) {
 		t.Fatalf("Open error = %v, want modal conflict", err)
 	}
-	if !errors.Is(reported, workspaceui.ErrModalAlreadyOpen) || controller.IsOpen() {
+	if !errors.Is(reported, hosting.ErrModalAlreadyOpen) || controller.IsOpen() {
 		t.Fatalf("reported error=%v controller open=%v", reported, controller.IsOpen())
 	}
 }
 
 func TestControllerIgnoresEmptySource(t *testing.T) {
-	controller := NewController(controllerTestOptions(workspaceui.NewManager(nil)))
+	controller := NewController(controllerTestOptions(hosting.NewManager(nil)))
 	if err := controller.Open(""); err != nil || controller.IsOpen() {
 		t.Fatalf("Open empty source error=%v open=%v; want no-op", err, controller.IsOpen())
 	}

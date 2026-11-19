@@ -3,7 +3,7 @@ package imagedocument
 import (
 	"testing"
 
-	"muse/nativeui/ui/viewport"
+	"muse/nativeui/workbench/framework/components/viewport"
 )
 
 func TestCloseClearsImageDocument(t *testing.T) {

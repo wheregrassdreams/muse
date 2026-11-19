@@ -8,9 +8,10 @@ import (
 	"github.com/egoist/mygo"
 	documentsave "muse/application/document"
 	"muse/locales"
-	searchui "muse/nativeui/search/workspace"
-	"muse/nativeui/settings"
-	shellui "muse/nativeui/shell"
+	noteeditor "muse/nativeui/workbench/features/editor/surface"
+	searchui "muse/nativeui/workbench/features/search/workspace"
+	"muse/nativeui/workbench/features/settings"
+	shellui "muse/nativeui/workbench/framework/shell"
 )
 
 // Run is the native executable's compatibility entry. Runtime lifecycle and
@@ -148,15 +149,61 @@ func (a *App) installNativeMenu(window *mygo.Window) {
 			a.invalidate()
 		}
 	}
+	edit := func(fn func(noteeditor.FormattingCommands)) func() {
+		return func() {
+			commands := a.noteEditor()
+			if commands == nil {
+				return
+			}
+			formatting := commands.FormattingCommands()
+			if formatting == nil {
+				return
+			}
+			fn(formatting)
+			if focus := commands.FocusCommands(); focus != nil {
+				focus.Focus()
+			}
+		}
+	}
+	paragraph := make([]*mygo.MenuItem, 0, 17)
+	for level, label := range []string{locales.ParagraphHeading1(), locales.ParagraphHeading2(), locales.ParagraphHeading3(), locales.ParagraphHeading4(), locales.ParagraphHeading5(), locales.ParagraphHeading6()} {
+		level := level + 1
+		paragraph = append(paragraph, &mygo.MenuItem{Label: label, Click: click(edit(func(f noteeditor.FormattingCommands) { f.SetHeading(level) }))})
+	}
+	paragraph = append(paragraph,
+		&mygo.MenuItem{Label: locales.ParagraphBody(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.SetHeading(0) }))},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: locales.ParagraphQuote(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleQuote() }))},
+		&mygo.MenuItem{Label: locales.ParagraphOrderedList(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleList("1.") }))},
+		&mygo.MenuItem{Label: locales.ParagraphUnorderedList(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleList("-") }))},
+		&mygo.MenuItem{Label: locales.ParagraphTaskList(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleList("- [ ]") }))},
+		mygo.Separator(),
+		&mygo.MenuItem{Label: locales.ParagraphCodeBlock(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.InsertCodeBlock() }))},
+		&mygo.MenuItem{Label: locales.ParagraphMathBlock(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.InsertMathBlock() }))},
+		&mygo.MenuItem{Label: locales.ParagraphTable(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.InsertTable(3, 3) }))},
+		&mygo.MenuItem{Label: locales.ParagraphRule(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.InsertRule() }))},
+	)
+	format := []*mygo.MenuItem{
+		{Label: locales.FormatBold(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleBold() }))},
+		{Label: locales.FormatItalic(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleItalic() }))},
+		{Label: locales.FormatUnderline(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleUnderline() }))},
+		{Label: locales.FormatStrike(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleStrike() }))},
+		{Label: locales.FormatInlineCode(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleCode() }))},
+		{Label: locales.FormatHighlight(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.ToggleHighlight() }))},
+		mygo.Separator(),
+		{Label: locales.FormatLink(), Click: click(edit(func(f noteeditor.FormattingCommands) { f.InsertLink() }))},
+	}
 	mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu},
-		{Label: "File", Submenu: []*mygo.MenuItem{
-			{Label: "New document", Accelerator: "CmdOrCtrl+N", Click: click(a.newDoc)},
-			{Label: "Open file…", Accelerator: "CmdOrCtrl+O", Click: click(a.openFileDialog)},
-			{Label: "Open workspace…", Accelerator: "Shift+CmdOrCtrl+O", Click: click(a.openFolderDialog)},
+		{Label: locales.MenuFile(), Submenu: []*mygo.MenuItem{
+			{Label: locales.MenuNew(), Accelerator: "CmdOrCtrl+N", Click: click(a.newDoc)},
+			{Label: locales.MenuCommandPalette(), Accelerator: "CmdOrCtrl+P", Click: click(a.openCommandPalette)},
+			{Label: locales.MenuWorkspaceSearch(), Accelerator: "CmdOrCtrl+O", Click: click(a.openWorkspaceSearch)},
+			{Label: locales.MenuOpen(), Click: click(a.openFileDialog)},
+			{Label: locales.MenuOpenFolder(), Accelerator: "Shift+CmdOrCtrl+O", Click: click(a.openFolderDialog)},
 			mygo.Separator(),
-			{Label: "Save", Accelerator: "CmdOrCtrl+S", Click: click(a.save)},
-			{Label: "Save as…", Accelerator: "Shift+CmdOrCtrl+S", Click: click(func() {
+			{Label: locales.MenuSave(), Accelerator: "CmdOrCtrl+S", Click: click(a.save)},
+			{Label: locales.MenuSaveAs(), Accelerator: "Shift+CmdOrCtrl+S", Click: click(func() {
 				if a.documentSave != nil {
 					a.documentSave.RequestSaveAs()
 				}
@@ -164,8 +211,21 @@ func (a *App) installNativeMenu(window *mygo.Window) {
 			mygo.Separator(), {Role: mygo.RoleClose},
 		}},
 		{Role: mygo.RoleEditMenu},
-		{Label: "View", Submenu: []*mygo.MenuItem{
-			{Label: locales.MenuCommandPalette(), Accelerator: "CmdOrCtrl+P", Click: click(a.openCommandPalette)},
+		{Label: locales.MenuParagraph(), Submenu: paragraph},
+		{Label: locales.MenuFormat(), Submenu: format},
+		{Label: locales.MenuView(), Submenu: []*mygo.MenuItem{
+			{Label: locales.MenuFiles(), Accelerator: "Shift+CmdOrCtrl+L", Click: click(func() { a.togglePanel(shellui.SurfaceFiles) })},
+			{Label: locales.MenuOutline(), Click: click(func() { a.togglePanel(shellui.SurfaceOutline) })},
+			{Label: locales.MenuFindDocument(), Accelerator: "CmdOrCtrl+F", Click: click(func() { a.togglePanel(shellui.SurfaceSearch) })},
+			{Label: locales.MenuSearchWorkspace(), Accelerator: "CmdOrCtrl+Shift+F", Click: click(a.openWorkspaceSearch)},
+			{Label: locales.MenuFlatStyle(), Click: click(func() { a.flat = !a.flat; a.configureActiveNote(0) })},
+			{Label: locales.MenuHeaderFade(), Click: click(func() {
+				enabled := !a.headerFadeEnabled()
+				a.settingsPanel.Dispatch(settings.Action{Kind: settings.HeaderFadeChanged, Enabled: enabled})
+			})},
+			mygo.Separator(),
+			{Label: locales.MenuSettings(), Accelerator: "CmdOrCtrl+,", Click: click(a.openSettings)},
 		}},
+		{Role: mygo.RoleWindowMenu},
 	}))
 }

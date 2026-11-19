@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	inlineui "muse/nativeui/editor/blocks/inline"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 	vaultlinks "muse/vault/links"
 )
 

@@ -3,9 +3,9 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 	texmath "muse/markdown/math"
-	media "muse/nativeui/editor/blocks/media"
-	render "muse/nativeui/editor/render"
-	markdownui "muse/nativeui/markdown"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	render "muse/nativeui/workbench/features/editor/render"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 // editorRenderResources is a frame-scoped set of visible assets. It stores

@@ -6,8 +6,8 @@ import (
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	"muse/markdown/images"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	media "muse/nativeui/editor/blocks/media"
-	render "muse/nativeui/editor/render"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 // editorMediaHost supplies only vault resolution and asset acquisition. The

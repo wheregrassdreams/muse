@@ -12,17 +12,19 @@ import (
 	applicationvault "muse/application/vault"
 	doctypes "muse/document/types"
 	"muse/locales"
-	documentdialogs "muse/nativeui/dialogs/document"
-	dialogsui "muse/nativeui/dialogs/export"
-	noteeditor "muse/nativeui/editor/surface"
-	"muse/nativeui/explorer"
-	searchui "muse/nativeui/search/workspace"
-	"muse/nativeui/shell"
-	"muse/nativeui/shell/windowcontrols"
-	componenticons "muse/nativeui/ui/icons"
-	"muse/nativeui/vaulthome"
-	"muse/nativeui/workbench"
-	workspaceui "muse/nativeui/workspace"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
+	dialogsui "muse/nativeui/workbench/features/dialogs/export"
+	noteeditor "muse/nativeui/workbench/features/editor/surface"
+	"muse/nativeui/workbench/features/explorer"
+	searchui "muse/nativeui/workbench/features/search/workspace"
+	"muse/nativeui/workbench/features/vaulthome"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
+	shellui "muse/nativeui/workbench/framework/shell"
+	windowcontrols "muse/nativeui/workbench/framework/shell/windowcontrols"
+	domainsearch "muse/search"
+
+	hostingui "muse/nativeui/workbench/framework/hosting"
+	workspaceui "muse/nativeui/workbench/framework/workspace"
 	"muse/vault/files"
 	"muse/workspace"
 )
@@ -34,23 +36,23 @@ func (a *App) initializeWorkbench() {
 	if a == nil {
 		return
 	}
-	a.workbench = workbench.NewHost(workbench.Composition{
+	a.workbench = shellui.NewWorkbenchHost(shellui.Composition{
 		Frame: a.workbenchFrame,
-		Surfaces: map[shell.Surface]workbench.SurfaceRenderer{
-			shell.SurfaceFiles:   func(c *ui.Context) { a.renderPanelSurface(c, shell.SurfaceFiles, a.renderFilesSurface) },
-			shell.SurfaceOutline: func(c *ui.Context) { a.renderPanelSurface(c, shell.SurfaceOutline, a.outlineView) },
-			shell.SurfaceSearch:  func(c *ui.Context) { a.renderPanelSurface(c, shell.SurfaceSearch, a.renderWorkspaceSearch) },
-			shell.SurfaceAgent: func(c *ui.Context) {
-				a.renderPanelSurface(c, shell.SurfaceAgent, func(c *ui.Context) { a.assistant.Render(c) })
+		Surfaces: map[shellui.Surface]shellui.SurfaceRenderer{
+			shellui.SurfaceFiles:   func(c *ui.Context) { a.renderPanelSurface(c, shellui.SurfaceFiles, a.renderFilesSurface) },
+			shellui.SurfaceOutline: func(c *ui.Context) { a.renderPanelSurface(c, shellui.SurfaceOutline, a.outlineView) },
+			shellui.SurfaceSearch:  func(c *ui.Context) { a.renderPanelSurface(c, shellui.SurfaceSearch, a.findReplace.Render) },
+			shellui.SurfaceAgent: func(c *ui.Context) {
+				a.renderPanelSurface(c, shellui.SurfaceAgent, func(c *ui.Context) { a.assistant.Render(c) })
 			},
 		},
 		RenderCanvas:    a.renderEditorCanvas,
 		RenderInspector: func(c *ui.Context) { a.propertiesPanel.RenderSidebar(c) },
 		RenderOverlays:  a.renderOverlays,
 		PanelWidth:      func(width float32) { a.panelW = width },
-		Actions: workbench.ActionPorts{
-			SelectSurface: func(surface shell.Surface) { a.togglePanel(surface) },
-			TogglePanel: func(open bool, width float32, surface shell.Surface) {
+		Actions: shellui.ActionPorts{
+			SelectSurface: func(surface shellui.Surface) { a.togglePanel(surface) },
+			TogglePanel: func(open bool, width float32, surface shellui.Surface) {
 				a.panel, a.panelOpen, a.panelWidth = surface, open, width
 				if open {
 					a.panelW = width
@@ -59,7 +61,7 @@ func (a *App) initializeWorkbench() {
 				}
 				a.invalidate()
 			},
-			Geometry: func(open bool, width float32, surface shell.Surface) {
+			Geometry: func(open bool, width float32, surface shellui.Surface) {
 				a.panel, a.panelOpen, a.panelWidth, a.panelW = surface, open, width, width
 				if !open {
 					a.panelW = 0
@@ -73,7 +75,7 @@ func (a *App) initializeWorkbench() {
 
 // renderPanelSurface restores the shared workspace header and footer that
 // frame every sidebar feature. Feature renderers own only the panel body.
-func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render func(*ui.Context)) {
+func (a *App) renderPanelSurface(c *ui.Context, surface shellui.Surface, render func(*ui.Context)) {
 	if a == nil || c == nil {
 		return
 	}
@@ -87,7 +89,7 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render fu
 		bar := c.TitleBar()
 		ui.Row(c).Height(max(float32(44), bar.Height)).Shrink(0).Padding(0, 8, 0, max(float32(34), bar.Left+34)).DragWindow().Children(func() {
 			if a.settingsPanel != nil && a.settingsPanel.Runtime().AIEnabled {
-				a.panelIcon(c, componenticons.AI(), locales.AiAssistant(), func() { a.togglePanel(shell.SurfaceAgent) })
+				a.panelIcon(c, componenticons.AI(), locales.AiAssistant(), func() { a.togglePanel(shellui.SurfaceAgent) })
 			}
 		})
 		ui.Row(c).Height(44).Shrink(0).Padding(0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -101,13 +103,13 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render fu
 				}
 				menu.Separator()
 				if menu.Item(locales.MenuOutline()).Chosen() {
-					a.togglePanel(shell.SurfaceOutline)
+					a.togglePanel(shellui.SurfaceOutline)
 				}
 				if menu.Item(locales.MenuSearchWorkspace()).Chosen() {
 					a.openWorkspaceSearch()
 				}
 				if a.settingsPanel != nil && a.settingsPanel.Runtime().AIEnabled && menu.Item(locales.AiAssistant()).Chosen() {
-					a.togglePanel(shell.SurfaceAgent)
+					a.togglePanel(shellui.SurfaceAgent)
 				}
 			})
 			space.Children(func() {
@@ -135,9 +137,9 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render fu
 				more.Children(func() { ui.Icon(c, componenticons.ChevronDown()).Size(11, 11).TextColor(c.Theme().TextMuted) })
 			})
 		})
-		if surface != shell.SurfaceFiles {
+		if surface != shellui.SurfaceFiles {
 			ui.Row(c).Height(30).Shrink(0).Padding(0, 10).AlignItems(ui.Center).Children(func() {
-				a.panelIcon(c, componenticons.ChevronLeft(), locales.FilesBackToTree(), func() { a.togglePanel(shell.SurfaceFiles) })
+				a.panelIcon(c, componenticons.ChevronLeft(), locales.FilesBackToTree(), func() { a.togglePanel(shellui.SurfaceFiles) })
 			})
 		}
 		ui.Column(c).Grow(1).FillWidth().MinHeight(0).Children(func() {
@@ -173,16 +175,105 @@ func (a *App) renderWorkspaceSearch(c *ui.Context) {
 	availability := searchui.VaultRequired
 	if a.vault != nil {
 		availability = searchui.IndexBuilding
+		if a.vaultSnapshot.Ready && a.vaultSnapshot.SearchAvailable {
+			availability = searchui.Ready
+		}
 	}
-	a.workspaceSearch.Render(c, searchui.View{
-		Availability: availability, CanChangeMode: true, SearchIcon: componenticons.Search(),
-	}, func(action searchui.Action) {
-		a.workspaceSearch.Apply(action)
-		if action.Kind == searchui.Dismiss {
+	view := searchui.View{Availability: availability, CanChangeMode: true, SearchIcon: componenticons.Search(), FileIcon: componenticons.File(), IconTint: c.Theme().TextMuted}
+	if a.recentItems != nil {
+		for _, entry := range a.recentItems.LiveNotes(a.root, 8) {
+			view.Recent = append(view.Recent, searchui.RecentItem{
+				Path: entry.Path, Title: strings.TrimSuffix(filepath.Base(entry.Path), filepath.Ext(entry.Path)),
+				PathLabel: a.workspaceSearchPathLabel(entry.Path),
+			})
+		}
+	}
+	if availability == searchui.Ready && strings.TrimSpace(a.workspaceSearch.Query()) != "" {
+		for _, hit := range a.vaultSnapshot.Search.Hits {
+			fullPath, err := searchui.NewVaultSearchPort(a.vault).ResolveHitPath(hit.Path)
+			if err != nil {
+				continue
+			}
+			view.Results = append(view.Results, searchui.Result{Path: hit.Path,
+				Title:     strings.TrimSuffix(filepath.Base(hit.Path), filepath.Ext(hit.Path)),
+				PathLabel: a.workspaceSearchPathLabel(fullPath), Snippet: hit.Snippet, Offset: hit.Start, Revision: hit.Revision})
+		}
+		view.Busy, view.Error = a.vaultSnapshot.Search.Busy, a.vaultSnapshot.Search.Error
+	}
+	if a.vault != nil && a.workspaceSearch.IsOpen() {
+		wait, _ := a.workspaceSearch.ScheduleQuery(searchui.NewVaultSearchPort(a.vault), a.workspaceSearchInput(), c.Now())
+		if wait > 0 {
+			c.After(wait)
+		}
+		if view.Busy {
+			c.After(50 * time.Millisecond)
+		}
+	}
+	a.workspaceSearch.Render(c, view, func(action searchui.Action) {
+		port, input := searchui.NewVaultSearchPort(a.vault), a.workspaceSearchInput()
+		switch action.Kind {
+		case searchui.Dismiss:
+			if a.vault != nil {
+				_ = a.workspaceSearch.CloseSearch(port, input)
+			} else {
+				a.workspaceSearch.ClosePanel()
+			}
 			a.panelOpen, a.panelW = false, 0
+		case searchui.OpenRecent:
+			if a.vault != nil {
+				_ = a.workspaceSearch.CloseSearch(port, input)
+			}
+			a.panelOpen, a.panelW = false, 0
+			a.requestOpen(action.Recent.Path)
+		case searchui.OpenResult:
+			outcome := a.workspaceSearch.Navigate(port, a.documentRepository, input, searchHit(action.Result), a.documentPath(), a.documentSnapshot().Revision, c.Now())
+			if outcome.Err != nil {
+				a.notice(outcome.Err.Error())
+			} else if outcome.Kind == searchui.OutcomeNavigate {
+				_ = a.workspaceSearch.CloseSearch(port, input)
+				a.panelOpen, a.panelW = false, 0
+				a.navigateIndexed(outcome.Hit.Path, outcome.Hit.Start)
+			}
 		}
 		a.invalidate()
 	})
+}
+
+func searchHit(result searchui.Result) domainsearch.Hit {
+	return domainsearch.Hit{Path: result.Path, Revision: result.Revision, Snippet: result.Snippet, Start: result.Offset}
+}
+
+func (a *App) workspaceSearchInput() searchui.InputSnapshot {
+	snapshot := a.documentSnapshot()
+	return searchui.InputSnapshot{Query: a.workspaceSearch.Query(), Literal: a.workspaceSearch.Mode() == searchui.Literal,
+		ActivePath: snapshot.Path, ActiveRevision: string(snapshot.Revision), ActiveSource: snapshot.Source}
+}
+
+func (a *App) workspaceSearchPathLabel(path string) string {
+	root := a.root
+	if root == "" {
+		root = a.vaultSnapshot.Root
+	}
+	if relative, err := filepath.Rel(root, path); err == nil && relative != ".." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(relative)
+	}
+	return filepath.Base(path)
+}
+
+func (a *App) pollWorkspaceSearch(c *ui.Context) {
+	if a == nil || a.vault == nil {
+		return
+	}
+	select {
+	case result := <-a.vault.Results():
+		a.vaultSnapshot = result.Snapshot
+		outcome := a.workspaceSearch.Complete(searchui.ResultSnapshotFromVault(result))
+		if outcome.Kind == searchui.OutcomeNavigate {
+			a.navigateIndexed(outcome.Hit.Path, outcome.Hit.Start)
+		}
+		c.After(time.Millisecond)
+	default:
+	}
 }
 
 // View is the live MyGo window surface. It composes the Explorer, workspace,
@@ -201,7 +292,9 @@ func (a *App) View(c *ui.Context) {
 	if a.navIconPicker != nil && a.navIconPicker.IsOpen() && c.Shortcut(0, ui.KeyEscape) {
 		a.navIconPicker.Close()
 	}
-	if a.propertiesPanel != nil && c.Shortcut(0, ui.KeyEscape) {
+	if a.propertiesPanel != nil &&
+		(a.propertiesPanel.EditingKey() != "" || a.propertiesPanel.IsSourceMode()) &&
+		c.Shortcut(0, ui.KeyEscape) {
 		switch {
 		case a.propertiesPanel.EditingKey() != "":
 			a.propertiesPanel.CancelEdit()
@@ -221,6 +314,7 @@ func (a *App) View(c *ui.Context) {
 			c.After(50 * time.Millisecond)
 		}
 	}
+	a.pollWorkspaceSearch(c)
 	a.linkIndexTick(c)
 	root := c.Root()
 	rootBounds := root.Bounds()
@@ -271,6 +365,7 @@ func (a *App) View(c *ui.Context) {
 
 func (a *App) hasModalKeyboardOwner() bool {
 	return a != nil && ((a.windows != nil && a.windows.HasModal()) ||
+		(a.workspaceSearch != nil && a.workspaceSearch.IsOpen()) ||
 		(a.propertiesPanel != nil && (a.propertiesPanel.EditingKey() != "" || a.propertiesPanel.IsSourceMode())) ||
 		(a.navIconPicker != nil && a.navIconPicker.IsOpen()))
 }
@@ -315,9 +410,9 @@ func (a *App) ensureVaultSession() {
 	}
 }
 
-func (a *App) workbenchFrame() shell.Frame {
+func (a *App) workbenchFrame() shellui.Frame {
 	if a == nil {
-		return shell.Frame{}
+		return shellui.Frame{}
 	}
 	panelWidth := a.panelWidth
 	if panelWidth <= 0 {
@@ -332,10 +427,11 @@ func (a *App) workbenchFrame() shell.Frame {
 	if a.panelOpen {
 		toggleIcon, toggleLabel = componenticons.PanelLeftClose(), locales.AiSidebarHide()
 	}
-	return shell.Frame{
+	return shellui.Frame{
 		PanelOpen: a.panelOpen, PanelWidth: panelWidth, PanelMinWidth: 224,
 		PanelMaxWidth: 440, PanelFoldAt: 200, PanelOpenAt: 36,
-		FlatCanvas: a.flat, Surface: a.shellSurface(),
+		PanelResizeTop: canvasPadding + cardBorder + editorHeaderH,
+		FlatCanvas:     a.flat, Surface: a.shellSurface(),
 		Window: a.win, HideMouseCursor: a.mouseCursorHidden,
 		CursorUntil:      a.mouseCursorHiddenUntil,
 		PanelToggleLabel: toggleLabel, PanelToggleIcon: toggleIcon,
@@ -343,9 +439,9 @@ func (a *App) workbenchFrame() shell.Frame {
 	}
 }
 
-func (a *App) shellSurface() shell.Surface {
+func (a *App) shellSurface() shellui.Surface {
 	if a == nil {
-		return shell.SurfaceFiles
+		return shellui.SurfaceFiles
 	}
 	return a.panel
 }
@@ -376,6 +472,7 @@ func (a *App) renderEditorCanvas(c *ui.Context, flat bool) {
 		})
 		return
 	}
+	a.configureEditorTopInset(c, flat)
 	if !flat {
 		a.renderEditorHeader(c, false)
 		a.renderWorkspace(c, false)
@@ -436,7 +533,7 @@ func (a *App) editorHeaderModel(c *ui.Context, flat bool) noteeditor.HeaderModel
 		Path: label, HasPrevious: a.navigationHistory != nil && a.navigationHistory.CanMove(-1),
 		HasNext:       a.navigationHistory != nil && a.navigationHistory.CanMove(1),
 		ImageDocument: a.imageDocumentOpen(), Mode: mode, Status: a.status,
-		Dirty: snapshot.Dirty, Properties: a.propertiesPanel != nil,
+		Dirty: snapshot.Dirty, Properties: a.propertiesPanel != nil && a.propertiesPanel.Enabled(),
 		CanExport: path != "" && !a.imageDocumentOpen() && doctypes.IsMarkdownPath(path),
 		InfoItems: items, HasFile: path != "",
 	}
@@ -545,8 +642,44 @@ func (a *App) renderFilesSurface(c *ui.Context) {
 		return
 	}
 	useCases := a.vaultFileUseCases()
+	var dragPreview *explorer.DragSnapshot
+	if item := a.treeDragItem; item.Path != "" {
+		displayID := item.Path
+		if relative, err := filepath.Rel(a.root, item.Path); err == nil {
+			displayID = filepath.ToSlash(relative)
+		}
+		icon := componenticons.File()
+		if item.Directory {
+			icon = componenticons.Folder()
+		}
+		if a.navIconPicker != nil {
+			if custom := a.navIconPicker.IconForPath(item.Path, item.Directory); custom != nil {
+				icon = custom
+			}
+		}
+		dragPreview = &explorer.DragSnapshot{
+			ItemName: filepath.Base(item.Path), DisplayID: displayID, Directory: item.Directory,
+			ItemIcon: icon, FileIcon: componenticons.File(), IconTint: c.Theme().TextMuted,
+		}
+	}
 	explorer.RenderSurface(c, explorer.SurfacePorts{CatalogPanelPorts: explorer.CatalogPanelPorts{
 		Root: a.root, Controller: a.fileTreeState,
+		DragPreview: dragPreview,
+		Drag: explorer.DragPort{
+			Make: func(path string, selected []string) explorer.DragItem {
+				return explorer.DragItem{Path: path, Name: filepath.Base(path),
+					Directory: useCases.IsCatalogDirectory(a.vault, path), Paths: append([]string(nil), selected...)}
+			},
+			IDs: func(item explorer.DragItem) []string {
+				if len(item.Paths) > 0 {
+					return append([]string(nil), item.Paths...)
+				}
+				if item.Path == "" {
+					return nil
+				}
+				return []string{item.Path}
+			},
+		},
 		Focus: &a.treeFocusHandle, OnAction: a.routeExplorerAction,
 		Children: func(directory string) []explorer.CatalogEntry {
 			entries := useCases.CatalogChildren(a.vault, a.directoryCatalog, directory)
@@ -578,6 +711,9 @@ func (a *App) renderOverlays(c *ui.Context) {
 	if a.commandPalette != nil {
 		a.commandPalette.Render(c, a.dispatchCommandPaletteAction)
 	}
+	if a.workspaceSearch != nil && a.workspaceSearch.IsOpen() {
+		a.renderWorkspaceSearch(c)
+	}
 	if a.migrationHost != nil {
 		a.migrationHost.Render(c)
 	}
@@ -585,8 +721,8 @@ func (a *App) renderOverlays(c *ui.Context) {
 		a.settingsPanel.RenderDialog(c)
 	}
 	if a.windows != nil {
-		a.windows.Render(c, workspaceui.MainHost, workspaceui.Overlay)
-		a.windows.Render(c, workspaceui.MainHost, workspaceui.ModalOverlay)
+		a.windows.Render(c, workspaceui.MainHost, hostingui.Overlay)
+		a.windows.Render(c, workspaceui.MainHost, hostingui.ModalOverlay)
 	}
 	if a.linkPreview != nil {
 		a.linkPreview.Render(c)

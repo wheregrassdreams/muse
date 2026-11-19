@@ -5,7 +5,7 @@ import (
 
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 func (e *Editor) tableRegisterForSelection(t *leaf, s *tableSelection) *tablemodel.Register {

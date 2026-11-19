@@ -3,9 +3,9 @@ package mermaidpreview
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
-	markdownui "muse/nativeui/markdown"
-	"muse/nativeui/ui/viewport"
-	workspaceui "muse/nativeui/workspace"
+	markdownui "muse/nativeui/workbench/framework/markdown"
+	"muse/nativeui/workbench/framework/components/viewport"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 type Content struct {
@@ -13,7 +13,7 @@ type Content struct {
 	model    diagrams.Result
 	diagram  markdownui.Diagram
 	viewport viewport.Transform
-	controls workspaceui.Controls
+	controls hosting.Controls
 	onClose  func()
 	closed   bool
 }
@@ -25,7 +25,7 @@ func NewContent(source string, model diagrams.Result, onClose func()) *Content {
 	return &Content{source: source, model: model, diagram: markdownui.DiagramFromResult(model), viewport: viewport.NewTransform(), onClose: onClose}
 }
 
-func (s *Content) Bind(controls workspaceui.Controls) { s.controls = controls }
+func (s *Content) Bind(controls hosting.Controls) { s.controls = controls }
 
 func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
@@ -107,6 +107,6 @@ func (s *Content) Close() {
 func (s *Content) Focused() {}
 func (s *Content) Blurred() {}
 
-var _ workspaceui.Content = (*Content)(nil)
-var _ workspaceui.Bindable = (*Content)(nil)
-var _ workspaceui.FocusLifecycle = (*Content)(nil)
+var _ hosting.Content = (*Content)(nil)
+var _ hosting.Bindable = (*Content)(nil)
+var _ hosting.FocusLifecycle = (*Content)(nil)

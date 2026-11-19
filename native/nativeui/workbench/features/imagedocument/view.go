@@ -8,8 +8,8 @@ import (
 
 	"muse/locales"
 	"muse/markdown/images"
-	markdownui "muse/nativeui/markdown"
-	"muse/nativeui/ui/viewport"
+	markdownui "muse/nativeui/workbench/framework/markdown"
+	"muse/nativeui/workbench/framework/components/viewport"
 )
 
 type ActionKind uint8

@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	uieditor "github.com/egoist/mygo/ui/editor"
 
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 	paragraph "github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	editorprojection "github.com/wheregrassdreams/muse-editor/markdown/render"
@@ -23,18 +24,17 @@ import (
 	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
 	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
-	inlineui "muse/nativeui/editor/blocks/inline"
-	media "muse/nativeui/editor/blocks/media"
-	tableui "muse/nativeui/editor/blocks/table"
-	"muse/nativeui/editor/feedback"
-	"muse/nativeui/editor/ime"
-	editornavigation "muse/nativeui/editor/navigation"
-	"muse/nativeui/editor/navigationrail"
-	"muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
+	"muse/nativeui/workbench/features/editor/feedback"
+	"muse/nativeui/workbench/features/editor/ime"
+	editornavigation "muse/nativeui/workbench/features/editor/navigation"
+	"muse/nativeui/workbench/features/editor/navigationrail"
+	"muse/nativeui/workbench/features/editor/render"
+	"muse/nativeui/workbench/features/editor/textlayout"
 	"muse/ui/scrollbar"
 	vaultlinks "muse/vault/links"
 )
@@ -283,9 +283,10 @@ type Editor struct {
 	// tableSelection owns table-cell presentation. anchor/caret retain the
 	// document range, whose outside-table text and table structure are projected
 	// independently.
-	tableController tablemodel.Controller
-	tableNavigating bool
-	tableSelection  *tableSelection
+	tableController    tablemodel.Controller
+	tableNavigating    bool
+	tableSelection     *tableSelection
+	tableSelectionMode helix.Mode
 	// tableDocumentRegion preserves the 2D cell focus when an extended
 	// selection leaves its table; anchor/caret alone cannot encode a rectangle.
 	tableDocumentRegion *tableSelection

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	inlineui "muse/nativeui/editor/blocks/inline"
-	linkpreview "muse/nativeui/linkpreview"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	linkpreview "muse/nativeui/workbench/features/linkpreview"
 	vaultlinks "muse/vault/links"
 )
 

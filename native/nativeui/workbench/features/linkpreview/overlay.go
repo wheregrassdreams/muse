@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/markdown"
-	markdownui "muse/nativeui/markdown"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/egoist/mygo/ui"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 var ErrWindowHostUnavailable = errors.New("quick open window host is unavailable")
@@ -13,9 +13,9 @@ var ErrWindowHostUnavailable = errors.New("quick open window host is unavailable
 // application supplies its workbench manager; this feature owns the content
 // lifecycle and placement request but not the manager implementation.
 type WindowHost interface {
-	Open(workspaceui.Content, workspaceui.Placement) (workspaceui.Handle, error)
-	Close(workspaceui.Handle) error
-	Contains(workspaceui.Handle) bool
+	Open(hosting.Content, hosting.Placement) (hosting.Handle, error)
+	Close(hosting.Handle) error
+	Contains(hosting.Handle) bool
 }
 
 // ControllerOptions contains feature inputs and application callbacks. Rows
@@ -26,7 +26,7 @@ type ControllerOptions struct {
 	FileIcon   *ui.SVG
 	IconTint   func(*ui.Theme) ui.Color
 	Windows    WindowHost
-	Placement  workspaceui.Placement
+	Placement  hosting.Placement
 	OnOpen     func(path string)
 	OnClose    func()
 }
@@ -35,7 +35,7 @@ type ControllerOptions struct {
 // App or any application/domain object.
 type Controller struct {
 	options ControllerOptions
-	handle  workspaceui.Handle
+	handle  hosting.Handle
 	content *Content
 }
 
@@ -74,7 +74,7 @@ func (c *Controller) Open() error {
 		OnClose: func() {
 			if c.content == content {
 				c.content = nil
-				c.handle = workspaceui.Handle{}
+				c.handle = hosting.Handle{}
 			}
 			if opened && c.options.OnClose != nil {
 				c.options.OnClose()

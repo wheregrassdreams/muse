@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/markdown/images"
-	markdownui "muse/nativeui/markdown"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 // CatalogEntry is a path and kind projected from the vault's directory

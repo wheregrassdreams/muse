@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	media "muse/nativeui/editor/blocks/media"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
 )
 
 func TestImageResizeReferenceMarkdownIsUndoableAndDoesNotWriteImage(t *testing.T) {

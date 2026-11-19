@@ -6,7 +6,7 @@ package exportdialogs
 import (
 	"github.com/egoist/mygo/ui"
 
-	documentdialogs "muse/nativeui/dialogs/document"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 )
 
 // ExportAction is the user's request to export the current document. The

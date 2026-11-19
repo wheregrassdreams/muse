@@ -16,7 +16,7 @@ import (
 	documentapp "muse/application/document"
 	"muse/document"
 	"muse/events"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/workspace"
 )
 
@@ -178,7 +178,7 @@ type SystemEditCommands interface {
 
 // SurfaceFactory adapts a backend-neutral editor session to generic window
 // content. Composition injects the concrete MyGo component adapter.
-type SurfaceFactory func(*editor.Session, SurfaceOptions) workspaceui.Content
+type SurfaceFactory func(*editor.Session, SurfaceOptions) hosting.Content
 
 type Content struct {
 	paneID    workspace.PaneID
@@ -186,7 +186,7 @@ type Content struct {
 	dirty     bool
 	session   *editor.Session
 	document  *documentapp.Session
-	surface   workspaceui.Content
+	surface   hosting.Content
 	onAction  func(Action)
 	closed    bool
 	closeSent bool
@@ -194,7 +194,7 @@ type Content struct {
 }
 
 // Commands is the feature-owned capability App may use while the pane handle
-// is live. It deliberately omits Render and Close, which belong to workspaceui.Manager.
+// is live. It deliberately omits Render and Close, which belong to hosting.Manager.
 type Commands interface {
 	FocusCommands() FocusCommands
 	ModalCommands() ModalCommands
@@ -242,11 +242,11 @@ var _ Commands = (*Content)(nil)
 
 // WithCommands resolves a live generic window handle and narrows it inside
 // the noteeditor owner package, so App never stores concrete surface state.
-func WithCommands(manager *workspaceui.Manager, handle workspaceui.Handle, use func(Commands) error) error {
+func WithCommands(manager *hosting.Manager, handle hosting.Handle, use func(Commands) error) error {
 	if use == nil {
-		return workspaceui.ErrHandleUnavailable
+		return hosting.ErrHandleUnavailable
 	}
-	return manager.WithContent(handle, func(content workspaceui.Content) error {
+	return manager.WithContent(handle, func(content hosting.Content) error {
 		commands, ok := content.(*Content)
 		if !ok || commands == nil || commands.closed {
 			return ErrContentClosed
@@ -412,7 +412,7 @@ func NewContent(
 	return content, nil
 }
 
-func surfaceHasRequiredCommands(surface workspaceui.Content) bool {
+func surfaceHasRequiredCommands(surface hosting.Content) bool {
 	if surface == nil {
 		return false
 	}
@@ -649,7 +649,7 @@ func (c *Content) Open(note document.Note, cursorOffset int) error {
 	return c.session.SetSelection(editor.Selection{Anchor: cursorOffset, Head: cursorOffset})
 }
 
-func initialVisibleOffset(source string, requested int, surface workspaceui.Content) int {
+func initialVisibleOffset(source string, requested int, surface hosting.Content) int {
 	if requested != 0 {
 		return requested
 	}
@@ -946,4 +946,4 @@ func clampOffset(source string, offset int) int {
 	return offset
 }
 
-var _ workspaceui.Content = (*Content)(nil)
+var _ hosting.Content = (*Content)(nil)

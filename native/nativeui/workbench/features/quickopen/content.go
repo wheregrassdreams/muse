@@ -2,7 +2,7 @@ package quickopen
 
 import (
 	"github.com/egoist/mygo/ui"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 type SurfaceOptions struct {
@@ -18,7 +18,7 @@ type SurfaceOptions struct {
 type Content struct {
 	state    state
 	options  SurfaceOptions
-	controls workspaceui.Controls
+	controls hosting.Controls
 	closed   bool
 	rows     Rows
 	rowsKey  Revision
@@ -30,7 +30,7 @@ func NewContent(options SurfaceOptions) *Content {
 	return &Content{state: state{Open: true}, options: options}
 }
 
-func (s *Content) Bind(controls workspaceui.Controls) { s.controls = controls }
+func (s *Content) Bind(controls hosting.Controls) { s.controls = controls }
 
 func (s *Content) Render(c *ui.Context) {
 	if s == nil || s.closed {
@@ -61,10 +61,10 @@ func (s *Content) Render(c *ui.Context) {
 			s.state.Selected = action.Index
 		case OpenSelection:
 			if rows != nil && action.Index >= 0 && action.Index < rows.Len() && s.options.OnOpen != nil {
-				s.options.OnOpen(rows.At(action.Index).Path)
 				if s.controls != nil {
 					s.controls.CloseSelf()
 				}
+				s.options.OnOpen(rows.At(action.Index).Path)
 			}
 		case Dismiss:
 			if s.controls != nil {
@@ -90,6 +90,6 @@ func (s *Content) Close() {
 func (s *Content) Focused() {}
 func (s *Content) Blurred() {}
 
-var _ workspaceui.Content = (*Content)(nil)
-var _ workspaceui.Bindable = (*Content)(nil)
-var _ workspaceui.FocusLifecycle = (*Content)(nil)
+var _ hosting.Content = (*Content)(nil)
+var _ hosting.Bindable = (*Content)(nil)
+var _ hosting.FocusLifecycle = (*Content)(nil)

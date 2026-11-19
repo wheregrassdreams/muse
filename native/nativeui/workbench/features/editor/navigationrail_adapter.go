@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/wheregrassdreams/muse-editor/text/layout"
-	"muse/nativeui/editor/navigationrail"
+	"muse/nativeui/workbench/features/editor/navigationrail"
 )
 
 // railEdge is how near the document's start or end the view must be for the

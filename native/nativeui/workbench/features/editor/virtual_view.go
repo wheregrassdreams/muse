@@ -15,10 +15,10 @@ import (
 	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"muse/locales"
 	"muse/markdown/images"
-	"muse/nativeui/dragdrop"
-	media "muse/nativeui/editor/blocks/media"
-	"muse/nativeui/editor/feedback"
-	render "muse/nativeui/editor/render"
+	"muse/nativeui/workbench/framework/interactions/dragdrop"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	"muse/nativeui/workbench/features/editor/feedback"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 // dropVaultItem inserts an Obsidian-style wiki link for a vault item dragged

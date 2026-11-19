@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	markdownui "muse/nativeui/markdown"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 	appearance "muse/theme"
 )
 

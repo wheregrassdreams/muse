@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
@@ -36,6 +37,9 @@ func (e *Editor) beginMergePrevious(kind stepKind) { e.beginWithMerge(kind, true
 func (e *Editor) beginWithMerge(kind stepKind, mergePrevious bool) {
 	if e.editBatch != nil {
 		return
+	}
+	if kind == stepEdit && !mergePrevious {
+		e.breakCoalescing()
 	}
 	batch, err := e.Session.BeginTransaction(editormodel.TransactionOptions{
 		Group: historyGroup(kind), At: time.Now(), MergePrevious: mergePrevious,
@@ -196,6 +200,7 @@ func (e *Editor) Undo() bool {
 	e.parsed = invalidParsedRevision
 	e.pending, e.pendingMulti = nil, false
 	e.sync()
+	e.restoreTableSelectionMode()
 	e.changed()
 	e.invalidate()
 	return true
@@ -214,9 +219,28 @@ func (e *Editor) Redo() bool {
 	e.parsed = invalidParsedRevision
 	e.pending, e.pendingMulti = nil, false
 	e.sync()
+	e.restoreTableSelectionMode()
 	e.changed()
 	e.invalidate()
 	return true
+}
+
+func (e *Editor) restoreTableSelectionMode() {
+	if e.Keymap() != "vim" || e.tableSelection == nil {
+		return
+	}
+	switch e.tableSelectionMode {
+	case helix.ModeVisual:
+		e.vimController().SetMode(helix.ModeVisual)
+		e.vimController().SetTextVisualActive(true)
+		e.vimController().SetLinewise(true)
+		e.setSessionLinewise(true)
+	case helix.ModeBlockVisual:
+		e.vimController().SetMode(helix.ModeBlockVisual)
+		e.vimController().SetTextVisualActive(false)
+		e.vimController().SetLinewise(false)
+		e.setSessionLinewise(false)
+	}
 }
 
 func (e *Editor) CanUndo() bool { return e.Session.CanUndo() }

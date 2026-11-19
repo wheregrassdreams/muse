@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	render "muse/nativeui/editor/render"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 func (e *Editor) visibleRenderBlocks(resources *editorRenderResources) []render.Block {

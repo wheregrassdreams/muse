@@ -11,8 +11,8 @@ import (
 	"github.com/wheregrassdreams/muse-editor/text/input"
 	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
-	tableui "muse/nativeui/editor/blocks/table"
-	"muse/nativeui/editor/inputadapter"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
+	"muse/nativeui/workbench/features/editor/inputadapter"
 )
 
 // editorVimController is a compatibility view for existing UI policy code.
@@ -298,15 +298,18 @@ func (e *Editor) DispatchVimCommand(command helix.Command) {
 }
 
 func (e *Editor) SetKeymap(s string) {
+	if s != "vim" && s != "helix" {
+		s = "default"
+	}
+	if e.keymapName == s {
+		return
+	}
 	e.feedbackState.CancelCursor()
 	e.smoothCursorNavigation = false
 	e.clearVimImageRow()
 	e.clearVimSearchHighlights()
 	e.feedbackState.CancelYankFlash()
 	e.finishBlockInput()
-	if s != "vim" && s != "helix" {
-		s = "default"
-	}
 	e.keymapName = s
 	e.vimModeOverride = ""
 	if s == "vim" {
@@ -399,6 +402,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 			e.tableBridge = nil
 			_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
 			e.modalSetMode(helix.ModeBlockVisual)
+			e.tableSelectionMode = helix.ModeBlockVisual
 			e.vimController().SetLinewise(false)
 			e.vimController().ClearPending()
 			e.vimController().SetCount(0)
@@ -544,6 +548,9 @@ func (e *Editor) modalLine(at int) (int, int) {
 }
 
 func (e *Editor) modalHorizontal(direction int, extend bool) {
+	wasNavigating := e.tableNavigating
+	e.tableNavigating = true
+	defer func() { e.tableNavigating = wasNavigating }()
 	if e.moveTableCellRegion(0, direction) {
 		return
 	}

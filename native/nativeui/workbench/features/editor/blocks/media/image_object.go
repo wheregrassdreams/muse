@@ -65,10 +65,17 @@ func NewImageObject(host ImageHost, destination, alt string, width, fontSize flo
 	}
 	path := host.ResolveImage(destination)
 	asset := host.LoadImage(path, strings.HasPrefix(path, "data:"))
+	obj := &ImageObject{Path: path, Destination: destination, Alt: alt, Block: alone}
 	if asset == nil {
-		return nil
+		obj.Width = max(width, 80)
+		if width > 0 {
+			obj.Width = width
+		}
+		obj.Height = fontSize * 2.4
+		obj.Descent = obj.Height * .25
+		return obj
 	}
-	obj := &ImageObject{Asset: asset, Pending: !asset.Loaded(), Path: path, Destination: destination, Alt: alt, Block: alone}
+	obj.Asset, obj.Pending = asset, !asset.Loaded()
 	obj.Refresh()
 	intrinsic, hasIntrinsic := asset.IntrinsicSize()
 	if obj.Bitmap == nil {
@@ -101,8 +108,10 @@ func (obj *ImageObject) ApplySize(size ImageSize, width float32) {
 		return
 	}
 	baseW, baseH := obj.Width, obj.Height
-	if intrinsic, ok := obj.Asset.IntrinsicSize(); ok {
-		baseW, baseH = float32(intrinsic.X), float32(intrinsic.Y)
+	if obj.Asset != nil {
+		if intrinsic, ok := obj.Asset.IntrinsicSize(); ok {
+			baseW, baseH = float32(intrinsic.X), float32(intrinsic.Y)
+		}
 	} else if obj.Bitmap != nil {
 		w, h := obj.Bitmap.Size()
 		baseW, baseH = float32(w), float32(h)
@@ -117,6 +126,10 @@ func (obj *ImageObject) ApplySize(size ImageSize, width float32) {
 // frame version.
 func (obj *ImageObject) Refresh() {
 	if obj == nil {
+		return
+	}
+	if obj.Asset == nil {
+		obj.Bitmap = nil
 		return
 	}
 	obj.Bitmap, obj.FrameVersion = RefreshImageBitmap(obj.Asset, obj.Bitmap, obj.FrameVersion)

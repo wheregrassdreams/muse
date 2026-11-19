@@ -8,8 +8,8 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	inlineui "muse/nativeui/editor/blocks/inline"
-	markdownui "muse/nativeui/markdown"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 const linkStyleFixture = "[网页](https://example.test) [[found|有效]] [[missing|失效]] [[pending|未知]]"

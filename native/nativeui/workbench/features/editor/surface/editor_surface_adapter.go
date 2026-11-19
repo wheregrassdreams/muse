@@ -2,8 +2,8 @@ package noteeditor
 
 import (
 	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
-	editorui "muse/nativeui/editor"
-	workspaceui "muse/nativeui/workspace"
+	editorui "muse/nativeui/workbench/features/editor"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 // editorSurfaceAdapter binds the reusable editor widget to the note editor's
@@ -14,7 +14,7 @@ type editorSurfaceAdapter struct {
 }
 
 var (
-	_ workspaceui.Content  = (*editorSurfaceAdapter)(nil)
+	_ hosting.Content  = (*editorSurfaceAdapter)(nil)
 	_ DocumentOpenCommands = (*editorSurfaceAdapter)(nil)
 	_ FocusCommands        = (*editorSurfaceAdapter)(nil)
 	_ ModalCommands        = (*editorSurfaceAdapter)(nil)
@@ -27,7 +27,7 @@ var (
 
 // NewEditorSurface adapts the reusable editor widget to noteeditor's feature
 // command ports without exposing renderer-specific types through App.
-func NewEditorSurface(editor *editorui.Editor) workspaceui.Content {
+func NewEditorSurface(editor *editorui.Editor) hosting.Content {
 	return &editorSurfaceAdapter{Editor: editor}
 }
 

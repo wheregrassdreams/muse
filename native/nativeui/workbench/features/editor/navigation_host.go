@@ -9,8 +9,8 @@ import (
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"github.com/wheregrassdreams/muse-editor/text/navigation"
-	tableui "muse/nativeui/editor/blocks/table"
-	editornavigation "muse/nativeui/editor/navigation"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
+	editornavigation "muse/nativeui/workbench/features/editor/navigation"
 )
 
 func isSourceRuneBoundary(src string, off int) bool { return navigation.IsRuneBoundary(src, off) }

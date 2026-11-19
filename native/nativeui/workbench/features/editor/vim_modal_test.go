@@ -4,7 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	inputadapter "muse/nativeui/editor/inputadapter"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	inputadapter "muse/nativeui/workbench/features/editor/inputadapter"
 )
 
 // modalKey preserves the older UI-oriented test helper while production modal
@@ -23,9 +24,15 @@ func TestProductionViewRoutesVimInputThroughSession(t *testing.T) {
 	e.Focus()
 	tester.Frame()
 	tester.Frame()
-	tester.Type("l")
-	tester.Type("i")
-	tester.Type("X")
+	tester.TypeKey(0, ui.KeyL, "l")
+	tester.TypeKey(0, ui.KeyI, "i")
+	if got := e.vimController().Mode(); got != helix.ModeInsert {
+		t.Fatalf("mode after entering Vim insert = %q, want insert", got)
+	}
+	tester.TypeKey(0, ui.KeyX, "X")
+	if got := e.vimController().Mode(); got != helix.ModeInsert {
+		t.Fatalf("mode after inserting one character = %q, want insert", got)
+	}
 	tester.KeyDown(ui.KeyEscape)
 	tester.Frame()
 	if got, want := e.Session.Source(), "aXbc"; got != want {

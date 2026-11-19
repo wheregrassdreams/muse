@@ -14,7 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/wheregrassdreams/muse-editor/markdown/source"
 
-	markdownui "muse/nativeui/markdown"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 // shownEditor lays src out in an editor without the focus, where no

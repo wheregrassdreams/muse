@@ -5,14 +5,14 @@ import (
 	"strings"
 
 	"muse/markdown/images"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 // NativePorts are the toolkit/workbench capabilities required by the
 // image-preview feature. The feature owns native label policy and controller
 // construction; the caller supplies only host and platform capabilities.
 type NativePorts struct {
-	Windows     *workspaceui.Manager
+	Windows     *hosting.Manager
 	ImageCache  images.CacheStore
 	LocalFiles  images.LocalFiles
 	DocumentDir func() string
@@ -24,7 +24,7 @@ type NativePorts struct {
 
 func NewNativeHost(ports NativePorts) Host {
 	return NewController(ControllerOptions{
-		Windows: ports.Windows, Placement: workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay},
+		Windows: ports.Windows, Placement: hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
 		ImageCache: ports.ImageCache, LocalFiles: ports.LocalFiles,
 		Label: func(source string) string {
 			base := ""

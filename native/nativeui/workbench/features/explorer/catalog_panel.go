@@ -5,7 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	componenticons "muse/nativeui/ui/icons"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 // CatalogPanelPorts are the detached catalog facts and workbench capabilities
@@ -20,6 +20,8 @@ type CatalogPanelPorts struct {
 	Icon        func(path string, directory bool) *ui.SVG
 	Controller  *Controller
 	Focus       *ui.Handle
+	Drag        DragPort
+	DragPreview *DragSnapshot
 	OnAction    func(Action)
 }
 
@@ -70,6 +72,7 @@ func RenderCatalogPanel(c *ui.Context, ports CatalogPanelPorts) {
 		Children: ports.Children, VisibleFile: ports.VisibleFile,
 	})
 	entries := make([]EntrySnapshot, 0, len(rows))
+	iconTint := c.Theme().TextMuted
 	for _, row := range rows {
 		icon := componenticons.File()
 		if row.Directory {
@@ -80,7 +83,7 @@ func RenderCatalogPanel(c *ui.Context, ports CatalogPanelPorts) {
 				icon = custom
 			}
 		}
-		entries = append(entries, EntrySnapshot{Row: row, Icon: icon})
+		entries = append(entries, EntrySnapshot{Row: row, Icon: icon, IconTint: iconTint})
 	}
 	label := ports.RootLabel
 	if label == "" {
@@ -88,8 +91,8 @@ func RenderCatalogPanel(c *ui.Context, ports CatalogPanelPorts) {
 	}
 	ports.Controller.RenderPanel(c, PanelSnapshot{
 		Entries: entries, RootLabel: label, RootCanDrop: true,
-		EmptyMessage: "No files",
+		EmptyMessage: "No files", Drag: ports.DragPreview,
 	}, PanelCapabilities{
-		Focus: ports.Focus, IsDirectory: ports.IsDirectory, OnAction: ports.OnAction,
+		Focus: ports.Focus, Drag: ports.Drag, IsDirectory: ports.IsDirectory, OnAction: ports.OnAction,
 	})
 }

@@ -3,7 +3,7 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 
-	"muse/nativeui/editor/render"
+	"muse/nativeui/workbench/features/editor/render"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

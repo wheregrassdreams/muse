@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"muse/nativeui/editor/feedback"
+	"muse/nativeui/workbench/features/editor/feedback"
 )
 
 func TestSearchMatchPulseIsBriefAndOptIn(t *testing.T) {

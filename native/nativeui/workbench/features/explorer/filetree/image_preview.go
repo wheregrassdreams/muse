@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/markdown/images"
-	markdownui "muse/nativeui/markdown"
+	markdownui "muse/nativeui/workbench/framework/markdown"
 )
 
 // ImagePreview is the presentation input for the hover preview rendered next

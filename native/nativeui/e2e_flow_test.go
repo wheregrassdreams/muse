@@ -16,10 +16,10 @@ import (
 	"github.com/egoist/mygo/ui"
 	editfind "github.com/wheregrassdreams/muse-editor/text/findreplace"
 
-	editorui "muse/nativeui/editor"
-	noteeditor "muse/nativeui/editor/surface"
-	findreplaceui "muse/nativeui/search/findreplace"
-	shellui "muse/nativeui/shell"
+	editorui "muse/nativeui/workbench/features/editor"
+	noteeditor "muse/nativeui/workbench/features/editor/surface"
+	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
+	shellui "muse/nativeui/workbench/framework/shell"
 )
 
 // save() writes asynchronously on the UI queue; tests poll the file like a

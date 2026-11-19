@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	componenticons "muse/nativeui/ui/icons"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 	"muse/ui/iconlibrary"
 )
 

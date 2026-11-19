@@ -2,15 +2,15 @@ package imagepreview
 
 import (
 	"muse/markdown/images"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 // ControllerOptions are the application capabilities used by the preview.
 // Path policy, clipboard ownership and event-loop scheduling stay in the
 // composition root and enter only through these ports.
 type ControllerOptions struct {
-	Windows   *workspaceui.Manager
-	Placement workspaceui.Placement
+	Windows   *hosting.Manager
+	Placement hosting.Placement
 
 	ImageCache images.CacheStore
 	LocalFiles images.LocalFiles
@@ -22,10 +22,10 @@ type ControllerOptions struct {
 }
 
 // Controller owns the lifecycle of the image preview hosted in a generic
-// workbench workspaceui. All methods must be called on the UI-owner thread.
+// workbench hosting. All methods must be called on the UI-owner thread.
 type Controller struct {
 	options ControllerOptions
-	handle  workspaceui.Handle
+	handle  hosting.Handle
 }
 
 // Host is the shell-facing lifecycle contract for the image preview.
@@ -39,7 +39,7 @@ var _ Host = (*Controller)(nil)
 
 func NewController(options ControllerOptions) *Controller {
 	if options.Placement.Host == "" {
-		options.Placement = workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay}
+		options.Placement = hosting.Placement{Host: "main", Layer: hosting.ModalOverlay}
 	}
 	return &Controller{options: options}
 }
@@ -47,7 +47,7 @@ func NewController(options ControllerOptions) *Controller {
 // Open replaces the current preview and opens source in the configured host.
 func (c *Controller) Open(source string) error {
 	if c == nil {
-		return workspaceui.ErrInvalidContent
+		return hosting.ErrInvalidContent
 	}
 	if source == "" {
 		return nil
@@ -64,10 +64,10 @@ func (c *Controller) Open(source string) error {
 	)
 	content.SetLocalFiles(c.options.LocalFiles)
 
-	var handle workspaceui.Handle
+	var handle hosting.Handle
 	content.onClose = func() {
 		if c.handle == handle {
-			c.handle = workspaceui.Handle{}
+			c.handle = hosting.Handle{}
 		}
 	}
 	opened, err := c.options.Windows.Open(content, c.options.Placement)
@@ -92,7 +92,7 @@ func (c *Controller) Close() {
 		return
 	}
 	handle := c.handle
-	c.handle = workspaceui.Handle{}
+	c.handle = hosting.Handle{}
 	if c.options.Windows != nil && !handle.IsZero() {
 		_ = c.options.Windows.Close(handle)
 	}
@@ -107,9 +107,9 @@ func (c *Controller) IsOpen() bool {
 }
 
 // Handle returns the generic host handle while the preview is open.
-func (c *Controller) Handle() workspaceui.Handle {
+func (c *Controller) Handle() hosting.Handle {
 	if c == nil {
-		return workspaceui.Handle{}
+		return hosting.Handle{}
 	}
 	return c.handle
 }

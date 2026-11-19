@@ -9,7 +9,7 @@ import (
 	"time"
 	"unsafe"
 
-	render "muse/nativeui/editor/render"
+	render "muse/nativeui/workbench/features/editor/render"
 )
 
 // BenchmarkStressBase64Heavy measures one cold frame plus one scroll frame on

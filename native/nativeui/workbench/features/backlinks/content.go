@@ -3,7 +3,7 @@ package backlinks
 
 import (
 	"github.com/egoist/mygo/ui"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/ui/scrollbar"
 	"muse/vault/links"
 )
@@ -34,7 +34,7 @@ type state struct {
 // through the small Ports contract.
 type Host struct {
 	ports    Ports
-	controls workspaceui.Controls
+	controls hosting.Controls
 	state    state
 	closed   bool
 }
@@ -47,7 +47,7 @@ func NewHost(ports Ports) *Host { return &Host{ports: ports} }
 
 func NewContent(ports Ports) *Host { return NewHost(ports) }
 
-func (s *Host) Bind(controls workspaceui.Controls) { s.controls = controls }
+func (s *Host) Bind(controls hosting.Controls) { s.controls = controls }
 
 func (s *Host) Render(c *ui.Context) {
 	if s == nil || s.closed {
@@ -95,6 +95,6 @@ func (s *Host) Close() {
 func (s *Host) Focused() {}
 func (s *Host) Blurred() {}
 
-var _ workspaceui.Content = (*Host)(nil)
-var _ workspaceui.Bindable = (*Host)(nil)
-var _ workspaceui.FocusLifecycle = (*Host)(nil)
+var _ hosting.Content = (*Host)(nil)
+var _ hosting.Bindable = (*Host)(nil)
+var _ hosting.FocusLifecycle = (*Host)(nil)

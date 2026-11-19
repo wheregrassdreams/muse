@@ -1,8 +1,8 @@
 package editor
 
 import (
-	media "muse/nativeui/editor/blocks/media"
-	"muse/nativeui/editor/render"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	"muse/nativeui/workbench/features/editor/render"
 )
 
 // htmlBlockDisplay adapts the render package's detached HTML projection into

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 func (e *Editor) tableSelectionLeaf() *leaf {
@@ -82,6 +82,7 @@ func (e *Editor) applyTableAxis(t *leaf, axis tableAxis, first, last int, extend
 		s.activeRow = active
 	}
 	e.tableSelection = s
+	e.tableSelectionMode = e.vimController().Mode()
 	e.tableBridge = nil
 	e.clearComposition()
 	e.hasGoal = false

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 type testCandidates struct {
@@ -22,31 +22,31 @@ func (s *testCandidates) Rows(query string) Rows {
 func (s *testCandidates) Revision() Revision { return s.revision }
 
 type testWindowHost struct {
-	manager   *workspaceui.Manager
-	content   workspaceui.Content
-	handle    workspaceui.Handle
+	manager   *hosting.Manager
+	content   hosting.Content
+	handle    hosting.Handle
 	openErr   error
-	placement workspaceui.Placement
+	placement hosting.Placement
 }
 
 func newTestWindowHost() *testWindowHost {
-	return &testWindowHost{manager: workspaceui.NewManager(nil)}
+	return &testWindowHost{manager: hosting.NewManager(nil)}
 }
 
-func (h *testWindowHost) Open(content workspaceui.Content, placement workspaceui.Placement) (workspaceui.Handle, error) {
+func (h *testWindowHost) Open(content hosting.Content, placement hosting.Placement) (hosting.Handle, error) {
 	if h.openErr != nil {
-		return workspaceui.Handle{}, h.openErr
+		return hosting.Handle{}, h.openErr
 	}
 	handle, err := h.manager.Open(content, placement)
 	if err != nil {
-		return workspaceui.Handle{}, err
+		return hosting.Handle{}, err
 	}
 	h.content, h.handle, h.placement = content, handle, placement
 	return handle, nil
 }
 
-func (h *testWindowHost) Close(handle workspaceui.Handle) error   { return h.manager.Close(handle) }
-func (h *testWindowHost) Contains(handle workspaceui.Handle) bool { return h.manager.Contains(handle) }
+func (h *testWindowHost) Close(handle hosting.Handle) error   { return h.manager.Close(handle) }
+func (h *testWindowHost) Contains(handle hosting.Handle) bool { return h.manager.Contains(handle) }
 
 func TestControllerOpensSelectsAndClosesHostedPalette(t *testing.T) {
 	candidates := &testCandidates{
@@ -61,18 +61,19 @@ func TestControllerOpensSelectsAndClosesHostedPalette(t *testing.T) {
 	}
 	host := newTestWindowHost()
 	var opened []string
+	var order []string
 	closed := 0
 	controller := NewController(ControllerOptions{
 		Candidates: candidates,
 		Windows:    host,
-		Placement:  workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay},
-		OnOpen:     func(path string) { opened = append(opened, path) },
-		OnClose:    func() { closed++ },
+		Placement:  hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
+		OnOpen:     func(path string) { opened = append(opened, path); order = append(order, "open") },
+		OnClose:    func() { closed++; order = append(order, "close") },
 	})
 	if err := controller.Open(); err != nil {
 		t.Fatal(err)
 	}
-	if !controller.IsOpen() || host.content == nil || host.placement.Layer != workspaceui.ModalOverlay {
+	if !controller.IsOpen() || host.content == nil || host.placement.Layer != hosting.ModalOverlay {
 		t.Fatalf("opened state=%v content=%T placement=%+v", controller.IsOpen(), host.content, host.placement)
 	}
 
@@ -85,6 +86,9 @@ func TestControllerOpensSelectsAndClosesHostedPalette(t *testing.T) {
 	tester.Frame()
 	if len(opened) != 1 || opened[0] != "/vault/aardvark.txt" || controller.IsOpen() || closed != 1 {
 		t.Fatalf("opened=%v open=%v close-callbacks=%d", opened, controller.IsOpen(), closed)
+	}
+	if len(order) != 2 || order[0] != "close" || order[1] != "open" {
+		t.Fatalf("selection order=%v, want modal close before opening the document", order)
 	}
 
 	if err := controller.Open(); err != nil {
@@ -110,7 +114,7 @@ func TestControllerRefreshesCandidateRowsOnRevisionChange(t *testing.T) {
 	controller := NewController(ControllerOptions{
 		Candidates: candidates,
 		Windows:    host,
-		Placement:  workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay},
+		Placement:  hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
 	})
 	if err := controller.Open(); err != nil {
 		t.Fatal(err)

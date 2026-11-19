@@ -3,7 +3,7 @@ package exportdialogs
 import (
 	"testing"
 
-	documentdialogs "muse/nativeui/dialogs/document"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 )
 
 func TestExportControllerDispatchesSelectedFormat(t *testing.T) {

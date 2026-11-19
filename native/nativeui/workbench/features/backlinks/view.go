@@ -3,7 +3,7 @@ package backlinks
 import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	scrollui "muse/nativeui/ui/scroll"
+	scrollui "muse/nativeui/workbench/framework/components/scroll"
 	"muse/ui/scrollbar"
 )
 

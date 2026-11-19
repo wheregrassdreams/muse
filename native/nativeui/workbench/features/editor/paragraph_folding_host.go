@@ -4,7 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
-	paragraphui "muse/nativeui/editor/blocks/paragraph"
+	paragraphui "muse/nativeui/workbench/features/editor/blocks/paragraph"
 )
 
 // foldSection describes the source range hidden by one heading fold.

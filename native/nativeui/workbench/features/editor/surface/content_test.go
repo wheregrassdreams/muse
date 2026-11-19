@@ -10,7 +10,7 @@ import (
 
 	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/document"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/platform/filesystem/documentstore"
 	"muse/workspace"
 )
@@ -25,7 +25,7 @@ type testSurface struct {
 }
 
 var (
-	_ workspaceui.Content      = (*testSurface)(nil)
+	_ hosting.Content      = (*testSurface)(nil)
 	_ FocusCommands            = (*testSurface)(nil)
 	_ ModalCommands            = (*testSurface)(nil)
 	_ NavigationCommands       = (*testSurface)(nil)
@@ -113,7 +113,7 @@ func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
 	var actions []Action
 	content, err := NewContent("pane-a", document.NewNote(path, diskSource, document.RevisionOf(diskSource)), 5, Dependencies{
 		Documents: store, Recovery: store, History: store,
-	}, func(session *editor.Session, options SurfaceOptions) workspaceui.Content {
+	}, func(session *editor.Session, options SurfaceOptions) hosting.Content {
 		hosted = &testSurface{session: session, options: options}
 		return hosted
 	}, func(action Action) { actions = append(actions, action) })
@@ -161,13 +161,40 @@ func TestContentOwnsEditorAndDocumentLifecycle(t *testing.T) {
 	}
 }
 
+func TestHostedVimInsertSurvivesACommittedCharacter(t *testing.T) {
+	content, err := NewNativeContent("pane-vim", document.NewNote("", "abc", document.RevisionOf("abc")), 0,
+		Dependencies{}, NativeEditorOptions{}, func(Action) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer content.Close()
+	modal := content.ModalCommands()
+	modal.SetKeymap("vim")
+	tester := ui.NewTester(func(c *ui.Context) { content.Render(c) }, 640, 480)
+	tester.Frame()
+	content.FocusCommands().Focus()
+	tester.Frame()
+	tester.TypeKey(0, ui.KeyL, "l")
+	tester.TypeKey(0, ui.KeyI, "i")
+	tester.TypeKey(0, ui.KeyX, "X")
+	// App settings may be reapplied while the hosted pane is invalidated. The
+	// same keymap must not reset Vim's live mode or insert transaction.
+	modal.SetKeymap("vim")
+	if got := modal.ModeLabel(); got != "vim Insert" && got != "Insert" {
+		t.Fatalf("mode after committed character = %q, want Insert", got)
+	}
+	if got := content.Snapshot().Source; got != "aXbc" {
+		t.Fatalf("source after committed character = %q, want aXbc", got)
+	}
+}
+
 func TestOpenPlacesCaretAtFirstVisibleLineAfterHiddenFrontmatter(t *testing.T) {
 	source := "---\ntype: note\ntags: []\n---\n\n# Body\ntext\n"
 	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
 	var hosted *testSurface
 	content, err := NewContent("pane-frontmatter", document.NewNote("note.md", source, document.RevisionOf(source)), 0, Dependencies{
 		Documents: store, Recovery: store, History: store,
-	}, func(session *editor.Session, _ SurfaceOptions) workspaceui.Content {
+	}, func(session *editor.Session, _ SurfaceOptions) hosting.Content {
 		hosted = &testSurface{session: session}
 		return hosted
 	}, nil)
@@ -194,7 +221,7 @@ func TestNewContentPlacesCaretAtFirstVisibleLineAfterHiddenFrontmatter(t *testin
 	var hosted *testSurface
 	content, err := NewContent("pane-frontmatter", document.NewNote("note.md", source, document.RevisionOf(source)), 0, Dependencies{
 		Documents: store, Recovery: store, History: store,
-	}, func(session *editor.Session, options SurfaceOptions) workspaceui.Content {
+	}, func(session *editor.Session, options SurfaceOptions) hosting.Content {
 		hosted = &testSurface{session: session, options: options, presentation: PresentationSettings{HideFrontmatter: true}}
 		return hosted
 	}, nil)
@@ -215,7 +242,7 @@ func TestContentCloseClosesOwnerOnce(t *testing.T) {
 	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
 	var actions []Action
 	var hosted *testSurface
-	content, err := NewUntitled("pane-b", "", Dependencies{Documents: store, Recovery: store, History: store}, func(session *editor.Session, options SurfaceOptions) workspaceui.Content {
+	content, err := NewUntitled("pane-b", "", Dependencies{Documents: store, Recovery: store, History: store}, func(session *editor.Session, options SurfaceOptions) hosting.Content {
 		hosted = &testSurface{session: session, options: options}
 		return hosted
 	}, func(action Action) { actions = append(actions, action) })
@@ -233,7 +260,7 @@ func TestContentMutationConsolidatesRendererChangeCallback(t *testing.T) {
 	store := documentstore.New(filepath.Join(t.TempDir(), "recovery"))
 	var actions []Action
 	var hosted *testSurface
-	content, err := NewUntitled("pane-c", "", Dependencies{Documents: store, Recovery: store, History: store}, func(session *editor.Session, options SurfaceOptions) workspaceui.Content {
+	content, err := NewUntitled("pane-c", "", Dependencies{Documents: store, Recovery: store, History: store}, func(session *editor.Session, options SurfaceOptions) hosting.Content {
 		hosted = &testSurface{session: session, options: options}
 		return hosted
 	}, func(action Action) { actions = append(actions, action) })

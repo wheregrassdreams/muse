@@ -3,7 +3,7 @@ package media
 import (
 	"github.com/egoist/mygo/ui"
 	texmath "muse/markdown/math"
-	"muse/nativeui/components/mathvisual"
+	"muse/nativeui/workbench/framework/components/mathvisual"
 )
 
 type MathVisual = mathvisual.Visual

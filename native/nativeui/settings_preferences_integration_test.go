@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	settingsui "muse/nativeui/settings"
+	settingsui "muse/nativeui/workbench/features/settings"
 )
 
 func TestSettingsDialog(t *testing.T) {

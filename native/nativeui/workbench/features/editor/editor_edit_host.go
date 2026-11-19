@@ -12,7 +12,7 @@ import (
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	mdtext "github.com/wheregrassdreams/muse-editor/text"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // Editing works on the source, as Typora's editing reads: typing goes in

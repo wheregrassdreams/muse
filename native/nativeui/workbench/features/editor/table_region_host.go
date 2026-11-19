@@ -3,7 +3,7 @@ package editor
 import (
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 type tableCellMatrix = tablemodel.Matrix

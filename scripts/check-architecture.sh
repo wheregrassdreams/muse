@@ -21,8 +21,38 @@ if rg -n '^package nativeui$' native/nativeui --glob '*.go' | rg -v '^native/nat
   fail "nativeui child directories contain files that masquerade as the parent package"
 fi
 
-if rg -n '"muse/nativeui/workbench/(commands|context|focus|keybindings|dragpayload)"' native --glob '*.go'; then
+if [ ! -d native/nativeui/workbench/framework ] || [ ! -d native/nativeui/workbench/features ]; then
+  fail "workbench must separate shared framework infrastructure from product features"
+fi
+if find native/nativeui/workbench -mindepth 1 -maxdepth 1 -type d ! -name framework ! -name features -print -quit | grep -q .; then
+	fail "workbench root must contain only framework and features"
+fi
+if find native/nativeui/workbench/framework/components native/nativeui/workbench/features/dialogs native/nativeui/workbench/features/search -maxdepth 1 -type f -name '*.go' -print -quit | grep -q .; then
+  fail "component, dialog, and search categories must contain peer capability packages, not leaf implementations"
+fi
+
+if rg -n '^package nativeui$|\*App\b' native/nativeui/workbench/features/agent --glob '*.go' --glob '!**/*_test.go'; then
+  fail "assistant feature retains shell package or App dependency"
+fi
+if [ ! -d native/nativeui/workbench/features/agent ] || ! find native/nativeui/workbench/features/agent -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print -quit | grep -q .; then
+  fail "assistant feature has no production package"
+fi
+
+if rg -n '^package nativeui$|\*App\b|func\([^)]*\*App\)' native/nativeui/workbench/features/commandpalette --glob '*.go' --glob '!**/*_test.go'; then
+  fail "command palette feature retains shell package or App-bound command execution"
+fi
+if [ ! -d native/nativeui/workbench/features/commandpalette ] || ! find native/nativeui/workbench/features/commandpalette -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print -quit | grep -q .; then
+  fail "command palette feature has no production package"
+fi
+
+if rg -n '"muse/nativeui/(commands|context|focus|keybindings|dragpayload)"' native --glob '*.go'; then
   fail "obsolete workbench interaction or drag payload package imports remain"
+fi
+if [ -d native/nativeui/dragdrop ] || rg -n '"muse/nativeui/dragdrop"' native --glob '*.go'; then
+  fail "drag/drop capability must be nested under workbench/framework/interactions"
+fi
+if rg -n '"muse/nativeui/(agent|backlinks|commandpalette|commands|context|diagnostics|dragdrop|editor|explorer|focus|imagedocument|imagepreview|keybindings|linkpreview|markdown|mermaidpreview|naviconpicker|outline|properties|quickopen|settings|shell|workspace|vaulthome)(/|\")|"muse/nativeui/(dialogs/(document|export)|search/(findreplace|workspace)|ui/(icons|scroll|viewport))(/|\")' native --glob '*.go'; then
+  fail "NativeUI imports still use pre-workbench feature or framework paths"
 fi
 
 if rg -n '\b(documentdialogs|commandpalette|filetree|findreplaceui|naviconpicker|outlineui|propertypanel|searchui|settingsui|agentpanel)\.State\b' native/nativeui/app.go; then
@@ -47,7 +77,7 @@ fi
 
 # The editor's nested directories are actual package boundaries, not filing
 # locations that share the parent package. Host-coupled integration tests stay
-# in workbench/features/editor; feature behavior belongs to these child packages.
+# in nativeui/editor; feature behavior belongs to these child packages.
 for package in \
   native/nativeui/workbench/features/editor/inputadapter \
   native/nativeui/workbench/features/editor/ime \
@@ -55,6 +85,7 @@ for package in \
   native/nativeui/workbench/features/editor/blocks/paragraph \
   native/nativeui/workbench/features/editor/blocks/table \
   native/nativeui/workbench/features/editor/blocks/media \
+  native/nativeui/workbench/features/editor/projection \
   native/nativeui/workbench/features/editor/render \
   native/nativeui/workbench/features/editor/navigation \
   native/nativeui/workbench/features/editor/navigationrail \
@@ -132,6 +163,9 @@ for package in \
   native/application/document \
   native/application/config \
   native/application/vault \
+  native/application/vault/files \
+  native/application/vault/links \
+  native/application/vault/iconpreferences \
   native/application/workspace \
   native/events \
   native/document \
@@ -172,21 +206,28 @@ for package in \
   native/ui/scrollbar \
   native/ui/iconlibrary \
   native/nativeui \
-  native/nativeui/workbench/interactions/commands \
-  native/nativeui/workbench/interactions/context \
-  native/nativeui/workbench/interactions/focus \
-  native/nativeui/workbench/interactions/keybindings \
-  native/nativeui/workbench/dragdrop \
-  native/nativeui/workbench/diagnostics \
-  native/nativeui/workbench/hosting \
-  native/nativeui/workbench/workspace \
-  native/nativeui/workbench/shell/windowcontrols \
+  native/nativeui/workbench/framework/interactions/commands \
+  native/nativeui/workbench/framework/interactions/context \
+  native/nativeui/workbench/framework/interactions/focus \
+  native/nativeui/workbench/framework/interactions/keybindings \
+  native/nativeui/workbench/framework/interactions/dragdrop \
+  native/nativeui/workbench/framework/diagnostics \
+  native/nativeui/workbench/framework/components/icons \
+  native/nativeui/workbench/framework/components/scroll \
+  native/nativeui/workbench/framework/components/mathvisual \
+  native/nativeui/workbench/framework/components/viewport \
+  native/nativeui/workbench/framework/hosting \
+  native/nativeui/workbench/framework/workspace \
+  native/nativeui/workbench/framework/shell \
+  native/nativeui/workbench/framework/shell/windowcontrols \
   native/nativeui/workbench/features/editor \
   native/nativeui/workbench/features/editor/session \
   native/nativeui/workbench/features/editor/navigation \
+  native/nativeui/workbench/features/editor/projection \
   native/nativeui/workbench/features/editor/textlayout \
-  native/nativeui/workbench/rendering/markdown \
+  native/nativeui/workbench/framework/markdown \
   native/nativeui/workbench/features/dialogs/document \
+  native/nativeui/workbench/features/dialogs/export \
   native/nativeui/workbench/features/linkpreview \
   native/nativeui/workbench/features/editor/surface \
   native/nativeui/workbench/features/backlinks \
@@ -196,15 +237,15 @@ for package in \
   native/nativeui/workbench/features/quickopen \
   native/nativeui/workbench/features/explorer \
   native/nativeui/workbench/features/outline \
-  native/nativeui/workbench/features/search \
+  native/nativeui/workbench/features/search/workspace \
   native/nativeui/workbench/features/commandpalette \
   native/nativeui/workbench/features/naviconpicker \
   native/nativeui/workbench/features/vaulthome \
   native/nativeui/workbench/features/properties \
   native/nativeui/workbench/features/agent \
   native/nativeui/workbench/features/settings \
-  native/nativeui/workbench/features/dialogs \
   native/nativeui/workbench/features/dialogs/document \
+  native/nativeui/workbench/features/dialogs/export \
   native/platform/filesystem/documentstore \
   native/platform/filesystem/configstore \
   native/platform/filesystem/agentworkspace \
@@ -222,7 +263,7 @@ for package in \
   native/platform/filesystem/workspacestore \
   native/platform/filesystem/watcher \
   native/platform/externalopener \
-  native/platform/process/vaultsearchindexer \
+  native/platform/vaultsearchindexer \
   native/platform/cachepath \
   native/locales; do
   if [ ! -d "$package" ] || ! find "$package" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' -print -quit | grep -q .; then

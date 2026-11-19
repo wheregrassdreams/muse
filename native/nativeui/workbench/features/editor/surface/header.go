@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/nativeui/shell/windowcontrols"
-	icons "muse/nativeui/ui/icons"
+	"muse/nativeui/workbench/framework/shell/windowcontrols"
+	icons "muse/nativeui/workbench/framework/components/icons"
 )
 
 type HeaderActionKind uint8

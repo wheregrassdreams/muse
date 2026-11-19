@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	inlineui "muse/nativeui/editor/blocks/inline"
+	inlineui "muse/nativeui/workbench/features/editor/blocks/inline"
 )
 
 const embeddedNoteMarkdown = "# Embedded Heading\n\nA **bold** body paragraph with [a link](https://example.com).\n"

@@ -11,11 +11,11 @@ import (
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 
 	"muse/locales"
-	media "muse/nativeui/editor/blocks/media"
-	paragraphui "muse/nativeui/editor/blocks/paragraph"
-	"muse/nativeui/editor/feedback"
-	render "muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	paragraphui "muse/nativeui/workbench/features/editor/blocks/paragraph"
+	"muse/nativeui/workbench/features/editor/feedback"
+	render "muse/nativeui/workbench/features/editor/render"
+	"muse/nativeui/workbench/features/editor/textlayout"
 	"muse/theme"
 )
 

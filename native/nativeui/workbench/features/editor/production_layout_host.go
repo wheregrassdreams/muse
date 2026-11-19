@@ -12,9 +12,9 @@ import (
 
 	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
-	media "muse/nativeui/editor/blocks/media"
-	render "muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	render "muse/nativeui/workbench/features/editor/render"
+	"muse/nativeui/workbench/features/editor/textlayout"
 	"muse/theme"
 	"muse/ui/scrollbar"
 )

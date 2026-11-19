@@ -4,7 +4,7 @@ import (
 	"math"
 
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // Handle dragging owns reordering only. Text dragging and keyboard structure

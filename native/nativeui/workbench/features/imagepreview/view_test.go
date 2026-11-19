@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"muse/nativeui/ui/viewport"
+	"muse/nativeui/workbench/framework/components/viewport"
 	"muse/platform/filesystem/imagefiles"
 )
 

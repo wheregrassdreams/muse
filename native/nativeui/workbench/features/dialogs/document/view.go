@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/document"
 	"muse/locales"
-	scrollui "muse/nativeui/ui/scroll"
+	scrollui "muse/nativeui/workbench/framework/components/scroll"
 	"muse/ui/scrollbar"
 )
 

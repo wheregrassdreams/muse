@@ -4,7 +4,7 @@ import (
 	"context"
 	"path/filepath"
 
-	documentdialogs "muse/nativeui/dialogs/document"
+	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
 )
 
 type ExportFormat = documentdialogs.ExportFormat

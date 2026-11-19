@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/document/frontmatter"
 	"muse/locales"
-	propertypanel "muse/nativeui/properties"
+	propertypanel "muse/nativeui/workbench/features/properties"
 )
 
 func TestPropertiesInspectorKeepsFileSidebarAndSource(t *testing.T) {

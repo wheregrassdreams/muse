@@ -9,9 +9,9 @@ import (
 
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	texmath "muse/markdown/math"
-	media "muse/nativeui/editor/blocks/media"
-	"muse/nativeui/editor/navigationrail"
-	workspaceui "muse/nativeui/workspace"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	"muse/nativeui/workbench/features/editor/navigationrail"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 func TestProductionEditorContentHostsVirtualizedEditorAndClosesOnce(t *testing.T) {
@@ -20,7 +20,7 @@ func TestProductionEditorContentHostsVirtualizedEditorAndClosesOnce(t *testing.T
 	if err := value.Session.SetSelection(editormodel.Selection{Anchor: len(value.Source()), Head: len(value.Source())}); err != nil {
 		t.Fatal(err)
 	}
-	var pane workspaceui.Content = value
+	var pane hosting.Content = value
 	tester := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { pane.Render(c) })
 	}, 1000, 700)

@@ -10,29 +10,29 @@ import (
 	"testing"
 
 	"muse/markdown/images"
-	workspaceui "muse/nativeui/workspace"
+	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/platform/filesystem/imagefiles"
 )
 
 type fakeHost struct {
-	manager    *workspaceui.Manager
-	content    workspaceui.Content
-	placements []workspaceui.Placement
+	manager    *hosting.Manager
+	content    hosting.Content
+	placements []hosting.Placement
 	openErr    error
 }
 
-func newFakeHost() *fakeHost { return &fakeHost{manager: workspaceui.NewManager(nil)} }
+func newFakeHost() *fakeHost { return &fakeHost{manager: hosting.NewManager(nil)} }
 
-func (h *fakeHost) Open(content workspaceui.Content, placement workspaceui.Placement) (workspaceui.Handle, error) {
+func (h *fakeHost) Open(content hosting.Content, placement hosting.Placement) (hosting.Handle, error) {
 	h.placements = append(h.placements, placement)
 	if h.openErr != nil {
-		return workspaceui.Handle{}, h.openErr
+		return hosting.Handle{}, h.openErr
 	}
 	h.content = content
 	return h.manager.Open(content, placement)
 }
-func (h *fakeHost) Close(handle workspaceui.Handle) error   { return h.manager.Close(handle) }
-func (h *fakeHost) Contains(handle workspaceui.Handle) bool { return h.manager.Contains(handle) }
+func (h *fakeHost) Close(handle hosting.Handle) error   { return h.manager.Close(handle) }
+func (h *fakeHost) Contains(handle hosting.Handle) bool { return h.manager.Contains(handle) }
 
 func TestControllerOpensLocalImageThroughTypedPorts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "image.jpg")
@@ -55,11 +55,11 @@ func TestControllerOpensLocalImageThroughTypedPorts(t *testing.T) {
 	}
 
 	host := newFakeHost()
-	placement := workspaceui.Placement{Host: "main", Pane: "editor-1", Layer: workspaceui.PaneContent}
+	placement := hosting.Placement{Host: "main", Pane: "editor-1", Layer: hosting.PaneContent}
 	selected, recorded := "", ""
 	controller := NewController(Ports{
 		Host:            host,
-		Placement:       func() workspaceui.Placement { return placement },
+		Placement:       func() hosting.Placement { return placement },
 		Files:           func() images.LocalFiles { return imagefiles.New() },
 		OnSelectedPath:  func(path string) { selected = path },
 		OnRecordHistory: func(path string) { recorded = path },
@@ -81,12 +81,12 @@ func TestControllerOpensLocalImageThroughTypedPorts(t *testing.T) {
 
 func TestControllerOpenReplacesImageAndRecordsSelection(t *testing.T) {
 	host := newFakeHost()
-	placement := workspaceui.Placement{Host: "main", Pane: "right", Layer: workspaceui.PaneContent}
+	placement := hosting.Placement{Host: "main", Pane: "right", Layer: hosting.PaneContent}
 	selected, recorded, changed := "", "", 0
 	decodeErrors := []string{}
 	controller := NewController(Ports{
 		Host:            host,
-		Placement:       func() workspaceui.Placement { return placement },
+		Placement:       func() hosting.Placement { return placement },
 		OnSelectedPath:  func(path string) { selected = path },
 		OnRecordHistory: func(path string) { recorded = path },
 		OnDecodeError:   func(path string) { decodeErrors = append(decodeErrors, path) },
@@ -131,8 +131,8 @@ func TestControllerOpenReplacesImageAndRecordsSelection(t *testing.T) {
 
 func TestControllerCloseIsIdempotent(t *testing.T) {
 	host := newFakeHost()
-	controller := NewController(Ports{Host: host, Placement: func() workspaceui.Placement {
-		return workspaceui.Placement{Host: "main", Pane: "left", Layer: workspaceui.PaneContent}
+	controller := NewController(Ports{Host: host, Placement: func() hosting.Placement {
+		return hosting.Placement{Host: "main", Pane: "left", Layer: hosting.PaneContent}
 	}})
 	if err := controller.Open("image.png", false); err != nil {
 		t.Fatal(err)
@@ -150,8 +150,8 @@ func TestControllerReportsHostErrors(t *testing.T) {
 	var noticed error
 	controller := NewController(Ports{
 		Host: host,
-		Placement: func() workspaceui.Placement {
-			return workspaceui.Placement{Host: "main", Pane: "left", Layer: workspaceui.PaneContent}
+		Placement: func() hosting.Placement {
+			return hosting.Placement{Host: "main", Pane: "left", Layer: hosting.PaneContent}
 		},
 		OnNotice: func(err error) { noticed = err },
 	})
@@ -165,8 +165,8 @@ func TestControllerReportsHostErrors(t *testing.T) {
 
 func TestControllerIgnoresEmptyPath(t *testing.T) {
 	host := newFakeHost()
-	controller := NewController(Ports{Host: host, Placement: func() workspaceui.Placement {
-		return workspaceui.Placement{Host: "main", Pane: "left", Layer: workspaceui.PaneContent}
+	controller := NewController(Ports{Host: host, Placement: func() hosting.Placement {
+		return hosting.Placement{Host: "main", Pane: "left", Layer: hosting.PaneContent}
 	}})
 	if err := controller.Open("image.png", false); err != nil {
 		t.Fatal(err)

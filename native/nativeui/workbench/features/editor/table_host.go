@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // editorTableHost adapts the editor's private parser/history state to the

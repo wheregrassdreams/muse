@@ -122,7 +122,7 @@ func containsAction(actions []Action[testPayload], kind ActionKind) bool {
 func TestExpansionControlEmitsToggleAction(t *testing.T) {
 	var actions []Action[testPayload]
 	state := newState()
-	model := ViewModel{Entries: []Entry{{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true}}}
+	model := ViewModel{Entries: []Entry{{ID: "folder", Label: "Projects", Kind: Directory, CanSelect: true, CanExpand: true, CanDrag: true}}}
 	tester := ui.NewTester(func(c *ui.Context) {
 		render(c, state, model, func(a Action[testPayload]) { actions = append(actions, a) })
 	}, 320, 120)
@@ -131,6 +131,28 @@ func TestExpansionControlEmitsToggleAction(t *testing.T) {
 	tester.Frame()
 	if len(actions) != 1 || actions[0].Kind != ToggleEntry || actions[0].ID != "folder" {
 		t.Fatalf("actions = %+v, want toggle folder", actions)
+	}
+	if !state.IsExpanded("folder") {
+		t.Fatal("production drag row did not expand from the disclosure click")
+	}
+	actions = nil
+	tester.ClickAt(160, 14)
+	tester.Frame()
+	if state.IsExpanded("folder") {
+		t.Fatal("clicking the draggable directory row did not collapse it")
+	}
+	actions = nil
+	tester.Press(160, 14)
+	tester.Move(172, 14)
+	tester.Frame()
+	startedFolderDrag := false
+	for _, action := range actions {
+		if action.Kind == StartDrag && action.ID == "folder" && len(action.ItemIDs) == 1 && action.ItemIDs[0] == "folder" {
+			startedFolderDrag = true
+		}
+	}
+	if !state.DragPreview().Active || !startedFolderDrag {
+		t.Fatalf("dragging the directory title did not start a drag: preview=%+v actions=%+v", state.DragPreview(), actions)
 	}
 }
 

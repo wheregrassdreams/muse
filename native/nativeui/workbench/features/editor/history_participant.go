@@ -2,18 +2,20 @@ package editor
 
 import (
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	editor "github.com/wheregrassdreams/muse-editor/text/session"
-	tableui "muse/nativeui/editor/blocks/table"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // productionHistorySnapshot contains only feature-owned state that must move
 // with a Session-owned source transaction. It deliberately excludes source,
 // text selection, revision, and undo stacks.
 type productionHistorySnapshot struct {
-	phantom *phantom
-	breaks  []int
-	block   *blockHistoryState
-	table   tablemodel.Snapshot
+	phantom   *phantom
+	breaks    []int
+	block     *blockHistoryState
+	table     tablemodel.Snapshot
+	tableMode helix.Mode
 }
 
 func (s *productionHistorySnapshot) Clone() editor.HistorySnapshot {
@@ -39,10 +41,11 @@ func (e *Editor) CaptureHistory() editor.HistorySnapshot {
 		VirtualEdit:    tableVirtualSnapshot(e.tableVirtualEdit),
 	}
 	return &productionHistorySnapshot{
-		phantom: clonePhantom(e.phantom),
-		breaks:  e.typedBreaks.Snapshot(),
-		block:   cloneBlockHistory(e.blockHistoryState()),
-		table:   table,
+		phantom:   clonePhantom(e.phantom),
+		breaks:    e.typedBreaks.Snapshot(),
+		block:     cloneBlockHistory(e.blockHistoryState()),
+		table:     table,
+		tableMode: e.tableSelectionMode,
 	}
 }
 
@@ -57,6 +60,7 @@ func (e *Editor) RestoreHistory(snapshot editor.HistorySnapshot) {
 	e.clearTableVirtualEdit()
 	e.tableSelection, e.tableBridge, e.tableDocumentRegion = nil, nil, nil
 	e.tableVirtualEdit = tableVirtualFromSnapshot(state.table.VirtualEdit)
+	e.tableSelectionMode = state.tableMode
 	if state.table.Selection != nil {
 		e.tableSelection = tableSelectionFromSnapshot(state.table.Selection)
 	}

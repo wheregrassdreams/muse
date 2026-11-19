@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/nativeui/commands"
+	"muse/nativeui/workbench/framework/interactions/commands"
 )
 
 func TestControllersOwnIndependentPresentationState(t *testing.T) {
@@ -57,7 +57,7 @@ func TestExplorerBoundaryDoesNotCaptureAppOrOtherFeatures(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			importPath := strings.Trim(spec.Path.Value, "\"")
-			if strings.Contains(importPath, "/features/") && importPath != "muse/nativeui/explorer/filetree" {
+			if strings.Contains(importPath, "/features/") && importPath != "muse/nativeui/workbench/features/explorer/filetree" {
 				t.Errorf("%s imports another feature implementation: %s", filepath.Base(path), importPath)
 			}
 		}

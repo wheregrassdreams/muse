@@ -2,8 +2,8 @@ package quickopen
 
 import (
 	"github.com/egoist/mygo/ui"
-	componenticons "muse/nativeui/ui/icons"
-	workspaceui "muse/nativeui/workspace"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 // NativePorts are the workbench capabilities needed to present Quick Open.
@@ -22,7 +22,7 @@ func NewNativeHost(ports NativePorts) *Controller {
 		FileIcon:   componenticons.File(),
 		IconTint:   func(theme *ui.Theme) ui.Color { return theme.TextMuted },
 		Windows:    ports.Windows,
-		Placement:  workspaceui.Placement{Host: "main", Layer: workspaceui.ModalOverlay},
+		Placement:  hosting.Placement{Host: "main", Layer: hosting.ModalOverlay},
 		OnOpen:     ports.OnOpen,
 		OnClose:    ports.OnClose,
 	})

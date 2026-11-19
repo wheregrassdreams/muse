@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/wheregrassdreams/muse-editor/text/layout"
-	mygoinputadapter "muse/nativeui/editor/inputadapter"
+	mygoinputadapter "muse/nativeui/workbench/features/editor/inputadapter"
 	"strings"
 	"time"
 
@@ -11,8 +11,8 @@ import (
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
-	media "muse/nativeui/editor/blocks/media"
-	tableui "muse/nativeui/editor/blocks/table"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	tableui "muse/nativeui/workbench/features/editor/blocks/table"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.

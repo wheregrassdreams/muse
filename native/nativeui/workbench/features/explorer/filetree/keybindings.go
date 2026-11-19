@@ -2,8 +2,8 @@ package filetree
 
 import (
 	"github.com/egoist/mygo/ui"
-	commands "muse/nativeui/commands"
-	keybindings "muse/nativeui/keybindings"
+	commands "muse/nativeui/workbench/framework/interactions/commands"
+	keybindings "muse/nativeui/workbench/framework/interactions/keybindings"
 )
 
 // TreeBinding is a panel-owned keyboard intent. Args keeps action data typed;

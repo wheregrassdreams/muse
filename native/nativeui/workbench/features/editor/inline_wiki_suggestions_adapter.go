@@ -8,7 +8,7 @@ import (
 	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"github.com/wheregrassdreams/muse-editor/text/input"
-	inline "muse/nativeui/editor/blocks/inline"
+	inline "muse/nativeui/workbench/features/editor/blocks/inline"
 	"muse/search/quickopen"
 	vaultlinks "muse/vault/links"
 )

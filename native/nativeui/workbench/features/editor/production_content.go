@@ -4,10 +4,10 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
-	media "muse/nativeui/editor/blocks/media"
-	"muse/nativeui/editor/navigationrail"
-	markdownui "muse/nativeui/markdown"
-	workspaceui "muse/nativeui/workspace"
+	media "muse/nativeui/workbench/features/editor/blocks/media"
+	"muse/nativeui/workbench/features/editor/navigationrail"
+	markdownui "muse/nativeui/workbench/framework/markdown"
+	hosting "muse/nativeui/workbench/framework/hosting"
 )
 
 const diagramPainterCacheLimit = 8
@@ -81,4 +81,4 @@ func (e *Editor) Close() {
 	}
 }
 
-var _ workspaceui.Content = (*Editor)(nil)
+var _ hosting.Content = (*Editor)(nil)
