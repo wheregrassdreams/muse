@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	tableui "muse/nativeui/editor/blocks/table"
-	sessionadapter "muse/nativeui/editor/session"
 )
 
 // editorTableHost adapts the editor's private parser/history state to the
@@ -31,7 +30,11 @@ func (h editorTableHost) TextSelection() editormodel.Selection {
 func (h editorTableHost) DocumentSource() string { return h.editor.Source() }
 
 func (h editorTableHost) Apply(transaction editormodel.Transaction) error {
-	return sessionadapter.ApplyTransaction(h.editor.Session, transaction)
+	_, err := h.editor.Session.ApplyTransactionWithOptions(transaction, editormodel.TransactionOptions{
+		Group:          editormodel.HistoryGroupExplicit,
+		BeforeMetadata: h.editor.Session.CaptureHistory(),
+	})
+	return err
 }
 
 func documentViewForTable(e *Editor, t *leaf) tablemodel.DocumentView {

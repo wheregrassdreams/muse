@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	sessionadapter "muse/nativeui/editor/session"
 )
 
 func TestApplyTransactionIsAtomicAndUndoable(t *testing.T) {
@@ -18,7 +17,7 @@ func TestApplyTransactionIsAtomicAndUndoable(t *testing.T) {
 		Before: before,
 		After:  editormodel.Selection{Anchor: 4, Head: 4},
 	}
-	if err := sessionadapter.ApplyTransaction(h.e.Session, tx); err != nil {
+	if err := (editorTableHost{editor: h.e}).Apply(tx); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := h.e.Source(), "aXYcd!"; got != want {
@@ -44,7 +43,7 @@ func TestApplyTransactionRejectsStaleSelection(t *testing.T) {
 		Before: selectBefore,
 		After:  selectBefore,
 	}
-	if err := sessionadapter.ApplyTransaction(h.e.Session, tx); err == nil {
+	if err := (editorTableHost{editor: h.e}).Apply(tx); err == nil {
 		t.Fatal("stale transaction selection was accepted")
 	}
 	if got, want := h.e.Source(), "abc"; got != want {
@@ -83,7 +82,7 @@ func TestProductionApplyTransactionRejectsInvalidUTF8Atomically(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := sessionadapter.ApplyTransaction(e.Session, tt.tx); err == nil {
+			if err := (editorTableHost{editor: e}).Apply(tt.tx); err == nil {
 				t.Fatal("expected transaction to be rejected")
 			}
 			if got := e.Source(); got != before {
