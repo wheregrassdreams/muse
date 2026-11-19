@@ -392,22 +392,14 @@ func (e *Editor) dispatchVimWordIntent(key string, intent textengine.Intent, vis
 	start := e.Caret()
 	if intent.Name == "vim.move-caret" {
 		at := start
-		for iteration := range count {
-			if ending {
-				end := e.wordEndAtMode(at, big, false)
-				if iteration > 0 {
-					end = e.nextWordEndAcrossUnitsMode(at, big)
-				}
-				if end <= at {
-					end = e.nextWordEndAcrossUnitsMode(at, big)
-				}
-				if end <= at {
-					break
-				}
-				at = e.previousGraphemeBoundary(end)
-			} else {
-				at = e.stepWithWordMode(at, direction, true, big)
+		if ending {
+			for iteration := range count {
+				e.applyVimMotion(helix.Intent{Motion: helix.MotionWordEnd, BigWord: big}, iteration, visual)
 			}
+			return true
+		}
+		for range count {
+			at = e.stepWithWordMode(at, direction, true, big)
 		}
 		e.nativeSetCaret(at, visual)
 		return true
