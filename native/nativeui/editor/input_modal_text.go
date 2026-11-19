@@ -20,6 +20,11 @@ func (e *Editor) modalText(text string) bool {
 	mode := controller.Mode()
 	view := controller.View()
 	searching := view.Searching
+	if e.Keymap() == "vim" && controller.Sequence().Pending == "z" &&
+		!view.PrefixStartedAt.IsZero() && time.Since(view.PrefixStartedAt) > 900*time.Millisecond {
+		controller.ClearPending()
+		return true
+	}
 	// Insert-mode text is delivered through the editor's text-input path, not
 	// interpreted a second time as Vim command text. The key path still handles
 	// non-text keys through modalKey.
