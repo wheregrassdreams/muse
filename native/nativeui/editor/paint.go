@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 
-	"muse/nativeui/editor/feedback"
-	paragraphui "muse/nativeui/editor/blocks/paragraph"
-	render "muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
 	"muse/locales"
 	media "muse/nativeui/editor/blocks/media"
+	paragraphui "muse/nativeui/editor/blocks/paragraph"
+	"muse/nativeui/editor/feedback"
+	render "muse/nativeui/editor/render"
+	"muse/nativeui/editor/textlayout"
 	"muse/theme"
 )
 
@@ -34,16 +34,17 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	defer e.paintMu.Unlock()
 	scratch := &e.renderScratch
 	scratch.reset()
-	// An app edit may have landed after View built this element. Lay out the
-	// current source/parser pair before reading leaves retained by this draw.
-	e.layoutIfNeeded()
 	e.imageHits = e.imageHits[:0]
 	e.elemRect = r
-	if r.W != e.elemW && r.W > 0 {
-		// The width changed since the layout: lay out again next frame.
-		e.elemW = r.W
-		e.invalidate()
-	}
+	// The scroll handle can still report its provisional first-frame width
+	// while MyGo has resolved the actual draw bounds. Recompute the centered
+	// column and its layout before painting, so the first visible frame has the
+	// same padding as subsequent frames without waiting for user interaction.
+	e.setElementWidth(r.W)
+	// An app edit or the width correction above may have landed after View
+	// built this element. Pair the current source/parser and geometry before
+	// reading leaves retained by this draw.
+	e.layoutIfNeeded()
 	t := p.Theme()
 	vis := p.Visible()
 	top, bottom := vis.Y-r.Y-40, vis.Y-r.Y+vis.H+40

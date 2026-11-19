@@ -10,8 +10,6 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
-	"muse/nativeui/editor/feedback"
-	render "muse/nativeui/editor/render"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"github.com/wheregrassdreams/muse-editor/text/input"
 	"github.com/wheregrassdreams/muse-editor/text/layout"
@@ -19,6 +17,8 @@ import (
 	"muse/markdown/images"
 	"muse/nativeui/dragdrop"
 	media "muse/nativeui/editor/blocks/media"
+	"muse/nativeui/editor/feedback"
+	render "muse/nativeui/editor/render"
 )
 
 // dropVaultItem inserts an Obsidian-style wiki link for a vault item dragged
@@ -206,6 +206,33 @@ func (e *Editor) layoutIfNeeded() {
 		e.colW = 720
 	}
 	e.layoutDoc(e.colX, e.colW, virtual)
+}
+
+// setElementWidth derives the centered text column from the width MyGo has
+// assigned to the editor. The scroll handle can report zero during the first
+// View pass, while the draw callback already receives the resolved bounds;
+// keeping this calculation in one place lets that first draw correct the
+// provisional layout before painting it.
+func (e *Editor) setElementWidth(width float32) {
+	if width <= 0 {
+		return
+	}
+	maxW := e.opts.MaxWidth
+	if maxW <= 0 {
+		maxW = 820
+	}
+	padX := e.opts.PadX
+	if padX <= 0 {
+		padX = 40
+	}
+	colW := max(min(maxW, width-2*padX), 120)
+	colX := max((width-colW)/2, 0)
+	if e.elemW != width || e.colW != colW || e.colX != colX {
+		e.elemW = width
+		e.colW = colW
+		e.colX = colX
+		e.leavesLaid = false
+	}
 }
 
 // visibleLeafNeedsShape reports when virtual-band reuse would leave a visible
@@ -445,19 +472,8 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	b := e.scrollHandle.Bounds(c)
 	e.viewport = media.Viewport{X: b.X, Y: b.Y, W: b.W, H: b.H}
 	if b.W > 0 {
-		e.elemW, e.viewH = b.W, b.H
-	}
-	maxW := e.opts.MaxWidth
-	if maxW <= 0 {
-		maxW = 820
-	}
-	padX := e.opts.PadX
-	if padX <= 0 {
-		padX = 40
-	}
-	if e.elemW > 0 {
-		e.colW = max(min(maxW, e.elemW-2*padX), 120)
-		e.colX = max((e.elemW-e.colW)/2, 0)
+		e.setElementWidth(b.W)
+		e.viewH = b.H
 	}
 	padTop := e.lk.size*2.2 + max(e.opts.TopInset, 0) + max(e.opts.HeaderHeight, 0)
 	if e.padTop != padTop {
