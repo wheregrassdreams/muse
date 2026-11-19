@@ -93,6 +93,7 @@ func (e *Editor) modalText(text string) bool {
 			return true
 		}
 		motionCount := controller.Sequence().Count
+		operatorCount := controller.Sequence().OperatorCount
 		intent, handled := e.Session.HandleVimKey(textengine.KeyEvent{Text: text})
 		if !handled {
 			return false
@@ -101,9 +102,11 @@ func (e *Editor) modalText(text string) bool {
 		// selection owns its own focus. Preserve the count before the keymap
 		// consumes it so structural motion never has to infer a count from a
 		// source range that may be unrelated to the active table cell.
-		if intent.Name == "vim.move-horizontal" || intent.Name == "vim.move-vertical" ||
-			intent.Name == "vim.move-caret" && (text == "n" || text == "N") {
+		if intent.Name == "vim.move-horizontal" || intent.Name == "vim.move-vertical" || intent.Name == "vim.move-caret" {
 			intent.Count = max(1, motionCount)
+		}
+		if intent.Name == "vim.delete-range" || intent.Name == "vim.change-range" {
+			intent.Count = max(intent.Count, max(motionCount, operatorCount))
 		}
 		e.smoothCursorNavigation = e.opts.SmoothCursor && mode == helix.ModeNormal && !searching &&
 			(strings.HasPrefix(intent.Name, "vim.move-") || intent.Name == textvim.IntentMoveDisplayUp || intent.Name == textvim.IntentMoveDisplayDown)
@@ -240,6 +243,9 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	keymap := e.vimController()
 	visual := keymap.Mode() == helix.ModeVisual || keymap.Mode() == helix.ModeSelect || keymap.Mode() == helix.ModeBlockVisual
+	if e.dispatchVimWordIntent(key, intent, visual) {
+		return
+	}
 	if e.Keymap() == "vim" && key == "y" && intent.Name == "vim.collapse-selection" {
 		if start, end, ok := e.vimYankFlashRange(keymap.View().Register, keymap.View().RegisterLine); ok {
 			e.startVimYankFlash([]Range{{Start: start, End: end}})
@@ -363,6 +369,81 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	}
 	// Unsupported host effects are consumed by the active map, while keeping
 	// MyGo's non-text state untouched.
+}
+
+func (e *Editor) dispatchVimWordIntent(key string, intent textengine.Intent, visual bool) bool {
+	if e.Keymap() != "vim" {
+		return false
+	}
+	big := key == "W" || key == "B" || key == "E"
+	direction := 0
+	ending := false
+	switch key {
+	case "w", "W":
+		direction = 1
+	case "b", "B":
+		direction = -1
+	case "e", "E":
+		direction, ending = 1, true
+	default:
+		return false
+	}
+	count := max(1, intent.Count)
+	start := e.Caret()
+	if intent.Name == "vim.move-caret" {
+		at := start
+		for iteration := range count {
+			if ending {
+				end := e.wordEndAtMode(at, big, false)
+				if iteration > 0 {
+					end = e.nextWordEndAcrossUnitsMode(at, big)
+				}
+				if end <= at {
+					end = e.nextWordEndAcrossUnitsMode(at, big)
+				}
+				if end <= at {
+					break
+				}
+				at = e.previousGraphemeBoundary(end)
+			} else {
+				at = e.stepWithWordMode(at, direction, true, big)
+			}
+		}
+		e.nativeSetCaret(at, visual)
+		return true
+	}
+	operator := ""
+	switch intent.Name {
+	case "vim.delete-range":
+		operator = "d"
+	case "vim.change-range":
+		operator = "c"
+	default:
+		return false
+	}
+	// Operator motions share the editor's Unicode-aware word index with
+	// selection/navigation, instead of using the engine's context-free token
+	// boundaries. The keymap still owns command parsing and register state.
+	to := start
+	for range count {
+		if ending {
+			end := e.wordEndAtMode(to, big, false)
+			if end <= to {
+				end = e.nextWordEndAcrossUnitsMode(to, big)
+			}
+			if end <= to {
+				break
+			}
+			to = end
+		} else {
+			to = e.stepWithWordMode(to, direction, true, big)
+		}
+	}
+	if to <= start {
+		return false
+	}
+	e.modalApply(operator, start, to)
+	return true
 }
 
 func (e *Editor) vimYankFlashRange(register string, linewise bool) (int, int, bool) {
