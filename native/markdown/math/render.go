@@ -11,6 +11,7 @@ import (
 	texparser "github.com/luo-studio/go-tex/tex/parser"
 	"github.com/tdewolff/canvas"
 	"github.com/tdewolff/canvas/renderers/rasterizer"
+	editormath "github.com/wheregrassdreams/muse-editor/markdown/math"
 
 	"muse/markdown/math/texcanvas"
 )
@@ -57,7 +58,7 @@ type Raster struct {
 func Typeset(expr string, size float64, display bool) (*Raster, bool) {
 	nodes, ok := parseTeX(expr)
 	if !ok {
-		if normalized := NormalizeTeX(expr); normalized != expr {
+		if normalized := editormath.NormalizeTeX(expr); normalized != expr {
 			nodes, ok = parseTeX(normalized)
 		}
 	}

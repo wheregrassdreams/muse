@@ -26,8 +26,10 @@ func CoalesceDelay(estimatedCost time.Duration, queryInFlight bool) time.Duratio
 // whether a search has already been submitted. Literal mode is included
 // because the same text can have different search semantics.
 type QueryRequest struct {
-	Text    string
-	Literal bool
+	Text           string
+	Literal        bool
+	ActivePath     string
+	ActiveRevision string
 }
 
 // QueryScheduler coalesces interactive search requests and remembers the

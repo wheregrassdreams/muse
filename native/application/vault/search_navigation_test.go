@@ -1,70 +1,21 @@
 package vault
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
-
-	"muse/document"
-	"muse/search"
 )
 
-func TestIsCurrentSearchResult(t *testing.T) {
-	result := Result{Kind: QueryCompleted, Token: 7, Query: "tag:work", Literal: false}
-
-	tests := []struct {
-		name   string
-		search SearchSnapshot
-		closed bool
-		kind   ResultKind
-		want   bool
-	}{
-		{name: "current", search: SearchSnapshot{Token: 7, Query: "tag:work"}, kind: QueryCompleted, want: true},
-		{name: "old token", search: SearchSnapshot{Token: 8, Query: "tag:work"}, kind: QueryCompleted},
-		{name: "old query", search: SearchSnapshot{Token: 7, Query: "tag:task"}, kind: QueryCompleted},
-		{name: "old mode", search: SearchSnapshot{Token: 7, Query: "tag:work", Literal: true}, kind: QueryCompleted},
-		{name: "not completion", search: SearchSnapshot{Token: 7, Query: "tag:work"}, kind: QueryStarted},
-		{name: "closed", search: SearchSnapshot{Token: 7, Query: "tag:work"}, kind: QueryCompleted, closed: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			session := &Session{snapshot: Snapshot{Search: test.search}, closed: test.closed}
-			candidate := result
-			candidate.Kind = test.kind
-			if got := session.IsCurrentSearchResult(candidate); got != test.want {
-				t.Fatalf("IsCurrentSearchResult() = %t, want %t", got, test.want)
-			}
-		})
-	}
-}
-
-func TestValidateSearchNavigationShortCircuitsMatchingActiveRevision(t *testing.T) {
+func TestResolveSearchHitPathKeepsPathsInsideVault(t *testing.T) {
 	root := t.TempDir()
 	session := &Session{root: root}
-	path := filepath.Join(root, "note.md")
-	status, err := session.ValidateSearchNavigation(nil, search.Hit{Path: "note.md", Revision: "revision"}, path, document.Revision("revision"))
-	if err != nil || status != SearchHitCurrent {
-		t.Fatalf("ValidateSearchNavigation() = %v, %v; want current without repository I/O", status, err)
+	got, err := session.ResolveSearchHitPath("notes/a.md")
+	if err != nil || got != filepath.Join(root, "notes", "a.md") {
+		t.Fatalf("ResolveSearchHitPath() = %q, %v", got, err)
 	}
-}
-
-func TestValidateSearchNavigationRejectsPathsOutsideVault(t *testing.T) {
-	session := &Session{root: t.TempDir()}
-	status, err := session.ValidateSearchNavigation(nil, search.Hit{Path: "../outside.md"}, "", "")
-	if err != ErrInvalidSearchHitPath || status != 0 {
-		t.Fatalf("ValidateSearchNavigation() = %v, %v; want invalid hit path", status, err)
-	}
-}
-
-func TestSearchSnapshotSearchHitAtPath(t *testing.T) {
-	snapshot := SearchSnapshot{Hits: []search.Hit{
-		{Path: "notes/a.md", Start: 1}, {Path: "notes/a.md", Start: 7}, {Path: "notes/b.md"},
-	}}
-	hit, ok := snapshot.SearchHitAtPath("notes/a.md")
-	if !ok || hit.Start != 1 {
-		t.Fatalf("SearchHitAtPath() = %+v, %v; want first hit for the path", hit, ok)
-	}
-	if _, ok := snapshot.SearchHitAtPath("notes/missing.md"); ok {
-		t.Fatal("SearchHitAtPath() found a missing path")
+	for _, path := range []string{"../outside.md", filepath.Join(root, "absolute.md"), "."} {
+		if _, err := session.ResolveSearchHitPath(path); !errors.Is(err, ErrInvalidSearchHitPath) {
+			t.Fatalf("ResolveSearchHitPath(%q) error = %v, want invalid hit path", path, err)
+		}
 	}
 }

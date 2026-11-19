@@ -12,7 +12,7 @@ import (
 
 	"muse/app"
 	"muse/nativeui"
-	"muse/platform/process/vaultsearchindexer"
+	"muse/platform/vaultsearchindexer"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer runtime.Close()
-	nativeui.Run(nativeui.Dependencies{
+	if err := nativeui.Run(nativeui.Dependencies{
 		Configuration:             runtime.Configuration,
 		AssistantSettingsLocation: runtime.AssistantSettingsLocation,
 		AssistantProvider:         runtime.AssistantProvider,
@@ -53,5 +53,7 @@ func main() {
 		ImageLocalFiles:           runtime.ImageLocalFiles,
 		TemporaryImages:           runtime.TemporaryImages,
 		NewWatcher:                runtime.NewWatcher,
-	})
+	}); err != nil {
+		log.Fatal(err)
+	}
 }

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	applicationvault "muse/application/vault"
+	vaultfilesapp "muse/application/vault/files"
 )
 
 type FileSystem struct {
@@ -127,4 +127,4 @@ func copyFile(source, destination string, mode fs.FileMode) error {
 	return nil
 }
 
-var _ applicationvault.FileSystem = (*FileSystem)(nil)
+var _ vaultfilesapp.FileSystem = (*FileSystem)(nil)

@@ -1,4 +1,4 @@
-package vault
+package files
 
 import (
 	"errors"
@@ -127,10 +127,7 @@ func (o *FileOperations) EnsureDirectory(root, path string) error {
 	if err != nil {
 		return err
 	}
-	if !withinRoot(root, path) {
-		return fmt.Errorf("directory is outside the vault: %s", path)
-	}
-	if err := o.ensureNoSymlinkPath(root, path); err != nil {
+	if err := o.validateVaultPath(root, path, "directory", true); err != nil {
 		return err
 	}
 	if info, err := o.fs.Lstat(path); err == nil {
@@ -167,10 +164,7 @@ func (o *FileOperations) validateCreateLocation(root, directory, base string) er
 	if strings.TrimSpace(base) == "" || base == "." || base == ".." || strings.ContainsAny(base, "/\\\x00") || filepath.Base(base) != base {
 		return errors.New("creation name must be a single file or folder name")
 	}
-	if !withinRoot(root, directory) {
-		return fmt.Errorf("creation destination is outside the vault: %s", directory)
-	}
-	if err := o.ensureNoSymlinkPath(root, directory); err != nil {
+	if err := o.validateVaultPath(root, directory, "creation destination", true); err != nil {
 		return err
 	}
 	return nil
@@ -222,10 +216,7 @@ func (o *FileOperations) Move(root string, paths []string, destination string) (
 	if err != nil {
 		return nil, err
 	}
-	if !withinRoot(root, destination) {
-		return nil, fmt.Errorf("move destination is outside the vault: %s", destination)
-	}
-	if err := o.ensureNoSymlinkPath(root, destination); err != nil {
+	if err := o.validateVaultPath(root, destination, "move destination", true); err != nil {
 		return nil, err
 	}
 	destinationInfo, err := o.fs.Lstat(destination)
@@ -244,10 +235,7 @@ func (o *FileOperations) Move(root string, paths []string, destination string) (
 		if err != nil {
 			return moves, err
 		}
-		if !withinRoot(root, source) {
-			return moves, fmt.Errorf("source is outside the vault: %s", source)
-		}
-		if err := o.ensureNoSymlinkParents(root, source); err != nil {
+		if err := o.validateVaultPath(root, source, "source", false); err != nil {
 			return moves, err
 		}
 		info, err := o.fs.Lstat(source)
@@ -293,10 +281,7 @@ func (o *FileOperations) copy(root string, paths []string, destination string, i
 	if err != nil {
 		return nil, err
 	}
-	if !withinRoot(root, destination) {
-		return nil, fmt.Errorf("copy destination is outside the vault: %s", destination)
-	}
-	if err := o.ensureNoSymlinkPath(root, destination); err != nil {
+	if err := o.validateVaultPath(root, destination, "copy destination", true); err != nil {
 		return nil, err
 	}
 	destinationInfo, err := o.fs.Lstat(destination)
@@ -318,11 +303,8 @@ func (o *FileOperations) copy(root string, paths []string, destination string, i
 			}
 			return copies, err
 		}
-		if !ignoreInvalid && !withinRoot(root, source) {
-			return copies, fmt.Errorf("source is outside the vault: %s", source)
-		}
 		if !ignoreInvalid {
-			if err := o.ensureNoSymlinkParents(root, source); err != nil {
+			if err := o.validateVaultPath(root, source, "source", false); err != nil {
 				return copies, err
 			}
 		}
@@ -365,10 +347,7 @@ func (o *FileOperations) Rename(root, source, name string) (FileMove, error) {
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
 		return FileMove{}, errors.New("rename requires a single file or folder name")
 	}
-	if !withinRoot(root, source) {
-		return FileMove{}, fmt.Errorf("source is outside the vault: %s", source)
-	}
-	if err := o.ensureNoSymlinkParents(root, source); err != nil {
+	if err := o.validateVaultPath(root, source, "source", false); err != nil {
 		return FileMove{}, err
 	}
 	info, err := o.fs.Lstat(source)
@@ -461,10 +440,7 @@ func (o *FileOperations) Trash(root string, paths []string) ([]string, error) {
 		if err != nil {
 			return trashed, err
 		}
-		if !withinRoot(root, path) {
-			return trashed, fmt.Errorf("source is outside the vault: %s", path)
-		}
-		if err := o.ensureNoSymlinkParents(root, path); err != nil {
+		if err := o.validateVaultPath(root, path, "source", false); err != nil {
 			return trashed, err
 		}
 		if _, err := o.fs.Lstat(path); err != nil {
@@ -531,6 +507,16 @@ func (o *FileOperations) ensureNoSymlinkPath(root, path string) error {
 		}
 	}
 	return nil
+}
+
+func (o *FileOperations) validateVaultPath(root, path, role string, includeLeaf bool) error {
+	if !withinRoot(root, path) {
+		return fmt.Errorf("%s is outside the vault: %s", role, path)
+	}
+	if includeLeaf {
+		return o.ensureNoSymlinkPath(root, path)
+	}
+	return o.ensureNoSymlinkParents(root, path)
 }
 
 func (o *FileOperations) ensureNoSymlinkParents(root, path string) error {

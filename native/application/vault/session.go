@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	applicationsearch "muse/application/search"
 	"muse/search"
 	vaultfiles "muse/vault/files"
 	vaultindex "muse/vault/index"
@@ -77,13 +76,11 @@ type Session struct {
 	closed                       bool
 	queryCancel                  context.CancelFunc
 	queryMu                      sync.Mutex
-	searchSchedule               applicationsearch.QueryScheduler
-
-	queryJobs   chan queryRequest
-	refreshJobs chan struct{}
-	refreshMu   sync.Mutex
-	pending     map[string]vaultwatch.Event
-	rescan      bool
+	queryJobs                    chan queryRequest
+	refreshJobs                  chan struct{}
+	refreshMu                    sync.Mutex
+	pending                      map[string]vaultwatch.Event
+	rescan                       bool
 
 	searchGate chan struct{}
 	workers    sync.WaitGroup
@@ -95,45 +92,6 @@ type Session struct {
 	closeOnce sync.Once
 	closeDone chan struct{}
 	closeErr  error
-}
-
-// ScheduleSearch coalesces a query using this vault's measured search cost.
-// It submits the latest request as soon as its adaptive deadline is due and
-// returns the remaining wait for a presentation loop to schedule a redraw.
-func (s *Session) ScheduleSearch(query string, literal bool, activePath, activeSource string, now time.Time) (time.Duration, error) {
-	if s == nil {
-		return 0, ErrSessionClosed
-	}
-	if strings.TrimSpace(query) == "" {
-		s.searchSchedule.Reset()
-		return 0, nil
-	}
-	snapshot := s.Snapshot()
-	request := applicationsearch.QueryRequest{Text: query, Literal: literal}
-	remaining := s.searchSchedule.Schedule(request, snapshot.Search.Cost, snapshot.Search.Busy, now)
-	if remaining > 0 {
-		return remaining, nil
-	}
-	request, ok := s.searchSchedule.Take(now)
-	if !ok {
-		return 0, nil
-	}
-	_, err := s.Query(request.Text, request.Literal, activePath, activeSource)
-	return 0, err
-}
-
-// ForceSearch schedules the current query again even when it matches the last
-// submitted request, for example after the indexed files have changed.
-func (s *Session) ForceSearch(now time.Time, wait time.Duration) {
-	if s != nil {
-		s.searchSchedule.Force(now, wait)
-	}
-}
-
-func (s *Session) ResetSearchSchedule() {
-	if s != nil {
-		s.searchSchedule.Reset()
-	}
 }
 
 // NewSession creates a session immediately and performs vault startup in the
@@ -749,6 +707,26 @@ func (s *Session) BacklinkSources(path string) []vaultlinks.BacklinkSource {
 		return nil
 	}
 	return append([]vaultlinks.BacklinkSource(nil), graph.BacklinkSources(path)...)
+}
+
+// BacklinkSourcesForDocument resolves an absolute document path into the
+// session's vault-relative link index and returns detached source groups.
+// Paths outside the session root produce no backlinks.
+func (s *Session) BacklinkSourcesForDocument(path string) []vaultlinks.BacklinkSource {
+	if s == nil || path == "" {
+		return nil
+	}
+	s.mu.RLock()
+	root := s.root
+	s.mu.RUnlock()
+	if root == "" {
+		return nil
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	return s.BacklinkSources(filepath.ToSlash(relative))
 }
 
 // Close cancels query and watcher work, joins all workers, closes the watcher

@@ -1,4 +1,4 @@
-package vault
+package files
 
 import (
 	"path/filepath"
@@ -7,12 +7,19 @@ import (
 	vaultfiles "muse/vault/files"
 )
 
+// CatalogSession is the read capability needed to project catalog entries
+// for the active vault. The concrete lifecycle remains owned by application/vault.
+type CatalogSession interface {
+	Children(directory string) []vaultfiles.Entry
+	Entry(path string) (vaultfiles.Entry, bool)
+}
+
 // DirectoryCatalog memoizes directory projections for one active vault
 // session. The catalog itself remains the source of truth; callers invalidate
 // after FilesRefreshed or any successful local mutation.
 type DirectoryCatalog struct {
 	mu         sync.RWMutex
-	session    *Session
+	session    CatalogSession
 	entries    map[string][]vaultfiles.Entry
 	generation uint64
 }
@@ -21,7 +28,7 @@ func NewDirectoryCatalog() *DirectoryCatalog {
 	return &DirectoryCatalog{entries: make(map[string][]vaultfiles.Entry)}
 }
 
-func (c *DirectoryCatalog) Children(session *Session, directory string) []vaultfiles.Entry {
+func (c *DirectoryCatalog) Children(session CatalogSession, directory string) []vaultfiles.Entry {
 	if c == nil || session == nil {
 		return nil
 	}
@@ -62,7 +69,7 @@ func (c *DirectoryCatalog) Invalidate() {
 	c.mu.Unlock()
 }
 
-func (c *DirectoryCatalog) CloseSession(session *Session) {
+func (c *DirectoryCatalog) CloseSession(session CatalogSession) {
 	if c == nil {
 		return
 	}

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"muse/markdown/render"
+	"github.com/wheregrassdreams/muse-editor/markdown/render"
 )
 
 type ExportFormat uint8

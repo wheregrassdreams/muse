@@ -1,6 +1,10 @@
 package document
 
-import "strings"
+import (
+	"strings"
+
+	"muse/document/frontmatter"
+)
 
 // TextStatistics is a backend-neutral projection of text facts used by the
 // status bar and document inspector.
@@ -32,6 +36,30 @@ type InspectorSnapshot struct {
 	BodyWords   int
 	Metadata    FileMetadata
 	HasMetadata bool
+}
+
+// DocumentInspectorSnapshot combines the parsed frontmatter projection and
+// detached file facts needed by the properties feature. It is a read-only
+// application snapshot; callers supply the source and metadata port.
+type DocumentInspectorSnapshot struct {
+	Frontmatter frontmatter.Document
+	Facts       InspectorSnapshot
+	YAMLSource  string
+}
+
+// InspectDocumentProperties centralizes source parsing and metadata reads for
+// document inspection so UI composition code only maps a detached snapshot.
+func InspectDocumentProperties(source, path string, reader MetadataReader) DocumentInspectorSnapshot {
+	parsed := frontmatter.Parse(source)
+	body := source
+	if parsed.Err == nil && parsed.End > 0 && parsed.End <= len(body) {
+		body = body[parsed.End:]
+	}
+	return DocumentInspectorSnapshot{
+		Frontmatter: parsed,
+		Facts:       Inspect(source, body, path, reader),
+		YAMLSource:  frontmatter.YAMLSource(source),
+	}
 }
 
 func Inspect(source, bodySource, path string, reader MetadataReader) InspectorSnapshot {

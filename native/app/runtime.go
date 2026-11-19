@@ -1,6 +1,6 @@
 // Package app assembles application use cases and platform adapters. Desktop
 // entry points may inject the returned ports into a presentation, while other
-// entry points can use the same application runtime without creating a window.
+// entry points can use the same application runtime without creating a workspaceui.
 package app
 
 import (
@@ -12,6 +12,8 @@ import (
 	applicationconfig "muse/application/config"
 	documentapp "muse/application/document"
 	applicationvault "muse/application/vault"
+	vaultfilesapp "muse/application/vault/files"
+	vaulticons "muse/application/vault/iconpreferences"
 	workspaceapp "muse/application/workspace"
 	"muse/document"
 	"muse/events"
@@ -35,7 +37,7 @@ import (
 	"muse/platform/filesystem/vaultsearchstore"
 	filesystemwatcher "muse/platform/filesystem/watcher"
 	"muse/platform/filesystem/workspacestore"
-	"muse/platform/process/vaultsearchindexer"
+	"muse/platform/vaultsearchindexer"
 	vaultfilecatalog "muse/vault/files"
 	vaultindex "muse/vault/index"
 	vaultwatch "muse/vault/watch"
@@ -62,9 +64,9 @@ type Runtime struct {
 	NewAgentWorkspace         func(root string, current agent.CurrentDocument) (agent.WorkspacePort, error)
 	NewVaultIndex             applicationvault.IndexFactory
 	NewVaultCatalog           applicationvault.CatalogFactory
-	FileOperations            *applicationvault.FileOperations
+	FileOperations            *vaultfilesapp.FileOperations
 	RecentItems               *workspaceapp.RecentItems
-	NavIcons                  applicationvault.NavigationIconRepository
+	NavIcons                  vaulticons.NavigationIconRepository
 	ImageCacheStore           images.CacheStore
 	ImageLocalFiles           images.LocalFiles
 	TemporaryImages           documentapp.TemporaryImageStore
@@ -131,7 +133,7 @@ func NewRuntime(trashItem func(string) error) (*Runtime, error) {
 			}
 			return vaultfilecatalog.New(source), nil
 		},
-		FileOperations:  applicationvault.NewFileOperations(vaultfiles.New(trashItem)),
+		FileOperations:  vaultfilesapp.NewFileOperations(vaultfiles.New(trashItem)),
 		RecentItems:     workspaceapp.NewRecentItems(recentstore.New(recentstore.DefaultPath())),
 		NavIcons:        navIcons,
 		ImageCacheStore: images,

@@ -19,21 +19,31 @@ func NewRestorer(store workspace.Repository, dispatcher *events.Dispatcher[works
 	return &Restorer{store: store, dispatcher: dispatcher}
 }
 
-func (r *Restorer) Restore() (workspace.State, error) {
+func (r *Restorer) Restore() (RestorePlan, error) {
 	if r == nil || r.store == nil {
-		return workspace.State{}, ErrUnavailable
+		return RestorePlan{}, ErrUnavailable
 	}
 	state, err := r.store.Load()
 	if err != nil {
-		return workspace.State{}, err
+		return RestorePlan{}, err
 	}
-	r.dispatcher.Publish(workspace.WorkspaceRestored{State: state})
-	return state, nil
+	plan, err := makeRestorePlan(state)
+	if err != nil {
+		return RestorePlan{}, err
+	}
+	if r.dispatcher != nil {
+		r.dispatcher.Publish(workspace.WorkspaceRestored{State: plan.State})
+	}
+	return plan, nil
 }
 
 func (r *Restorer) Persist(state workspace.State) error {
 	if r == nil || r.store == nil {
 		return ErrUnavailable
+	}
+	state, err := stateForPersistence(state)
+	if err != nil {
+		return err
 	}
 	return r.store.Save(state)
 }

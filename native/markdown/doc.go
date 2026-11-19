@@ -4,8 +4,8 @@
 package markdown
 
 import (
-	texmath "muse/markdown/math"
-	"muse/markdown/render"
+	editormath "github.com/wheregrassdreams/muse-editor/markdown/math"
+	"github.com/wheregrassdreams/muse-editor/markdown/render"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 
@@ -52,7 +52,7 @@ func ParsePlainText(src string) *Doc { return fromSyntax(syntax.ParsePlainText(s
 func CJKFriendly(src string) string  { return syntax.CJKFriendly(src) }
 
 // TeXToUnicode returns a readable Unicode fallback for common TeX constructs.
-func TeXToUnicode(expr string) string { return texmath.TeXToUnicode(expr) }
+func TeXToUnicode(expr string) string { return editormath.TeXToUnicode(expr) }
 
 // Clone creates an independent model tree while sharing immutable strings.
 func Clone(doc *Doc) *Doc {

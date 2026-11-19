@@ -1,5 +1,5 @@
 // Command mdshot renders a Markdown or text file with the native renderer
-// and writes a PNG, without opening a window.
+// and writes a PNG, without opening a workspaceui.
 //
 // It is how the document renderer is checked visually while developing:
 //
@@ -15,7 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/markdown"
-	markdownui "muse/nativeui/workbench/features/markdown"
+	markdownui "muse/nativeui/markdown"
 	"muse/platform/filesystem/imagefiles"
 )
 

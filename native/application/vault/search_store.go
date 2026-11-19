@@ -22,11 +22,3 @@ type SearchReconciler interface {
 	OpenAndReconcile(ctx context.Context, root string, corpus search.Corpus) (*search.Index, error)
 	Reconcile(ctx context.Context, root string, current *search.Index, corpus search.Corpus) (*search.Index, error)
 }
-
-// NavigationIconRepository stores per-vault presentation choices. Vault
-// identity and item path semantics are supplied by the caller; the concrete
-// adapter owns cache layout and persistence.
-type NavigationIconRepository interface {
-	LoadVault(vaultRoot string) (map[string]string, error)
-	SaveVault(vaultRoot string, icons map[string]string) error
-}

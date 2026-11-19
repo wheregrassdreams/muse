@@ -1,4 +1,4 @@
-package vault
+package files
 
 import (
 	"errors"

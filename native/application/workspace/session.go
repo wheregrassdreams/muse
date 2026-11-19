@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -35,6 +36,14 @@ func NewSession(repository domain.Repository, initial domain.State) (*Session, e
 	if err := initial.Validate(); err != nil {
 		return nil, err
 	}
+	root, err := cleanAbsolutePath(initial.VaultPath)
+	if err != nil {
+		return nil, err
+	}
+	initial.VaultPath = root
+	if err := validateOwnedDocuments(initial); err != nil {
+		return nil, err
+	}
 	s := &Session{repository: repository, state: cloneState(initial), recentFocus: make(map[domain.TabID][]domain.PaneID)}
 	for _, tab := range initial.Tabs {
 		if tab.ActivePaneID != "" {
@@ -56,50 +65,153 @@ func (s *Session) Snapshot() domain.State {
 	return cloneState(s.state)
 }
 
-// SetVaultPath updates the active workspace identity without replacing its
-// tabs, pane layout, or transient focus history.
-func (s *Session) SetVaultPath(path string) error {
+// SwitchVault replaces the portable workspace state when its vault identity
+// changes or its current document lies outside the target vault. The plan
+// identifies why surfaces must reset and which default tab the host should use.
+func (s *Session) SwitchVault(path, activeDocumentPath string) (VaultSwitchPlan, error) {
 	if s == nil {
-		return ErrSessionClosed
+		return VaultSwitchPlan{}, ErrSessionClosed
+	}
+	target, err := cleanAbsolutePath(path)
+	if err != nil {
+		return VaultSwitchPlan{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return ErrSessionClosed
+		return VaultSwitchPlan{}, ErrSessionClosed
 	}
-	s.state.VaultPath = path
-	return nil
-}
-
-// Restore atomically replaces the session model after validating the full
-// tree, and seeds transient recent-focus order from each tab's active pane.
-func (s *Session) Restore(state domain.State) error {
-	if s == nil {
-		return ErrSessionClosed
+	previous, err := cleanAbsolutePath(s.state.VaultPath)
+	if err != nil {
+		return VaultSwitchPlan{}, err
 	}
-	if state.Version == 0 {
-		state.Version = 1
+	activePath, err := cleanAbsolutePath(activeDocumentPath)
+	if err != nil {
+		return VaultSwitchPlan{}, err
 	}
-	if err := state.Validate(); err != nil {
-		return err
+	vaultChanged := previous != target
+	documentOutside := activePath != "" && !isOwnedDocumentPath(target, activePath)
+	cause := VaultResetNone
+	if vaultChanged && documentOutside {
+		cause = VaultResetRootAndDocumentOutsideTarget
+	} else if vaultChanged {
+		cause = VaultResetRootChanged
+	} else if documentOutside {
+		cause = VaultResetDocumentOutsideTarget
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return ErrSessionClosed
+	reset := cause != VaultResetNone
+	if !reset {
+		plan, err := makeRestorePlan(s.state)
+		if err != nil {
+			return VaultSwitchPlan{}, err
+		}
+		s.state = plan.State
+		return VaultSwitchPlan{
+			PreviousVaultPath: previous, VaultPath: target, ActiveDocumentPath: activePath,
+			State: plan.State, DefaultTab: plan.DefaultTab,
+		}, nil
 	}
-	s.state = cloneState(state)
+	state := domain.State{Version: 1, VaultPath: target}
+	s.state = state
 	s.recentFocus = make(map[domain.TabID][]domain.PaneID)
 	s.recentTabs = nil
-	for _, tab := range state.Tabs {
+	return VaultSwitchPlan{
+		PreviousVaultPath: previous, VaultPath: target, ActiveDocumentPath: activePath,
+		VaultChanged: vaultChanged, ResetWorkspace: true, Cause: cause,
+		State: state, DefaultTab: DefaultTabPlan{Decision: CreateBlankTab, TabID: DefaultTabID, PaneID: DefaultPaneID},
+	}, nil
+}
+
+// RecordActiveDocument atomically updates the active pane's document/cursor
+// and focus. If the workspace is empty, the application creates its canonical
+// default tab and pane instead of asking the presentation layer to invent IDs.
+func (s *Session) RecordActiveDocument(snapshot ActiveDocumentSnapshot) (ActiveDocumentPlan, error) {
+	if s == nil {
+		return ActiveDocumentPlan{}, ErrSessionClosed
+	}
+	if !filepath.IsAbs(snapshot.Path) || strings.TrimSpace(snapshot.Path) == "" || snapshot.CursorOffset < 0 {
+		return ActiveDocumentPlan{}, fmt.Errorf("application/workspace: active document path and cursor are invalid")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ActiveDocumentPlan{}, ErrSessionClosed
+	}
+	path := filepath.Clean(snapshot.Path)
+	if err := validateOwnedDocument(s.state.VaultPath, path); err != nil {
+		return ActiveDocumentPlan{}, err
+	}
+	candidate := cloneState(s.state)
+	createdDefault := len(candidate.Tabs) == 0
+	var tab *domain.Tab
+	if createdDefault {
+		doc := domain.Document{Path: path, CursorOffset: snapshot.CursorOffset}
+		candidate.Tabs = []domain.Tab{{
+			ID: DefaultTabID, ActivePaneID: DefaultPaneID,
+			Layout: domain.Leaf(domain.Pane{ID: DefaultPaneID, Document: doc}),
+		}}
+		candidate.ActiveTab = DefaultTabID
+		tab = &candidate.Tabs[0]
+	} else {
+		i := tabIndex(candidate.Tabs, candidate.ActiveTab)
+		if i < 0 {
+			return ActiveDocumentPlan{}, fmt.Errorf("%w: active tab %q", ErrUnknownTab, candidate.ActiveTab)
+		}
+		tab = &candidate.Tabs[i]
+		pane := tab.ActivePaneID
+		if snapshot.PaneID != "" {
+			if !containsPane(tab.Layout, snapshot.PaneID) {
+				return ActiveDocumentPlan{}, ErrUnknownPane
+			}
+			pane = snapshot.PaneID
+		}
+		if !containsPane(tab.Layout, pane) {
+			pane, _ = firstPane(tab.Layout)
+		}
+		if !updatePane(&tab.Layout, pane, func(p *domain.Pane) {
+			p.Document = domain.Document{Path: path, CursorOffset: snapshot.CursorOffset}
+		}) {
+			return ActiveDocumentPlan{}, ErrUnknownPane
+		}
+		tab.ActivePaneID = pane
+		candidate.ActiveTab = tab.ID
+	}
+	if err := candidate.Validate(); err != nil {
+		return ActiveDocumentPlan{}, err
+	}
+	s.state = candidate
+	s.rememberFocusLocked(tab.ID, tab.ActivePaneID)
+	s.rememberTabLocked(tab.ID)
+	return ActiveDocumentPlan{State: cloneState(candidate), TabID: tab.ID, PaneID: tab.ActivePaneID, CreatedDefaultTab: createdDefault}, nil
+}
+
+// Restore atomically applies a validated, vault-confined state and returns
+// the exact document/focus plan for the presentation host.
+func (s *Session) Restore(state domain.State) (RestorePlan, error) {
+	if s == nil {
+		return RestorePlan{}, ErrSessionClosed
+	}
+	plan, err := makeRestorePlan(state)
+	if err != nil {
+		return RestorePlan{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return RestorePlan{}, ErrSessionClosed
+	}
+	s.state = cloneState(plan.State)
+	s.recentFocus = make(map[domain.TabID][]domain.PaneID)
+	s.recentTabs = nil
+	for _, tab := range plan.State.Tabs {
 		if tab.ActivePaneID != "" {
 			s.rememberFocusLocked(tab.ID, tab.ActivePaneID)
 		}
 	}
-	if state.ActiveTab != "" {
-		s.rememberTabLocked(state.ActiveTab)
+	if plan.State.ActiveTab != "" {
+		s.rememberTabLocked(plan.State.ActiveTab)
 	}
-	return nil
+	return plan, nil
 }
 
 func (s *Session) Focus(tabID domain.TabID, paneID domain.PaneID) error {
@@ -165,6 +277,9 @@ func (s *Session) CreateTab(tab domain.Tab, activate bool) error {
 	}
 	if tab.ID == "" || tab.ActivePaneID == "" || tab.ID == s.state.ActiveTab || tabIndex(s.state.Tabs, tab.ID) >= 0 {
 		return fmt.Errorf("%w: tab identity or active pane is invalid", domain.ErrInvalidState)
+	}
+	if err := validateOwnedTab(s.state.VaultPath, tab); err != nil {
+		return err
 	}
 	candidate := cloneState(s.state)
 	candidate.Tabs = append(candidate.Tabs, cloneTab(tab))
@@ -258,6 +373,9 @@ func (s *Session) UpdateDocument(tabID domain.TabID, paneID domain.PaneID, doc d
 	if strings.TrimSpace(doc.Path) == "" || doc.CursorOffset < 0 {
 		return fmt.Errorf("application/workspace: document path and cursor offset are invalid")
 	}
+	if err := validateOwnedDocument(s.state.VaultPath, doc.Path); err != nil {
+		return err
+	}
 	if !updatePane(&s.state.Tabs[i].Layout, paneID, func(p *domain.Pane) { p.Document = doc }) {
 		return ErrUnknownPane
 	}
@@ -277,6 +395,9 @@ func (s *Session) SetLayout(tabID domain.TabID, layout domain.LayoutNode) error 
 	defer s.mu.Unlock()
 	if s.closed {
 		return ErrSessionClosed
+	}
+	if err := validateOwnedLayout(s.state.VaultPath, layout); err != nil {
+		return err
 	}
 	i := tabIndex(s.state.Tabs, tabID)
 	if i < 0 {
@@ -379,6 +500,10 @@ func (s *Session) Persist() error {
 	s.mu.RUnlock()
 	if repository == nil {
 		return ErrUnavailable
+	}
+	state, err := stateForPersistence(state)
+	if err != nil {
+		return err
 	}
 	return repository.Save(state)
 }
