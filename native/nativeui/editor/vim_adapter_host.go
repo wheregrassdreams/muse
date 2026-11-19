@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	textengine "github.com/wheregrassdreams/muse-editor/text"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
-	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	"github.com/wheregrassdreams/muse-editor/text/input"
-	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	tableui "muse/nativeui/editor/blocks/table"
 	"muse/nativeui/editor/inputadapter"
 )
@@ -832,11 +832,25 @@ func (e *Editor) modalReplace(count int, replacement string) {
 		e.vimController().ClearPending()
 		return
 	}
+	e.modalReplaceRange(start, end, replacement)
+}
+
+func (e *Editor) modalReplaceRange(start, end int, replacement string) {
+	replacement = textvim.FirstGrapheme(replacement)
+	if replacement == "" || start < 0 || end <= start || end > len(e.Source()) {
+		e.vimController().ClearPending()
+		return
+	}
+	lineStart, lineEnd := e.modalLine(start)
+	if start < lineStart || end > lineEnd {
+		e.vimController().ClearPending()
+		return
+	}
 	if strings.Contains(e.Source()[start:end], "\n") || strings.Contains(e.Source()[start:end], "|") || replacement == "\n" || replacement == "|" {
 		e.vimController().ClearPending()
 		return
 	}
-	count = 0
+	count := 0
 	for p := start; p < end; p = e.nextGraphemeBoundary(p) {
 		count++
 	}

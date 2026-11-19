@@ -4,11 +4,11 @@ import (
 	"strings"
 	"time"
 
-	textengine "github.com/wheregrassdreams/muse-editor/text"
-	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
-	"github.com/wheregrassdreams/muse-editor/text/input"
+	textengine "github.com/wheregrassdreams/muse-editor/text"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 
@@ -18,12 +18,27 @@ func (e *Editor) modalText(text string) bool {
 	previousNavigation := e.smoothCursorNavigation
 	controller := e.vimController()
 	mode := controller.Mode()
-	searching := controller.View().Searching
+	view := controller.View()
+	searching := view.Searching
 	// Insert-mode text is delivered through the editor's text-input path, not
 	// interpreted a second time as Vim command text. The key path still handles
 	// non-text keys through modalKey.
 	if e.Keymap() == "vim" && mode == helix.ModeInsert && !searching {
 		return false
+	}
+	if e.Keymap() == "vim" && view.AwaitingReplacement &&
+		(mode == helix.ModeVisual || mode == helix.ModeSelect) && text != "" {
+		controller.ClearAwaitingReplacement()
+		controller.ClearPending()
+		e.modalReplace(0, text)
+		return true
+	}
+	// Visual replacement is selection-based, while the Vim text engine's `r`
+	// intent is intentionally a caret-range command. Keep the selection
+	// semantics at the host boundary, where the actual UI selection is known.
+	if e.Keymap() == "vim" && mode == helix.ModeVisual && text == "r" {
+		controller.SetAwaitingReplacement(1)
+		return true
 	}
 	// Helix keeps a text selection active while the mode label remains Normal.
 	// Resolve selection operators here, where the editor can see the current
@@ -86,7 +101,8 @@ func (e *Editor) modalText(text string) bool {
 		// selection owns its own focus. Preserve the count before the keymap
 		// consumes it so structural motion never has to infer a count from a
 		// source range that may be unrelated to the active table cell.
-		if intent.Name == "vim.move-horizontal" || intent.Name == "vim.move-vertical" {
+		if intent.Name == "vim.move-horizontal" || intent.Name == "vim.move-vertical" ||
+			intent.Name == "vim.move-caret" && (text == "n" || text == "N") {
 			intent.Count = max(1, motionCount)
 		}
 		e.smoothCursorNavigation = e.opts.SmoothCursor && mode == helix.ModeNormal && !searching &&
@@ -149,7 +165,7 @@ func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengi
 
 // dispatchTableVisualRowMotion maps visual row motions through the table's
 // structural focus. The text session's caret can remain outside that focus,
-// so applying vim.extend-caret's source offset directly would move the wrong
+// so applying helix.extend-caret's source offset directly would move the wrong
 // selection.
 func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Intent) bool {
 	if intent.Name != "vim.extend-caret" || e.vimController().Mode() != helix.ModeVisual {
@@ -267,6 +283,9 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 		e.enterModalVisual(helix.Intent{Kind: helix.IntentEnterLineVisual, Count: max(1, intent.Count)})
 		e.Session.VimKeymap().SetMode(textvim.LineVisual)
 		return
+	case "vim.replace-range":
+		e.modalReplaceRange(int(intent.Range.From), int(intent.Range.To), intent.Text)
+		return
 	case textvim.IntentPasteBlockBefore, textvim.IntentPasteBlockAfter:
 		before := intent.Name == textvim.IntentPasteBlockBefore
 		e.putRegister(before, max(1, intent.Count))
@@ -313,7 +332,21 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 		return
 	}
 	if intent.Name == "vim.move-caret" || intent.Name == "vim.find" {
-		e.nativeSetCaret(int(intent.Range.From), visual)
+		at := int(intent.Range.From)
+		if (key == "n" || key == "N") && e.vimController().View().LastSearch != "" {
+			state := e.vimController().View()
+			direction := state.LastSearchDirection
+			if key == "N" {
+				direction = -direction
+			}
+			if next, ok := e.modalSearch(state.LastSearch, direction, max(1, intent.Count), e.Caret()); ok {
+				at = next
+			}
+		}
+		e.nativeSetCaret(at, visual)
+		if (key == "n" || key == "N") && e.vimController().View().LastSearch != "" {
+			e.modalApplySearchHighlights(e.vimController().View().LastSearch, at, true)
+		}
 		return
 	}
 	if handled, _ := e.Session.ExecuteVimIntent(intent); handled {

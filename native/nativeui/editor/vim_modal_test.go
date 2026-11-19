@@ -180,6 +180,14 @@ func TestModalTillAndOperatorFind(t *testing.T) {
 	if e.Caret() != 7 {
 		t.Fatalf("FX caret=%d", e.Caret())
 	}
+
+	e = New("abcXdefX", Options{})
+	e.SetKeymap("vim")
+	e.Select(0, 0)
+	modalKeys(e, "yfX")
+	if e.Source() != "abcXdefX" || e.vimController().View().Register != "abcX" || e.vimController().Mode() != "Normal" {
+		t.Fatalf("yfX source/register/mode=%q/%q/%v", e.Source(), e.vimController().View().Register, e.vimController().Mode())
+	}
 }
 
 func TestModalReplaceUsesGraphemesAndPreservesTableSeparators(t *testing.T) {
