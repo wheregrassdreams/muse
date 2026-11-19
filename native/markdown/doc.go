@@ -1,12 +1,12 @@
 // Package markdown is the stable entry point for Markdown parsing and neutral
 // render projection. Parsing models and syntax policies live in markdown/syntax;
-// native widget drawing lives in nativeui/components/markdown.
+// native widget drawing lives in nativeui/markdown.
 package markdown
 
 import (
 	texmath "muse/markdown/math"
 	"muse/markdown/render"
-	"muse/markdown/syntax"
+	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 
 type Kind = syntax.Kind
