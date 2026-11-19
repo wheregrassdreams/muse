@@ -40,6 +40,22 @@ func (e *Editor) modalText(text string) bool {
 		controller.SetAwaitingReplacement(1)
 		return true
 	}
+	if e.Keymap() == "vim" && mode == helix.ModeVisual && text == "v" && controller.Sequence().Linewise {
+		controller.SetTextVisualActive(true)
+		controller.SetLinewise(false)
+		e.setSessionLinewise(false)
+		e.setSessionInclusive(true)
+		controller.SetMode(helix.ModeVisual)
+		e.invalidate()
+		return true
+	}
+	if e.Keymap() == "vim" && controller.Sequence().Linewise && e.tableSelection == nil &&
+		(mode == helix.ModeVisual || mode == helix.ModeSelect) && (text == "d" || text == "c" || text == "y") {
+		if e.applyVimLinewiseOperator(text) {
+			e.invalidate()
+			return true
+		}
+	}
 	// Helix keeps a text selection active while the mode label remains Normal.
 	// Resolve selection operators here, where the editor can see the current
 	// source range, instead of letting the context-free controller start a
@@ -108,6 +124,9 @@ func (e *Editor) modalText(text string) bool {
 		if intent.Name == "vim.delete-range" || intent.Name == "vim.change-range" {
 			intent.Count = max(intent.Count, max(motionCount, operatorCount))
 		}
+		if intent.Name == "vim.start-line-selection" || intent.Name == "vim.start-selection" {
+			intent.Count = max(intent.Count, max(1, motionCount))
+		}
 		e.smoothCursorNavigation = e.opts.SmoothCursor && mode == helix.ModeNormal && !searching &&
 			(strings.HasPrefix(intent.Name, "vim.move-") || intent.Name == textvim.IntentMoveDisplayUp || intent.Name == textvim.IntentMoveDisplayDown)
 		defer func() { e.smoothCursorNavigation = previousNavigation }()
@@ -133,6 +152,42 @@ func (e *Editor) modalText(text string) bool {
 	}
 	e.DispatchVimIntent(intent)
 	defer e.invalidate()
+	return true
+}
+
+func (e *Editor) applyVimLinewiseOperator(operator string) bool {
+	selection := e.Session.Selection()
+	first, _ := e.sourceLineRange(min(selection.Anchor, selection.Head))
+	last, _ := e.sourceLineRange(max(selection.Anchor, selection.Head))
+	_, registerEnd := e.sourceLineRange(last)
+	deleteStart, deleteEnd := first, registerEnd
+	if deleteEnd < len(e.Source()) && e.Source()[deleteEnd] == '\n' {
+		deleteEnd++
+	} else if deleteEnd == len(e.Source()) && deleteStart > 0 {
+		deleteStart--
+	}
+	if deleteStart < 0 || registerEnd < first || deleteEnd < deleteStart {
+		return false
+	}
+	register := e.Source()[first:registerEnd]
+	e.setVimTextRegister(register, true)
+	e.vimController().SetLinewise(false)
+	e.setSessionSelectionMode(false, false)
+	if operator == "y" {
+		e.setSessionSelection(first, registerEnd)
+		e.Copy()
+		e.startVimYankFlash([]Range{{Start: first, End: registerEnd}})
+		e.setSessionSelection(first, first)
+		e.modalSetMode(helix.ModeNormal)
+		return true
+	}
+	e.begin(stepEdit)
+	e.replace(deleteStart, deleteEnd, "")
+	e.commit(deleteStart, deleteStart)
+	e.modalSetMode(helix.ModeNormal)
+	if operator == "c" {
+		e.modalSetMode(helix.ModeInsert)
+	}
 	return true
 }
 
