@@ -27,6942 +27,3302 @@ func init() {
 	i18n.Register(Catalog)
 }
 
-// Messages say the messages in one language.
-type Messages struct{ locale string }
-
-// In returns the messages in the language of locale, as "de" or
-// "zh-Hant", or of the catalog's language that suits it best, "" for the
-// source language.
-func In(locale string) Messages { return Messages{locale} }
-
 // AppTitle says "Muse"
 // in the language the app shows.
-func AppTitle() string { return In(i18n.Locale()).AppTitle() }
-
-// AppTitle says "Muse"
-// in the language of msgs.
-func (msgs Messages) AppTitle() string {
-	return Catalog.Format(msgs.locale, "appTitle", nil)
-}
+func AppTitle() string { return Catalog.Format(i18n.Locale(), "appTitle", nil) }
 
 // Language says "语言"
 // in the language the app shows.
-func Language() string { return In(i18n.Locale()).Language() }
-
-// Language says "语言"
-// in the language of msgs.
-func (msgs Messages) Language() string {
-	return Catalog.Format(msgs.locale, "language", nil)
-}
+func Language() string { return Catalog.Format(i18n.Locale(), "language", nil) }
 
 // LanguageSystem says "跟随系统"
 // in the language the app shows.
-func LanguageSystem() string { return In(i18n.Locale()).LanguageSystem() }
-
-// LanguageSystem says "跟随系统"
-// in the language of msgs.
-func (msgs Messages) LanguageSystem() string {
-	return Catalog.Format(msgs.locale, "languageSystem", nil)
-}
+func LanguageSystem() string { return Catalog.Format(i18n.Locale(), "languageSystem", nil) }
 
 // LanguageChinese says "简体中文"
 // in the language the app shows.
-func LanguageChinese() string { return In(i18n.Locale()).LanguageChinese() }
-
-// LanguageChinese says "简体中文"
-// in the language of msgs.
-func (msgs Messages) LanguageChinese() string {
-	return Catalog.Format(msgs.locale, "languageChinese", nil)
-}
+func LanguageChinese() string { return Catalog.Format(i18n.Locale(), "languageChinese", nil) }
 
 // LanguageEnglish says "English"
 // in the language the app shows.
-func LanguageEnglish() string { return In(i18n.Locale()).LanguageEnglish() }
-
-// LanguageEnglish says "English"
-// in the language of msgs.
-func (msgs Messages) LanguageEnglish() string {
-	return Catalog.Format(msgs.locale, "languageEnglish", nil)
-}
+func LanguageEnglish() string { return Catalog.Format(i18n.Locale(), "languageEnglish", nil) }
 
 // MenuFile says "文件"
 // in the language the app shows.
-func MenuFile() string { return In(i18n.Locale()).MenuFile() }
-
-// MenuFile says "文件"
-// in the language of msgs.
-func (msgs Messages) MenuFile() string {
-	return Catalog.Format(msgs.locale, "menuFile", nil)
-}
+func MenuFile() string { return Catalog.Format(i18n.Locale(), "menuFile", nil) }
 
 // MenuNew says "新建"
 // in the language the app shows.
-func MenuNew() string { return In(i18n.Locale()).MenuNew() }
-
-// MenuNew says "新建"
-// in the language of msgs.
-func (msgs Messages) MenuNew() string {
-	return Catalog.Format(msgs.locale, "menuNew", nil)
-}
+func MenuNew() string { return Catalog.Format(i18n.Locale(), "menuNew", nil) }
 
 // MenuCommandPalette says "命令面板…"
 // in the language the app shows.
-func MenuCommandPalette() string { return In(i18n.Locale()).MenuCommandPalette() }
-
-// MenuCommandPalette says "命令面板…"
-// in the language of msgs.
-func (msgs Messages) MenuCommandPalette() string {
-	return Catalog.Format(msgs.locale, "menuCommandPalette", nil)
-}
+func MenuCommandPalette() string { return Catalog.Format(i18n.Locale(), "menuCommandPalette", nil) }
 
 // MenuWorkspaceSearch says "快速搜索笔记库…"
 // in the language the app shows.
-func MenuWorkspaceSearch() string { return In(i18n.Locale()).MenuWorkspaceSearch() }
-
-// MenuWorkspaceSearch says "快速搜索笔记库…"
-// in the language of msgs.
-func (msgs Messages) MenuWorkspaceSearch() string {
-	return Catalog.Format(msgs.locale, "menuWorkspaceSearch", nil)
-}
+func MenuWorkspaceSearch() string { return Catalog.Format(i18n.Locale(), "menuWorkspaceSearch", nil) }
 
 // MenuOpen says "打开…"
 // in the language the app shows.
-func MenuOpen() string { return In(i18n.Locale()).MenuOpen() }
-
-// MenuOpen says "打开…"
-// in the language of msgs.
-func (msgs Messages) MenuOpen() string {
-	return Catalog.Format(msgs.locale, "menuOpen", nil)
-}
+func MenuOpen() string { return Catalog.Format(i18n.Locale(), "menuOpen", nil) }
 
 // MenuOpenFolder says "打开文件夹…"
 // in the language the app shows.
-func MenuOpenFolder() string { return In(i18n.Locale()).MenuOpenFolder() }
-
-// MenuOpenFolder says "打开文件夹…"
-// in the language of msgs.
-func (msgs Messages) MenuOpenFolder() string {
-	return Catalog.Format(msgs.locale, "menuOpenFolder", nil)
-}
+func MenuOpenFolder() string { return Catalog.Format(i18n.Locale(), "menuOpenFolder", nil) }
 
 // MenuSave says "保存"
 // in the language the app shows.
-func MenuSave() string { return In(i18n.Locale()).MenuSave() }
-
-// MenuSave says "保存"
-// in the language of msgs.
-func (msgs Messages) MenuSave() string {
-	return Catalog.Format(msgs.locale, "menuSave", nil)
-}
+func MenuSave() string { return Catalog.Format(i18n.Locale(), "menuSave", nil) }
 
 // MenuSaveAs says "另存为…"
 // in the language the app shows.
-func MenuSaveAs() string { return In(i18n.Locale()).MenuSaveAs() }
-
-// MenuSaveAs says "另存为…"
-// in the language of msgs.
-func (msgs Messages) MenuSaveAs() string {
-	return Catalog.Format(msgs.locale, "menuSaveAs", nil)
-}
+func MenuSaveAs() string { return Catalog.Format(i18n.Locale(), "menuSaveAs", nil) }
 
 // MenuParagraph says "段落"
 // in the language the app shows.
-func MenuParagraph() string { return In(i18n.Locale()).MenuParagraph() }
-
-// MenuParagraph says "段落"
-// in the language of msgs.
-func (msgs Messages) MenuParagraph() string {
-	return Catalog.Format(msgs.locale, "menuParagraph", nil)
-}
+func MenuParagraph() string { return Catalog.Format(i18n.Locale(), "menuParagraph", nil) }
 
 // MenuFormat says "格式"
 // in the language the app shows.
-func MenuFormat() string { return In(i18n.Locale()).MenuFormat() }
-
-// MenuFormat says "格式"
-// in the language of msgs.
-func (msgs Messages) MenuFormat() string {
-	return Catalog.Format(msgs.locale, "menuFormat", nil)
-}
+func MenuFormat() string { return Catalog.Format(i18n.Locale(), "menuFormat", nil) }
 
 // MenuView says "视图"
 // in the language the app shows.
-func MenuView() string { return In(i18n.Locale()).MenuView() }
-
-// MenuView says "视图"
-// in the language of msgs.
-func (msgs Messages) MenuView() string {
-	return Catalog.Format(msgs.locale, "menuView", nil)
-}
+func MenuView() string { return Catalog.Format(i18n.Locale(), "menuView", nil) }
 
 // MenuFiles says "文件栏"
 // in the language the app shows.
-func MenuFiles() string { return In(i18n.Locale()).MenuFiles() }
-
-// MenuFiles says "文件栏"
-// in the language of msgs.
-func (msgs Messages) MenuFiles() string {
-	return Catalog.Format(msgs.locale, "menuFiles", nil)
-}
+func MenuFiles() string { return Catalog.Format(i18n.Locale(), "menuFiles", nil) }
 
 // MenuOutline says "大纲"
 // in the language the app shows.
-func MenuOutline() string { return In(i18n.Locale()).MenuOutline() }
-
-// MenuOutline says "大纲"
-// in the language of msgs.
-func (msgs Messages) MenuOutline() string {
-	return Catalog.Format(msgs.locale, "menuOutline", nil)
-}
+func MenuOutline() string { return Catalog.Format(i18n.Locale(), "menuOutline", nil) }
 
 // MenuFindDocument says "当前文档查找"
 // in the language the app shows.
-func MenuFindDocument() string { return In(i18n.Locale()).MenuFindDocument() }
-
-// MenuFindDocument says "当前文档查找"
-// in the language of msgs.
-func (msgs Messages) MenuFindDocument() string {
-	return Catalog.Format(msgs.locale, "menuFindDocument", nil)
-}
+func MenuFindDocument() string { return Catalog.Format(i18n.Locale(), "menuFindDocument", nil) }
 
 // MenuSearchWorkspace says "搜索笔记库"
 // in the language the app shows.
-func MenuSearchWorkspace() string { return In(i18n.Locale()).MenuSearchWorkspace() }
-
-// MenuSearchWorkspace says "搜索笔记库"
-// in the language of msgs.
-func (msgs Messages) MenuSearchWorkspace() string {
-	return Catalog.Format(msgs.locale, "menuSearchWorkspace", nil)
-}
+func MenuSearchWorkspace() string { return Catalog.Format(i18n.Locale(), "menuSearchWorkspace", nil) }
 
 // MenuFlatStyle says "扁平风格"
 // in the language the app shows.
-func MenuFlatStyle() string { return In(i18n.Locale()).MenuFlatStyle() }
-
-// MenuFlatStyle says "扁平风格"
-// in the language of msgs.
-func (msgs Messages) MenuFlatStyle() string {
-	return Catalog.Format(msgs.locale, "menuFlatStyle", nil)
-}
+func MenuFlatStyle() string { return Catalog.Format(i18n.Locale(), "menuFlatStyle", nil) }
 
 // MenuHeaderFade says "顶部模糊"
 // in the language the app shows.
-func MenuHeaderFade() string { return In(i18n.Locale()).MenuHeaderFade() }
-
-// MenuHeaderFade says "顶部模糊"
-// in the language of msgs.
-func (msgs Messages) MenuHeaderFade() string {
-	return Catalog.Format(msgs.locale, "menuHeaderFade", nil)
-}
+func MenuHeaderFade() string { return Catalog.Format(i18n.Locale(), "menuHeaderFade", nil) }
 
 // MenuSettings says "设置…"
 // in the language the app shows.
-func MenuSettings() string { return In(i18n.Locale()).MenuSettings() }
-
-// MenuSettings says "设置…"
-// in the language of msgs.
-func (msgs Messages) MenuSettings() string {
-	return Catalog.Format(msgs.locale, "menuSettings", nil)
-}
+func MenuSettings() string { return Catalog.Format(i18n.Locale(), "menuSettings", nil) }
 
 // ParagraphHeading1 says "一级标题"
 // in the language the app shows.
-func ParagraphHeading1() string { return In(i18n.Locale()).ParagraphHeading1() }
-
-// ParagraphHeading1 says "一级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading1() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading1", nil)
-}
+func ParagraphHeading1() string { return Catalog.Format(i18n.Locale(), "paragraphHeading1", nil) }
 
 // ParagraphHeading2 says "二级标题"
 // in the language the app shows.
-func ParagraphHeading2() string { return In(i18n.Locale()).ParagraphHeading2() }
-
-// ParagraphHeading2 says "二级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading2() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading2", nil)
-}
+func ParagraphHeading2() string { return Catalog.Format(i18n.Locale(), "paragraphHeading2", nil) }
 
 // ParagraphHeading3 says "三级标题"
 // in the language the app shows.
-func ParagraphHeading3() string { return In(i18n.Locale()).ParagraphHeading3() }
-
-// ParagraphHeading3 says "三级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading3() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading3", nil)
-}
+func ParagraphHeading3() string { return Catalog.Format(i18n.Locale(), "paragraphHeading3", nil) }
 
 // ParagraphHeading4 says "四级标题"
 // in the language the app shows.
-func ParagraphHeading4() string { return In(i18n.Locale()).ParagraphHeading4() }
-
-// ParagraphHeading4 says "四级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading4() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading4", nil)
-}
+func ParagraphHeading4() string { return Catalog.Format(i18n.Locale(), "paragraphHeading4", nil) }
 
 // ParagraphHeading5 says "五级标题"
 // in the language the app shows.
-func ParagraphHeading5() string { return In(i18n.Locale()).ParagraphHeading5() }
-
-// ParagraphHeading5 says "五级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading5() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading5", nil)
-}
+func ParagraphHeading5() string { return Catalog.Format(i18n.Locale(), "paragraphHeading5", nil) }
 
 // ParagraphHeading6 says "六级标题"
 // in the language the app shows.
-func ParagraphHeading6() string { return In(i18n.Locale()).ParagraphHeading6() }
-
-// ParagraphHeading6 says "六级标题"
-// in the language of msgs.
-func (msgs Messages) ParagraphHeading6() string {
-	return Catalog.Format(msgs.locale, "paragraphHeading6", nil)
-}
+func ParagraphHeading6() string { return Catalog.Format(i18n.Locale(), "paragraphHeading6", nil) }
 
 // ParagraphBody says "正文"
 // in the language the app shows.
-func ParagraphBody() string { return In(i18n.Locale()).ParagraphBody() }
-
-// ParagraphBody says "正文"
-// in the language of msgs.
-func (msgs Messages) ParagraphBody() string {
-	return Catalog.Format(msgs.locale, "paragraphBody", nil)
-}
+func ParagraphBody() string { return Catalog.Format(i18n.Locale(), "paragraphBody", nil) }
 
 // ParagraphQuote says "引用"
 // in the language the app shows.
-func ParagraphQuote() string { return In(i18n.Locale()).ParagraphQuote() }
-
-// ParagraphQuote says "引用"
-// in the language of msgs.
-func (msgs Messages) ParagraphQuote() string {
-	return Catalog.Format(msgs.locale, "paragraphQuote", nil)
-}
+func ParagraphQuote() string { return Catalog.Format(i18n.Locale(), "paragraphQuote", nil) }
 
 // ParagraphOrderedList says "有序列表"
 // in the language the app shows.
-func ParagraphOrderedList() string { return In(i18n.Locale()).ParagraphOrderedList() }
-
-// ParagraphOrderedList says "有序列表"
-// in the language of msgs.
-func (msgs Messages) ParagraphOrderedList() string {
-	return Catalog.Format(msgs.locale, "paragraphOrderedList", nil)
-}
+func ParagraphOrderedList() string { return Catalog.Format(i18n.Locale(), "paragraphOrderedList", nil) }
 
 // ParagraphUnorderedList says "无序列表"
 // in the language the app shows.
-func ParagraphUnorderedList() string { return In(i18n.Locale()).ParagraphUnorderedList() }
-
-// ParagraphUnorderedList says "无序列表"
-// in the language of msgs.
-func (msgs Messages) ParagraphUnorderedList() string {
-	return Catalog.Format(msgs.locale, "paragraphUnorderedList", nil)
+func ParagraphUnorderedList() string {
+	return Catalog.Format(i18n.Locale(), "paragraphUnorderedList", nil)
 }
 
 // ParagraphTaskList says "任务列表"
 // in the language the app shows.
-func ParagraphTaskList() string { return In(i18n.Locale()).ParagraphTaskList() }
-
-// ParagraphTaskList says "任务列表"
-// in the language of msgs.
-func (msgs Messages) ParagraphTaskList() string {
-	return Catalog.Format(msgs.locale, "paragraphTaskList", nil)
-}
+func ParagraphTaskList() string { return Catalog.Format(i18n.Locale(), "paragraphTaskList", nil) }
 
 // ParagraphCodeBlock says "代码块"
 // in the language the app shows.
-func ParagraphCodeBlock() string { return In(i18n.Locale()).ParagraphCodeBlock() }
-
-// ParagraphCodeBlock says "代码块"
-// in the language of msgs.
-func (msgs Messages) ParagraphCodeBlock() string {
-	return Catalog.Format(msgs.locale, "paragraphCodeBlock", nil)
-}
+func ParagraphCodeBlock() string { return Catalog.Format(i18n.Locale(), "paragraphCodeBlock", nil) }
 
 // ParagraphMathBlock says "公式块"
 // in the language the app shows.
-func ParagraphMathBlock() string { return In(i18n.Locale()).ParagraphMathBlock() }
-
-// ParagraphMathBlock says "公式块"
-// in the language of msgs.
-func (msgs Messages) ParagraphMathBlock() string {
-	return Catalog.Format(msgs.locale, "paragraphMathBlock", nil)
-}
+func ParagraphMathBlock() string { return Catalog.Format(i18n.Locale(), "paragraphMathBlock", nil) }
 
 // ParagraphTable says "表格"
 // in the language the app shows.
-func ParagraphTable() string { return In(i18n.Locale()).ParagraphTable() }
-
-// ParagraphTable says "表格"
-// in the language of msgs.
-func (msgs Messages) ParagraphTable() string {
-	return Catalog.Format(msgs.locale, "paragraphTable", nil)
-}
+func ParagraphTable() string { return Catalog.Format(i18n.Locale(), "paragraphTable", nil) }
 
 // ParagraphRule says "分隔线"
 // in the language the app shows.
-func ParagraphRule() string { return In(i18n.Locale()).ParagraphRule() }
-
-// ParagraphRule says "分隔线"
-// in the language of msgs.
-func (msgs Messages) ParagraphRule() string {
-	return Catalog.Format(msgs.locale, "paragraphRule", nil)
-}
+func ParagraphRule() string { return Catalog.Format(i18n.Locale(), "paragraphRule", nil) }
 
 // FormatBold says "加粗"
 // in the language the app shows.
-func FormatBold() string { return In(i18n.Locale()).FormatBold() }
-
-// FormatBold says "加粗"
-// in the language of msgs.
-func (msgs Messages) FormatBold() string {
-	return Catalog.Format(msgs.locale, "formatBold", nil)
-}
+func FormatBold() string { return Catalog.Format(i18n.Locale(), "formatBold", nil) }
 
 // FormatItalic says "斜体"
 // in the language the app shows.
-func FormatItalic() string { return In(i18n.Locale()).FormatItalic() }
-
-// FormatItalic says "斜体"
-// in the language of msgs.
-func (msgs Messages) FormatItalic() string {
-	return Catalog.Format(msgs.locale, "formatItalic", nil)
-}
+func FormatItalic() string { return Catalog.Format(i18n.Locale(), "formatItalic", nil) }
 
 // FormatUnderline says "下划线"
 // in the language the app shows.
-func FormatUnderline() string { return In(i18n.Locale()).FormatUnderline() }
-
-// FormatUnderline says "下划线"
-// in the language of msgs.
-func (msgs Messages) FormatUnderline() string {
-	return Catalog.Format(msgs.locale, "formatUnderline", nil)
-}
+func FormatUnderline() string { return Catalog.Format(i18n.Locale(), "formatUnderline", nil) }
 
 // FormatStrike says "删除线"
 // in the language the app shows.
-func FormatStrike() string { return In(i18n.Locale()).FormatStrike() }
-
-// FormatStrike says "删除线"
-// in the language of msgs.
-func (msgs Messages) FormatStrike() string {
-	return Catalog.Format(msgs.locale, "formatStrike", nil)
-}
+func FormatStrike() string { return Catalog.Format(i18n.Locale(), "formatStrike", nil) }
 
 // FormatInlineCode says "行内代码"
 // in the language the app shows.
-func FormatInlineCode() string { return In(i18n.Locale()).FormatInlineCode() }
-
-// FormatInlineCode says "行内代码"
-// in the language of msgs.
-func (msgs Messages) FormatInlineCode() string {
-	return Catalog.Format(msgs.locale, "formatInlineCode", nil)
-}
+func FormatInlineCode() string { return Catalog.Format(i18n.Locale(), "formatInlineCode", nil) }
 
 // SettingsTitle says "设置"
 // in the language the app shows.
-func SettingsTitle() string { return In(i18n.Locale()).SettingsTitle() }
-
-// SettingsTitle says "设置"
-// in the language of msgs.
-func (msgs Messages) SettingsTitle() string {
-	return Catalog.Format(msgs.locale, "settingsTitle", nil)
-}
+func SettingsTitle() string { return Catalog.Format(i18n.Locale(), "settingsTitle", nil) }
 
 // SettingsImmediate says "更改会立即生效"
 // in the language the app shows.
-func SettingsImmediate() string { return In(i18n.Locale()).SettingsImmediate() }
-
-// SettingsImmediate says "更改会立即生效"
-// in the language of msgs.
-func (msgs Messages) SettingsImmediate() string {
-	return Catalog.Format(msgs.locale, "settingsImmediate", nil)
-}
+func SettingsImmediate() string { return Catalog.Format(i18n.Locale(), "settingsImmediate", nil) }
 
 // SettingsAppearance says "外观"
 // in the language the app shows.
-func SettingsAppearance() string { return In(i18n.Locale()).SettingsAppearance() }
-
-// SettingsAppearance says "外观"
-// in the language of msgs.
-func (msgs Messages) SettingsAppearance() string {
-	return Catalog.Format(msgs.locale, "settingsAppearance", nil)
-}
+func SettingsAppearance() string { return Catalog.Format(i18n.Locale(), "settingsAppearance", nil) }
 
 // SettingsEditor says "编辑器"
 // in the language the app shows.
-func SettingsEditor() string { return In(i18n.Locale()).SettingsEditor() }
-
-// SettingsEditor says "编辑器"
-// in the language of msgs.
-func (msgs Messages) SettingsEditor() string {
-	return Catalog.Format(msgs.locale, "settingsEditor", nil)
-}
+func SettingsEditor() string { return Catalog.Format(i18n.Locale(), "settingsEditor", nil) }
 
 // SettingsAI says "AI"
 // in the language the app shows.
-func SettingsAI() string { return In(i18n.Locale()).SettingsAI() }
-
-// SettingsAI says "AI"
-// in the language of msgs.
-func (msgs Messages) SettingsAI() string {
-	return Catalog.Format(msgs.locale, "settingsAI", nil)
-}
+func SettingsAI() string { return Catalog.Format(i18n.Locale(), "settingsAI", nil) }
 
 // SettingsLanguage says "界面语言"
 // in the language the app shows.
-func SettingsLanguage() string { return In(i18n.Locale()).SettingsLanguage() }
-
-// SettingsLanguage says "界面语言"
-// in the language of msgs.
-func (msgs Messages) SettingsLanguage() string {
-	return Catalog.Format(msgs.locale, "settingsLanguage", nil)
-}
+func SettingsLanguage() string { return Catalog.Format(i18n.Locale(), "settingsLanguage", nil) }
 
 // SettingsLanguageDetail says "选择 Muse 界面显示的语言。"
 // in the language the app shows.
-func SettingsLanguageDetail() string { return In(i18n.Locale()).SettingsLanguageDetail() }
-
-// SettingsLanguageDetail says "选择 Muse 界面显示的语言。"
-// in the language of msgs.
-func (msgs Messages) SettingsLanguageDetail() string {
-	return Catalog.Format(msgs.locale, "settingsLanguageDetail", nil)
+func SettingsLanguageDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsLanguageDetail", nil)
 }
 
 // SettingsFooter says "设置会立即生效"
 // in the language the app shows.
-func SettingsFooter() string { return In(i18n.Locale()).SettingsFooter() }
-
-// SettingsFooter says "设置会立即生效"
-// in the language of msgs.
-func (msgs Messages) SettingsFooter() string {
-	return Catalog.Format(msgs.locale, "settingsFooter", nil)
-}
+func SettingsFooter() string { return Catalog.Format(i18n.Locale(), "settingsFooter", nil) }
 
 // SettingsAIFooter says "AI 助手立即生效；模型配置保存后生效"
 // in the language the app shows.
-func SettingsAIFooter() string { return In(i18n.Locale()).SettingsAIFooter() }
-
-// SettingsAIFooter says "AI 助手立即生效；模型配置保存后生效"
-// in the language of msgs.
-func (msgs Messages) SettingsAIFooter() string {
-	return Catalog.Format(msgs.locale, "settingsAIFooter", nil)
-}
+func SettingsAIFooter() string { return Catalog.Format(i18n.Locale(), "settingsAIFooter", nil) }
 
 // SettingsClose says "关闭设置"
 // in the language the app shows.
-func SettingsClose() string { return In(i18n.Locale()).SettingsClose() }
-
-// SettingsClose says "关闭设置"
-// in the language of msgs.
-func (msgs Messages) SettingsClose() string {
-	return Catalog.Format(msgs.locale, "settingsClose", nil)
-}
+func SettingsClose() string { return Catalog.Format(i18n.Locale(), "settingsClose", nil) }
 
 // ThemeTitle says "主题"
 // in the language the app shows.
-func ThemeTitle() string { return In(i18n.Locale()).ThemeTitle() }
-
-// ThemeTitle says "主题"
-// in the language of msgs.
-func (msgs Messages) ThemeTitle() string {
-	return Catalog.Format(msgs.locale, "themeTitle", nil)
-}
+func ThemeTitle() string { return Catalog.Format(i18n.Locale(), "themeTitle", nil) }
 
 // ThemeLight says "浅色"
 // in the language the app shows.
-func ThemeLight() string { return In(i18n.Locale()).ThemeLight() }
-
-// ThemeLight says "浅色"
-// in the language of msgs.
-func (msgs Messages) ThemeLight() string {
-	return Catalog.Format(msgs.locale, "themeLight", nil)
-}
+func ThemeLight() string { return Catalog.Format(i18n.Locale(), "themeLight", nil) }
 
 // ThemeDark says "深色"
 // in the language the app shows.
-func ThemeDark() string { return In(i18n.Locale()).ThemeDark() }
-
-// ThemeDark says "深色"
-// in the language of msgs.
-func (msgs Messages) ThemeDark() string {
-	return Catalog.Format(msgs.locale, "themeDark", nil)
-}
+func ThemeDark() string { return Catalog.Format(i18n.Locale(), "themeDark", nil) }
 
 // ThemeSystem says "跟随系统"
 // in the language the app shows.
-func ThemeSystem() string { return In(i18n.Locale()).ThemeSystem() }
-
-// ThemeSystem says "跟随系统"
-// in the language of msgs.
-func (msgs Messages) ThemeSystem() string {
-	return Catalog.Format(msgs.locale, "themeSystem", nil)
-}
+func ThemeSystem() string { return Catalog.Format(i18n.Locale(), "themeSystem", nil) }
 
 // ThemeControl says "主题：{mode}"
 // in the language the app shows.
-func ThemeControl(mode string) string { return In(i18n.Locale()).ThemeControl(mode) }
-
-// ThemeControl says "主题：{mode}"
-// in the language of msgs.
-func (msgs Messages) ThemeControl(mode string) string {
-	return Catalog.Format(msgs.locale, "themeControl", map[string]any{"mode": mode})
+func ThemeControl(mode string) string {
+	return Catalog.Format(i18n.Locale(), "themeControl", map[string]any{"mode": mode})
 }
 
 // ThemeDescription says "编辑器与系统界面同步切换，也可跟随 macOS 外观。"
 // in the language the app shows.
-func ThemeDescription() string { return In(i18n.Locale()).ThemeDescription() }
-
-// ThemeDescription says "编辑器与系统界面同步切换，也可跟随 macOS 外观。"
-// in the language of msgs.
-func (msgs Messages) ThemeDescription() string {
-	return Catalog.Format(msgs.locale, "themeDescription", nil)
-}
+func ThemeDescription() string { return Catalog.Format(i18n.Locale(), "themeDescription", nil) }
 
 // SettingsNavigation says "导航"
 // in the language the app shows.
-func SettingsNavigation() string { return In(i18n.Locale()).SettingsNavigation() }
-
-// SettingsNavigation says "导航"
-// in the language of msgs.
-func (msgs Messages) SettingsNavigation() string {
-	return Catalog.Format(msgs.locale, "settingsNavigation", nil)
-}
+func SettingsNavigation() string { return Catalog.Format(i18n.Locale(), "settingsNavigation", nil) }
 
 // SettingsTypography says "排版"
 // in the language the app shows.
-func SettingsTypography() string { return In(i18n.Locale()).SettingsTypography() }
-
-// SettingsTypography says "排版"
-// in the language of msgs.
-func (msgs Messages) SettingsTypography() string {
-	return Catalog.Format(msgs.locale, "settingsTypography", nil)
-}
+func SettingsTypography() string { return Catalog.Format(i18n.Locale(), "settingsTypography", nil) }
 
 // SettingsKeymap says "按键模式"
 // in the language the app shows.
-func SettingsKeymap() string { return In(i18n.Locale()).SettingsKeymap() }
-
-// SettingsKeymap says "按键模式"
-// in the language of msgs.
-func (msgs Messages) SettingsKeymap() string {
-	return Catalog.Format(msgs.locale, "settingsKeymap", nil)
-}
+func SettingsKeymap() string { return Catalog.Format(i18n.Locale(), "settingsKeymap", nil) }
 
 // SettingsCursor says "光标"
 // in the language the app shows.
-func SettingsCursor() string { return In(i18n.Locale()).SettingsCursor() }
-
-// SettingsCursor says "光标"
-// in the language of msgs.
-func (msgs Messages) SettingsCursor() string {
-	return Catalog.Format(msgs.locale, "settingsCursor", nil)
-}
+func SettingsCursor() string { return Catalog.Format(i18n.Locale(), "settingsCursor", nil) }
 
 // SettingsSearch says "搜索"
 // in the language the app shows.
-func SettingsSearch() string { return In(i18n.Locale()).SettingsSearch() }
-
-// SettingsSearch says "搜索"
-// in the language of msgs.
-func (msgs Messages) SettingsSearch() string {
-	return Catalog.Format(msgs.locale, "settingsSearch", nil)
-}
+func SettingsSearch() string { return Catalog.Format(i18n.Locale(), "settingsSearch", nil) }
 
 // AccentColor says "重点色"
 // in the language the app shows.
-func AccentColor() string { return In(i18n.Locale()).AccentColor() }
-
-// AccentColor says "重点色"
-// in the language of msgs.
-func (msgs Messages) AccentColor() string {
-	return Catalog.Format(msgs.locale, "accentColor", nil)
-}
+func AccentColor() string { return Catalog.Format(i18n.Locale(), "accentColor", nil) }
 
 // AccentColorDetail says "用于链接、按钮、光标与选中区域。当前：{name}"
 // in the language the app shows.
-func AccentColorDetail(name string) string { return In(i18n.Locale()).AccentColorDetail(name) }
-
-// AccentColorDetail says "用于链接、按钮、光标与选中区域。当前：{name}"
-// in the language of msgs.
-func (msgs Messages) AccentColorDetail(name string) string {
-	return Catalog.Format(msgs.locale, "accentColorDetail", map[string]any{"name": name})
+func AccentColorDetail(name string) string {
+	return Catalog.Format(i18n.Locale(), "accentColorDetail", map[string]any{"name": name})
 }
 
 // AssistantGroup says "助手"
 // in the language the app shows.
-func AssistantGroup() string { return In(i18n.Locale()).AssistantGroup() }
-
-// AssistantGroup says "助手"
-// in the language of msgs.
-func (msgs Messages) AssistantGroup() string {
-	return Catalog.Format(msgs.locale, "assistantGroup", nil)
-}
+func AssistantGroup() string { return Catalog.Format(i18n.Locale(), "assistantGroup", nil) }
 
 // AiAssistant says "AI 助手"
 // in the language the app shows.
-func AiAssistant() string { return In(i18n.Locale()).AiAssistant() }
-
-// AiAssistant says "AI 助手"
-// in the language of msgs.
-func (msgs Messages) AiAssistant() string {
-	return Catalog.Format(msgs.locale, "aiAssistant", nil)
-}
+func AiAssistant() string { return Catalog.Format(i18n.Locale(), "aiAssistant", nil) }
 
 // AiAssistantDetail says "启用侧栏中的 AI 对话与 Agent 工具。"
 // in the language the app shows.
-func AiAssistantDetail() string { return In(i18n.Locale()).AiAssistantDetail() }
-
-// AiAssistantDetail says "启用侧栏中的 AI 对话与 Agent 工具。"
-// in the language of msgs.
-func (msgs Messages) AiAssistantDetail() string {
-	return Catalog.Format(msgs.locale, "aiAssistantDetail", nil)
-}
+func AiAssistantDetail() string { return Catalog.Format(i18n.Locale(), "aiAssistantDetail", nil) }
 
 // AiService says "服务"
 // in the language the app shows.
-func AiService() string { return In(i18n.Locale()).AiService() }
-
-// AiService says "服务"
-// in the language of msgs.
-func (msgs Messages) AiService() string {
-	return Catalog.Format(msgs.locale, "aiService", nil)
-}
+func AiService() string { return Catalog.Format(i18n.Locale(), "aiService", nil) }
 
 // AiGateway says "Magpie 本地网关"
 // in the language the app shows.
-func AiGateway() string { return In(i18n.Locale()).AiGateway() }
-
-// AiGateway says "Magpie 本地网关"
-// in the language of msgs.
-func (msgs Messages) AiGateway() string {
-	return Catalog.Format(msgs.locale, "aiGateway", nil)
-}
+func AiGateway() string { return Catalog.Format(i18n.Locale(), "aiGateway", nil) }
 
 // AiCustom says "自定义"
 // in the language the app shows.
-func AiCustom() string { return In(i18n.Locale()).AiCustom() }
-
-// AiCustom says "自定义"
-// in the language of msgs.
-func (msgs Messages) AiCustom() string {
-	return Catalog.Format(msgs.locale, "aiCustom", nil)
-}
+func AiCustom() string { return Catalog.Format(i18n.Locale(), "aiCustom", nil) }
 
 // AiEndpoint says "接口地址"
 // in the language the app shows.
-func AiEndpoint() string { return In(i18n.Locale()).AiEndpoint() }
-
-// AiEndpoint says "接口地址"
-// in the language of msgs.
-func (msgs Messages) AiEndpoint() string {
-	return Catalog.Format(msgs.locale, "aiEndpoint", nil)
-}
+func AiEndpoint() string { return Catalog.Format(i18n.Locale(), "aiEndpoint", nil) }
 
 // AiModel says "模型"
 // in the language the app shows.
-func AiModel() string { return In(i18n.Locale()).AiModel() }
-
-// AiModel says "模型"
-// in the language of msgs.
-func (msgs Messages) AiModel() string {
-	return Catalog.Format(msgs.locale, "aiModel", nil)
-}
+func AiModel() string { return Catalog.Format(i18n.Locale(), "aiModel", nil) }
 
 // AiFetchModelsLoading says "获取模型中…"
 // in the language the app shows.
-func AiFetchModelsLoading() string { return In(i18n.Locale()).AiFetchModelsLoading() }
-
-// AiFetchModelsLoading says "获取模型中…"
-// in the language of msgs.
-func (msgs Messages) AiFetchModelsLoading() string {
-	return Catalog.Format(msgs.locale, "aiFetchModelsLoading", nil)
-}
+func AiFetchModelsLoading() string { return Catalog.Format(i18n.Locale(), "aiFetchModelsLoading", nil) }
 
 // AiFetchModels says "获取模型"
 // in the language the app shows.
-func AiFetchModels() string { return In(i18n.Locale()).AiFetchModels() }
-
-// AiFetchModels says "获取模型"
-// in the language of msgs.
-func (msgs Messages) AiFetchModels() string {
-	return Catalog.Format(msgs.locale, "aiFetchModels", nil)
-}
+func AiFetchModels() string { return Catalog.Format(i18n.Locale(), "aiFetchModels", nil) }
 
 // AiRefreshModels says "刷新模型"
 // in the language the app shows.
-func AiRefreshModels() string { return In(i18n.Locale()).AiRefreshModels() }
-
-// AiRefreshModels says "刷新模型"
-// in the language of msgs.
-func (msgs Messages) AiRefreshModels() string {
-	return Catalog.Format(msgs.locale, "aiRefreshModels", nil)
-}
+func AiRefreshModels() string { return Catalog.Format(i18n.Locale(), "aiRefreshModels", nil) }
 
 // AiAvailableModels says "{count, number} 个可用模型"
 // in the language the app shows.
-func AiAvailableModels(count int) string { return In(i18n.Locale()).AiAvailableModels(count) }
-
-// AiAvailableModels says "{count, number} 个可用模型"
-// in the language of msgs.
-func (msgs Messages) AiAvailableModels(count int) string {
-	return Catalog.Format(msgs.locale, "aiAvailableModels", map[string]any{"count": count})
+func AiAvailableModels(count int) string {
+	return Catalog.Format(i18n.Locale(), "aiAvailableModels", map[string]any{"count": count})
 }
 
 // AiSystemPrompt says "系统提示"
 // in the language the app shows.
-func AiSystemPrompt() string { return In(i18n.Locale()).AiSystemPrompt() }
-
-// AiSystemPrompt says "系统提示"
-// in the language of msgs.
-func (msgs Messages) AiSystemPrompt() string {
-	return Catalog.Format(msgs.locale, "aiSystemPrompt", nil)
-}
+func AiSystemPrompt() string { return Catalog.Format(i18n.Locale(), "aiSystemPrompt", nil) }
 
 // AiSystemPromptDetail says "可选；每次对话都会放在最前面。"
 // in the language the app shows.
-func AiSystemPromptDetail() string { return In(i18n.Locale()).AiSystemPromptDetail() }
-
-// AiSystemPromptDetail says "可选；每次对话都会放在最前面。"
-// in the language of msgs.
-func (msgs Messages) AiSystemPromptDetail() string {
-	return Catalog.Format(msgs.locale, "aiSystemPromptDetail", nil)
-}
+func AiSystemPromptDetail() string { return Catalog.Format(i18n.Locale(), "aiSystemPromptDetail", nil) }
 
 // AiSaveModelSettings says "保存模型设置"
 // in the language the app shows.
-func AiSaveModelSettings() string { return In(i18n.Locale()).AiSaveModelSettings() }
-
-// AiSaveModelSettings says "保存模型设置"
-// in the language of msgs.
-func (msgs Messages) AiSaveModelSettings() string {
-	return Catalog.Format(msgs.locale, "aiSaveModelSettings", nil)
-}
+func AiSaveModelSettings() string { return Catalog.Format(i18n.Locale(), "aiSaveModelSettings", nil) }
 
 // AiModelSettingsSaved says "模型设置已保存"
 // in the language the app shows.
-func AiModelSettingsSaved() string { return In(i18n.Locale()).AiModelSettingsSaved() }
-
-// AiModelSettingsSaved says "模型设置已保存"
-// in the language of msgs.
-func (msgs Messages) AiModelSettingsSaved() string {
-	return Catalog.Format(msgs.locale, "aiModelSettingsSaved", nil)
-}
+func AiModelSettingsSaved() string { return Catalog.Format(i18n.Locale(), "aiModelSettingsSaved", nil) }
 
 // AiAgentCapabilities says "Agent 能力"
 // in the language the app shows.
-func AiAgentCapabilities() string { return In(i18n.Locale()).AiAgentCapabilities() }
-
-// AiAgentCapabilities says "Agent 能力"
-// in the language of msgs.
-func (msgs Messages) AiAgentCapabilities() string {
-	return Catalog.Format(msgs.locale, "aiAgentCapabilities", nil)
-}
+func AiAgentCapabilities() string { return Catalog.Format(i18n.Locale(), "aiAgentCapabilities", nil) }
 
 // AiBrowseSearch says "浏览与搜索"
 // in the language the app shows.
-func AiBrowseSearch() string { return In(i18n.Locale()).AiBrowseSearch() }
-
-// AiBrowseSearch says "浏览与搜索"
-// in the language of msgs.
-func (msgs Messages) AiBrowseSearch() string {
-	return Catalog.Format(msgs.locale, "aiBrowseSearch", nil)
-}
+func AiBrowseSearch() string { return Catalog.Format(i18n.Locale(), "aiBrowseSearch", nil) }
 
 // AiBrowseSearchDetail says "列出、读取、搜索文档，读大纲、目录结构与统计。"
 // in the language the app shows.
-func AiBrowseSearchDetail() string { return In(i18n.Locale()).AiBrowseSearchDetail() }
-
-// AiBrowseSearchDetail says "列出、读取、搜索文档，读大纲、目录结构与统计。"
-// in the language of msgs.
-func (msgs Messages) AiBrowseSearchDetail() string {
-	return Catalog.Format(msgs.locale, "aiBrowseSearchDetail", nil)
-}
+func AiBrowseSearchDetail() string { return Catalog.Format(i18n.Locale(), "aiBrowseSearchDetail", nil) }
 
 // AiAllowBrowseSearch says "允许浏览与搜索"
 // in the language the app shows.
-func AiAllowBrowseSearch() string { return In(i18n.Locale()).AiAllowBrowseSearch() }
-
-// AiAllowBrowseSearch says "允许浏览与搜索"
-// in the language of msgs.
-func (msgs Messages) AiAllowBrowseSearch() string {
-	return Catalog.Format(msgs.locale, "aiAllowBrowseSearch", nil)
-}
+func AiAllowBrowseSearch() string { return Catalog.Format(i18n.Locale(), "aiAllowBrowseSearch", nil) }
 
 // AiEditDocuments says "编辑文档内容"
 // in the language the app shows.
-func AiEditDocuments() string { return In(i18n.Locale()).AiEditDocuments() }
-
-// AiEditDocuments says "编辑文档内容"
-// in the language of msgs.
-func (msgs Messages) AiEditDocuments() string {
-	return Catalog.Format(msgs.locale, "aiEditDocuments", nil)
-}
+func AiEditDocuments() string { return Catalog.Format(i18n.Locale(), "aiEditDocuments", nil) }
 
 // AiEditDocumentsDetail says "精确替换与插入内容；执行前仍按权限预设确认。"
 // in the language the app shows.
-func AiEditDocumentsDetail() string { return In(i18n.Locale()).AiEditDocumentsDetail() }
-
-// AiEditDocumentsDetail says "精确替换与插入内容；执行前仍按权限预设确认。"
-// in the language of msgs.
-func (msgs Messages) AiEditDocumentsDetail() string {
-	return Catalog.Format(msgs.locale, "aiEditDocumentsDetail", nil)
+func AiEditDocumentsDetail() string {
+	return Catalog.Format(i18n.Locale(), "aiEditDocumentsDetail", nil)
 }
 
 // AiAllowEdit says "允许编辑"
 // in the language the app shows.
-func AiAllowEdit() string { return In(i18n.Locale()).AiAllowEdit() }
-
-// AiAllowEdit says "允许编辑"
-// in the language of msgs.
-func (msgs Messages) AiAllowEdit() string {
-	return Catalog.Format(msgs.locale, "aiAllowEdit", nil)
-}
+func AiAllowEdit() string { return Catalog.Format(i18n.Locale(), "aiAllowEdit", nil) }
 
 // AiManageFiles says "管理文件"
 // in the language the app shows.
-func AiManageFiles() string { return In(i18n.Locale()).AiManageFiles() }
-
-// AiManageFiles says "管理文件"
-// in the language of msgs.
-func (msgs Messages) AiManageFiles() string {
-	return Catalog.Format(msgs.locale, "aiManageFiles", nil)
-}
+func AiManageFiles() string { return Catalog.Format(i18n.Locale(), "aiManageFiles", nil) }
 
 // AiManageFilesDetail says "新建/写入文件、重命名、删除（进回收站）、新建文件夹。"
 // in the language the app shows.
-func AiManageFilesDetail() string { return In(i18n.Locale()).AiManageFilesDetail() }
-
-// AiManageFilesDetail says "新建/写入文件、重命名、删除（进回收站）、新建文件夹。"
-// in the language of msgs.
-func (msgs Messages) AiManageFilesDetail() string {
-	return Catalog.Format(msgs.locale, "aiManageFilesDetail", nil)
-}
+func AiManageFilesDetail() string { return Catalog.Format(i18n.Locale(), "aiManageFilesDetail", nil) }
 
 // AiAllowManageFiles says "允许管理文件"
 // in the language the app shows.
-func AiAllowManageFiles() string { return In(i18n.Locale()).AiAllowManageFiles() }
-
-// AiAllowManageFiles says "允许管理文件"
-// in the language of msgs.
-func (msgs Messages) AiAllowManageFiles() string {
-	return Catalog.Format(msgs.locale, "aiAllowManageFiles", nil)
-}
+func AiAllowManageFiles() string { return Catalog.Format(i18n.Locale(), "aiAllowManageFiles", nil) }
 
 // AiCapabilitiesDetail says "能力决定 Agent 有哪些工具；输入区底栏的权限预设决定执行前是否询问。切换立即保存。"
 // in the language the app shows.
-func AiCapabilitiesDetail() string { return In(i18n.Locale()).AiCapabilitiesDetail() }
-
-// AiCapabilitiesDetail says "能力决定 Agent 有哪些工具；输入区底栏的权限预设决定执行前是否询问。切换立即保存。"
-// in the language of msgs.
-func (msgs Messages) AiCapabilitiesDetail() string {
-	return Catalog.Format(msgs.locale, "aiCapabilitiesDetail", nil)
-}
+func AiCapabilitiesDetail() string { return Catalog.Format(i18n.Locale(), "aiCapabilitiesDetail", nil) }
 
 // NativeRenderingNote says "native 渲染与编辑器共用同一套颜色；切换后立即生效。"
 // in the language the app shows.
-func NativeRenderingNote() string { return In(i18n.Locale()).NativeRenderingNote() }
-
-// NativeRenderingNote says "native 渲染与编辑器共用同一套颜色；切换后立即生效。"
-// in the language of msgs.
-func (msgs Messages) NativeRenderingNote() string {
-	return Catalog.Format(msgs.locale, "nativeRenderingNote", nil)
-}
+func NativeRenderingNote() string { return Catalog.Format(i18n.Locale(), "nativeRenderingNote", nil) }
 
 // SettingsSmoothPageJumps says "页内跳转平滑滚动"
 // in the language the app shows.
-func SettingsSmoothPageJumps() string { return In(i18n.Locale()).SettingsSmoothPageJumps() }
-
-// SettingsSmoothPageJumps says "页内跳转平滑滚动"
-// in the language of msgs.
-func (msgs Messages) SettingsSmoothPageJumps() string {
-	return Catalog.Format(msgs.locale, "settingsSmoothPageJumps", nil)
+func SettingsSmoothPageJumps() string {
+	return Catalog.Format(i18n.Locale(), "settingsSmoothPageJumps", nil)
 }
 
 // SettingsSmoothPageJumpsDetail says "目录、脚注、搜索和页内链接的长距离跳转使用平滑滚动；短距离跳转保持即时。"
 // in the language the app shows.
-func SettingsSmoothPageJumpsDetail() string { return In(i18n.Locale()).SettingsSmoothPageJumpsDetail() }
-
-// SettingsSmoothPageJumpsDetail says "目录、脚注、搜索和页内链接的长距离跳转使用平滑滚动；短距离跳转保持即时。"
-// in the language of msgs.
-func (msgs Messages) SettingsSmoothPageJumpsDetail() string {
-	return Catalog.Format(msgs.locale, "settingsSmoothPageJumpsDetail", nil)
+func SettingsSmoothPageJumpsDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsSmoothPageJumpsDetail", nil)
 }
 
 // SettingsSmartTypography says "智能排版"
 // in the language the app shows.
-func SettingsSmartTypography() string { return In(i18n.Locale()).SettingsSmartTypography() }
-
-// SettingsSmartTypography says "智能排版"
-// in the language of msgs.
-func (msgs Messages) SettingsSmartTypography() string {
-	return Catalog.Format(msgs.locale, "settingsSmartTypography", nil)
+func SettingsSmartTypography() string {
+	return Catalog.Format(i18n.Locale(), "settingsSmartTypography", nil)
 }
 
 // SettingsSmartTypographyDetail says "自动优化换行与间距，让段落更易读。"
 // in the language the app shows.
-func SettingsSmartTypographyDetail() string { return In(i18n.Locale()).SettingsSmartTypographyDetail() }
-
-// SettingsSmartTypographyDetail says "自动优化换行与间距，让段落更易读。"
-// in the language of msgs.
-func (msgs Messages) SettingsSmartTypographyDetail() string {
-	return Catalog.Format(msgs.locale, "settingsSmartTypographyDetail", nil)
+func SettingsSmartTypographyDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsSmartTypographyDetail", nil)
 }
 
 // SettingsFontSize says "字号"
 // in the language the app shows.
-func SettingsFontSize() string { return In(i18n.Locale()).SettingsFontSize() }
-
-// SettingsFontSize says "字号"
-// in the language of msgs.
-func (msgs Messages) SettingsFontSize() string {
-	return Catalog.Format(msgs.locale, "settingsFontSize", nil)
-}
+func SettingsFontSize() string { return Catalog.Format(i18n.Locale(), "settingsFontSize", nil) }
 
 // SettingsFontSizeDetail says "编辑器正文的基准字号。"
 // in the language the app shows.
-func SettingsFontSizeDetail() string { return In(i18n.Locale()).SettingsFontSizeDetail() }
-
-// SettingsFontSizeDetail says "编辑器正文的基准字号。"
-// in the language of msgs.
-func (msgs Messages) SettingsFontSizeDetail() string {
-	return Catalog.Format(msgs.locale, "settingsFontSizeDetail", nil)
+func SettingsFontSizeDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsFontSizeDetail", nil)
 }
 
 // SettingsLineHeight says "行高"
 // in the language the app shows.
-func SettingsLineHeight() string { return In(i18n.Locale()).SettingsLineHeight() }
-
-// SettingsLineHeight says "行高"
-// in the language of msgs.
-func (msgs Messages) SettingsLineHeight() string {
-	return Catalog.Format(msgs.locale, "settingsLineHeight", nil)
-}
+func SettingsLineHeight() string { return Catalog.Format(i18n.Locale(), "settingsLineHeight", nil) }
 
 // SettingsLineHeightDetail says "正文的行距倍数。"
 // in the language the app shows.
-func SettingsLineHeightDetail() string { return In(i18n.Locale()).SettingsLineHeightDetail() }
-
-// SettingsLineHeightDetail says "正文的行距倍数。"
-// in the language of msgs.
-func (msgs Messages) SettingsLineHeightDetail() string {
-	return Catalog.Format(msgs.locale, "settingsLineHeightDetail", nil)
+func SettingsLineHeightDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsLineHeightDetail", nil)
 }
 
 // SettingsKeymapDetail says "Helix / Vim 基础键位；Esc 返回普通模式，i 开始输入。"
 // in the language the app shows.
-func SettingsKeymapDetail() string { return In(i18n.Locale()).SettingsKeymapDetail() }
-
-// SettingsKeymapDetail says "Helix / Vim 基础键位；Esc 返回普通模式，i 开始输入。"
-// in the language of msgs.
-func (msgs Messages) SettingsKeymapDetail() string {
-	return Catalog.Format(msgs.locale, "settingsKeymapDetail", nil)
-}
+func SettingsKeymapDetail() string { return Catalog.Format(i18n.Locale(), "settingsKeymapDetail", nil) }
 
 // SettingsCursorFade says "光标淡入淡出"
 // in the language the app shows.
-func SettingsCursorFade() string { return In(i18n.Locale()).SettingsCursorFade() }
-
-// SettingsCursorFade says "光标淡入淡出"
-// in the language of msgs.
-func (msgs Messages) SettingsCursorFade() string {
-	return Catalog.Format(msgs.locale, "settingsCursorFade", nil)
-}
+func SettingsCursorFade() string { return Catalog.Format(i18n.Locale(), "settingsCursorFade", nil) }
 
 // SettingsCursorFadeDetail says "光标闪烁时使用柔和的淡入淡出过渡。"
 // in the language the app shows.
-func SettingsCursorFadeDetail() string { return In(i18n.Locale()).SettingsCursorFadeDetail() }
-
-// SettingsCursorFadeDetail says "光标闪烁时使用柔和的淡入淡出过渡。"
-// in the language of msgs.
-func (msgs Messages) SettingsCursorFadeDetail() string {
-	return Catalog.Format(msgs.locale, "settingsCursorFadeDetail", nil)
+func SettingsCursorFadeDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsCursorFadeDetail", nil)
 }
 
 // SettingsHideMouseCursor says "隐藏鼠标指针"
 // in the language the app shows.
-func SettingsHideMouseCursor() string { return In(i18n.Locale()).SettingsHideMouseCursor() }
-
-// SettingsHideMouseCursor says "隐藏鼠标指针"
-// in the language of msgs.
-func (msgs Messages) SettingsHideMouseCursor() string {
-	return Catalog.Format(msgs.locale, "settingsHideMouseCursor", nil)
+func SettingsHideMouseCursor() string {
+	return Catalog.Format(i18n.Locale(), "settingsHideMouseCursor", nil)
 }
 
 // SettingsHideMouseCursorDetail says "输入或 Vim / Helix 按键操作时暂时隐藏鼠标指针。"
 // in the language the app shows.
-func SettingsHideMouseCursorDetail() string { return In(i18n.Locale()).SettingsHideMouseCursorDetail() }
-
-// SettingsHideMouseCursorDetail says "输入或 Vim / Helix 按键操作时暂时隐藏鼠标指针。"
-// in the language of msgs.
-func (msgs Messages) SettingsHideMouseCursorDetail() string {
-	return Catalog.Format(msgs.locale, "settingsHideMouseCursorDetail", nil)
+func SettingsHideMouseCursorDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsHideMouseCursorDetail", nil)
 }
 
 // SettingsSmoothCursor says "平滑光标"
 // in the language the app shows.
-func SettingsSmoothCursor() string { return In(i18n.Locale()).SettingsSmoothCursor() }
-
-// SettingsSmoothCursor says "平滑光标"
-// in the language of msgs.
-func (msgs Messages) SettingsSmoothCursor() string {
-	return Catalog.Format(msgs.locale, "settingsSmoothCursor", nil)
-}
+func SettingsSmoothCursor() string { return Catalog.Format(i18n.Locale(), "settingsSmoothCursor", nil) }
 
 // SettingsSmoothCursorDetail says "在 Vim / Helix 模式下平滑移动光标。"
 // in the language the app shows.
-func SettingsSmoothCursorDetail() string { return In(i18n.Locale()).SettingsSmoothCursorDetail() }
-
-// SettingsSmoothCursorDetail says "在 Vim / Helix 模式下平滑移动光标。"
-// in the language of msgs.
-func (msgs Messages) SettingsSmoothCursorDetail() string {
-	return Catalog.Format(msgs.locale, "settingsSmoothCursorDetail", nil)
+func SettingsSmoothCursorDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsSmoothCursorDetail", nil)
 }
 
 // SettingsEditorGroup says "编辑器"
 // in the language the app shows.
-func SettingsEditorGroup() string { return In(i18n.Locale()).SettingsEditorGroup() }
-
-// SettingsEditorGroup says "编辑器"
-// in the language of msgs.
-func (msgs Messages) SettingsEditorGroup() string {
-	return Catalog.Format(msgs.locale, "settingsEditorGroup", nil)
-}
+func SettingsEditorGroup() string { return Catalog.Format(i18n.Locale(), "settingsEditorGroup", nil) }
 
 // SettingsHeadingMarkerReveal says "标题标记按空格展开"
 // in the language the app shows.
-func SettingsHeadingMarkerReveal() string { return In(i18n.Locale()).SettingsHeadingMarkerReveal() }
-
-// SettingsHeadingMarkerReveal says "标题标记按空格展开"
-// in the language of msgs.
-func (msgs Messages) SettingsHeadingMarkerReveal() string {
-	return Catalog.Format(msgs.locale, "settingsHeadingMarkerReveal", nil)
+func SettingsHeadingMarkerReveal() string {
+	return Catalog.Format(i18n.Locale(), "settingsHeadingMarkerReveal", nil)
 }
 
 // SettingsHeadingMarkerRevealDetail says "开启后，光标停在标题文字时保持折叠；左移进入“# …"
 // in the language the app shows.
 func SettingsHeadingMarkerRevealDetail() string {
-	return In(i18n.Locale()).SettingsHeadingMarkerRevealDetail()
-}
-
-// SettingsHeadingMarkerRevealDetail says "开启后，光标停在标题文字时保持折叠；左移进入“# …"
-// in the language of msgs.
-func (msgs Messages) SettingsHeadingMarkerRevealDetail() string {
-	return Catalog.Format(msgs.locale, "settingsHeadingMarkerRevealDetail", nil)
+	return Catalog.Format(i18n.Locale(), "settingsHeadingMarkerRevealDetail", nil)
 }
 
 // SettingsSourceReveal says "源码展开偏好"
 // in the language the app shows.
-func SettingsSourceReveal() string { return In(i18n.Locale()).SettingsSourceReveal() }
-
-// SettingsSourceReveal says "源码展开偏好"
-// in the language of msgs.
-func (msgs Messages) SettingsSourceReveal() string {
-	return Catalog.Format(msgs.locale, "settingsSourceReveal", nil)
-}
+func SettingsSourceReveal() string { return Catalog.Format(i18n.Locale(), "settingsSourceReveal", nil) }
 
 // SettingsSourceRevealDetail says "编辑器会在需要时于光标附近展开 Markdown 源码。当前策略暂不支持自定义。"
 // in the language the app shows.
-func SettingsSourceRevealDetail() string { return In(i18n.Locale()).SettingsSourceRevealDetail() }
-
-// SettingsSourceRevealDetail says "编辑器会在需要时于光标附近展开 Markdown 源码。当前策略暂不支持自定义。"
-// in the language of msgs.
-func (msgs Messages) SettingsSourceRevealDetail() string {
-	return Catalog.Format(msgs.locale, "settingsSourceRevealDetail", nil)
+func SettingsSourceRevealDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsSourceRevealDetail", nil)
 }
 
 // SettingsVimImageRows says "Vim 图片虚拟行"
 // in the language the app shows.
-func SettingsVimImageRows() string { return In(i18n.Locale()).SettingsVimImageRows() }
-
-// SettingsVimImageRows says "Vim 图片虚拟行"
-// in the language of msgs.
-func (msgs Messages) SettingsVimImageRows() string {
-	return Catalog.Format(msgs.locale, "settingsVimImageRows", nil)
-}
+func SettingsVimImageRows() string { return Catalog.Format(i18n.Locale(), "settingsVimImageRows", nil) }
 
 // SettingsVimImageRowsDetail says "按图片显示高度提供平滑的 Vim 上下导航；行操作与选择仍作用于整张图片。仅在 Vim …"
 // in the language the app shows.
-func SettingsVimImageRowsDetail() string { return In(i18n.Locale()).SettingsVimImageRowsDetail() }
-
-// SettingsVimImageRowsDetail says "按图片显示高度提供平滑的 Vim 上下导航；行操作与选择仍作用于整张图片。仅在 Vim …"
-// in the language of msgs.
-func (msgs Messages) SettingsVimImageRowsDetail() string {
-	return Catalog.Format(msgs.locale, "settingsVimImageRowsDetail", nil)
+func SettingsVimImageRowsDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsVimImageRowsDetail", nil)
 }
 
 // SettingsVimYankFlash says "Vim 复制选区闪显"
 // in the language the app shows.
-func SettingsVimYankFlash() string { return In(i18n.Locale()).SettingsVimYankFlash() }
-
-// SettingsVimYankFlash says "Vim 复制选区闪显"
-// in the language of msgs.
-func (msgs Messages) SettingsVimYankFlash() string {
-	return Catalog.Format(msgs.locale, "settingsVimYankFlash", nil)
-}
+func SettingsVimYankFlash() string { return Catalog.Format(i18n.Locale(), "settingsVimYankFlash", nil) }
 
 // SettingsVimYankFlashDetail says "使用 y 复制选区后短暂闪显被复制的范围。仅在 Vim 模式生效。"
 // in the language the app shows.
-func SettingsVimYankFlashDetail() string { return In(i18n.Locale()).SettingsVimYankFlashDetail() }
-
-// SettingsVimYankFlashDetail says "使用 y 复制选区后短暂闪显被复制的范围。仅在 Vim 模式生效。"
-// in the language of msgs.
-func (msgs Messages) SettingsVimYankFlashDetail() string {
-	return Catalog.Format(msgs.locale, "settingsVimYankFlashDetail", nil)
+func SettingsVimYankFlashDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsVimYankFlashDetail", nil)
 }
 
 // SettingsSearchMatchPulse says "搜索命中轻微动效"
 // in the language the app shows.
-func SettingsSearchMatchPulse() string { return In(i18n.Locale()).SettingsSearchMatchPulse() }
-
-// SettingsSearchMatchPulse says "搜索命中轻微动效"
-// in the language of msgs.
-func (msgs Messages) SettingsSearchMatchPulse() string {
-	return Catalog.Format(msgs.locale, "settingsSearchMatchPulse", nil)
+func SettingsSearchMatchPulse() string {
+	return Catalog.Format(i18n.Locale(), "settingsSearchMatchPulse", nil)
 }
 
 // SettingsSearchMatchPulseDetail says "定位到新的当前匹配时，短暂显示轻微弹跳。"
 // in the language the app shows.
 func SettingsSearchMatchPulseDetail() string {
-	return In(i18n.Locale()).SettingsSearchMatchPulseDetail()
-}
-
-// SettingsSearchMatchPulseDetail says "定位到新的当前匹配时，短暂显示轻微弹跳。"
-// in the language of msgs.
-func (msgs Messages) SettingsSearchMatchPulseDetail() string {
-	return Catalog.Format(msgs.locale, "settingsSearchMatchPulseDetail", nil)
+	return Catalog.Format(i18n.Locale(), "settingsSearchMatchPulseDetail", nil)
 }
 
 // SettingsHeaderFadeDetail says "…"
 // in the language the app shows.
-func SettingsHeaderFadeDetail() string { return In(i18n.Locale()).SettingsHeaderFadeDetail() }
-
-// SettingsHeaderFadeDetail says "…"
-// in the language of msgs.
-func (msgs Messages) SettingsHeaderFadeDetail() string {
-	return Catalog.Format(msgs.locale, "settingsHeaderFadeDetail", nil)
+func SettingsHeaderFadeDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsHeaderFadeDetail", nil)
 }
 
 // EditorVimSearch says "Vim 搜索"
 // in the language the app shows.
-func EditorVimSearch() string { return In(i18n.Locale()).EditorVimSearch() }
-
-// EditorVimSearch says "Vim 搜索"
-// in the language of msgs.
-func (msgs Messages) EditorVimSearch() string {
-	return Catalog.Format(msgs.locale, "editorVimSearch", nil)
-}
+func EditorVimSearch() string { return Catalog.Format(i18n.Locale(), "editorVimSearch", nil) }
 
 // EditorHeadingNavigation says "标题导航"
 // in the language the app shows.
-func EditorHeadingNavigation() string { return In(i18n.Locale()).EditorHeadingNavigation() }
-
-// EditorHeadingNavigation says "标题导航"
-// in the language of msgs.
-func (msgs Messages) EditorHeadingNavigation() string {
-	return Catalog.Format(msgs.locale, "editorHeadingNavigation", nil)
+func EditorHeadingNavigation() string {
+	return Catalog.Format(i18n.Locale(), "editorHeadingNavigation", nil)
 }
 
 // EditorTableColumnAlignment says "列对齐"
 // in the language the app shows.
-func EditorTableColumnAlignment() string { return In(i18n.Locale()).EditorTableColumnAlignment() }
-
-// EditorTableColumnAlignment says "列对齐"
-// in the language of msgs.
-func (msgs Messages) EditorTableColumnAlignment() string {
-	return Catalog.Format(msgs.locale, "editorTableColumnAlignment", nil)
+func EditorTableColumnAlignment() string {
+	return Catalog.Format(i18n.Locale(), "editorTableColumnAlignment", nil)
 }
 
 // EditorWikiLinkSuggestions says "笔记链接建议"
 // in the language the app shows.
-func EditorWikiLinkSuggestions() string { return In(i18n.Locale()).EditorWikiLinkSuggestions() }
-
-// EditorWikiLinkSuggestions says "笔记链接建议"
-// in the language of msgs.
-func (msgs Messages) EditorWikiLinkSuggestions() string {
-	return Catalog.Format(msgs.locale, "editorWikiLinkSuggestions", nil)
+func EditorWikiLinkSuggestions() string {
+	return Catalog.Format(i18n.Locale(), "editorWikiLinkSuggestions", nil)
 }
 
 // DiagramCellLabel says "单元格"
 // in the language the app shows.
-func DiagramCellLabel() string { return In(i18n.Locale()).DiagramCellLabel() }
-
-// DiagramCellLabel says "单元格"
-// in the language of msgs.
-func (msgs Messages) DiagramCellLabel() string {
-	return Catalog.Format(msgs.locale, "diagramCellLabel", nil)
-}
+func DiagramCellLabel() string { return Catalog.Format(i18n.Locale(), "diagramCellLabel", nil) }
 
 // EditorDiagramPreviewAction says "预览图表"
 // in the language the app shows.
-func EditorDiagramPreviewAction() string { return In(i18n.Locale()).EditorDiagramPreviewAction() }
-
-// EditorDiagramPreviewAction says "预览图表"
-// in the language of msgs.
-func (msgs Messages) EditorDiagramPreviewAction() string {
-	return Catalog.Format(msgs.locale, "editorDiagramPreviewAction", nil)
+func EditorDiagramPreviewAction() string {
+	return Catalog.Format(i18n.Locale(), "editorDiagramPreviewAction", nil)
 }
 
 // DocumentInserted says "已插入文档"
 // in the language the app shows.
-func DocumentInserted() string { return In(i18n.Locale()).DocumentInserted() }
-
-// DocumentInserted says "已插入文档"
-// in the language of msgs.
-func (msgs Messages) DocumentInserted() string {
-	return Catalog.Format(msgs.locale, "documentInserted", nil)
-}
+func DocumentInserted() string { return Catalog.Format(i18n.Locale(), "documentInserted", nil) }
 
 // DocumentInsertedAtStart says "已插入到文档开头"
 // in the language the app shows.
-func DocumentInsertedAtStart() string { return In(i18n.Locale()).DocumentInsertedAtStart() }
-
-// DocumentInsertedAtStart says "已插入到文档开头"
-// in the language of msgs.
-func (msgs Messages) DocumentInsertedAtStart() string {
-	return Catalog.Format(msgs.locale, "documentInsertedAtStart", nil)
+func DocumentInsertedAtStart() string {
+	return Catalog.Format(i18n.Locale(), "documentInsertedAtStart", nil)
 }
 
 // AiSetupModelTitle says "先设置模型"
 // in the language the app shows.
-func AiSetupModelTitle() string { return In(i18n.Locale()).AiSetupModelTitle() }
-
-// AiSetupModelTitle says "先设置模型"
-// in the language of msgs.
-func (msgs Messages) AiSetupModelTitle() string {
-	return Catalog.Format(msgs.locale, "aiSetupModelTitle", nil)
-}
+func AiSetupModelTitle() string { return Catalog.Format(i18n.Locale(), "aiSetupModelTitle", nil) }
 
 // AiSetupModelDetail says "Muse 使用 OpenAI 兼容的接口，密钥只保存在本机。"
 // in the language the app shows.
-func AiSetupModelDetail() string { return In(i18n.Locale()).AiSetupModelDetail() }
-
-// AiSetupModelDetail says "Muse 使用 OpenAI 兼容的接口，密钥只保存在本机。"
-// in the language of msgs.
-func (msgs Messages) AiSetupModelDetail() string {
-	return Catalog.Format(msgs.locale, "aiSetupModelDetail", nil)
-}
+func AiSetupModelDetail() string { return Catalog.Format(i18n.Locale(), "aiSetupModelDetail", nil) }
 
 // AiChatWelcomeTitle says "问问 Muse 的 Agent"
 // in the language the app shows.
-func AiChatWelcomeTitle() string { return In(i18n.Locale()).AiChatWelcomeTitle() }
-
-// AiChatWelcomeTitle says "问问 Muse 的 Agent"
-// in the language of msgs.
-func (msgs Messages) AiChatWelcomeTitle() string {
-	return Catalog.Format(msgs.locale, "aiChatWelcomeTitle", nil)
-}
+func AiChatWelcomeTitle() string { return Catalog.Format(i18n.Locale(), "aiChatWelcomeTitle", nil) }
 
 // AiChatWelcomeDetail says "它可以浏览、搜索和编辑工作区里的文档。"
 // in the language the app shows.
-func AiChatWelcomeDetail() string { return In(i18n.Locale()).AiChatWelcomeDetail() }
-
-// AiChatWelcomeDetail says "它可以浏览、搜索和编辑工作区里的文档。"
-// in the language of msgs.
-func (msgs Messages) AiChatWelcomeDetail() string {
-	return Catalog.Format(msgs.locale, "aiChatWelcomeDetail", nil)
-}
+func AiChatWelcomeDetail() string { return Catalog.Format(i18n.Locale(), "aiChatWelcomeDetail", nil) }
 
 // AiApproveChange says "同意修改"
 // in the language the app shows.
-func AiApproveChange() string { return In(i18n.Locale()).AiApproveChange() }
-
-// AiApproveChange says "同意修改"
-// in the language of msgs.
-func (msgs Messages) AiApproveChange() string {
-	return Catalog.Format(msgs.locale, "aiApproveChange", nil)
-}
+func AiApproveChange() string { return Catalog.Format(i18n.Locale(), "aiApproveChange", nil) }
 
 // AiAlwaysAllow says "总是允许"
 // in the language the app shows.
-func AiAlwaysAllow() string { return In(i18n.Locale()).AiAlwaysAllow() }
-
-// AiAlwaysAllow says "总是允许"
-// in the language of msgs.
-func (msgs Messages) AiAlwaysAllow() string {
-	return Catalog.Format(msgs.locale, "aiAlwaysAllow", nil)
-}
+func AiAlwaysAllow() string { return Catalog.Format(i18n.Locale(), "aiAlwaysAllow", nil) }
 
 // CommonReject says "拒绝"
 // in the language the app shows.
-func CommonReject() string { return In(i18n.Locale()).CommonReject() }
-
-// CommonReject says "拒绝"
-// in the language of msgs.
-func (msgs Messages) CommonReject() string {
-	return Catalog.Format(msgs.locale, "commonReject", nil)
-}
+func CommonReject() string { return Catalog.Format(i18n.Locale(), "commonReject", nil) }
 
 // AiPromptPlaceholder says "让 Agent 总结、改写或编辑这篇文档…"
 // in the language the app shows.
-func AiPromptPlaceholder() string { return In(i18n.Locale()).AiPromptPlaceholder() }
-
-// AiPromptPlaceholder says "让 Agent 总结、改写或编辑这篇文档…"
-// in the language of msgs.
-func (msgs Messages) AiPromptPlaceholder() string {
-	return Catalog.Format(msgs.locale, "aiPromptPlaceholder", nil)
-}
+func AiPromptPlaceholder() string { return Catalog.Format(i18n.Locale(), "aiPromptPlaceholder", nil) }
 
 // CommonSend says "发送"
 // in the language the app shows.
-func CommonSend() string { return In(i18n.Locale()).CommonSend() }
-
-// CommonSend says "发送"
-// in the language of msgs.
-func (msgs Messages) CommonSend() string {
-	return Catalog.Format(msgs.locale, "commonSend", nil)
-}
+func CommonSend() string { return Catalog.Format(i18n.Locale(), "commonSend", nil) }
 
 // CommonStop says "停止"
 // in the language the app shows.
-func CommonStop() string { return In(i18n.Locale()).CommonStop() }
-
-// CommonStop says "停止"
-// in the language of msgs.
-func (msgs Messages) CommonStop() string {
-	return Catalog.Format(msgs.locale, "commonStop", nil)
-}
+func CommonStop() string { return Catalog.Format(i18n.Locale(), "commonStop", nil) }
 
 // SidebarLabel says "侧栏"
 // in the language the app shows.
-func SidebarLabel() string { return In(i18n.Locale()).SidebarLabel() }
-
-// SidebarLabel says "侧栏"
-// in the language of msgs.
-func (msgs Messages) SidebarLabel() string {
-	return Catalog.Format(msgs.locale, "sidebarLabel", nil)
-}
+func SidebarLabel() string { return Catalog.Format(i18n.Locale(), "sidebarLabel", nil) }
 
 // SidebarResize says "调整面板宽度"
 // in the language the app shows.
-func SidebarResize() string { return In(i18n.Locale()).SidebarResize() }
-
-// SidebarResize says "调整面板宽度"
-// in the language of msgs.
-func (msgs Messages) SidebarResize() string {
-	return Catalog.Format(msgs.locale, "sidebarResize", nil)
-}
+func SidebarResize() string { return Catalog.Format(i18n.Locale(), "sidebarResize", nil) }
 
 // SidebarHandle says "侧栏把手"
 // in the language the app shows.
-func SidebarHandle() string { return In(i18n.Locale()).SidebarHandle() }
-
-// SidebarHandle says "侧栏把手"
-// in the language of msgs.
-func (msgs Messages) SidebarHandle() string {
-	return Catalog.Format(msgs.locale, "sidebarHandle", nil)
-}
+func SidebarHandle() string { return Catalog.Format(i18n.Locale(), "sidebarHandle", nil) }
 
 // ToolbarBack says "后退"
 // in the language the app shows.
-func ToolbarBack() string { return In(i18n.Locale()).ToolbarBack() }
-
-// ToolbarBack says "后退"
-// in the language of msgs.
-func (msgs Messages) ToolbarBack() string {
-	return Catalog.Format(msgs.locale, "toolbarBack", nil)
-}
+func ToolbarBack() string { return Catalog.Format(i18n.Locale(), "toolbarBack", nil) }
 
 // ToolbarForward says "前进"
 // in the language the app shows.
-func ToolbarForward() string { return In(i18n.Locale()).ToolbarForward() }
-
-// ToolbarForward says "前进"
-// in the language of msgs.
-func (msgs Messages) ToolbarForward() string {
-	return Catalog.Format(msgs.locale, "toolbarForward", nil)
-}
+func ToolbarForward() string { return Catalog.Format(i18n.Locale(), "toolbarForward", nil) }
 
 // ToolbarGlobalPreview says "全局预览"
 // in the language the app shows.
-func ToolbarGlobalPreview() string { return In(i18n.Locale()).ToolbarGlobalPreview() }
-
-// ToolbarGlobalPreview says "全局预览"
-// in the language of msgs.
-func (msgs Messages) ToolbarGlobalPreview() string {
-	return Catalog.Format(msgs.locale, "toolbarGlobalPreview", nil)
-}
+func ToolbarGlobalPreview() string { return Catalog.Format(i18n.Locale(), "toolbarGlobalPreview", nil) }
 
 // WorkspaceLabel says "工作区"
 // in the language the app shows.
-func WorkspaceLabel() string { return In(i18n.Locale()).WorkspaceLabel() }
-
-// WorkspaceLabel says "工作区"
-// in the language of msgs.
-func (msgs Messages) WorkspaceLabel() string {
-	return Catalog.Format(msgs.locale, "workspaceLabel", nil)
-}
+func WorkspaceLabel() string { return Catalog.Format(i18n.Locale(), "workspaceLabel", nil) }
 
 // DocumentNew says "新建文档"
 // in the language the app shows.
-func DocumentNew() string { return In(i18n.Locale()).DocumentNew() }
-
-// DocumentNew says "新建文档"
-// in the language of msgs.
-func (msgs Messages) DocumentNew() string {
-	return Catalog.Format(msgs.locale, "documentNew", nil)
-}
+func DocumentNew() string { return Catalog.Format(i18n.Locale(), "documentNew", nil) }
 
 // DocumentNewMenu says "新建菜单"
 // in the language the app shows.
-func DocumentNewMenu() string { return In(i18n.Locale()).DocumentNewMenu() }
-
-// DocumentNewMenu says "新建菜单"
-// in the language of msgs.
-func (msgs Messages) DocumentNewMenu() string {
-	return Catalog.Format(msgs.locale, "documentNewMenu", nil)
-}
+func DocumentNewMenu() string { return Catalog.Format(i18n.Locale(), "documentNewMenu", nil) }
 
 // FilesBackToTree says "返回文件树"
 // in the language the app shows.
-func FilesBackToTree() string { return In(i18n.Locale()).FilesBackToTree() }
-
-// FilesBackToTree says "返回文件树"
-// in the language of msgs.
-func (msgs Messages) FilesBackToTree() string {
-	return Catalog.Format(msgs.locale, "filesBackToTree", nil)
-}
+func FilesBackToTree() string { return Catalog.Format(i18n.Locale(), "filesBackToTree", nil) }
 
 // FilesNoEditableText says "没有可编辑的文本文件"
 // in the language the app shows.
-func FilesNoEditableText() string { return In(i18n.Locale()).FilesNoEditableText() }
-
-// FilesNoEditableText says "没有可编辑的文本文件"
-// in the language of msgs.
-func (msgs Messages) FilesNoEditableText() string {
-	return Catalog.Format(msgs.locale, "filesNoEditableText", nil)
-}
+func FilesNoEditableText() string { return Catalog.Format(i18n.Locale(), "filesNoEditableText", nil) }
 
 // FilesEditableTypes says "支持 md / txt / json 等文本类型"
 // in the language the app shows.
-func FilesEditableTypes() string { return In(i18n.Locale()).FilesEditableTypes() }
-
-// FilesEditableTypes says "支持 md / txt / json 等文本类型"
-// in the language of msgs.
-func (msgs Messages) FilesEditableTypes() string {
-	return Catalog.Format(msgs.locale, "filesEditableTypes", nil)
-}
+func FilesEditableTypes() string { return Catalog.Format(i18n.Locale(), "filesEditableTypes", nil) }
 
 // FilesTreeLabel says "文件树"
 // in the language the app shows.
-func FilesTreeLabel() string { return In(i18n.Locale()).FilesTreeLabel() }
-
-// FilesTreeLabel says "文件树"
-// in the language of msgs.
-func (msgs Messages) FilesTreeLabel() string {
-	return Catalog.Format(msgs.locale, "filesTreeLabel", nil)
-}
+func FilesTreeLabel() string { return Catalog.Format(i18n.Locale(), "filesTreeLabel", nil) }
 
 // FilesCutHint says "剪切项目提示"
 // in the language the app shows.
-func FilesCutHint() string { return In(i18n.Locale()).FilesCutHint() }
-
-// FilesCutHint says "剪切项目提示"
-// in the language of msgs.
-func (msgs Messages) FilesCutHint() string {
-	return Catalog.Format(msgs.locale, "filesCutHint", nil)
-}
+func FilesCutHint() string { return Catalog.Format(i18n.Locale(), "filesCutHint", nil) }
 
 // FilesCut says "剪切"
 // in the language the app shows.
-func FilesCut() string { return In(i18n.Locale()).FilesCut() }
-
-// FilesCut says "剪切"
-// in the language of msgs.
-func (msgs Messages) FilesCut() string {
-	return Catalog.Format(msgs.locale, "filesCut", nil)
-}
+func FilesCut() string { return Catalog.Format(i18n.Locale(), "filesCut", nil) }
 
 // FilesMoveToTrash says "移到废纸篓"
 // in the language the app shows.
-func FilesMoveToTrash() string { return In(i18n.Locale()).FilesMoveToTrash() }
-
-// FilesMoveToTrash says "移到废纸篓"
-// in the language of msgs.
-func (msgs Messages) FilesMoveToTrash() string {
-	return Catalog.Format(msgs.locale, "filesMoveToTrash", nil)
-}
+func FilesMoveToTrash() string { return Catalog.Format(i18n.Locale(), "filesMoveToTrash", nil) }
 
 // FilesReadDropFailed says "无法读取拖入项目"
 // in the language the app shows.
-func FilesReadDropFailed() string { return In(i18n.Locale()).FilesReadDropFailed() }
-
-// FilesReadDropFailed says "无法读取拖入项目"
-// in the language of msgs.
-func (msgs Messages) FilesReadDropFailed() string {
-	return Catalog.Format(msgs.locale, "filesReadDropFailed", nil)
-}
+func FilesReadDropFailed() string { return Catalog.Format(i18n.Locale(), "filesReadDropFailed", nil) }
 
 // DocumentNoHeading says "这篇文档还没有标题"
 // in the language the app shows.
-func DocumentNoHeading() string { return In(i18n.Locale()).DocumentNoHeading() }
-
-// DocumentNoHeading says "这篇文档还没有标题"
-// in the language of msgs.
-func (msgs Messages) DocumentNoHeading() string {
-	return Catalog.Format(msgs.locale, "documentNoHeading", nil)
-}
+func DocumentNoHeading() string { return Catalog.Format(i18n.Locale(), "documentNoHeading", nil) }
 
 // WorkspaceSearchPlaceholder says "搜索笔记库…"
 // in the language the app shows.
-func WorkspaceSearchPlaceholder() string { return In(i18n.Locale()).WorkspaceSearchPlaceholder() }
-
-// WorkspaceSearchPlaceholder says "搜索笔记库…"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchPlaceholder() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchPlaceholder", nil)
+func WorkspaceSearchPlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "workspaceSearchPlaceholder", nil)
 }
 
 // WorkspaceRecentEmpty says "最近没有打开的笔记"
 // in the language the app shows.
-func WorkspaceRecentEmpty() string { return In(i18n.Locale()).WorkspaceRecentEmpty() }
-
-// WorkspaceRecentEmpty says "最近没有打开的笔记"
-// in the language of msgs.
-func (msgs Messages) WorkspaceRecentEmpty() string {
-	return Catalog.Format(msgs.locale, "workspaceRecentEmpty", nil)
-}
+func WorkspaceRecentEmpty() string { return Catalog.Format(i18n.Locale(), "workspaceRecentEmpty", nil) }
 
 // WorkspaceSearchHint says "先打开一个笔记文件夹，再搜索整个笔记库"
 // in the language the app shows.
-func WorkspaceSearchHint() string { return In(i18n.Locale()).WorkspaceSearchHint() }
-
-// WorkspaceSearchHint says "先打开一个笔记文件夹，再搜索整个笔记库"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchHint() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchHint", nil)
-}
+func WorkspaceSearchHint() string { return Catalog.Format(i18n.Locale(), "workspaceSearchHint", nil) }
 
 // SearchMatchCount says "{count, plural, other {# 处匹配}}"
 // in the language the app shows.
-func SearchMatchCount(count int) string { return In(i18n.Locale()).SearchMatchCount(count) }
-
-// SearchMatchCount says "{count, plural, other {# 处匹配}}"
-// in the language of msgs.
-func (msgs Messages) SearchMatchCount(count int) string {
-	return Catalog.Format(msgs.locale, "searchMatchCount", map[string]any{"count": count})
+func SearchMatchCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "searchMatchCount", map[string]any{"count": count})
 }
 
 // WorkspaceNoteCount says "{count, plural, other {# 篇笔记}}"
 // in the language the app shows.
-func WorkspaceNoteCount(count int) string { return In(i18n.Locale()).WorkspaceNoteCount(count) }
-
-// WorkspaceNoteCount says "{count, plural, other {# 篇笔记}}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceNoteCount(count int) string {
-	return Catalog.Format(msgs.locale, "workspaceNoteCount", map[string]any{"count": count})
+func WorkspaceNoteCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "workspaceNoteCount", map[string]any{"count": count})
 }
 
 // WorkspaceRecentNotes says "最近笔记"
 // in the language the app shows.
-func WorkspaceRecentNotes() string { return In(i18n.Locale()).WorkspaceRecentNotes() }
-
-// WorkspaceRecentNotes says "最近笔记"
-// in the language of msgs.
-func (msgs Messages) WorkspaceRecentNotes() string {
-	return Catalog.Format(msgs.locale, "workspaceRecentNotes", nil)
-}
+func WorkspaceRecentNotes() string { return Catalog.Format(i18n.Locale(), "workspaceRecentNotes", nil) }
 
 // WorkspaceQuickKeys says "↑↓ / Ctrl+N/P 选择   ↵ 打开   Esc 关闭"
 // in the language the app shows.
-func WorkspaceQuickKeys() string { return In(i18n.Locale()).WorkspaceQuickKeys() }
-
-// WorkspaceQuickKeys says "↑↓ / Ctrl+N/P 选择   ↵ 打开   Esc 关闭"
-// in the language of msgs.
-func (msgs Messages) WorkspaceQuickKeys() string {
-	return Catalog.Format(msgs.locale, "workspaceQuickKeys", nil)
-}
+func WorkspaceQuickKeys() string { return Catalog.Format(i18n.Locale(), "workspaceQuickKeys", nil) }
 
 // DocumentFind says "查找"
 // in the language the app shows.
-func DocumentFind() string { return In(i18n.Locale()).DocumentFind() }
-
-// DocumentFind says "查找"
-// in the language of msgs.
-func (msgs Messages) DocumentFind() string {
-	return Catalog.Format(msgs.locale, "documentFind", nil)
-}
+func DocumentFind() string { return Catalog.Format(i18n.Locale(), "documentFind", nil) }
 
 // DocumentFindPlaceholder says "在当前文档中查找"
 // in the language the app shows.
-func DocumentFindPlaceholder() string { return In(i18n.Locale()).DocumentFindPlaceholder() }
-
-// DocumentFindPlaceholder says "在当前文档中查找"
-// in the language of msgs.
-func (msgs Messages) DocumentFindPlaceholder() string {
-	return Catalog.Format(msgs.locale, "documentFindPlaceholder", nil)
+func DocumentFindPlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "documentFindPlaceholder", nil)
 }
 
 // DocumentFindHint says "输入关键词，点击结果跳到对应位置"
 // in the language the app shows.
-func DocumentFindHint() string { return In(i18n.Locale()).DocumentFindHint() }
-
-// DocumentFindHint says "输入关键词，点击结果跳到对应位置"
-// in the language of msgs.
-func (msgs Messages) DocumentFindHint() string {
-	return Catalog.Format(msgs.locale, "documentFindHint", nil)
-}
+func DocumentFindHint() string { return Catalog.Format(i18n.Locale(), "documentFindHint", nil) }
 
 // SearchNoMatches says "没有匹配"
 // in the language the app shows.
-func SearchNoMatches() string { return In(i18n.Locale()).SearchNoMatches() }
-
-// SearchNoMatches says "没有匹配"
-// in the language of msgs.
-func (msgs Messages) SearchNoMatches() string {
-	return Catalog.Format(msgs.locale, "searchNoMatches", nil)
-}
+func SearchNoMatches() string { return Catalog.Format(i18n.Locale(), "searchNoMatches", nil) }
 
 // DocumentReplace says "替换为"
 // in the language the app shows.
-func DocumentReplace() string { return In(i18n.Locale()).DocumentReplace() }
-
-// DocumentReplace says "替换为"
-// in the language of msgs.
-func (msgs Messages) DocumentReplace() string {
-	return Catalog.Format(msgs.locale, "documentReplace", nil)
-}
+func DocumentReplace() string { return Catalog.Format(i18n.Locale(), "documentReplace", nil) }
 
 // DocumentReplaceAll says "全部替换"
 // in the language the app shows.
-func DocumentReplaceAll() string { return In(i18n.Locale()).DocumentReplaceAll() }
-
-// DocumentReplaceAll says "全部替换"
-// in the language of msgs.
-func (msgs Messages) DocumentReplaceAll() string {
-	return Catalog.Format(msgs.locale, "documentReplaceAll", nil)
-}
+func DocumentReplaceAll() string { return Catalog.Format(i18n.Locale(), "documentReplaceAll", nil) }
 
 // DocumentMode says "编辑模式"
 // in the language the app shows.
-func DocumentMode() string { return In(i18n.Locale()).DocumentMode() }
-
-// DocumentMode says "编辑模式"
-// in the language of msgs.
-func (msgs Messages) DocumentMode() string {
-	return Catalog.Format(msgs.locale, "documentMode", nil)
-}
+func DocumentMode() string { return Catalog.Format(i18n.Locale(), "documentMode", nil) }
 
 // DocumentCopiedPath says "已复制路径"
 // in the language the app shows.
-func DocumentCopiedPath() string { return In(i18n.Locale()).DocumentCopiedPath() }
-
-// DocumentCopiedPath says "已复制路径"
-// in the language of msgs.
-func (msgs Messages) DocumentCopiedPath() string {
-	return Catalog.Format(msgs.locale, "documentCopiedPath", nil)
-}
+func DocumentCopiedPath() string { return Catalog.Format(i18n.Locale(), "documentCopiedPath", nil) }
 
 // DialogOpenFailed says "打开失败"
 // in the language the app shows.
-func DialogOpenFailed() string { return In(i18n.Locale()).DialogOpenFailed() }
-
-// DialogOpenFailed says "打开失败"
-// in the language of msgs.
-func (msgs Messages) DialogOpenFailed() string {
-	return Catalog.Format(msgs.locale, "dialogOpenFailed", nil)
-}
+func DialogOpenFailed() string { return Catalog.Format(i18n.Locale(), "dialogOpenFailed", nil) }
 
 // DialogCannotOpen says "无法打开"
 // in the language the app shows.
-func DialogCannotOpen() string { return In(i18n.Locale()).DialogCannotOpen() }
-
-// DialogCannotOpen says "无法打开"
-// in the language of msgs.
-func (msgs Messages) DialogCannotOpen() string {
-	return Catalog.Format(msgs.locale, "dialogCannotOpen", nil)
-}
+func DialogCannotOpen() string { return Catalog.Format(i18n.Locale(), "dialogCannotOpen", nil) }
 
 // DialogNotTextFile says "这个文件不是文本文件。"
 // in the language the app shows.
-func DialogNotTextFile() string { return In(i18n.Locale()).DialogNotTextFile() }
-
-// DialogNotTextFile says "这个文件不是文本文件。"
-// in the language of msgs.
-func (msgs Messages) DialogNotTextFile() string {
-	return Catalog.Format(msgs.locale, "dialogNotTextFile", nil)
-}
+func DialogNotTextFile() string { return Catalog.Format(i18n.Locale(), "dialogNotTextFile", nil) }
 
 // WorkspaceSearchMoved says "笔记在打开前已变化，正在重新定位搜索结果"
 // in the language the app shows.
-func WorkspaceSearchMoved() string { return In(i18n.Locale()).WorkspaceSearchMoved() }
-
-// WorkspaceSearchMoved says "笔记在打开前已变化，正在重新定位搜索结果"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchMoved() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchMoved", nil)
-}
+func WorkspaceSearchMoved() string { return Catalog.Format(i18n.Locale(), "workspaceSearchMoved", nil) }
 
 // DocumentSaved says "已保存"
 // in the language the app shows.
-func DocumentSaved() string { return In(i18n.Locale()).DocumentSaved() }
-
-// DocumentSaved says "已保存"
-// in the language of msgs.
-func (msgs Messages) DocumentSaved() string {
-	return Catalog.Format(msgs.locale, "documentSaved", nil)
-}
+func DocumentSaved() string { return Catalog.Format(i18n.Locale(), "documentSaved", nil) }
 
 // DialogCannotSave says "无法保存"
 // in the language the app shows.
-func DialogCannotSave() string { return In(i18n.Locale()).DialogCannotSave() }
-
-// DialogCannotSave says "无法保存"
-// in the language of msgs.
-func (msgs Messages) DialogCannotSave() string {
-	return Catalog.Format(msgs.locale, "dialogCannotSave", nil)
-}
+func DialogCannotSave() string { return Catalog.Format(i18n.Locale(), "dialogCannotSave", nil) }
 
 // DialogChooseTextExtension says "请选择文本文件扩展名。"
 // in the language the app shows.
-func DialogChooseTextExtension() string { return In(i18n.Locale()).DialogChooseTextExtension() }
-
-// DialogChooseTextExtension says "请选择文本文件扩展名。"
-// in the language of msgs.
-func (msgs Messages) DialogChooseTextExtension() string {
-	return Catalog.Format(msgs.locale, "dialogChooseTextExtension", nil)
+func DialogChooseTextExtension() string {
+	return Catalog.Format(i18n.Locale(), "dialogChooseTextExtension", nil)
 }
 
 // DialogSaveFailed says "保存失败"
 // in the language the app shows.
-func DialogSaveFailed() string { return In(i18n.Locale()).DialogSaveFailed() }
-
-// DialogSaveFailed says "保存失败"
-// in the language of msgs.
-func (msgs Messages) DialogSaveFailed() string {
-	return Catalog.Format(msgs.locale, "dialogSaveFailed", nil)
-}
+func DialogSaveFailed() string { return Catalog.Format(i18n.Locale(), "dialogSaveFailed", nil) }
 
 // DocumentCopiedRelativePath says "已复制相对路径"
 // in the language the app shows.
-func DocumentCopiedRelativePath() string { return In(i18n.Locale()).DocumentCopiedRelativePath() }
-
-// DocumentCopiedRelativePath says "已复制相对路径"
-// in the language of msgs.
-func (msgs Messages) DocumentCopiedRelativePath() string {
-	return Catalog.Format(msgs.locale, "documentCopiedRelativePath", nil)
+func DocumentCopiedRelativePath() string {
+	return Catalog.Format(i18n.Locale(), "documentCopiedRelativePath", nil)
 }
 
 // DocumentCopiedAbsolutePath says "已复制绝对路径"
 // in the language the app shows.
-func DocumentCopiedAbsolutePath() string { return In(i18n.Locale()).DocumentCopiedAbsolutePath() }
-
-// DocumentCopiedAbsolutePath says "已复制绝对路径"
-// in the language of msgs.
-func (msgs Messages) DocumentCopiedAbsolutePath() string {
-	return Catalog.Format(msgs.locale, "documentCopiedAbsolutePath", nil)
+func DocumentCopiedAbsolutePath() string {
+	return Catalog.Format(i18n.Locale(), "documentCopiedAbsolutePath", nil)
 }
 
 // DialogDeleteFailed says "删除失败"
 // in the language the app shows.
-func DialogDeleteFailed() string { return In(i18n.Locale()).DialogDeleteFailed() }
-
-// DialogDeleteFailed says "删除失败"
-// in the language of msgs.
-func (msgs Messages) DialogDeleteFailed() string {
-	return Catalog.Format(msgs.locale, "dialogDeleteFailed", nil)
-}
+func DialogDeleteFailed() string { return Catalog.Format(i18n.Locale(), "dialogDeleteFailed", nil) }
 
 // FilesMovedToTrash says "已移到废纸篓"
 // in the language the app shows.
-func FilesMovedToTrash() string { return In(i18n.Locale()).FilesMovedToTrash() }
-
-// FilesMovedToTrash says "已移到废纸篓"
-// in the language of msgs.
-func (msgs Messages) FilesMovedToTrash() string {
-	return Catalog.Format(msgs.locale, "filesMovedToTrash", nil)
-}
+func FilesMovedToTrash() string { return Catalog.Format(i18n.Locale(), "filesMovedToTrash", nil) }
 
 // FilesRenameTitle says "重命名"
 // in the language the app shows.
-func FilesRenameTitle() string { return In(i18n.Locale()).FilesRenameTitle() }
-
-// FilesRenameTitle says "重命名"
-// in the language of msgs.
-func (msgs Messages) FilesRenameTitle() string {
-	return Catalog.Format(msgs.locale, "filesRenameTitle", nil)
-}
+func FilesRenameTitle() string { return Catalog.Format(i18n.Locale(), "filesRenameTitle", nil) }
 
 // FilesNewName says "新名称"
 // in the language the app shows.
-func FilesNewName() string { return In(i18n.Locale()).FilesNewName() }
-
-// FilesNewName says "新名称"
-// in the language of msgs.
-func (msgs Messages) FilesNewName() string {
-	return Catalog.Format(msgs.locale, "filesNewName", nil)
-}
+func FilesNewName() string { return Catalog.Format(i18n.Locale(), "filesNewName", nil) }
 
 // FilesRenamed says "已重命名"
 // in the language the app shows.
-func FilesRenamed() string { return In(i18n.Locale()).FilesRenamed() }
-
-// FilesRenamed says "已重命名"
-// in the language of msgs.
-func (msgs Messages) FilesRenamed() string {
-	return Catalog.Format(msgs.locale, "filesRenamed", nil)
-}
+func FilesRenamed() string { return Catalog.Format(i18n.Locale(), "filesRenamed", nil) }
 
 // CommandPaletteTitle says "命令面板"
 // in the language the app shows.
-func CommandPaletteTitle() string { return In(i18n.Locale()).CommandPaletteTitle() }
-
-// CommandPaletteTitle says "命令面板"
-// in the language of msgs.
-func (msgs Messages) CommandPaletteTitle() string {
-	return Catalog.Format(msgs.locale, "commandPaletteTitle", nil)
-}
+func CommandPaletteTitle() string { return Catalog.Format(i18n.Locale(), "commandPaletteTitle", nil) }
 
 // CommandPalettePlaceholder says "运行命令…"
 // in the language the app shows.
-func CommandPalettePlaceholder() string { return In(i18n.Locale()).CommandPalettePlaceholder() }
-
-// CommandPalettePlaceholder says "运行命令…"
-// in the language of msgs.
-func (msgs Messages) CommandPalettePlaceholder() string {
-	return Catalog.Format(msgs.locale, "commandPalettePlaceholder", nil)
+func CommandPalettePlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "commandPalettePlaceholder", nil)
 }
 
 // CommandPaletteNoMatch says "没有匹配的命令"
 // in the language the app shows.
-func CommandPaletteNoMatch() string { return In(i18n.Locale()).CommandPaletteNoMatch() }
-
-// CommandPaletteNoMatch says "没有匹配的命令"
-// in the language of msgs.
-func (msgs Messages) CommandPaletteNoMatch() string {
-	return Catalog.Format(msgs.locale, "commandPaletteNoMatch", nil)
+func CommandPaletteNoMatch() string {
+	return Catalog.Format(i18n.Locale(), "commandPaletteNoMatch", nil)
 }
 
 // CommandPaletteCount says "{count, plural, other {# 条命令 · ↑↓ 选择 · ↵ 运行 · Esc 关闭}}"
 // in the language the app shows.
-func CommandPaletteCount(count int) string { return In(i18n.Locale()).CommandPaletteCount(count) }
-
-// CommandPaletteCount says "{count, plural, other {# 条命令 · ↑↓ 选择 · ↵ 运行 · Esc 关闭}}"
-// in the language of msgs.
-func (msgs Messages) CommandPaletteCount(count int) string {
-	return Catalog.Format(msgs.locale, "commandPaletteCount", map[string]any{"count": count})
+func CommandPaletteCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "commandPaletteCount", map[string]any{"count": count})
 }
 
 // VaultOpenFirst says "请先打开笔记库"
 // in the language the app shows.
-func VaultOpenFirst() string { return In(i18n.Locale()).VaultOpenFirst() }
-
-// VaultOpenFirst says "请先打开笔记库"
-// in the language of msgs.
-func (msgs Messages) VaultOpenFirst() string {
-	return Catalog.Format(msgs.locale, "vaultOpenFirst", nil)
-}
+func VaultOpenFirst() string { return Catalog.Format(i18n.Locale(), "vaultOpenFirst", nil) }
 
 // CoreMigrationPreview says "核心属性迁移预览"
 // in the language the app shows.
-func CoreMigrationPreview() string { return In(i18n.Locale()).CoreMigrationPreview() }
-
-// CoreMigrationPreview says "核心属性迁移预览"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationPreview() string {
-	return Catalog.Format(msgs.locale, "coreMigrationPreview", nil)
-}
+func CoreMigrationPreview() string { return Catalog.Format(i18n.Locale(), "coreMigrationPreview", nil) }
 
 // CoreMigrationIndexing says "正在从共享索引生成预览…"
 // in the language the app shows.
-func CoreMigrationIndexing() string { return In(i18n.Locale()).CoreMigrationIndexing() }
-
-// CoreMigrationIndexing says "正在从共享索引生成预览…"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationIndexing() string {
-	return Catalog.Format(msgs.locale, "coreMigrationIndexing", nil)
+func CoreMigrationIndexing() string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationIndexing", nil)
 }
 
 // CoreMigrationApplying says "正在按文件版本逐篇迁移…"
 // in the language the app shows.
-func CoreMigrationApplying() string { return In(i18n.Locale()).CoreMigrationApplying() }
-
-// CoreMigrationApplying says "正在按文件版本逐篇迁移…"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationApplying() string {
-	return Catalog.Format(msgs.locale, "coreMigrationApplying", nil)
+func CoreMigrationApplying() string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationApplying", nil)
 }
 
 // CoreMigrationNoPreview says "没有可迁移的预览"
 // in the language the app shows.
-func CoreMigrationNoPreview() string { return In(i18n.Locale()).CoreMigrationNoPreview() }
-
-// CoreMigrationNoPreview says "没有可迁移的预览"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationNoPreview() string {
-	return Catalog.Format(msgs.locale, "coreMigrationNoPreview", nil)
+func CoreMigrationNoPreview() string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationNoPreview", nil)
 }
 
 // CoreMigrationNoChanges says "没有需要应用的变更"
 // in the language the app shows.
-func CoreMigrationNoChanges() string { return In(i18n.Locale()).CoreMigrationNoChanges() }
-
-// CoreMigrationNoChanges says "没有需要应用的变更"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationNoChanges() string {
-	return Catalog.Format(msgs.locale, "coreMigrationNoChanges", nil)
+func CoreMigrationNoChanges() string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationNoChanges", nil)
 }
 
 // DocumentExternalChangedAutosavePaused says "磁盘文件已变化，自动保存已暂停"
 // in the language the app shows.
 func DocumentExternalChangedAutosavePaused() string {
-	return In(i18n.Locale()).DocumentExternalChangedAutosavePaused()
-}
-
-// DocumentExternalChangedAutosavePaused says "磁盘文件已变化，自动保存已暂停"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalChangedAutosavePaused() string {
-	return Catalog.Format(msgs.locale, "documentExternalChangedAutosavePaused", nil)
+	return Catalog.Format(i18n.Locale(), "documentExternalChangedAutosavePaused", nil)
 }
 
 // DocumentExternalChanged says "文件在外部发生了变化"
 // in the language the app shows.
-func DocumentExternalChanged() string { return In(i18n.Locale()).DocumentExternalChanged() }
-
-// DocumentExternalChanged says "文件在外部发生了变化"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalChanged() string {
-	return Catalog.Format(msgs.locale, "documentExternalChanged", nil)
+func DocumentExternalChanged() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalChanged", nil)
 }
 
 // DocumentExternalChangedDetail says "…"
 // in the language the app shows.
-func DocumentExternalChangedDetail() string { return In(i18n.Locale()).DocumentExternalChangedDetail() }
-
-// DocumentExternalChangedDetail says "…"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalChangedDetail() string {
-	return Catalog.Format(msgs.locale, "documentExternalChangedDetail", nil)
+func DocumentExternalChangedDetail() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalChangedDetail", nil)
 }
 
 // DocumentExternalNotText says "外部文件不是文本，无法加载"
 // in the language the app shows.
-func DocumentExternalNotText() string { return In(i18n.Locale()).DocumentExternalNotText() }
-
-// DocumentExternalNotText says "外部文件不是文本，无法加载"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalNotText() string {
-	return Catalog.Format(msgs.locale, "documentExternalNotText", nil)
+func DocumentExternalNotText() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalNotText", nil)
 }
 
 // DocumentRecoveryTitle says "恢复草稿"
 // in the language the app shows.
-func DocumentRecoveryTitle() string { return In(i18n.Locale()).DocumentRecoveryTitle() }
-
-// DocumentRecoveryTitle says "恢复草稿"
-// in the language of msgs.
-func (msgs Messages) DocumentRecoveryTitle() string {
-	return Catalog.Format(msgs.locale, "documentRecoveryTitle", nil)
+func DocumentRecoveryTitle() string {
+	return Catalog.Format(i18n.Locale(), "documentRecoveryTitle", nil)
 }
 
 // DocumentRecoveryDetail says "恢复会打开为未命名副本，不覆盖原文件。"
 // in the language the app shows.
-func DocumentRecoveryDetail() string { return In(i18n.Locale()).DocumentRecoveryDetail() }
-
-// DocumentRecoveryDetail says "恢复会打开为未命名副本，不覆盖原文件。"
-// in the language of msgs.
-func (msgs Messages) DocumentRecoveryDetail() string {
-	return Catalog.Format(msgs.locale, "documentRecoveryDetail", nil)
+func DocumentRecoveryDetail() string {
+	return Catalog.Format(i18n.Locale(), "documentRecoveryDetail", nil)
 }
 
 // DocumentRecoveryEmpty says "暂无恢复草稿"
 // in the language the app shows.
-func DocumentRecoveryEmpty() string { return In(i18n.Locale()).DocumentRecoveryEmpty() }
-
-// DocumentRecoveryEmpty says "暂无恢复草稿"
-// in the language of msgs.
-func (msgs Messages) DocumentRecoveryEmpty() string {
-	return Catalog.Format(msgs.locale, "documentRecoveryEmpty", nil)
+func DocumentRecoveryEmpty() string {
+	return Catalog.Format(i18n.Locale(), "documentRecoveryEmpty", nil)
 }
 
 // DocumentExternalReadFailed says "无法读取外部版本，当前编辑仍已保留"
 // in the language the app shows.
-func DocumentExternalReadFailed() string { return In(i18n.Locale()).DocumentExternalReadFailed() }
-
-// DocumentExternalReadFailed says "无法读取外部版本，当前编辑仍已保留"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalReadFailed() string {
-	return Catalog.Format(msgs.locale, "documentExternalReadFailed", nil)
+func DocumentExternalReadFailed() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalReadFailed", nil)
 }
 
 // DocumentExternalMergeConflict says "改动范围有重叠，未自动合并；当前编辑仍已保留"
 // in the language the app shows.
-func DocumentExternalMergeConflict() string { return In(i18n.Locale()).DocumentExternalMergeConflict() }
-
-// DocumentExternalMergeConflict says "改动范围有重叠，未自动合并；当前编辑仍已保留"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalMergeConflict() string {
-	return Catalog.Format(msgs.locale, "documentExternalMergeConflict", nil)
+func DocumentExternalMergeConflict() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalMergeConflict", nil)
 }
 
 // DocumentExternalLoaded says "已加载外部修改"
 // in the language the app shows.
-func DocumentExternalLoaded() string { return In(i18n.Locale()).DocumentExternalLoaded() }
-
-// DocumentExternalLoaded says "已加载外部修改"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalLoaded() string {
-	return Catalog.Format(msgs.locale, "documentExternalLoaded", nil)
+func DocumentExternalLoaded() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalLoaded", nil)
 }
 
 // DocumentExternalMerged says "外部修改已合并并保存"
 // in the language the app shows.
-func DocumentExternalMerged() string { return In(i18n.Locale()).DocumentExternalMerged() }
-
-// DocumentExternalMerged says "外部修改已合并并保存"
-// in the language of msgs.
-func (msgs Messages) DocumentExternalMerged() string {
-	return Catalog.Format(msgs.locale, "documentExternalMerged", nil)
+func DocumentExternalMerged() string {
+	return Catalog.Format(i18n.Locale(), "documentExternalMerged", nil)
 }
 
 // DocumentUnsaved says "当前文档尚未保存"
 // in the language the app shows.
-func DocumentUnsaved() string { return In(i18n.Locale()).DocumentUnsaved() }
-
-// DocumentUnsaved says "当前文档尚未保存"
-// in the language of msgs.
-func (msgs Messages) DocumentUnsaved() string {
-	return Catalog.Format(msgs.locale, "documentUnsaved", nil)
-}
+func DocumentUnsaved() string { return Catalog.Format(i18n.Locale(), "documentUnsaved", nil) }
 
 // DocumentHistoryTitle says "版本历史"
 // in the language the app shows.
-func DocumentHistoryTitle() string { return In(i18n.Locale()).DocumentHistoryTitle() }
-
-// DocumentHistoryTitle says "版本历史"
-// in the language of msgs.
-func (msgs Messages) DocumentHistoryTitle() string {
-	return Catalog.Format(msgs.locale, "documentHistoryTitle", nil)
-}
+func DocumentHistoryTitle() string { return Catalog.Format(i18n.Locale(), "documentHistoryTitle", nil) }
 
 // DocumentHistoryDetail says "选择版本打开为未命名副本，原文件不变。"
 // in the language the app shows.
-func DocumentHistoryDetail() string { return In(i18n.Locale()).DocumentHistoryDetail() }
-
-// DocumentHistoryDetail says "选择版本打开为未命名副本，原文件不变。"
-// in the language of msgs.
-func (msgs Messages) DocumentHistoryDetail() string {
-	return Catalog.Format(msgs.locale, "documentHistoryDetail", nil)
+func DocumentHistoryDetail() string {
+	return Catalog.Format(i18n.Locale(), "documentHistoryDetail", nil)
 }
 
 // DocumentHistoryEmpty says "暂无历史版本"
 // in the language the app shows.
-func DocumentHistoryEmpty() string { return In(i18n.Locale()).DocumentHistoryEmpty() }
-
-// DocumentHistoryEmpty says "暂无历史版本"
-// in the language of msgs.
-func (msgs Messages) DocumentHistoryEmpty() string {
-	return Catalog.Format(msgs.locale, "documentHistoryEmpty", nil)
-}
+func DocumentHistoryEmpty() string { return Catalog.Format(i18n.Locale(), "documentHistoryEmpty", nil) }
 
 // FilesTreeKeyHelp says "文件树：j/k 导航，h/l 折叠/展开，Enter 打开，r 重命名，y/x/p 复制/剪切/粘贴，d …"
 // in the language the app shows.
-func FilesTreeKeyHelp() string { return In(i18n.Locale()).FilesTreeKeyHelp() }
-
-// FilesTreeKeyHelp says "文件树：j/k 导航，h/l 折叠/展开，Enter 打开，r 重命名，y/x/p 复制/剪切/粘贴，d …"
-// in the language of msgs.
-func (msgs Messages) FilesTreeKeyHelp() string {
-	return Catalog.Format(msgs.locale, "filesTreeKeyHelp", nil)
-}
+func FilesTreeKeyHelp() string { return Catalog.Format(i18n.Locale(), "filesTreeKeyHelp", nil) }
 
 // ImageDecodeFailed says "无法解码此图片格式"
 // in the language the app shows.
-func ImageDecodeFailed() string { return In(i18n.Locale()).ImageDecodeFailed() }
-
-// ImageDecodeFailed says "无法解码此图片格式"
-// in the language of msgs.
-func (msgs Messages) ImageDecodeFailed() string {
-	return Catalog.Format(msgs.locale, "imageDecodeFailed", nil)
-}
+func ImageDecodeFailed() string { return Catalog.Format(i18n.Locale(), "imageDecodeFailed", nil) }
 
 // ImageLinkPreviewTitle says "图片链接预览"
 // in the language the app shows.
-func ImageLinkPreviewTitle() string { return In(i18n.Locale()).ImageLinkPreviewTitle() }
-
-// ImageLinkPreviewTitle says "图片链接预览"
-// in the language of msgs.
-func (msgs Messages) ImageLinkPreviewTitle() string {
-	return Catalog.Format(msgs.locale, "imageLinkPreviewTitle", nil)
+func ImageLinkPreviewTitle() string {
+	return Catalog.Format(i18n.Locale(), "imageLinkPreviewTitle", nil)
 }
 
 // ImagePreviewUnavailable says "图片无法预览"
 // in the language the app shows.
-func ImagePreviewUnavailable() string { return In(i18n.Locale()).ImagePreviewUnavailable() }
-
-// ImagePreviewUnavailable says "图片无法预览"
-// in the language of msgs.
-func (msgs Messages) ImagePreviewUnavailable() string {
-	return Catalog.Format(msgs.locale, "imagePreviewUnavailable", nil)
+func ImagePreviewUnavailable() string {
+	return Catalog.Format(i18n.Locale(), "imagePreviewUnavailable", nil)
 }
 
 // LinkPreviewTitle says "链接预览"
 // in the language the app shows.
-func LinkPreviewTitle() string { return In(i18n.Locale()).LinkPreviewTitle() }
-
-// LinkPreviewTitle says "链接预览"
-// in the language of msgs.
-func (msgs Messages) LinkPreviewTitle() string {
-	return Catalog.Format(msgs.locale, "linkPreviewTitle", nil)
-}
+func LinkPreviewTitle() string { return Catalog.Format(i18n.Locale(), "linkPreviewTitle", nil) }
 
 // NavigationIconUpdated says "已更新导航图标"
 // in the language the app shows.
-func NavigationIconUpdated() string { return In(i18n.Locale()).NavigationIconUpdated() }
-
-// NavigationIconUpdated says "已更新导航图标"
-// in the language of msgs.
-func (msgs Messages) NavigationIconUpdated() string {
-	return Catalog.Format(msgs.locale, "navigationIconUpdated", nil)
+func NavigationIconUpdated() string {
+	return Catalog.Format(i18n.Locale(), "navigationIconUpdated", nil)
 }
 
 // IconPickerTitle says "选择图标"
 // in the language the app shows.
-func IconPickerTitle() string { return In(i18n.Locale()).IconPickerTitle() }
-
-// IconPickerTitle says "选择图标"
-// in the language of msgs.
-func (msgs Messages) IconPickerTitle() string {
-	return Catalog.Format(msgs.locale, "iconPickerTitle", nil)
-}
+func IconPickerTitle() string { return Catalog.Format(i18n.Locale(), "iconPickerTitle", nil) }
 
 // CommonClose says "关闭"
 // in the language the app shows.
-func CommonClose() string { return In(i18n.Locale()).CommonClose() }
-
-// CommonClose says "关闭"
-// in the language of msgs.
-func (msgs Messages) CommonClose() string {
-	return Catalog.Format(msgs.locale, "commonClose", nil)
-}
+func CommonClose() string { return Catalog.Format(i18n.Locale(), "commonClose", nil) }
 
 // IconPickerSearch says "搜索图标"
 // in the language the app shows.
-func IconPickerSearch() string { return In(i18n.Locale()).IconPickerSearch() }
-
-// IconPickerSearch says "搜索图标"
-// in the language of msgs.
-func (msgs Messages) IconPickerSearch() string {
-	return Catalog.Format(msgs.locale, "iconPickerSearch", nil)
-}
+func IconPickerSearch() string { return Catalog.Format(i18n.Locale(), "iconPickerSearch", nil) }
 
 // IconPickerSearchPlaceholder says "搜索 2,356 个图标"
 // in the language the app shows.
-func IconPickerSearchPlaceholder() string { return In(i18n.Locale()).IconPickerSearchPlaceholder() }
-
-// IconPickerSearchPlaceholder says "搜索 2,356 个图标"
-// in the language of msgs.
-func (msgs Messages) IconPickerSearchPlaceholder() string {
-	return Catalog.Format(msgs.locale, "iconPickerSearchPlaceholder", nil)
+func IconPickerSearchPlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "iconPickerSearchPlaceholder", nil)
 }
 
 // IconPickerLoading says "正在加载图标…"
 // in the language the app shows.
-func IconPickerLoading() string { return In(i18n.Locale()).IconPickerLoading() }
-
-// IconPickerLoading says "正在加载图标…"
-// in the language of msgs.
-func (msgs Messages) IconPickerLoading() string {
-	return Catalog.Format(msgs.locale, "iconPickerLoading", nil)
-}
+func IconPickerLoading() string { return Catalog.Format(i18n.Locale(), "iconPickerLoading", nil) }
 
 // IconPickerNoMatch says "没有匹配的图标"
 // in the language the app shows.
-func IconPickerNoMatch() string { return In(i18n.Locale()).IconPickerNoMatch() }
-
-// IconPickerNoMatch says "没有匹配的图标"
-// in the language of msgs.
-func (msgs Messages) IconPickerNoMatch() string {
-	return Catalog.Format(msgs.locale, "iconPickerNoMatch", nil)
-}
+func IconPickerNoMatch() string { return Catalog.Format(i18n.Locale(), "iconPickerNoMatch", nil) }
 
 // PropertyNoValue says "无数值"
 // in the language the app shows.
-func PropertyNoValue() string { return In(i18n.Locale()).PropertyNoValue() }
-
-// PropertyNoValue says "无数值"
-// in the language of msgs.
-func (msgs Messages) PropertyNoValue() string {
-	return Catalog.Format(msgs.locale, "propertyNoValue", nil)
-}
+func PropertyNoValue() string { return Catalog.Format(i18n.Locale(), "propertyNoValue", nil) }
 
 // PropertyHide says "隐藏属性"
 // in the language the app shows.
-func PropertyHide() string { return In(i18n.Locale()).PropertyHide() }
-
-// PropertyHide says "隐藏属性"
-// in the language of msgs.
-func (msgs Messages) PropertyHide() string {
-	return Catalog.Format(msgs.locale, "propertyHide", nil)
-}
+func PropertyHide() string { return Catalog.Format(i18n.Locale(), "propertyHide", nil) }
 
 // PropertyHidden says "隐藏"
 // in the language the app shows.
-func PropertyHidden() string { return In(i18n.Locale()).PropertyHidden() }
-
-// PropertyHidden says "隐藏"
-// in the language of msgs.
-func (msgs Messages) PropertyHidden() string {
-	return Catalog.Format(msgs.locale, "propertyHidden", nil)
-}
+func PropertyHidden() string { return Catalog.Format(i18n.Locale(), "propertyHidden", nil) }
 
 // PropertyViewBacklinks says "查看反向链接"
 // in the language the app shows.
-func PropertyViewBacklinks() string { return In(i18n.Locale()).PropertyViewBacklinks() }
-
-// PropertyViewBacklinks says "查看反向链接"
-// in the language of msgs.
-func (msgs Messages) PropertyViewBacklinks() string {
-	return Catalog.Format(msgs.locale, "propertyViewBacklinks", nil)
+func PropertyViewBacklinks() string {
+	return Catalog.Format(i18n.Locale(), "propertyViewBacklinks", nil)
 }
 
 // PropertyBacklinkCount says "{count, plural, other {# 反向链接}}"
 // in the language the app shows.
-func PropertyBacklinkCount(count int) string { return In(i18n.Locale()).PropertyBacklinkCount(count) }
-
-// PropertyBacklinkCount says "{count, plural, other {# 反向链接}}"
-// in the language of msgs.
-func (msgs Messages) PropertyBacklinkCount(count int) string {
-	return Catalog.Format(msgs.locale, "propertyBacklinkCount", map[string]any{"count": count})
+func PropertyBacklinkCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "propertyBacklinkCount", map[string]any{"count": count})
 }
 
 // PropertyListPlaceholder says "list 可逗号分隔"
 // in the language the app shows.
-func PropertyListPlaceholder() string { return In(i18n.Locale()).PropertyListPlaceholder() }
-
-// PropertyListPlaceholder says "list 可逗号分隔"
-// in the language of msgs.
-func (msgs Messages) PropertyListPlaceholder() string {
-	return Catalog.Format(msgs.locale, "propertyListPlaceholder", nil)
+func PropertyListPlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "propertyListPlaceholder", nil)
 }
 
 // PropertyTitle says "属性"
 // in the language the app shows.
-func PropertyTitle() string { return In(i18n.Locale()).PropertyTitle() }
-
-// PropertyTitle says "属性"
-// in the language of msgs.
-func (msgs Messages) PropertyTitle() string {
-	return Catalog.Format(msgs.locale, "propertyTitle", nil)
-}
+func PropertyTitle() string { return Catalog.Format(i18n.Locale(), "propertyTitle", nil) }
 
 // PropertyEditType says "编辑类型"
 // in the language the app shows.
-func PropertyEditType() string { return In(i18n.Locale()).PropertyEditType() }
-
-// PropertyEditType says "编辑类型"
-// in the language of msgs.
-func (msgs Messages) PropertyEditType() string {
-	return Catalog.Format(msgs.locale, "propertyEditType", nil)
-}
+func PropertyEditType() string { return Catalog.Format(i18n.Locale(), "propertyEditType", nil) }
 
 // PropertyYAMLInvalid says "YAML frontmatter 无法解析"
 // in the language the app shows.
-func PropertyYAMLInvalid() string { return In(i18n.Locale()).PropertyYAMLInvalid() }
-
-// PropertyYAMLInvalid says "YAML frontmatter 无法解析"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLInvalid() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLInvalid", nil)
-}
+func PropertyYAMLInvalid() string { return Catalog.Format(i18n.Locale(), "propertyYAMLInvalid", nil) }
 
 // PropertyYAMLDetail says "仅编辑 YAML frontmatter；正文会原样保留。"
 // in the language the app shows.
-func PropertyYAMLDetail() string { return In(i18n.Locale()).PropertyYAMLDetail() }
-
-// PropertyYAMLDetail says "仅编辑 YAML frontmatter；正文会原样保留。"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLDetail() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLDetail", nil)
-}
+func PropertyYAMLDetail() string { return Catalog.Format(i18n.Locale(), "propertyYAMLDetail", nil) }
 
 // PropertyYAMLSource says "YAML 源码"
 // in the language the app shows.
-func PropertyYAMLSource() string { return In(i18n.Locale()).PropertyYAMLSource() }
-
-// PropertyYAMLSource says "YAML 源码"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLSource() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLSource", nil)
-}
+func PropertyYAMLSource() string { return Catalog.Format(i18n.Locale(), "propertyYAMLSource", nil) }
 
 // PropertyAdd says "添加属性"
 // in the language the app shows.
-func PropertyAdd() string { return In(i18n.Locale()).PropertyAdd() }
-
-// PropertyAdd says "添加属性"
-// in the language of msgs.
-func (msgs Messages) PropertyAdd() string {
-	return Catalog.Format(msgs.locale, "propertyAdd", nil)
-}
+func PropertyAdd() string { return Catalog.Format(i18n.Locale(), "propertyAdd", nil) }
 
 // PropertyName says "属性名"
 // in the language the app shows.
-func PropertyName() string { return In(i18n.Locale()).PropertyName() }
-
-// PropertyName says "属性名"
-// in the language of msgs.
-func (msgs Messages) PropertyName() string {
-	return Catalog.Format(msgs.locale, "propertyName", nil)
-}
+func PropertyName() string { return Catalog.Format(i18n.Locale(), "propertyName", nil) }
 
 // PropertyValue says "属性值"
 // in the language the app shows.
-func PropertyValue() string { return In(i18n.Locale()).PropertyValue() }
-
-// PropertyValue says "属性值"
-// in the language of msgs.
-func (msgs Messages) PropertyValue() string {
-	return Catalog.Format(msgs.locale, "propertyValue", nil)
-}
+func PropertyValue() string { return Catalog.Format(i18n.Locale(), "propertyValue", nil) }
 
 // QuickOpenTitle says "跳转文件"
 // in the language the app shows.
-func QuickOpenTitle() string { return In(i18n.Locale()).QuickOpenTitle() }
-
-// QuickOpenTitle says "跳转文件"
-// in the language of msgs.
-func (msgs Messages) QuickOpenTitle() string {
-	return Catalog.Format(msgs.locale, "quickOpenTitle", nil)
-}
+func QuickOpenTitle() string { return Catalog.Format(i18n.Locale(), "quickOpenTitle", nil) }
 
 // QuickOpenPlaceholder says "跳转到文件…"
 // in the language the app shows.
-func QuickOpenPlaceholder() string { return In(i18n.Locale()).QuickOpenPlaceholder() }
-
-// QuickOpenPlaceholder says "跳转到文件…"
-// in the language of msgs.
-func (msgs Messages) QuickOpenPlaceholder() string {
-	return Catalog.Format(msgs.locale, "quickOpenPlaceholder", nil)
-}
+func QuickOpenPlaceholder() string { return Catalog.Format(i18n.Locale(), "quickOpenPlaceholder", nil) }
 
 // QuickOpenNoMatch says "没有匹配的文件"
 // in the language the app shows.
-func QuickOpenNoMatch() string { return In(i18n.Locale()).QuickOpenNoMatch() }
-
-// QuickOpenNoMatch says "没有匹配的文件"
-// in the language of msgs.
-func (msgs Messages) QuickOpenNoMatch() string {
-	return Catalog.Format(msgs.locale, "quickOpenNoMatch", nil)
-}
+func QuickOpenNoMatch() string { return Catalog.Format(i18n.Locale(), "quickOpenNoMatch", nil) }
 
 // QuickOpenCount says "{count, plural, other {# 个文件 · ↑↓ / Ctrl+N/P 选择 · ↵ 打开 · Esc 关闭}}"
 // in the language the app shows.
-func QuickOpenCount(count int) string { return In(i18n.Locale()).QuickOpenCount(count) }
-
-// QuickOpenCount says "{count, plural, other {# 个文件 · ↑↓ / Ctrl+N/P 选择 · ↵ 打开 · Esc 关闭}}"
-// in the language of msgs.
-func (msgs Messages) QuickOpenCount(count int) string {
-	return Catalog.Format(msgs.locale, "quickOpenCount", map[string]any{"count": count})
+func QuickOpenCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "quickOpenCount", map[string]any{"count": count})
 }
 
 // FilesInsertIntoEditor says "插入到编辑区"
 // in the language the app shows.
-func FilesInsertIntoEditor() string { return In(i18n.Locale()).FilesInsertIntoEditor() }
-
-// FilesInsertIntoEditor says "插入到编辑区"
-// in the language of msgs.
-func (msgs Messages) FilesInsertIntoEditor() string {
-	return Catalog.Format(msgs.locale, "filesInsertIntoEditor", nil)
+func FilesInsertIntoEditor() string {
+	return Catalog.Format(i18n.Locale(), "filesInsertIntoEditor", nil)
 }
 
 // FilesDragImageThumbnail says "拖动图片缩略图"
 // in the language the app shows.
-func FilesDragImageThumbnail() string { return In(i18n.Locale()).FilesDragImageThumbnail() }
-
-// FilesDragImageThumbnail says "拖动图片缩略图"
-// in the language of msgs.
-func (msgs Messages) FilesDragImageThumbnail() string {
-	return Catalog.Format(msgs.locale, "filesDragImageThumbnail", nil)
+func FilesDragImageThumbnail() string {
+	return Catalog.Format(i18n.Locale(), "filesDragImageThumbnail", nil)
 }
 
 // ImagePreviewTitle says "图片预览"
 // in the language the app shows.
-func ImagePreviewTitle() string { return In(i18n.Locale()).ImagePreviewTitle() }
-
-// ImagePreviewTitle says "图片预览"
-// in the language of msgs.
-func (msgs Messages) ImagePreviewTitle() string {
-	return Catalog.Format(msgs.locale, "imagePreviewTitle", nil)
-}
+func ImagePreviewTitle() string { return Catalog.Format(i18n.Locale(), "imagePreviewTitle", nil) }
 
 // VaultCurrentFileDeleted says "当前文件已在外部删除，编辑内容仍保留"
 // in the language the app shows.
-func VaultCurrentFileDeleted() string { return In(i18n.Locale()).VaultCurrentFileDeleted() }
-
-// VaultCurrentFileDeleted says "当前文件已在外部删除，编辑内容仍保留"
-// in the language of msgs.
-func (msgs Messages) VaultCurrentFileDeleted() string {
-	return Catalog.Format(msgs.locale, "vaultCurrentFileDeleted", nil)
+func VaultCurrentFileDeleted() string {
+	return Catalog.Format(i18n.Locale(), "vaultCurrentFileDeleted", nil)
 }
 
 // VaultExternalMergedSaving says "已合并外部修改，正在保存"
 // in the language the app shows.
-func VaultExternalMergedSaving() string { return In(i18n.Locale()).VaultExternalMergedSaving() }
-
-// VaultExternalMergedSaving says "已合并外部修改，正在保存"
-// in the language of msgs.
-func (msgs Messages) VaultExternalMergedSaving() string {
-	return Catalog.Format(msgs.locale, "vaultExternalMergedSaving", nil)
+func VaultExternalMergedSaving() string {
+	return Catalog.Format(i18n.Locale(), "vaultExternalMergedSaving", nil)
 }
 
 // VaultExternalUpdatedAt says "已加载外部修改并更新 updated_at"
 // in the language the app shows.
-func VaultExternalUpdatedAt() string { return In(i18n.Locale()).VaultExternalUpdatedAt() }
-
-// VaultExternalUpdatedAt says "已加载外部修改并更新 updated_at"
-// in the language of msgs.
-func (msgs Messages) VaultExternalUpdatedAt() string {
-	return Catalog.Format(msgs.locale, "vaultExternalUpdatedAt", nil)
+func VaultExternalUpdatedAt() string {
+	return Catalog.Format(i18n.Locale(), "vaultExternalUpdatedAt", nil)
 }
 
 // VaultIndexBuilding says "正在建立笔记库索引…"
 // in the language the app shows.
-func VaultIndexBuilding() string { return In(i18n.Locale()).VaultIndexBuilding() }
-
-// VaultIndexBuilding says "正在建立笔记库索引…"
-// in the language of msgs.
-func (msgs Messages) VaultIndexBuilding() string {
-	return Catalog.Format(msgs.locale, "vaultIndexBuilding", nil)
-}
+func VaultIndexBuilding() string { return Catalog.Format(i18n.Locale(), "vaultIndexBuilding", nil) }
 
 // VaultSearching says "正在搜索…"
 // in the language the app shows.
-func VaultSearching() string { return In(i18n.Locale()).VaultSearching() }
-
-// VaultSearching says "正在搜索…"
-// in the language of msgs.
-func (msgs Messages) VaultSearching() string {
-	return Catalog.Format(msgs.locale, "vaultSearching", nil)
-}
+func VaultSearching() string { return Catalog.Format(i18n.Locale(), "vaultSearching", nil) }
 
 // VaultSearchEmpty says "没有找到笔记"
 // in the language the app shows.
-func VaultSearchEmpty() string { return In(i18n.Locale()).VaultSearchEmpty() }
-
-// VaultSearchEmpty says "没有找到笔记"
-// in the language of msgs.
-func (msgs Messages) VaultSearchEmpty() string {
-	return Catalog.Format(msgs.locale, "vaultSearchEmpty", nil)
-}
+func VaultSearchEmpty() string { return Catalog.Format(i18n.Locale(), "vaultSearchEmpty", nil) }
 
 // VaultBacklinksTitle says "关联笔记"
 // in the language the app shows.
-func VaultBacklinksTitle() string { return In(i18n.Locale()).VaultBacklinksTitle() }
-
-// VaultBacklinksTitle says "关联笔记"
-// in the language of msgs.
-func (msgs Messages) VaultBacklinksTitle() string {
-	return Catalog.Format(msgs.locale, "vaultBacklinksTitle", nil)
-}
+func VaultBacklinksTitle() string { return Catalog.Format(i18n.Locale(), "vaultBacklinksTitle", nil) }
 
 // VaultIndexBuildingShort says "索引正在建立"
 // in the language the app shows.
-func VaultIndexBuildingShort() string { return In(i18n.Locale()).VaultIndexBuildingShort() }
-
-// VaultIndexBuildingShort says "索引正在建立"
-// in the language of msgs.
-func (msgs Messages) VaultIndexBuildingShort() string {
-	return Catalog.Format(msgs.locale, "vaultIndexBuildingShort", nil)
+func VaultIndexBuildingShort() string {
+	return Catalog.Format(i18n.Locale(), "vaultIndexBuildingShort", nil)
 }
 
 // VaultLinksToHere says "链接到这里"
 // in the language the app shows.
-func VaultLinksToHere() string { return In(i18n.Locale()).VaultLinksToHere() }
-
-// VaultLinksToHere says "链接到这里"
-// in the language of msgs.
-func (msgs Messages) VaultLinksToHere() string {
-	return Catalog.Format(msgs.locale, "vaultLinksToHere", nil)
-}
+func VaultLinksToHere() string { return Catalog.Format(i18n.Locale(), "vaultLinksToHere", nil) }
 
 // VaultFindingBacklinks says "正在查找关联笔记…"
 // in the language the app shows.
-func VaultFindingBacklinks() string { return In(i18n.Locale()).VaultFindingBacklinks() }
-
-// VaultFindingBacklinks says "正在查找关联笔记…"
-// in the language of msgs.
-func (msgs Messages) VaultFindingBacklinks() string {
-	return Catalog.Format(msgs.locale, "vaultFindingBacklinks", nil)
+func VaultFindingBacklinks() string {
+	return Catalog.Format(i18n.Locale(), "vaultFindingBacklinks", nil)
 }
 
 // VaultNoBacklinks says "暂无反向链接"
 // in the language the app shows.
-func VaultNoBacklinks() string { return In(i18n.Locale()).VaultNoBacklinks() }
-
-// VaultNoBacklinks says "暂无反向链接"
-// in the language of msgs.
-func (msgs Messages) VaultNoBacklinks() string {
-	return Catalog.Format(msgs.locale, "vaultNoBacklinks", nil)
-}
+func VaultNoBacklinks() string { return Catalog.Format(i18n.Locale(), "vaultNoBacklinks", nil) }
 
 // VaultOutgoingLinks says "本文链接"
 // in the language the app shows.
-func VaultOutgoingLinks() string { return In(i18n.Locale()).VaultOutgoingLinks() }
-
-// VaultOutgoingLinks says "本文链接"
-// in the language of msgs.
-func (msgs Messages) VaultOutgoingLinks() string {
-	return Catalog.Format(msgs.locale, "vaultOutgoingLinks", nil)
-}
+func VaultOutgoingLinks() string { return Catalog.Format(i18n.Locale(), "vaultOutgoingLinks", nil) }
 
 // AccentRed says "红色"
 // in the language the app shows.
-func AccentRed() string { return In(i18n.Locale()).AccentRed() }
-
-// AccentRed says "红色"
-// in the language of msgs.
-func (msgs Messages) AccentRed() string {
-	return Catalog.Format(msgs.locale, "accentRed", nil)
-}
+func AccentRed() string { return Catalog.Format(i18n.Locale(), "accentRed", nil) }
 
 // AccentOrange says "橙色"
 // in the language the app shows.
-func AccentOrange() string { return In(i18n.Locale()).AccentOrange() }
-
-// AccentOrange says "橙色"
-// in the language of msgs.
-func (msgs Messages) AccentOrange() string {
-	return Catalog.Format(msgs.locale, "accentOrange", nil)
-}
+func AccentOrange() string { return Catalog.Format(i18n.Locale(), "accentOrange", nil) }
 
 // AccentYellow says "黄色"
 // in the language the app shows.
-func AccentYellow() string { return In(i18n.Locale()).AccentYellow() }
-
-// AccentYellow says "黄色"
-// in the language of msgs.
-func (msgs Messages) AccentYellow() string {
-	return Catalog.Format(msgs.locale, "accentYellow", nil)
-}
+func AccentYellow() string { return Catalog.Format(i18n.Locale(), "accentYellow", nil) }
 
 // AccentGreen says "绿色"
 // in the language the app shows.
-func AccentGreen() string { return In(i18n.Locale()).AccentGreen() }
-
-// AccentGreen says "绿色"
-// in the language of msgs.
-func (msgs Messages) AccentGreen() string {
-	return Catalog.Format(msgs.locale, "accentGreen", nil)
-}
+func AccentGreen() string { return Catalog.Format(i18n.Locale(), "accentGreen", nil) }
 
 // AccentBlue says "蓝色"
 // in the language the app shows.
-func AccentBlue() string { return In(i18n.Locale()).AccentBlue() }
-
-// AccentBlue says "蓝色"
-// in the language of msgs.
-func (msgs Messages) AccentBlue() string {
-	return Catalog.Format(msgs.locale, "accentBlue", nil)
-}
+func AccentBlue() string { return Catalog.Format(i18n.Locale(), "accentBlue", nil) }
 
 // AccentPurple says "紫色"
 // in the language the app shows.
-func AccentPurple() string { return In(i18n.Locale()).AccentPurple() }
-
-// AccentPurple says "紫色"
-// in the language of msgs.
-func (msgs Messages) AccentPurple() string {
-	return Catalog.Format(msgs.locale, "accentPurple", nil)
-}
+func AccentPurple() string { return Catalog.Format(i18n.Locale(), "accentPurple", nil) }
 
 // AccentPink says "粉色"
 // in the language the app shows.
-func AccentPink() string { return In(i18n.Locale()).AccentPink() }
-
-// AccentPink says "粉色"
-// in the language of msgs.
-func (msgs Messages) AccentPink() string {
-	return Catalog.Format(msgs.locale, "accentPink", nil)
-}
+func AccentPink() string { return Catalog.Format(i18n.Locale(), "accentPink", nil) }
 
 // AccentNamed says "重点色：{name}"
 // in the language the app shows.
-func AccentNamed(name string) string { return In(i18n.Locale()).AccentNamed(name) }
-
-// AccentNamed says "重点色：{name}"
-// in the language of msgs.
-func (msgs Messages) AccentNamed(name string) string {
-	return Catalog.Format(msgs.locale, "accentNamed", map[string]any{"name": name})
+func AccentNamed(name string) string {
+	return Catalog.Format(i18n.Locale(), "accentNamed", map[string]any{"name": name})
 }
 
 // KeymapDefault says "默认"
 // in the language the app shows.
-func KeymapDefault() string { return In(i18n.Locale()).KeymapDefault() }
-
-// KeymapDefault says "默认"
-// in the language of msgs.
-func (msgs Messages) KeymapDefault() string {
-	return Catalog.Format(msgs.locale, "keymapDefault", nil)
-}
+func KeymapDefault() string { return Catalog.Format(i18n.Locale(), "keymapDefault", nil) }
 
 // KeymapHelix says "Helix"
 // in the language the app shows.
-func KeymapHelix() string { return In(i18n.Locale()).KeymapHelix() }
-
-// KeymapHelix says "Helix"
-// in the language of msgs.
-func (msgs Messages) KeymapHelix() string {
-	return Catalog.Format(msgs.locale, "keymapHelix", nil)
-}
+func KeymapHelix() string { return Catalog.Format(i18n.Locale(), "keymapHelix", nil) }
 
 // KeymapVim says "Vim"
 // in the language the app shows.
-func KeymapVim() string { return In(i18n.Locale()).KeymapVim() }
-
-// KeymapVim says "Vim"
-// in the language of msgs.
-func (msgs Messages) KeymapVim() string {
-	return Catalog.Format(msgs.locale, "keymapVim", nil)
-}
+func KeymapVim() string { return Catalog.Format(i18n.Locale(), "keymapVim", nil) }
 
 // KeymapNamed says "按键模式：{mode}"
 // in the language the app shows.
-func KeymapNamed(mode string) string { return In(i18n.Locale()).KeymapNamed(mode) }
-
-// KeymapNamed says "按键模式：{mode}"
-// in the language of msgs.
-func (msgs Messages) KeymapNamed(mode string) string {
-	return Catalog.Format(msgs.locale, "keymapNamed", map[string]any{"mode": mode})
+func KeymapNamed(mode string) string {
+	return Catalog.Format(i18n.Locale(), "keymapNamed", map[string]any{"mode": mode})
 }
 
 // AiServiceAnyDetail says "任意 OpenAI 兼容端点：OpenAI、DeepSeek 或自建网关。"
 // in the language the app shows.
-func AiServiceAnyDetail() string { return In(i18n.Locale()).AiServiceAnyDetail() }
-
-// AiServiceAnyDetail says "任意 OpenAI 兼容端点：OpenAI、DeepSeek 或自建网关。"
-// in the language of msgs.
-func (msgs Messages) AiServiceAnyDetail() string {
-	return Catalog.Format(msgs.locale, "aiServiceAnyDetail", nil)
-}
+func AiServiceAnyDetail() string { return Catalog.Format(i18n.Locale(), "aiServiceAnyDetail", nil) }
 
 // AiServiceMagpieDetail says "连本机 magpie（菜单栏应用的网关），无需自己的 Key。"
 // in the language the app shows.
-func AiServiceMagpieDetail() string { return In(i18n.Locale()).AiServiceMagpieDetail() }
-
-// AiServiceMagpieDetail says "连本机 magpie（菜单栏应用的网关），无需自己的 Key。"
-// in the language of msgs.
-func (msgs Messages) AiServiceMagpieDetail() string {
-	return Catalog.Format(msgs.locale, "aiServiceMagpieDetail", nil)
+func AiServiceMagpieDetail() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceMagpieDetail", nil)
 }
 
 // AiURLDetail says "OpenAI 兼容的 Base URL，通常以 /v1 结尾。"
 // in the language the app shows.
-func AiURLDetail() string { return In(i18n.Locale()).AiURLDetail() }
-
-// AiURLDetail says "OpenAI 兼容的 Base URL，通常以 /v1 结尾。"
-// in the language of msgs.
-func (msgs Messages) AiURLDetail() string {
-	return Catalog.Format(msgs.locale, "aiURLDetail", nil)
-}
+func AiURLDetail() string { return Catalog.Format(i18n.Locale(), "aiURLDetail", nil) }
 
 // AiURLMagpieDetail says "magpie 网关默认在 http://127.0.0.1:3425/v1。"
 // in the language the app shows.
-func AiURLMagpieDetail() string { return In(i18n.Locale()).AiURLMagpieDetail() }
-
-// AiURLMagpieDetail says "magpie 网关默认在 http://127.0.0.1:3425/v1。"
-// in the language of msgs.
-func (msgs Messages) AiURLMagpieDetail() string {
-	return Catalog.Format(msgs.locale, "aiURLMagpieDetail", nil)
-}
+func AiURLMagpieDetail() string { return Catalog.Format(i18n.Locale(), "aiURLMagpieDetail", nil) }
 
 // AiKeyDetail says "只写入本机配置文件，不会进入文档。"
 // in the language the app shows.
-func AiKeyDetail() string { return In(i18n.Locale()).AiKeyDetail() }
-
-// AiKeyDetail says "只写入本机配置文件，不会进入文档。"
-// in the language of msgs.
-func (msgs Messages) AiKeyDetail() string {
-	return Catalog.Format(msgs.locale, "aiKeyDetail", nil)
-}
+func AiKeyDetail() string { return Catalog.Format(i18n.Locale(), "aiKeyDetail", nil) }
 
 // AiKeyMagpieDetail says "magpie 未开启调用方密钥时可留空。"
 // in the language the app shows.
-func AiKeyMagpieDetail() string { return In(i18n.Locale()).AiKeyMagpieDetail() }
-
-// AiKeyMagpieDetail says "magpie 未开启调用方密钥时可留空。"
-// in the language of msgs.
-func (msgs Messages) AiKeyMagpieDetail() string {
-	return Catalog.Format(msgs.locale, "aiKeyMagpieDetail", nil)
-}
+func AiKeyMagpieDetail() string { return Catalog.Format(i18n.Locale(), "aiKeyMagpieDetail", nil) }
 
 // AiOptional says "可留空"
 // in the language the app shows.
-func AiOptional() string { return In(i18n.Locale()).AiOptional() }
-
-// AiOptional says "可留空"
-// in the language of msgs.
-func (msgs Messages) AiOptional() string {
-	return Catalog.Format(msgs.locale, "aiOptional", nil)
-}
+func AiOptional() string { return Catalog.Format(i18n.Locale(), "aiOptional", nil) }
 
 // AiModelDetail says "例如 gpt-4.1、deepseek-chat 或你的网关模型名。"
 // in the language the app shows.
-func AiModelDetail() string { return In(i18n.Locale()).AiModelDetail() }
-
-// AiModelDetail says "例如 gpt-4.1、deepseek-chat 或你的网关模型名。"
-// in the language of msgs.
-func (msgs Messages) AiModelDetail() string {
-	return Catalog.Format(msgs.locale, "aiModelDetail", nil)
-}
+func AiModelDetail() string { return Catalog.Format(i18n.Locale(), "aiModelDetail", nil) }
 
 // AiModelMagpieDetail says "magpie 的模型名，例如 opencode-go/deepseek-v4.1-flash。"
 // in the language the app shows.
-func AiModelMagpieDetail() string { return In(i18n.Locale()).AiModelMagpieDetail() }
-
-// AiModelMagpieDetail says "magpie 的模型名，例如 opencode-go/deepseek-v4.1-flash。"
-// in the language of msgs.
-func (msgs Messages) AiModelMagpieDetail() string {
-	return Catalog.Format(msgs.locale, "aiModelMagpieDetail", nil)
-}
+func AiModelMagpieDetail() string { return Catalog.Format(i18n.Locale(), "aiModelMagpieDetail", nil) }
 
 // AiConfigLocation says "密钥保存在 {path}"
 // in the language the app shows.
-func AiConfigLocation(path string) string { return In(i18n.Locale()).AiConfigLocation(path) }
-
-// AiConfigLocation says "密钥保存在 {path}"
-// in the language of msgs.
-func (msgs Messages) AiConfigLocation(path string) string {
-	return Catalog.Format(msgs.locale, "aiConfigLocation", map[string]any{"path": path})
+func AiConfigLocation(path string) string {
+	return Catalog.Format(i18n.Locale(), "aiConfigLocation", map[string]any{"path": path})
 }
 
 // CommonSaveFailed says "保存失败：{error}"
 // in the language the app shows.
-func CommonSaveFailed(error string) string { return In(i18n.Locale()).CommonSaveFailed(error) }
-
-// CommonSaveFailed says "保存失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonSaveFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonSaveFailed", map[string]any{"error": error})
+func CommonSaveFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonSaveFailed", map[string]any{"error": error})
 }
 
 // AiConversationInterrupted says "会话中断，这次修改没有执行"
 // in the language the app shows.
-func AiConversationInterrupted() string { return In(i18n.Locale()).AiConversationInterrupted() }
-
-// AiConversationInterrupted says "会话中断，这次修改没有执行"
-// in the language of msgs.
-func (msgs Messages) AiConversationInterrupted() string {
-	return Catalog.Format(msgs.locale, "aiConversationInterrupted", nil)
+func AiConversationInterrupted() string {
+	return Catalog.Format(i18n.Locale(), "aiConversationInterrupted", nil)
 }
 
 // AiNoModelsReturned says "接口没有返回模型"
 // in the language the app shows.
-func AiNoModelsReturned() string { return In(i18n.Locale()).AiNoModelsReturned() }
-
-// AiNoModelsReturned says "接口没有返回模型"
-// in the language of msgs.
-func (msgs Messages) AiNoModelsReturned() string {
-	return Catalog.Format(msgs.locale, "aiNoModelsReturned", nil)
-}
+func AiNoModelsReturned() string { return Catalog.Format(i18n.Locale(), "aiNoModelsReturned", nil) }
 
 // AiSuggestionSummarize says "总结这篇文档"
 // in the language the app shows.
-func AiSuggestionSummarize() string { return In(i18n.Locale()).AiSuggestionSummarize() }
-
-// AiSuggestionSummarize says "总结这篇文档"
-// in the language of msgs.
-func (msgs Messages) AiSuggestionSummarize() string {
-	return Catalog.Format(msgs.locale, "aiSuggestionSummarize", nil)
+func AiSuggestionSummarize() string {
+	return Catalog.Format(i18n.Locale(), "aiSuggestionSummarize", nil)
 }
 
 // AiSuggestionFormalize says "改得更正式"
 // in the language the app shows.
-func AiSuggestionFormalize() string { return In(i18n.Locale()).AiSuggestionFormalize() }
-
-// AiSuggestionFormalize says "改得更正式"
-// in the language of msgs.
-func (msgs Messages) AiSuggestionFormalize() string {
-	return Catalog.Format(msgs.locale, "aiSuggestionFormalize", nil)
+func AiSuggestionFormalize() string {
+	return Catalog.Format(i18n.Locale(), "aiSuggestionFormalize", nil)
 }
 
 // AiSuggestionTitles says "起 5 个标题"
 // in the language the app shows.
-func AiSuggestionTitles() string { return In(i18n.Locale()).AiSuggestionTitles() }
-
-// AiSuggestionTitles says "起 5 个标题"
-// in the language of msgs.
-func (msgs Messages) AiSuggestionTitles() string {
-	return Catalog.Format(msgs.locale, "aiSuggestionTitles", nil)
-}
+func AiSuggestionTitles() string { return Catalog.Format(i18n.Locale(), "aiSuggestionTitles", nil) }
 
 // AiThinkProcess says "思考过程"
 // in the language the app shows.
-func AiThinkProcess() string { return In(i18n.Locale()).AiThinkProcess() }
-
-// AiThinkProcess says "思考过程"
-// in the language of msgs.
-func (msgs Messages) AiThinkProcess() string {
-	return Catalog.Format(msgs.locale, "aiThinkProcess", nil)
-}
+func AiThinkProcess() string { return Catalog.Format(i18n.Locale(), "aiThinkProcess", nil) }
 
 // AiThinkingDuration says "已思考 {seconds} 秒"
 // in the language the app shows.
-func AiThinkingDuration(seconds string) string { return In(i18n.Locale()).AiThinkingDuration(seconds) }
-
-// AiThinkingDuration says "已思考 {seconds} 秒"
-// in the language of msgs.
-func (msgs Messages) AiThinkingDuration(seconds string) string {
-	return Catalog.Format(msgs.locale, "aiThinkingDuration", map[string]any{"seconds": seconds})
+func AiThinkingDuration(seconds string) string {
+	return Catalog.Format(i18n.Locale(), "aiThinkingDuration", map[string]any{"seconds": seconds})
 }
 
 // AiApprovalEditDocument says "请求修改文档"
 // in the language the app shows.
-func AiApprovalEditDocument() string { return In(i18n.Locale()).AiApprovalEditDocument() }
-
-// AiApprovalEditDocument says "请求修改文档"
-// in the language of msgs.
-func (msgs Messages) AiApprovalEditDocument() string {
-	return Catalog.Format(msgs.locale, "aiApprovalEditDocument", nil)
+func AiApprovalEditDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiApprovalEditDocument", nil)
 }
 
 // AiApprovalCreateDocument says "请求新建文档"
 // in the language the app shows.
-func AiApprovalCreateDocument() string { return In(i18n.Locale()).AiApprovalCreateDocument() }
-
-// AiApprovalCreateDocument says "请求新建文档"
-// in the language of msgs.
-func (msgs Messages) AiApprovalCreateDocument() string {
-	return Catalog.Format(msgs.locale, "aiApprovalCreateDocument", nil)
+func AiApprovalCreateDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiApprovalCreateDocument", nil)
 }
 
 // AiApprovalInsertContent says "请求插入内容"
 // in the language the app shows.
-func AiApprovalInsertContent() string { return In(i18n.Locale()).AiApprovalInsertContent() }
-
-// AiApprovalInsertContent says "请求插入内容"
-// in the language of msgs.
-func (msgs Messages) AiApprovalInsertContent() string {
-	return Catalog.Format(msgs.locale, "aiApprovalInsertContent", nil)
+func AiApprovalInsertContent() string {
+	return Catalog.Format(i18n.Locale(), "aiApprovalInsertContent", nil)
 }
 
 // AiAlwaysAllowSession says "总是允许：本会话内修改免确认"
 // in the language the app shows.
-func AiAlwaysAllowSession() string { return In(i18n.Locale()).AiAlwaysAllowSession() }
-
-// AiAlwaysAllowSession says "总是允许：本会话内修改免确认"
-// in the language of msgs.
-func (msgs Messages) AiAlwaysAllowSession() string {
-	return Catalog.Format(msgs.locale, "aiAlwaysAllowSession", nil)
-}
+func AiAlwaysAllowSession() string { return Catalog.Format(i18n.Locale(), "aiAlwaysAllowSession", nil) }
 
 // AiClearConversation says "清空"
 // in the language the app shows.
-func AiClearConversation() string { return In(i18n.Locale()).AiClearConversation() }
-
-// AiClearConversation says "清空"
-// in the language of msgs.
-func (msgs Messages) AiClearConversation() string {
-	return Catalog.Format(msgs.locale, "aiClearConversation", nil)
-}
+func AiClearConversation() string { return Catalog.Format(i18n.Locale(), "aiClearConversation", nil) }
 
 // AiSetupModel says "设置模型"
 // in the language the app shows.
-func AiSetupModel() string { return In(i18n.Locale()).AiSetupModel() }
-
-// AiSetupModel says "设置模型"
-// in the language of msgs.
-func (msgs Messages) AiSetupModel() string {
-	return Catalog.Format(msgs.locale, "aiSetupModel", nil)
-}
+func AiSetupModel() string { return Catalog.Format(i18n.Locale(), "aiSetupModel", nil) }
 
 // AiSidebarShow says "显示侧栏"
 // in the language the app shows.
-func AiSidebarShow() string { return In(i18n.Locale()).AiSidebarShow() }
-
-// AiSidebarShow says "显示侧栏"
-// in the language of msgs.
-func (msgs Messages) AiSidebarShow() string {
-	return Catalog.Format(msgs.locale, "aiSidebarShow", nil)
-}
+func AiSidebarShow() string { return Catalog.Format(i18n.Locale(), "aiSidebarShow", nil) }
 
 // AiSidebarHide says "隐藏侧栏"
 // in the language the app shows.
-func AiSidebarHide() string { return In(i18n.Locale()).AiSidebarHide() }
-
-// AiSidebarHide says "隐藏侧栏"
-// in the language of msgs.
-func (msgs Messages) AiSidebarHide() string {
-	return Catalog.Format(msgs.locale, "aiSidebarHide", nil)
-}
+func AiSidebarHide() string { return Catalog.Format(i18n.Locale(), "aiSidebarHide", nil) }
 
 // CommonOpenFolder says "打开文件夹…"
 // in the language the app shows.
-func CommonOpenFolder() string { return In(i18n.Locale()).CommonOpenFolder() }
-
-// CommonOpenFolder says "打开文件夹…"
-// in the language of msgs.
-func (msgs Messages) CommonOpenFolder() string {
-	return Catalog.Format(msgs.locale, "commonOpenFolder", nil)
-}
+func CommonOpenFolder() string { return Catalog.Format(i18n.Locale(), "commonOpenFolder", nil) }
 
 // CommonOpenFile says "打开文件…"
 // in the language the app shows.
-func CommonOpenFile() string { return In(i18n.Locale()).CommonOpenFile() }
-
-// CommonOpenFile says "打开文件…"
-// in the language of msgs.
-func (msgs Messages) CommonOpenFile() string {
-	return Catalog.Format(msgs.locale, "commonOpenFile", nil)
-}
+func CommonOpenFile() string { return Catalog.Format(i18n.Locale(), "commonOpenFile", nil) }
 
 // CommonOpenFileFailed says "打开失败：{error}"
 // in the language the app shows.
-func CommonOpenFileFailed(error string) string { return In(i18n.Locale()).CommonOpenFileFailed(error) }
-
-// CommonOpenFileFailed says "打开失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonOpenFileFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonOpenFileFailed", map[string]any{"error": error})
+func CommonOpenFileFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonOpenFileFailed", map[string]any{"error": error})
 }
 
 // CommonSaveError says "保存失败：{error}"
 // in the language the app shows.
-func CommonSaveError(error string) string { return In(i18n.Locale()).CommonSaveError(error) }
-
-// CommonSaveError says "保存失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonSaveError(error string) string {
-	return Catalog.Format(msgs.locale, "commonSaveError", map[string]any{"error": error})
+func CommonSaveError(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonSaveError", map[string]any{"error": error})
 }
 
 // CommonCreateFailed says "新建失败：{error}"
 // in the language the app shows.
-func CommonCreateFailed(error string) string { return In(i18n.Locale()).CommonCreateFailed(error) }
-
-// CommonCreateFailed says "新建失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonCreateFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonCreateFailed", map[string]any{"error": error})
+func CommonCreateFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonCreateFailed", map[string]any{"error": error})
 }
 
 // CommonRenameFailed says "重命名失败：{error}"
 // in the language the app shows.
-func CommonRenameFailed(error string) string { return In(i18n.Locale()).CommonRenameFailed(error) }
-
-// CommonRenameFailed says "重命名失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonRenameFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonRenameFailed", map[string]any{"error": error})
+func CommonRenameFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonRenameFailed", map[string]any{"error": error})
 }
 
 // CommonCancel says "取消"
 // in the language the app shows.
-func CommonCancel() string { return In(i18n.Locale()).CommonCancel() }
-
-// CommonCancel says "取消"
-// in the language of msgs.
-func (msgs Messages) CommonCancel() string {
-	return Catalog.Format(msgs.locale, "commonCancel", nil)
-}
+func CommonCancel() string { return Catalog.Format(i18n.Locale(), "commonCancel", nil) }
 
 // FilesCopyItem says "复制项目"
 // in the language the app shows.
-func FilesCopyItem() string { return In(i18n.Locale()).FilesCopyItem() }
-
-// FilesCopyItem says "复制项目"
-// in the language of msgs.
-func (msgs Messages) FilesCopyItem() string {
-	return Catalog.Format(msgs.locale, "filesCopyItem", nil)
-}
+func FilesCopyItem() string { return Catalog.Format(i18n.Locale(), "filesCopyItem", nil) }
 
 // FilesCutItem says "剪切项目"
 // in the language the app shows.
-func FilesCutItem() string { return In(i18n.Locale()).FilesCutItem() }
-
-// FilesCutItem says "剪切项目"
-// in the language of msgs.
-func (msgs Messages) FilesCutItem() string {
-	return Catalog.Format(msgs.locale, "filesCutItem", nil)
-}
+func FilesCutItem() string { return Catalog.Format(i18n.Locale(), "filesCutItem", nil) }
 
 // FilesPasteItem says "粘贴项目"
 // in the language the app shows.
-func FilesPasteItem() string { return In(i18n.Locale()).FilesPasteItem() }
-
-// FilesPasteItem says "粘贴项目"
-// in the language of msgs.
-func (msgs Messages) FilesPasteItem() string {
-	return Catalog.Format(msgs.locale, "filesPasteItem", nil)
-}
+func FilesPasteItem() string { return Catalog.Format(i18n.Locale(), "filesPasteItem", nil) }
 
 // FilesChangeIcon says "更改图标…"
 // in the language the app shows.
-func FilesChangeIcon() string { return In(i18n.Locale()).FilesChangeIcon() }
-
-// FilesChangeIcon says "更改图标…"
-// in the language of msgs.
-func (msgs Messages) FilesChangeIcon() string {
-	return Catalog.Format(msgs.locale, "filesChangeIcon", nil)
-}
+func FilesChangeIcon() string { return Catalog.Format(i18n.Locale(), "filesChangeIcon", nil) }
 
 // FilesCopyRelativePath says "复制相对路径"
 // in the language the app shows.
-func FilesCopyRelativePath() string { return In(i18n.Locale()).FilesCopyRelativePath() }
-
-// FilesCopyRelativePath says "复制相对路径"
-// in the language of msgs.
-func (msgs Messages) FilesCopyRelativePath() string {
-	return Catalog.Format(msgs.locale, "filesCopyRelativePath", nil)
+func FilesCopyRelativePath() string {
+	return Catalog.Format(i18n.Locale(), "filesCopyRelativePath", nil)
 }
 
 // FilesCopyAbsolutePath says "复制绝对路径"
 // in the language the app shows.
-func FilesCopyAbsolutePath() string { return In(i18n.Locale()).FilesCopyAbsolutePath() }
-
-// FilesCopyAbsolutePath says "复制绝对路径"
-// in the language of msgs.
-func (msgs Messages) FilesCopyAbsolutePath() string {
-	return Catalog.Format(msgs.locale, "filesCopyAbsolutePath", nil)
+func FilesCopyAbsolutePath() string {
+	return Catalog.Format(i18n.Locale(), "filesCopyAbsolutePath", nil)
 }
 
 // FilesRenameEllipsis says "重命名…"
 // in the language the app shows.
-func FilesRenameEllipsis() string { return In(i18n.Locale()).FilesRenameEllipsis() }
-
-// FilesRenameEllipsis says "重命名…"
-// in the language of msgs.
-func (msgs Messages) FilesRenameEllipsis() string {
-	return Catalog.Format(msgs.locale, "filesRenameEllipsis", nil)
-}
+func FilesRenameEllipsis() string { return Catalog.Format(i18n.Locale(), "filesRenameEllipsis", nil) }
 
 // FilesRevealInFinder says "在 Finder 中显示"
 // in the language the app shows.
-func FilesRevealInFinder() string { return In(i18n.Locale()).FilesRevealInFinder() }
-
-// FilesRevealInFinder says "在 Finder 中显示"
-// in the language of msgs.
-func (msgs Messages) FilesRevealInFinder() string {
-	return Catalog.Format(msgs.locale, "filesRevealInFinder", nil)
-}
+func FilesRevealInFinder() string { return Catalog.Format(i18n.Locale(), "filesRevealInFinder", nil) }
 
 // WorkspaceQuickOpenPath says "按路径跳转到文件"
 // in the language the app shows.
-func WorkspaceQuickOpenPath() string { return In(i18n.Locale()).WorkspaceQuickOpenPath() }
-
-// WorkspaceQuickOpenPath says "按路径跳转到文件"
-// in the language of msgs.
-func (msgs Messages) WorkspaceQuickOpenPath() string {
-	return Catalog.Format(msgs.locale, "workspaceQuickOpenPath", nil)
+func WorkspaceQuickOpenPath() string {
+	return Catalog.Format(i18n.Locale(), "workspaceQuickOpenPath", nil)
 }
 
 // WorkspaceFilePanel says "文件面板"
 // in the language the app shows.
-func WorkspaceFilePanel() string { return In(i18n.Locale()).WorkspaceFilePanel() }
-
-// WorkspaceFilePanel says "文件面板"
-// in the language of msgs.
-func (msgs Messages) WorkspaceFilePanel() string {
-	return Catalog.Format(msgs.locale, "workspaceFilePanel", nil)
-}
+func WorkspaceFilePanel() string { return Catalog.Format(i18n.Locale(), "workspaceFilePanel", nil) }
 
 // WorkspaceOutlinePanel says "大纲面板"
 // in the language the app shows.
-func WorkspaceOutlinePanel() string { return In(i18n.Locale()).WorkspaceOutlinePanel() }
-
-// WorkspaceOutlinePanel says "大纲面板"
-// in the language of msgs.
-func (msgs Messages) WorkspaceOutlinePanel() string {
-	return Catalog.Format(msgs.locale, "workspaceOutlinePanel", nil)
+func WorkspaceOutlinePanel() string {
+	return Catalog.Format(i18n.Locale(), "workspaceOutlinePanel", nil)
 }
 
 // AiAssistantPanel says "AI 助手面板"
 // in the language the app shows.
-func AiAssistantPanel() string { return In(i18n.Locale()).AiAssistantPanel() }
-
-// AiAssistantPanel says "AI 助手面板"
-// in the language of msgs.
-func (msgs Messages) AiAssistantPanel() string {
-	return Catalog.Format(msgs.locale, "aiAssistantPanel", nil)
-}
+func AiAssistantPanel() string { return Catalog.Format(i18n.Locale(), "aiAssistantPanel", nil) }
 
 // PaletteNewFile says "新建文件"
 // in the language the app shows.
-func PaletteNewFile() string { return In(i18n.Locale()).PaletteNewFile() }
-
-// PaletteNewFile says "新建文件"
-// in the language of msgs.
-func (msgs Messages) PaletteNewFile() string {
-	return Catalog.Format(msgs.locale, "paletteNewFile", nil)
-}
+func PaletteNewFile() string { return Catalog.Format(i18n.Locale(), "paletteNewFile", nil) }
 
 // PaletteNewFolder says "新建文件夹"
 // in the language the app shows.
-func PaletteNewFolder() string { return In(i18n.Locale()).PaletteNewFolder() }
-
-// PaletteNewFolder says "新建文件夹"
-// in the language of msgs.
-func (msgs Messages) PaletteNewFolder() string {
-	return Catalog.Format(msgs.locale, "paletteNewFolder", nil)
-}
+func PaletteNewFolder() string { return Catalog.Format(i18n.Locale(), "paletteNewFolder", nil) }
 
 // CommonSaveAs says "另存为…"
 // in the language the app shows.
-func CommonSaveAs() string { return In(i18n.Locale()).CommonSaveAs() }
-
-// CommonSaveAs says "另存为…"
-// in the language of msgs.
-func (msgs Messages) CommonSaveAs() string {
-	return Catalog.Format(msgs.locale, "commonSaveAs", nil)
-}
+func CommonSaveAs() string { return Catalog.Format(i18n.Locale(), "commonSaveAs", nil) }
 
 // CommonOpenFileOrFolder says "打开文件或文件夹"
 // in the language the app shows.
-func CommonOpenFileOrFolder() string { return In(i18n.Locale()).CommonOpenFileOrFolder() }
-
-// CommonOpenFileOrFolder says "打开文件或文件夹"
-// in the language of msgs.
-func (msgs Messages) CommonOpenFileOrFolder() string {
-	return Catalog.Format(msgs.locale, "commonOpenFileOrFolder", nil)
+func CommonOpenFileOrFolder() string {
+	return Catalog.Format(i18n.Locale(), "commonOpenFileOrFolder", nil)
 }
 
 // FilesNewFile says "新建文件"
 // in the language the app shows.
-func FilesNewFile() string { return In(i18n.Locale()).FilesNewFile() }
-
-// FilesNewFile says "新建文件"
-// in the language of msgs.
-func (msgs Messages) FilesNewFile() string {
-	return Catalog.Format(msgs.locale, "filesNewFile", nil)
-}
+func FilesNewFile() string { return Catalog.Format(i18n.Locale(), "filesNewFile", nil) }
 
 // FilesSetWorkspace says "设为工作区"
 // in the language the app shows.
-func FilesSetWorkspace() string { return In(i18n.Locale()).FilesSetWorkspace() }
-
-// FilesSetWorkspace says "设为工作区"
-// in the language of msgs.
-func (msgs Messages) FilesSetWorkspace() string {
-	return Catalog.Format(msgs.locale, "filesSetWorkspace", nil)
-}
+func FilesSetWorkspace() string { return Catalog.Format(i18n.Locale(), "filesSetWorkspace", nil) }
 
 // DocumentStartWriting says "开始写作…"
 // in the language the app shows.
-func DocumentStartWriting() string { return In(i18n.Locale()).DocumentStartWriting() }
-
-// DocumentStartWriting says "开始写作…"
-// in the language of msgs.
-func (msgs Messages) DocumentStartWriting() string {
-	return Catalog.Format(msgs.locale, "documentStartWriting", nil)
-}
+func DocumentStartWriting() string { return Catalog.Format(i18n.Locale(), "documentStartWriting", nil) }
 
 // DocumentDefaultLabel says "文档"
 // in the language the app shows.
-func DocumentDefaultLabel() string { return In(i18n.Locale()).DocumentDefaultLabel() }
-
-// DocumentDefaultLabel says "文档"
-// in the language of msgs.
-func (msgs Messages) DocumentDefaultLabel() string {
-	return Catalog.Format(msgs.locale, "documentDefaultLabel", nil)
-}
+func DocumentDefaultLabel() string { return Catalog.Format(i18n.Locale(), "documentDefaultLabel", nil) }
 
 // DocumentNotSaved says "未保存"
 // in the language the app shows.
-func DocumentNotSaved() string { return In(i18n.Locale()).DocumentNotSaved() }
-
-// DocumentNotSaved says "未保存"
-// in the language of msgs.
-func (msgs Messages) DocumentNotSaved() string {
-	return Catalog.Format(msgs.locale, "documentNotSaved", nil)
-}
+func DocumentNotSaved() string { return Catalog.Format(i18n.Locale(), "documentNotSaved", nil) }
 
 // WorkspaceSearchFullText says "全文"
 // in the language the app shows.
-func WorkspaceSearchFullText() string { return In(i18n.Locale()).WorkspaceSearchFullText() }
-
-// WorkspaceSearchFullText says "全文"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchFullText() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchFullText", nil)
+func WorkspaceSearchFullText() string {
+	return Catalog.Format(i18n.Locale(), "workspaceSearchFullText", nil)
 }
 
 // WorkspaceSearchLiteral says "字面量"
 // in the language the app shows.
-func WorkspaceSearchLiteral() string { return In(i18n.Locale()).WorkspaceSearchLiteral() }
-
-// WorkspaceSearchLiteral says "字面量"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchLiteral() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchLiteral", nil)
+func WorkspaceSearchLiteral() string {
+	return Catalog.Format(i18n.Locale(), "workspaceSearchLiteral", nil)
 }
 
 // WorkspaceSearchFullTextSelected says "✓ 全文"
 // in the language the app shows.
 func WorkspaceSearchFullTextSelected() string {
-	return In(i18n.Locale()).WorkspaceSearchFullTextSelected()
-}
-
-// WorkspaceSearchFullTextSelected says "✓ 全文"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchFullTextSelected() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchFullTextSelected", nil)
+	return Catalog.Format(i18n.Locale(), "workspaceSearchFullTextSelected", nil)
 }
 
 // WorkspaceSearchLiteralSelected says "✓ 字面量"
 // in the language the app shows.
 func WorkspaceSearchLiteralSelected() string {
-	return In(i18n.Locale()).WorkspaceSearchLiteralSelected()
-}
-
-// WorkspaceSearchLiteralSelected says "✓ 字面量"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchLiteralSelected() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchLiteralSelected", nil)
+	return Catalog.Format(i18n.Locale(), "workspaceSearchLiteralSelected", nil)
 }
 
 // DocumentReplaceOne says "替换"
 // in the language the app shows.
-func DocumentReplaceOne() string { return In(i18n.Locale()).DocumentReplaceOne() }
-
-// DocumentReplaceOne says "替换"
-// in the language of msgs.
-func (msgs Messages) DocumentReplaceOne() string {
-	return Catalog.Format(msgs.locale, "documentReplaceOne", nil)
-}
+func DocumentReplaceOne() string { return Catalog.Format(i18n.Locale(), "documentReplaceOne", nil) }
 
 // DocumentInfo says "信息"
 // in the language the app shows.
-func DocumentInfo() string { return In(i18n.Locale()).DocumentInfo() }
-
-// DocumentInfo says "信息"
-// in the language of msgs.
-func (msgs Messages) DocumentInfo() string {
-	return Catalog.Format(msgs.locale, "documentInfo", nil)
-}
+func DocumentInfo() string { return Catalog.Format(i18n.Locale(), "documentInfo", nil) }
 
 // DocumentMore says "更多"
 // in the language the app shows.
-func DocumentMore() string { return In(i18n.Locale()).DocumentMore() }
-
-// DocumentMore says "更多"
-// in the language of msgs.
-func (msgs Messages) DocumentMore() string {
-	return Catalog.Format(msgs.locale, "documentMore", nil)
-}
+func DocumentMore() string { return Catalog.Format(i18n.Locale(), "documentMore", nil) }
 
 // DocumentExport says "导出笔记"
 // in the language the app shows.
-func DocumentExport() string { return In(i18n.Locale()).DocumentExport() }
-
-// DocumentExport says "导出笔记"
-// in the language of msgs.
-func (msgs Messages) DocumentExport() string {
-	return Catalog.Format(msgs.locale, "documentExport", nil)
-}
+func DocumentExport() string { return Catalog.Format(i18n.Locale(), "documentExport", nil) }
 
 // DocumentExportMarkdown says "导出为 Markdown…"
 // in the language the app shows.
-func DocumentExportMarkdown() string { return In(i18n.Locale()).DocumentExportMarkdown() }
-
-// DocumentExportMarkdown says "导出为 Markdown…"
-// in the language of msgs.
-func (msgs Messages) DocumentExportMarkdown() string {
-	return Catalog.Format(msgs.locale, "documentExportMarkdown", nil)
+func DocumentExportMarkdown() string {
+	return Catalog.Format(i18n.Locale(), "documentExportMarkdown", nil)
 }
 
 // DocumentExportHTML says "导出为 HTML…"
 // in the language the app shows.
-func DocumentExportHTML() string { return In(i18n.Locale()).DocumentExportHTML() }
-
-// DocumentExportHTML says "导出为 HTML…"
-// in the language of msgs.
-func (msgs Messages) DocumentExportHTML() string {
-	return Catalog.Format(msgs.locale, "documentExportHTML", nil)
-}
+func DocumentExportHTML() string { return Catalog.Format(i18n.Locale(), "documentExportHTML", nil) }
 
 // DocumentExportPDF says "导出为 PDF…"
 // in the language the app shows.
-func DocumentExportPDF() string { return In(i18n.Locale()).DocumentExportPDF() }
-
-// DocumentExportPDF says "导出为 PDF…"
-// in the language of msgs.
-func (msgs Messages) DocumentExportPDF() string {
-	return Catalog.Format(msgs.locale, "documentExportPDF", nil)
-}
+func DocumentExportPDF() string { return Catalog.Format(i18n.Locale(), "documentExportPDF", nil) }
 
 // DocumentExported says "笔记已导出"
 // in the language the app shows.
-func DocumentExported() string { return In(i18n.Locale()).DocumentExported() }
-
-// DocumentExported says "笔记已导出"
-// in the language of msgs.
-func (msgs Messages) DocumentExported() string {
-	return Catalog.Format(msgs.locale, "documentExported", nil)
-}
+func DocumentExported() string { return Catalog.Format(i18n.Locale(), "documentExported", nil) }
 
 // DocumentPathValue says "路径：{path}"
 // in the language the app shows.
-func DocumentPathValue(path string) string { return In(i18n.Locale()).DocumentPathValue(path) }
-
-// DocumentPathValue says "路径：{path}"
-// in the language of msgs.
-func (msgs Messages) DocumentPathValue(path string) string {
-	return Catalog.Format(msgs.locale, "documentPathValue", map[string]any{"path": path})
+func DocumentPathValue(path string) string {
+	return Catalog.Format(i18n.Locale(), "documentPathValue", map[string]any{"path": path})
 }
 
 // DocumentCharacterLineCount says "{characters, plural, other {# 字}} · {lines, plural, other {# 行}}"
 // in the language the app shows.
 func DocumentCharacterLineCount(characters int, lines int) string {
-	return In(i18n.Locale()).DocumentCharacterLineCount(characters, lines)
-}
-
-// DocumentCharacterLineCount says "{characters, plural, other {# 字}} · {lines, plural, other {# 行}}"
-// in the language of msgs.
-func (msgs Messages) DocumentCharacterLineCount(characters int, lines int) string {
-	return Catalog.Format(msgs.locale, "documentCharacterLineCount", map[string]any{"characters": characters, "lines": lines})
+	return Catalog.Format(i18n.Locale(), "documentCharacterLineCount", map[string]any{"characters": characters, "lines": lines})
 }
 
 // DocumentModifiedAt says "修改于 {time, date, medium}"
 // in the language the app shows.
-func DocumentModifiedAt(time_ time.Time) string { return In(i18n.Locale()).DocumentModifiedAt(time_) }
-
-// DocumentModifiedAt says "修改于 {time, date, medium}"
-// in the language of msgs.
-func (msgs Messages) DocumentModifiedAt(time_ time.Time) string {
-	return Catalog.Format(msgs.locale, "documentModifiedAt", map[string]any{"time": time_})
+func DocumentModifiedAt(time_ time.Time) string {
+	return Catalog.Format(i18n.Locale(), "documentModifiedAt", map[string]any{"time": time_})
 }
 
 // DocumentHistoryVersionLabel says "{time, date, short} · {revision}"
 // in the language the app shows.
 func DocumentHistoryVersionLabel(time_ time.Time, revision string) string {
-	return In(i18n.Locale()).DocumentHistoryVersionLabel(time_, revision)
-}
-
-// DocumentHistoryVersionLabel says "{time, date, short} · {revision}"
-// in the language of msgs.
-func (msgs Messages) DocumentHistoryVersionLabel(time_ time.Time, revision string) string {
-	return Catalog.Format(msgs.locale, "documentHistoryVersionLabel", map[string]any{"time": time_, "revision": revision})
+	return Catalog.Format(i18n.Locale(), "documentHistoryVersionLabel", map[string]any{"time": time_, "revision": revision})
 }
 
 // DocumentHistoryMenu says "版本历史…"
 // in the language the app shows.
-func DocumentHistoryMenu() string { return In(i18n.Locale()).DocumentHistoryMenu() }
-
-// DocumentHistoryMenu says "版本历史…"
-// in the language of msgs.
-func (msgs Messages) DocumentHistoryMenu() string {
-	return Catalog.Format(msgs.locale, "documentHistoryMenu", nil)
-}
+func DocumentHistoryMenu() string { return Catalog.Format(i18n.Locale(), "documentHistoryMenu", nil) }
 
 // DocumentRecoveryMenu says "恢复草稿…"
 // in the language the app shows.
-func DocumentRecoveryMenu() string { return In(i18n.Locale()).DocumentRecoveryMenu() }
-
-// DocumentRecoveryMenu says "恢复草稿…"
-// in the language of msgs.
-func (msgs Messages) DocumentRecoveryMenu() string {
-	return Catalog.Format(msgs.locale, "documentRecoveryMenu", nil)
-}
+func DocumentRecoveryMenu() string { return Catalog.Format(i18n.Locale(), "documentRecoveryMenu", nil) }
 
 // DocumentLinksMenu says "关联笔记…"
 // in the language the app shows.
-func DocumentLinksMenu() string { return In(i18n.Locale()).DocumentLinksMenu() }
-
-// DocumentLinksMenu says "关联笔记…"
-// in the language of msgs.
-func (msgs Messages) DocumentLinksMenu() string {
-	return Catalog.Format(msgs.locale, "documentLinksMenu", nil)
-}
+func DocumentLinksMenu() string { return Catalog.Format(i18n.Locale(), "documentLinksMenu", nil) }
 
 // DocumentCopyPathMenu says "复制路径"
 // in the language the app shows.
-func DocumentCopyPathMenu() string { return In(i18n.Locale()).DocumentCopyPathMenu() }
-
-// DocumentCopyPathMenu says "复制路径"
-// in the language of msgs.
-func (msgs Messages) DocumentCopyPathMenu() string {
-	return Catalog.Format(msgs.locale, "documentCopyPathMenu", nil)
-}
+func DocumentCopyPathMenu() string { return Catalog.Format(i18n.Locale(), "documentCopyPathMenu", nil) }
 
 // FilesCollapseMenu says "全部折叠"
 // in the language the app shows.
-func FilesCollapseMenu() string { return In(i18n.Locale()).FilesCollapseMenu() }
-
-// FilesCollapseMenu says "全部折叠"
-// in the language of msgs.
-func (msgs Messages) FilesCollapseMenu() string {
-	return Catalog.Format(msgs.locale, "filesCollapseMenu", nil)
-}
+func FilesCollapseMenu() string { return Catalog.Format(i18n.Locale(), "filesCollapseMenu", nil) }
 
 // FilesInFinder says "在访达中显示"
 // in the language the app shows.
-func FilesInFinder() string { return In(i18n.Locale()).FilesInFinder() }
-
-// FilesInFinder says "在访达中显示"
-// in the language of msgs.
-func (msgs Messages) FilesInFinder() string {
-	return Catalog.Format(msgs.locale, "filesInFinder", nil)
-}
+func FilesInFinder() string { return Catalog.Format(i18n.Locale(), "filesInFinder", nil) }
 
 // FilesNewFolderMenu says "新建文件夹"
 // in the language the app shows.
-func FilesNewFolderMenu() string { return In(i18n.Locale()).FilesNewFolderMenu() }
-
-// FilesNewFolderMenu says "新建文件夹"
-// in the language of msgs.
-func (msgs Messages) FilesNewFolderMenu() string {
-	return Catalog.Format(msgs.locale, "filesNewFolderMenu", nil)
-}
+func FilesNewFolderMenu() string { return Catalog.Format(i18n.Locale(), "filesNewFolderMenu", nil) }
 
 // FilesOpenFileMenu says "打开文件…"
 // in the language the app shows.
-func FilesOpenFileMenu() string { return In(i18n.Locale()).FilesOpenFileMenu() }
-
-// FilesOpenFileMenu says "打开文件…"
-// in the language of msgs.
-func (msgs Messages) FilesOpenFileMenu() string {
-	return Catalog.Format(msgs.locale, "filesOpenFileMenu", nil)
-}
+func FilesOpenFileMenu() string { return Catalog.Format(i18n.Locale(), "filesOpenFileMenu", nil) }
 
 // FilesOpenFolderMenu says "打开文件夹…"
 // in the language the app shows.
-func FilesOpenFolderMenu() string { return In(i18n.Locale()).FilesOpenFolderMenu() }
-
-// FilesOpenFolderMenu says "打开文件夹…"
-// in the language of msgs.
-func (msgs Messages) FilesOpenFolderMenu() string {
-	return Catalog.Format(msgs.locale, "filesOpenFolderMenu", nil)
-}
+func FilesOpenFolderMenu() string { return Catalog.Format(i18n.Locale(), "filesOpenFolderMenu", nil) }
 
 // FilesMoveItemToFolder says "移动到「{folder}」"
 // in the language the app shows.
 func FilesMoveItemToFolder(folder string) string {
-	return In(i18n.Locale()).FilesMoveItemToFolder(folder)
-}
-
-// FilesMoveItemToFolder says "移动到「{folder}」"
-// in the language of msgs.
-func (msgs Messages) FilesMoveItemToFolder(folder string) string {
-	return Catalog.Format(msgs.locale, "filesMoveItemToFolder", map[string]any{"folder": folder})
+	return Catalog.Format(i18n.Locale(), "filesMoveItemToFolder", map[string]any{"folder": folder})
 }
 
 // FilesMovedToFolder says "已移动到「{folder}」"
 // in the language the app shows.
-func FilesMovedToFolder(folder string) string { return In(i18n.Locale()).FilesMovedToFolder(folder) }
-
-// FilesMovedToFolder says "已移动到「{folder}」"
-// in the language of msgs.
-func (msgs Messages) FilesMovedToFolder(folder string) string {
-	return Catalog.Format(msgs.locale, "filesMovedToFolder", map[string]any{"folder": folder})
+func FilesMovedToFolder(folder string) string {
+	return Catalog.Format(i18n.Locale(), "filesMovedToFolder", map[string]any{"folder": folder})
 }
 
 // FilesNoDraggableItems says "没有可拖动的项目"
 // in the language the app shows.
-func FilesNoDraggableItems() string { return In(i18n.Locale()).FilesNoDraggableItems() }
-
-// FilesNoDraggableItems says "没有可拖动的项目"
-// in the language of msgs.
-func (msgs Messages) FilesNoDraggableItems() string {
-	return Catalog.Format(msgs.locale, "filesNoDraggableItems", nil)
+func FilesNoDraggableItems() string {
+	return Catalog.Format(i18n.Locale(), "filesNoDraggableItems", nil)
 }
 
 // FilesAbsolutePathRequired says "路径必须是绝对路径"
 // in the language the app shows.
-func FilesAbsolutePathRequired() string { return In(i18n.Locale()).FilesAbsolutePathRequired() }
-
-// FilesAbsolutePathRequired says "路径必须是绝对路径"
-// in the language of msgs.
-func (msgs Messages) FilesAbsolutePathRequired() string {
-	return Catalog.Format(msgs.locale, "filesAbsolutePathRequired", nil)
+func FilesAbsolutePathRequired() string {
+	return Catalog.Format(i18n.Locale(), "filesAbsolutePathRequired", nil)
 }
 
 // FilesUnsupportedType says "不支持的文件类型：{name}"
 // in the language the app shows.
-func FilesUnsupportedType(name string) string { return In(i18n.Locale()).FilesUnsupportedType(name) }
-
-// FilesUnsupportedType says "不支持的文件类型：{name}"
-// in the language of msgs.
-func (msgs Messages) FilesUnsupportedType(name string) string {
-	return Catalog.Format(msgs.locale, "filesUnsupportedType", map[string]any{"name": name})
+func FilesUnsupportedType(name string) string {
+	return Catalog.Format(i18n.Locale(), "filesUnsupportedType", map[string]any{"name": name})
 }
 
 // DocumentNotTextWithName says "这个文件不是文本文件：{name}"
 // in the language the app shows.
 func DocumentNotTextWithName(name string) string {
-	return In(i18n.Locale()).DocumentNotTextWithName(name)
-}
-
-// DocumentNotTextWithName says "这个文件不是文本文件：{name}"
-// in the language of msgs.
-func (msgs Messages) DocumentNotTextWithName(name string) string {
-	return Catalog.Format(msgs.locale, "documentNotTextWithName", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "documentNotTextWithName", map[string]any{"name": name})
 }
 
 // DocumentSaveChanges says "要保存对「{name}」的更改吗？"
 // in the language the app shows.
-func DocumentSaveChanges(name string) string { return In(i18n.Locale()).DocumentSaveChanges(name) }
-
-// DocumentSaveChanges says "要保存对「{name}」的更改吗？"
-// in the language of msgs.
-func (msgs Messages) DocumentSaveChanges(name string) string {
-	return Catalog.Format(msgs.locale, "documentSaveChanges", map[string]any{"name": name})
+func DocumentSaveChanges(name string) string {
+	return Catalog.Format(i18n.Locale(), "documentSaveChanges", map[string]any{"name": name})
 }
 
 // DocumentDiscardWarning says "如果不保存，更改会丢失。"
 // in the language the app shows.
-func DocumentDiscardWarning() string { return In(i18n.Locale()).DocumentDiscardWarning() }
-
-// DocumentDiscardWarning says "如果不保存，更改会丢失。"
-// in the language of msgs.
-func (msgs Messages) DocumentDiscardWarning() string {
-	return Catalog.Format(msgs.locale, "documentDiscardWarning", nil)
+func DocumentDiscardWarning() string {
+	return Catalog.Format(i18n.Locale(), "documentDiscardWarning", nil)
 }
 
 // DocumentSaveButton says "保存"
 // in the language the app shows.
-func DocumentSaveButton() string { return In(i18n.Locale()).DocumentSaveButton() }
-
-// DocumentSaveButton says "保存"
-// in the language of msgs.
-func (msgs Messages) DocumentSaveButton() string {
-	return Catalog.Format(msgs.locale, "documentSaveButton", nil)
-}
+func DocumentSaveButton() string { return Catalog.Format(i18n.Locale(), "documentSaveButton", nil) }
 
 // DocumentDontSaveButton says "不保存"
 // in the language the app shows.
-func DocumentDontSaveButton() string { return In(i18n.Locale()).DocumentDontSaveButton() }
-
-// DocumentDontSaveButton says "不保存"
-// in the language of msgs.
-func (msgs Messages) DocumentDontSaveButton() string {
-	return Catalog.Format(msgs.locale, "documentDontSaveButton", nil)
+func DocumentDontSaveButton() string {
+	return Catalog.Format(i18n.Locale(), "documentDontSaveButton", nil)
 }
 
 // CommonSaveFile says "保存文件"
 // in the language the app shows.
-func CommonSaveFile() string { return In(i18n.Locale()).CommonSaveFile() }
-
-// CommonSaveFile says "保存文件"
-// in the language of msgs.
-func (msgs Messages) CommonSaveFile() string {
-	return Catalog.Format(msgs.locale, "commonSaveFile", nil)
-}
+func CommonSaveFile() string { return Catalog.Format(i18n.Locale(), "commonSaveFile", nil) }
 
 // CommonTextFiles says "文本文件"
 // in the language the app shows.
-func CommonTextFiles() string { return In(i18n.Locale()).CommonTextFiles() }
-
-// CommonTextFiles says "文本文件"
-// in the language of msgs.
-func (msgs Messages) CommonTextFiles() string {
-	return Catalog.Format(msgs.locale, "commonTextFiles", nil)
-}
+func CommonTextFiles() string { return Catalog.Format(i18n.Locale(), "commonTextFiles", nil) }
 
 // CommonOpenFolderDialog says "打开文件夹"
 // in the language the app shows.
-func CommonOpenFolderDialog() string { return In(i18n.Locale()).CommonOpenFolderDialog() }
-
-// CommonOpenFolderDialog says "打开文件夹"
-// in the language of msgs.
-func (msgs Messages) CommonOpenFolderDialog() string {
-	return Catalog.Format(msgs.locale, "commonOpenFolderDialog", nil)
+func CommonOpenFolderDialog() string {
+	return Catalog.Format(i18n.Locale(), "commonOpenFolderDialog", nil)
 }
 
 // CommonTrashConfirm says "确定把「{name}」移到废纸篓？"
 // in the language the app shows.
-func CommonTrashConfirm(name string) string { return In(i18n.Locale()).CommonTrashConfirm(name) }
-
-// CommonTrashConfirm says "确定把「{name}」移到废纸篓？"
-// in the language of msgs.
-func (msgs Messages) CommonTrashConfirm(name string) string {
-	return Catalog.Format(msgs.locale, "commonTrashConfirm", map[string]any{"name": name})
+func CommonTrashConfirm(name string) string {
+	return Catalog.Format(i18n.Locale(), "commonTrashConfirm", map[string]any{"name": name})
 }
 
 // CommonTrashRecoverable says "可以从废纸篓恢复。"
 // in the language the app shows.
-func CommonTrashRecoverable() string { return In(i18n.Locale()).CommonTrashRecoverable() }
-
-// CommonTrashRecoverable says "可以从废纸篓恢复。"
-// in the language of msgs.
-func (msgs Messages) CommonTrashRecoverable() string {
-	return Catalog.Format(msgs.locale, "commonTrashRecoverable", nil)
+func CommonTrashRecoverable() string {
+	return Catalog.Format(i18n.Locale(), "commonTrashRecoverable", nil)
 }
 
 // CommonTrashManyConfirm says "确定把 {count, plural, other {# 个项目}}移到废纸篓？"
 // in the language the app shows.
-func CommonTrashManyConfirm(count int) string { return In(i18n.Locale()).CommonTrashManyConfirm(count) }
-
-// CommonTrashManyConfirm says "确定把 {count, plural, other {# 个项目}}移到废纸篓？"
-// in the language of msgs.
-func (msgs Messages) CommonTrashManyConfirm(count int) string {
-	return Catalog.Format(msgs.locale, "commonTrashManyConfirm", map[string]any{"count": count})
+func CommonTrashManyConfirm(count int) string {
+	return Catalog.Format(i18n.Locale(), "commonTrashManyConfirm", map[string]any{"count": count})
 }
 
 // CommonTrashButton says "移到废纸篓"
 // in the language the app shows.
-func CommonTrashButton() string { return In(i18n.Locale()).CommonTrashButton() }
-
-// CommonTrashButton says "移到废纸篓"
-// in the language of msgs.
-func (msgs Messages) CommonTrashButton() string {
-	return Catalog.Format(msgs.locale, "commonTrashButton", nil)
-}
+func CommonTrashButton() string { return Catalog.Format(i18n.Locale(), "commonTrashButton", nil) }
 
 // CommonRenameButton says "重命名"
 // in the language the app shows.
-func CommonRenameButton() string { return In(i18n.Locale()).CommonRenameButton() }
-
-// CommonRenameButton says "重命名"
-// in the language of msgs.
-func (msgs Messages) CommonRenameButton() string {
-	return Catalog.Format(msgs.locale, "commonRenameButton", nil)
-}
+func CommonRenameButton() string { return Catalog.Format(i18n.Locale(), "commonRenameButton", nil) }
 
 // CommonTryMerge says "尝试合并非重叠修改"
 // in the language the app shows.
-func CommonTryMerge() string { return In(i18n.Locale()).CommonTryMerge() }
-
-// CommonTryMerge says "尝试合并非重叠修改"
-// in the language of msgs.
-func (msgs Messages) CommonTryMerge() string {
-	return Catalog.Format(msgs.locale, "commonTryMerge", nil)
-}
+func CommonTryMerge() string { return Catalog.Format(i18n.Locale(), "commonTryMerge", nil) }
 
 // CommonKeepCopy says "保留为未命名副本"
 // in the language the app shows.
-func CommonKeepCopy() string { return In(i18n.Locale()).CommonKeepCopy() }
-
-// CommonKeepCopy says "保留为未命名副本"
-// in the language of msgs.
-func (msgs Messages) CommonKeepCopy() string {
-	return Catalog.Format(msgs.locale, "commonKeepCopy", nil)
-}
+func CommonKeepCopy() string { return Catalog.Format(i18n.Locale(), "commonKeepCopy", nil) }
 
 // CommonReloadDisk says "重新加载磁盘内容"
 // in the language the app shows.
-func CommonReloadDisk() string { return In(i18n.Locale()).CommonReloadDisk() }
-
-// CommonReloadDisk says "重新加载磁盘内容"
-// in the language of msgs.
-func (msgs Messages) CommonReloadDisk() string {
-	return Catalog.Format(msgs.locale, "commonReloadDisk", nil)
-}
+func CommonReloadDisk() string { return Catalog.Format(i18n.Locale(), "commonReloadDisk", nil) }
 
 // CommonReplaceSuccess says "已替换 {count, plural, other {# 处}}"
 // in the language the app shows.
-func CommonReplaceSuccess(count int) string { return In(i18n.Locale()).CommonReplaceSuccess(count) }
-
-// CommonReplaceSuccess says "已替换 {count, plural, other {# 处}}"
-// in the language of msgs.
-func (msgs Messages) CommonReplaceSuccess(count int) string {
-	return Catalog.Format(msgs.locale, "commonReplaceSuccess", map[string]any{"count": count})
+func CommonReplaceSuccess(count int) string {
+	return Catalog.Format(i18n.Locale(), "commonReplaceSuccess", map[string]any{"count": count})
 }
 
 // CommonImportFailed says "导入失败：{error}"
 // in the language the app shows.
-func CommonImportFailed(error string) string { return In(i18n.Locale()).CommonImportFailed(error) }
-
-// CommonImportFailed says "导入失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonImportFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonImportFailed", map[string]any{"error": error})
+func CommonImportFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonImportFailed", map[string]any{"error": error})
 }
 
 // CommonMoveFailed says "移动失败：{error}"
 // in the language the app shows.
-func CommonMoveFailed(error string) string { return In(i18n.Locale()).CommonMoveFailed(error) }
-
-// CommonMoveFailed says "移动失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonMoveFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonMoveFailed", map[string]any{"error": error})
+func CommonMoveFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonMoveFailed", map[string]any{"error": error})
 }
 
 // CommonDialogFolderTitle says "打开文件夹"
 // in the language the app shows.
-func CommonDialogFolderTitle() string { return In(i18n.Locale()).CommonDialogFolderTitle() }
-
-// CommonDialogFolderTitle says "打开文件夹"
-// in the language of msgs.
-func (msgs Messages) CommonDialogFolderTitle() string {
-	return Catalog.Format(msgs.locale, "commonDialogFolderTitle", nil)
+func CommonDialogFolderTitle() string {
+	return Catalog.Format(i18n.Locale(), "commonDialogFolderTitle", nil)
 }
 
 // CommonDialogFileTitle says "打开文件"
 // in the language the app shows.
-func CommonDialogFileTitle() string { return In(i18n.Locale()).CommonDialogFileTitle() }
-
-// CommonDialogFileTitle says "打开文件"
-// in the language of msgs.
-func (msgs Messages) CommonDialogFileTitle() string {
-	return Catalog.Format(msgs.locale, "commonDialogFileTitle", nil)
+func CommonDialogFileTitle() string {
+	return Catalog.Format(i18n.Locale(), "commonDialogFileTitle", nil)
 }
 
 // CommonDialogOpenFileFilter says "文本与图片"
 // in the language the app shows.
-func CommonDialogOpenFileFilter() string { return In(i18n.Locale()).CommonDialogOpenFileFilter() }
-
-// CommonDialogOpenFileFilter says "文本与图片"
-// in the language of msgs.
-func (msgs Messages) CommonDialogOpenFileFilter() string {
-	return Catalog.Format(msgs.locale, "commonDialogOpenFileFilter", nil)
+func CommonDialogOpenFileFilter() string {
+	return Catalog.Format(i18n.Locale(), "commonDialogOpenFileFilter", nil)
 }
 
 // CommonExternalUpdateTimestampFailed says "创建时间属性更新失败：{error}"
 // in the language the app shows.
 func CommonExternalUpdateTimestampFailed(error string) string {
-	return In(i18n.Locale()).CommonExternalUpdateTimestampFailed(error)
-}
-
-// CommonExternalUpdateTimestampFailed says "创建时间属性更新失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonExternalUpdateTimestampFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonExternalUpdateTimestampFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonExternalUpdateTimestampFailed", map[string]any{"error": error})
 }
 
 // CommonMoveAcrossWindowsFailed says "无法拖到其他窗口：{error}"
 // in the language the app shows.
 func CommonMoveAcrossWindowsFailed(error string) string {
-	return In(i18n.Locale()).CommonMoveAcrossWindowsFailed(error)
-}
-
-// CommonMoveAcrossWindowsFailed says "无法拖到其他窗口：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonMoveAcrossWindowsFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonMoveAcrossWindowsFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonMoveAcrossWindowsFailed", map[string]any{"error": error})
 }
 
 // CommonWindowDragFailed says "跨窗口拖动失败：{error}"
 // in the language the app shows.
 func CommonWindowDragFailed(error string) string {
-	return In(i18n.Locale()).CommonWindowDragFailed(error)
-}
-
-// CommonWindowDragFailed says "跨窗口拖动失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonWindowDragFailed(error string) string {
-	return Catalog.Format(msgs.locale, "commonWindowDragFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonWindowDragFailed", map[string]any{"error": error})
 }
 
 // DocumentUntitled says "未命名"
 // in the language the app shows.
-func DocumentUntitled() string { return In(i18n.Locale()).DocumentUntitled() }
-
-// DocumentUntitled says "未命名"
-// in the language of msgs.
-func (msgs Messages) DocumentUntitled() string {
-	return Catalog.Format(msgs.locale, "documentUntitled", nil)
-}
+func DocumentUntitled() string { return Catalog.Format(i18n.Locale(), "documentUntitled", nil) }
 
 // FilesNewFolderDefault says "新建文件夹"
 // in the language the app shows.
-func FilesNewFolderDefault() string { return In(i18n.Locale()).FilesNewFolderDefault() }
-
-// FilesNewFolderDefault says "新建文件夹"
-// in the language of msgs.
-func (msgs Messages) FilesNewFolderDefault() string {
-	return Catalog.Format(msgs.locale, "filesNewFolderDefault", nil)
+func FilesNewFolderDefault() string {
+	return Catalog.Format(i18n.Locale(), "filesNewFolderDefault", nil)
 }
 
 // WindowMinimize says "最小化"
 // in the language the app shows.
-func WindowMinimize() string { return In(i18n.Locale()).WindowMinimize() }
-
-// WindowMinimize says "最小化"
-// in the language of msgs.
-func (msgs Messages) WindowMinimize() string {
-	return Catalog.Format(msgs.locale, "windowMinimize", nil)
-}
+func WindowMinimize() string { return Catalog.Format(i18n.Locale(), "windowMinimize", nil) }
 
 // WindowMaximize says "最大化"
 // in the language the app shows.
-func WindowMaximize() string { return In(i18n.Locale()).WindowMaximize() }
-
-// WindowMaximize says "最大化"
-// in the language of msgs.
-func (msgs Messages) WindowMaximize() string {
-	return Catalog.Format(msgs.locale, "windowMaximize", nil)
-}
+func WindowMaximize() string { return Catalog.Format(i18n.Locale(), "windowMaximize", nil) }
 
 // WindowRestore says "向下还原"
 // in the language the app shows.
-func WindowRestore() string { return In(i18n.Locale()).WindowRestore() }
-
-// WindowRestore says "向下还原"
-// in the language of msgs.
-func (msgs Messages) WindowRestore() string {
-	return Catalog.Format(msgs.locale, "windowRestore", nil)
-}
+func WindowRestore() string { return Catalog.Format(i18n.Locale(), "windowRestore", nil) }
 
 // ImageZoomOut says "缩小图片"
 // in the language the app shows.
-func ImageZoomOut() string { return In(i18n.Locale()).ImageZoomOut() }
-
-// ImageZoomOut says "缩小图片"
-// in the language of msgs.
-func (msgs Messages) ImageZoomOut() string {
-	return Catalog.Format(msgs.locale, "imageZoomOut", nil)
-}
+func ImageZoomOut() string { return Catalog.Format(i18n.Locale(), "imageZoomOut", nil) }
 
 // ImageZoomIn says "放大图片"
 // in the language the app shows.
-func ImageZoomIn() string { return In(i18n.Locale()).ImageZoomIn() }
-
-// ImageZoomIn says "放大图片"
-// in the language of msgs.
-func (msgs Messages) ImageZoomIn() string {
-	return Catalog.Format(msgs.locale, "imageZoomIn", nil)
-}
+func ImageZoomIn() string { return Catalog.Format(i18n.Locale(), "imageZoomIn", nil) }
 
 // ImageFitWindow says "适合窗口"
 // in the language the app shows.
-func ImageFitWindow() string { return In(i18n.Locale()).ImageFitWindow() }
-
-// ImageFitWindow says "适合窗口"
-// in the language of msgs.
-func (msgs Messages) ImageFitWindow() string {
-	return Catalog.Format(msgs.locale, "imageFitWindow", nil)
-}
+func ImageFitWindow() string { return Catalog.Format(i18n.Locale(), "imageFitWindow", nil) }
 
 // ImageClosePreview says "关闭图片预览"
 // in the language the app shows.
-func ImageClosePreview() string { return In(i18n.Locale()).ImageClosePreview() }
-
-// ImageClosePreview says "关闭图片预览"
-// in the language of msgs.
-func (msgs Messages) ImageClosePreview() string {
-	return Catalog.Format(msgs.locale, "imageClosePreview", nil)
-}
+func ImageClosePreview() string { return Catalog.Format(i18n.Locale(), "imageClosePreview", nil) }
 
 // ImageLoading says "正在加载图片…"
 // in the language the app shows.
-func ImageLoading() string { return In(i18n.Locale()).ImageLoading() }
-
-// ImageLoading says "正在加载图片…"
-// in the language of msgs.
-func (msgs Messages) ImageLoading() string {
-	return Catalog.Format(msgs.locale, "imageLoading", nil)
-}
+func ImageLoading() string { return Catalog.Format(i18n.Locale(), "imageLoading", nil) }
 
 // ImageDecodeError says "无法解码图片：{path}"
 // in the language the app shows.
-func ImageDecodeError(path string) string { return In(i18n.Locale()).ImageDecodeError(path) }
-
-// ImageDecodeError says "无法解码图片：{path}"
-// in the language of msgs.
-func (msgs Messages) ImageDecodeError(path string) string {
-	return Catalog.Format(msgs.locale, "imageDecodeError", map[string]any{"path": path})
+func ImageDecodeError(path string) string {
+	return Catalog.Format(i18n.Locale(), "imageDecodeError", map[string]any{"path": path})
 }
 
 // SettingsToggleStateLabel says "{label}开关"
 // in the language the app shows.
 func SettingsToggleStateLabel(label string) string {
-	return In(i18n.Locale()).SettingsToggleStateLabel(label)
-}
-
-// SettingsToggleStateLabel says "{label}开关"
-// in the language of msgs.
-func (msgs Messages) SettingsToggleStateLabel(label string) string {
-	return Catalog.Format(msgs.locale, "settingsToggleStateLabel", map[string]any{"label": label})
+	return Catalog.Format(i18n.Locale(), "settingsToggleStateLabel", map[string]any{"label": label})
 }
 
 // CommonCopiedManyStatus says "已复制 {count, plural, other {# 个项目}}"
 // in the language the app shows.
-func CommonCopiedManyStatus(count int) string { return In(i18n.Locale()).CommonCopiedManyStatus(count) }
-
-// CommonCopiedManyStatus says "已复制 {count, plural, other {# 个项目}}"
-// in the language of msgs.
-func (msgs Messages) CommonCopiedManyStatus(count int) string {
-	return Catalog.Format(msgs.locale, "commonCopiedManyStatus", map[string]any{"count": count})
+func CommonCopiedManyStatus(count int) string {
+	return Catalog.Format(i18n.Locale(), "commonCopiedManyStatus", map[string]any{"count": count})
 }
 
 // CommonCutManyStatus says "已剪切 {count, plural, other {# 个项目}}"
 // in the language the app shows.
-func CommonCutManyStatus(count int) string { return In(i18n.Locale()).CommonCutManyStatus(count) }
-
-// CommonCutManyStatus says "已剪切 {count, plural, other {# 个项目}}"
-// in the language of msgs.
-func (msgs Messages) CommonCutManyStatus(count int) string {
-	return Catalog.Format(msgs.locale, "commonCutManyStatus", map[string]any{"count": count})
+func CommonCutManyStatus(count int) string {
+	return Catalog.Format(i18n.Locale(), "commonCutManyStatus", map[string]any{"count": count})
 }
 
 // CommonPasteFailedStatus says "粘贴失败：{error}"
 // in the language the app shows.
 func CommonPasteFailedStatus(error string) string {
-	return In(i18n.Locale()).CommonPasteFailedStatus(error)
-}
-
-// CommonPasteFailedStatus says "粘贴失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonPasteFailedStatus(error string) string {
-	return Catalog.Format(msgs.locale, "commonPasteFailedStatus", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonPasteFailedStatus", map[string]any{"error": error})
 }
 
 // CommonSettingSaveError says "保存设置失败：{error}"
 // in the language the app shows.
 func CommonSettingSaveError(error string) string {
-	return In(i18n.Locale()).CommonSettingSaveError(error)
-}
-
-// CommonSettingSaveError says "保存设置失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonSettingSaveError(error string) string {
-	return Catalog.Format(msgs.locale, "commonSettingSaveError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonSettingSaveError", map[string]any{"error": error})
 }
 
 // CommonAutosaveError says "自动保存失败：{error}"
 // in the language the app shows.
-func CommonAutosaveError(error string) string { return In(i18n.Locale()).CommonAutosaveError(error) }
-
-// CommonAutosaveError says "自动保存失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonAutosaveError(error string) string {
-	return Catalog.Format(msgs.locale, "commonAutosaveError", map[string]any{"error": error})
+func CommonAutosaveError(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonAutosaveError", map[string]any{"error": error})
 }
 
 // CommonTimestampError says "更新时间失败：{error}"
 // in the language the app shows.
-func CommonTimestampError(error string) string { return In(i18n.Locale()).CommonTimestampError(error) }
-
-// CommonTimestampError says "更新时间失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonTimestampError(error string) string {
-	return Catalog.Format(msgs.locale, "commonTimestampError", map[string]any{"error": error})
+func CommonTimestampError(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonTimestampError", map[string]any{"error": error})
 }
 
 // CommonRecoveryReadError says "读取恢复草稿失败：{error}"
 // in the language the app shows.
 func CommonRecoveryReadError(error string) string {
-	return In(i18n.Locale()).CommonRecoveryReadError(error)
-}
-
-// CommonRecoveryReadError says "读取恢复草稿失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonRecoveryReadError(error string) string {
-	return Catalog.Format(msgs.locale, "commonRecoveryReadError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonRecoveryReadError", map[string]any{"error": error})
 }
 
 // CommonHistoryReadError says "读取历史失败：{error}"
 // in the language the app shows.
 func CommonHistoryReadError(error string) string {
-	return In(i18n.Locale()).CommonHistoryReadError(error)
-}
-
-// CommonHistoryReadError says "读取历史失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonHistoryReadError(error string) string {
-	return Catalog.Format(msgs.locale, "commonHistoryReadError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonHistoryReadError", map[string]any{"error": error})
 }
 
 // CommonDraftPreserveError says "保留草稿失败：{error}"
 // in the language the app shows.
 func CommonDraftPreserveError(error string) string {
-	return In(i18n.Locale()).CommonDraftPreserveError(error)
-}
-
-// CommonDraftPreserveError says "保留草稿失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonDraftPreserveError(error string) string {
-	return Catalog.Format(msgs.locale, "commonDraftPreserveError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonDraftPreserveError", map[string]any{"error": error})
 }
 
 // CommonMergedSaveError says "合并后的保存失败：{error}"
 // in the language the app shows.
 func CommonMergedSaveError(error string) string {
-	return In(i18n.Locale()).CommonMergedSaveError(error)
-}
-
-// CommonMergedSaveError says "合并后的保存失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonMergedSaveError(error string) string {
-	return Catalog.Format(msgs.locale, "commonMergedSaveError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonMergedSaveError", map[string]any{"error": error})
 }
 
 // VaultIndexWatchError says "笔记库索引／监听失败：{error}"
 // in the language the app shows.
-func VaultIndexWatchError(error string) string { return In(i18n.Locale()).VaultIndexWatchError(error) }
-
-// VaultIndexWatchError says "笔记库索引／监听失败：{error}"
-// in the language of msgs.
-func (msgs Messages) VaultIndexWatchError(error string) string {
-	return Catalog.Format(msgs.locale, "vaultIndexWatchError", map[string]any{"error": error})
+func VaultIndexWatchError(error string) string {
+	return Catalog.Format(i18n.Locale(), "vaultIndexWatchError", map[string]any{"error": error})
 }
 
 // AiToolPendingApproval says "等待确认…"
 // in the language the app shows.
-func AiToolPendingApproval() string { return In(i18n.Locale()).AiToolPendingApproval() }
-
-// AiToolPendingApproval says "等待确认…"
-// in the language of msgs.
-func (msgs Messages) AiToolPendingApproval() string {
-	return Catalog.Format(msgs.locale, "aiToolPendingApproval", nil)
+func AiToolPendingApproval() string {
+	return Catalog.Format(i18n.Locale(), "aiToolPendingApproval", nil)
 }
 
 // AiToolWorking says "正在生成…"
 // in the language the app shows.
-func AiToolWorking() string { return In(i18n.Locale()).AiToolWorking() }
-
-// AiToolWorking says "正在生成…"
-// in the language of msgs.
-func (msgs Messages) AiToolWorking() string {
-	return Catalog.Format(msgs.locale, "aiToolWorking", nil)
-}
+func AiToolWorking() string { return Catalog.Format(i18n.Locale(), "aiToolWorking", nil) }
 
 // AiToolCallPrefix says "调用 {name}"
 // in the language the app shows.
-func AiToolCallPrefix(name string) string { return In(i18n.Locale()).AiToolCallPrefix(name) }
-
-// AiToolCallPrefix says "调用 {name}"
-// in the language of msgs.
-func (msgs Messages) AiToolCallPrefix(name string) string {
-	return Catalog.Format(msgs.locale, "aiToolCallPrefix", map[string]any{"name": name})
+func AiToolCallPrefix(name string) string {
+	return Catalog.Format(i18n.Locale(), "aiToolCallPrefix", map[string]any{"name": name})
 }
 
 // AiThinkingLong says "深度思考中…"
 // in the language the app shows.
-func AiThinkingLong() string { return In(i18n.Locale()).AiThinkingLong() }
-
-// AiThinkingLong says "深度思考中…"
-// in the language of msgs.
-func (msgs Messages) AiThinkingLong() string {
-	return Catalog.Format(msgs.locale, "aiThinkingLong", nil)
-}
+func AiThinkingLong() string { return Catalog.Format(i18n.Locale(), "aiThinkingLong", nil) }
 
 // AiThinkingShort says "思考中…"
 // in the language the app shows.
-func AiThinkingShort() string { return In(i18n.Locale()).AiThinkingShort() }
-
-// AiThinkingShort says "思考中…"
-// in the language of msgs.
-func (msgs Messages) AiThinkingShort() string {
-	return Catalog.Format(msgs.locale, "aiThinkingShort", nil)
-}
+func AiThinkingShort() string { return Catalog.Format(i18n.Locale(), "aiThinkingShort", nil) }
 
 // AiToolGroupBrowse says "浏览与搜索"
 // in the language the app shows.
-func AiToolGroupBrowse() string { return In(i18n.Locale()).AiToolGroupBrowse() }
-
-// AiToolGroupBrowse says "浏览与搜索"
-// in the language of msgs.
-func (msgs Messages) AiToolGroupBrowse() string {
-	return Catalog.Format(msgs.locale, "aiToolGroupBrowse", nil)
-}
+func AiToolGroupBrowse() string { return Catalog.Format(i18n.Locale(), "aiToolGroupBrowse", nil) }
 
 // AiToolGroupEdit says "编辑文档内容"
 // in the language the app shows.
-func AiToolGroupEdit() string { return In(i18n.Locale()).AiToolGroupEdit() }
-
-// AiToolGroupEdit says "编辑文档内容"
-// in the language of msgs.
-func (msgs Messages) AiToolGroupEdit() string {
-	return Catalog.Format(msgs.locale, "aiToolGroupEdit", nil)
-}
+func AiToolGroupEdit() string { return Catalog.Format(i18n.Locale(), "aiToolGroupEdit", nil) }
 
 // AiToolGroupManage says "管理文件"
 // in the language the app shows.
-func AiToolGroupManage() string { return In(i18n.Locale()).AiToolGroupManage() }
-
-// AiToolGroupManage says "管理文件"
-// in the language of msgs.
-func (msgs Messages) AiToolGroupManage() string {
-	return Catalog.Format(msgs.locale, "aiToolGroupManage", nil)
-}
+func AiToolGroupManage() string { return Catalog.Format(i18n.Locale(), "aiToolGroupManage", nil) }
 
 // FilesSelectedFileCount says "{count, plural, other {# 个文件}}"
 // in the language the app shows.
-func FilesSelectedFileCount(count int) string { return In(i18n.Locale()).FilesSelectedFileCount(count) }
-
-// FilesSelectedFileCount says "{count, plural, other {# 个文件}}"
-// in the language of msgs.
-func (msgs Messages) FilesSelectedFileCount(count int) string {
-	return Catalog.Format(msgs.locale, "filesSelectedFileCount", map[string]any{"count": count})
+func FilesSelectedFileCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "filesSelectedFileCount", map[string]any{"count": count})
 }
 
 // FilesSelectedItems says "{count, plural, other {# 个项目}}"
 // in the language the app shows.
-func FilesSelectedItems(count int) string { return In(i18n.Locale()).FilesSelectedItems(count) }
-
-// FilesSelectedItems says "{count, plural, other {# 个项目}}"
-// in the language of msgs.
-func (msgs Messages) FilesSelectedItems(count int) string {
-	return Catalog.Format(msgs.locale, "filesSelectedItems", map[string]any{"count": count})
+func FilesSelectedItems(count int) string {
+	return Catalog.Format(i18n.Locale(), "filesSelectedItems", map[string]any{"count": count})
 }
 
 // IconPickerAllIcons says "全部图标"
 // in the language the app shows.
-func IconPickerAllIcons() string { return In(i18n.Locale()).IconPickerAllIcons() }
-
-// IconPickerAllIcons says "全部图标"
-// in the language of msgs.
-func (msgs Messages) IconPickerAllIcons() string {
-	return Catalog.Format(msgs.locale, "iconPickerAllIcons", nil)
-}
+func IconPickerAllIcons() string { return Catalog.Format(i18n.Locale(), "iconPickerAllIcons", nil) }
 
 // IconPickerResults says "搜索结果"
 // in the language the app shows.
-func IconPickerResults() string { return In(i18n.Locale()).IconPickerResults() }
-
-// IconPickerResults says "搜索结果"
-// in the language of msgs.
-func (msgs Messages) IconPickerResults() string {
-	return Catalog.Format(msgs.locale, "iconPickerResults", nil)
-}
+func IconPickerResults() string { return Catalog.Format(i18n.Locale(), "iconPickerResults", nil) }
 
 // IconPickerResultCount says "{label} · {count, plural, other {# 个图标}}"
 // in the language the app shows.
 func IconPickerResultCount(label string, count int) string {
-	return In(i18n.Locale()).IconPickerResultCount(label, count)
-}
-
-// IconPickerResultCount says "{label} · {count, plural, other {# 个图标}}"
-// in the language of msgs.
-func (msgs Messages) IconPickerResultCount(label string, count int) string {
-	return Catalog.Format(msgs.locale, "iconPickerResultCount", map[string]any{"label": label, "count": count})
+	return Catalog.Format(i18n.Locale(), "iconPickerResultCount", map[string]any{"label": label, "count": count})
 }
 
 // FormatHighlight says "高亮"
 // in the language the app shows.
-func FormatHighlight() string { return In(i18n.Locale()).FormatHighlight() }
-
-// FormatHighlight says "高亮"
-// in the language of msgs.
-func (msgs Messages) FormatHighlight() string {
-	return Catalog.Format(msgs.locale, "formatHighlight", nil)
-}
+func FormatHighlight() string { return Catalog.Format(i18n.Locale(), "formatHighlight", nil) }
 
 // FormatLink says "链接"
 // in the language the app shows.
-func FormatLink() string { return In(i18n.Locale()).FormatLink() }
-
-// FormatLink says "链接"
-// in the language of msgs.
-func (msgs Messages) FormatLink() string {
-	return Catalog.Format(msgs.locale, "formatLink", nil)
-}
+func FormatLink() string { return Catalog.Format(i18n.Locale(), "formatLink", nil) }
 
 // CommonSave says "保存"
 // in the language the app shows.
-func CommonSave() string { return In(i18n.Locale()).CommonSave() }
-
-// CommonSave says "保存"
-// in the language of msgs.
-func (msgs Messages) CommonSave() string {
-	return Catalog.Format(msgs.locale, "commonSave", nil)
-}
+func CommonSave() string { return Catalog.Format(i18n.Locale(), "commonSave", nil) }
 
 // CommonAdd says "添加"
 // in the language the app shows.
-func CommonAdd() string { return In(i18n.Locale()).CommonAdd() }
-
-// CommonAdd says "添加"
-// in the language of msgs.
-func (msgs Messages) CommonAdd() string {
-	return Catalog.Format(msgs.locale, "commonAdd", nil)
-}
+func CommonAdd() string { return Catalog.Format(i18n.Locale(), "commonAdd", nil) }
 
 // CommonAll says "全部"
 // in the language the app shows.
-func CommonAll() string { return In(i18n.Locale()).CommonAll() }
-
-// CommonAll says "全部"
-// in the language of msgs.
-func (msgs Messages) CommonAll() string {
-	return Catalog.Format(msgs.locale, "commonAll", nil)
-}
+func CommonAll() string { return Catalog.Format(i18n.Locale(), "commonAll", nil) }
 
 // CommonRestoreDefaultIcon says "恢复默认图标"
 // in the language the app shows.
-func CommonRestoreDefaultIcon() string { return In(i18n.Locale()).CommonRestoreDefaultIcon() }
-
-// CommonRestoreDefaultIcon says "恢复默认图标"
-// in the language of msgs.
-func (msgs Messages) CommonRestoreDefaultIcon() string {
-	return Catalog.Format(msgs.locale, "commonRestoreDefaultIcon", nil)
+func CommonRestoreDefaultIcon() string {
+	return Catalog.Format(i18n.Locale(), "commonRestoreDefaultIcon", nil)
 }
 
 // CommonOpenIconSettingsError says "无法打开图标设置：{error}"
 // in the language the app shows.
 func CommonOpenIconSettingsError(error string) string {
-	return In(i18n.Locale()).CommonOpenIconSettingsError(error)
-}
-
-// CommonOpenIconSettingsError says "无法打开图标设置：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonOpenIconSettingsError(error string) string {
-	return Catalog.Format(msgs.locale, "commonOpenIconSettingsError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "commonOpenIconSettingsError", map[string]any{"error": error})
 }
 
 // CommonSaveIconError says "保存图标失败：{error}"
 // in the language the app shows.
-func CommonSaveIconError(error string) string { return In(i18n.Locale()).CommonSaveIconError(error) }
-
-// CommonSaveIconError says "保存图标失败：{error}"
-// in the language of msgs.
-func (msgs Messages) CommonSaveIconError(error string) string {
-	return Catalog.Format(msgs.locale, "commonSaveIconError", map[string]any{"error": error})
+func CommonSaveIconError(error string) string {
+	return Catalog.Format(i18n.Locale(), "commonSaveIconError", map[string]any{"error": error})
 }
 
 // WorkspaceOpenNote says "打开笔记：{title}"
 // in the language the app shows.
-func WorkspaceOpenNote(title string) string { return In(i18n.Locale()).WorkspaceOpenNote(title) }
-
-// WorkspaceOpenNote says "打开笔记：{title}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceOpenNote(title string) string {
-	return Catalog.Format(msgs.locale, "workspaceOpenNote", map[string]any{"title": title})
+func WorkspaceOpenNote(title string) string {
+	return Catalog.Format(i18n.Locale(), "workspaceOpenNote", map[string]any{"title": title})
 }
 
 // WorkspaceSearchResultLabel says "搜索结果：{path}"
 // in the language the app shows.
 func WorkspaceSearchResultLabel(path string) string {
-	return In(i18n.Locale()).WorkspaceSearchResultLabel(path)
-}
-
-// WorkspaceSearchResultLabel says "搜索结果：{path}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchResultLabel(path string) string {
-	return Catalog.Format(msgs.locale, "workspaceSearchResultLabel", map[string]any{"path": path})
+	return Catalog.Format(i18n.Locale(), "workspaceSearchResultLabel", map[string]any{"path": path})
 }
 
 // WorkspaceSearchResultUpdated says "搜索结果已更新，请重试：{error}"
 // in the language the app shows.
 func WorkspaceSearchResultUpdated(error string) string {
-	return In(i18n.Locale()).WorkspaceSearchResultUpdated(error)
-}
-
-// WorkspaceSearchResultUpdated says "搜索结果已更新，请重试：{error}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchResultUpdated(error string) string {
-	return Catalog.Format(msgs.locale, "workspaceSearchResultUpdated", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "workspaceSearchResultUpdated", map[string]any{"error": error})
 }
 
 // WorkspaceSearchNoLongerMatches says "该笔记已不再匹配当前搜索"
 // in the language the app shows.
 func WorkspaceSearchNoLongerMatches() string {
-	return In(i18n.Locale()).WorkspaceSearchNoLongerMatches()
-}
-
-// WorkspaceSearchNoLongerMatches says "该笔记已不再匹配当前搜索"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchNoLongerMatches() string {
-	return Catalog.Format(msgs.locale, "workspaceSearchNoLongerMatches", nil)
+	return Catalog.Format(i18n.Locale(), "workspaceSearchNoLongerMatches", nil)
 }
 
 // WorkspaceIndexRefreshFailed says "刷新笔记库索引失败：{error}"
 // in the language the app shows.
 func WorkspaceIndexRefreshFailed(error string) string {
-	return In(i18n.Locale()).WorkspaceIndexRefreshFailed(error)
-}
-
-// WorkspaceIndexRefreshFailed says "刷新笔记库索引失败：{error}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceIndexRefreshFailed(error string) string {
-	return Catalog.Format(msgs.locale, "workspaceIndexRefreshFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "workspaceIndexRefreshFailed", map[string]any{"error": error})
 }
 
 // WorkspaceRecoverySaveFailed says "恢复草稿保存失败：{error}"
 // in the language the app shows.
 func WorkspaceRecoverySaveFailed(error string) string {
-	return In(i18n.Locale()).WorkspaceRecoverySaveFailed(error)
-}
-
-// WorkspaceRecoverySaveFailed says "恢复草稿保存失败：{error}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceRecoverySaveFailed(error string) string {
-	return Catalog.Format(msgs.locale, "workspaceRecoverySaveFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "workspaceRecoverySaveFailed", map[string]any{"error": error})
 }
 
 // WorkspaceSearchIndexUnavailable says "搜索索引不可用：{error}"
 // in the language the app shows.
 func WorkspaceSearchIndexUnavailable(error string) string {
-	return In(i18n.Locale()).WorkspaceSearchIndexUnavailable(error)
-}
-
-// WorkspaceSearchIndexUnavailable says "搜索索引不可用：{error}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchIndexUnavailable(error string) string {
-	return Catalog.Format(msgs.locale, "workspaceSearchIndexUnavailable", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "workspaceSearchIndexUnavailable", map[string]any{"error": error})
 }
 
 // WorkspaceSearchFailed says "搜索失败：{error}"
 // in the language the app shows.
 func WorkspaceSearchFailed(error string) string {
-	return In(i18n.Locale()).WorkspaceSearchFailed(error)
-}
-
-// WorkspaceSearchFailed says "搜索失败：{error}"
-// in the language of msgs.
-func (msgs Messages) WorkspaceSearchFailed(error string) string {
-	return Catalog.Format(msgs.locale, "workspaceSearchFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "workspaceSearchFailed", map[string]any{"error": error})
 }
 
 // VaultBacklinkSourceLabel says "反向链接：{source}"
 // in the language the app shows.
 func VaultBacklinkSourceLabel(source string) string {
-	return In(i18n.Locale()).VaultBacklinkSourceLabel(source)
-}
-
-// VaultBacklinkSourceLabel says "反向链接：{source}"
-// in the language of msgs.
-func (msgs Messages) VaultBacklinkSourceLabel(source string) string {
-	return Catalog.Format(msgs.locale, "vaultBacklinkSourceLabel", map[string]any{"source": source})
+	return Catalog.Format(i18n.Locale(), "vaultBacklinkSourceLabel", map[string]any{"source": source})
 }
 
 // VaultOpenLinkLabel says "打开链接：{target}"
 // in the language the app shows.
-func VaultOpenLinkLabel(target string) string { return In(i18n.Locale()).VaultOpenLinkLabel(target) }
-
-// VaultOpenLinkLabel says "打开链接：{target}"
-// in the language of msgs.
-func (msgs Messages) VaultOpenLinkLabel(target string) string {
-	return Catalog.Format(msgs.locale, "vaultOpenLinkLabel", map[string]any{"target": target})
+func VaultOpenLinkLabel(target string) string {
+	return Catalog.Format(i18n.Locale(), "vaultOpenLinkLabel", map[string]any{"target": target})
 }
 
 // CorePropertyBacklinkLabel says "属性反向链接：{source}"
 // in the language the app shows.
 func CorePropertyBacklinkLabel(source string) string {
-	return In(i18n.Locale()).CorePropertyBacklinkLabel(source)
-}
-
-// CorePropertyBacklinkLabel says "属性反向链接：{source}"
-// in the language of msgs.
-func (msgs Messages) CorePropertyBacklinkLabel(source string) string {
-	return Catalog.Format(msgs.locale, "corePropertyBacklinkLabel", map[string]any{"source": source})
+	return Catalog.Format(i18n.Locale(), "corePropertyBacklinkLabel", map[string]any{"source": source})
 }
 
 // PropertyMoreCount says "+{count, number} 项"
 // in the language the app shows.
-func PropertyMoreCount(count int) string { return In(i18n.Locale()).PropertyMoreCount(count) }
-
-// PropertyMoreCount says "+{count, number} 项"
-// in the language of msgs.
-func (msgs Messages) PropertyMoreCount(count int) string {
-	return Catalog.Format(msgs.locale, "propertyMoreCount", map[string]any{"count": count})
+func PropertyMoreCount(count int) string {
+	return Catalog.Format(i18n.Locale(), "propertyMoreCount", map[string]any{"count": count})
 }
 
 // PropertyEditLabel says "编辑属性 {key}"
 // in the language the app shows.
-func PropertyEditLabel(key string) string { return In(i18n.Locale()).PropertyEditLabel(key) }
-
-// PropertyEditLabel says "编辑属性 {key}"
-// in the language of msgs.
-func (msgs Messages) PropertyEditLabel(key string) string {
-	return Catalog.Format(msgs.locale, "propertyEditLabel", map[string]any{"key": key})
+func PropertyEditLabel(key string) string {
+	return Catalog.Format(i18n.Locale(), "propertyEditLabel", map[string]any{"key": key})
 }
 
 // PropertyStatusDraft says "草稿"
 // in the language the app shows.
-func PropertyStatusDraft() string { return In(i18n.Locale()).PropertyStatusDraft() }
-
-// PropertyStatusDraft says "草稿"
-// in the language of msgs.
-func (msgs Messages) PropertyStatusDraft() string {
-	return Catalog.Format(msgs.locale, "propertyStatusDraft", nil)
-}
+func PropertyStatusDraft() string { return Catalog.Format(i18n.Locale(), "propertyStatusDraft", nil) }
 
 // PropertyStatusDone says "已完成"
 // in the language the app shows.
-func PropertyStatusDone() string { return In(i18n.Locale()).PropertyStatusDone() }
-
-// PropertyStatusDone says "已完成"
-// in the language of msgs.
-func (msgs Messages) PropertyStatusDone() string {
-	return Catalog.Format(msgs.locale, "propertyStatusDone", nil)
-}
+func PropertyStatusDone() string { return Catalog.Format(i18n.Locale(), "propertyStatusDone", nil) }
 
 // PropertyStatusInProgress says "进行中"
 // in the language the app shows.
-func PropertyStatusInProgress() string { return In(i18n.Locale()).PropertyStatusInProgress() }
-
-// PropertyStatusInProgress says "进行中"
-// in the language of msgs.
-func (msgs Messages) PropertyStatusInProgress() string {
-	return Catalog.Format(msgs.locale, "propertyStatusInProgress", nil)
+func PropertyStatusInProgress() string {
+	return Catalog.Format(i18n.Locale(), "propertyStatusInProgress", nil)
 }
 
 // PropertyWordCount says "{characters, number} 字 · {words, number} 词"
 // in the language the app shows.
 func PropertyWordCount(characters int, words int) string {
-	return In(i18n.Locale()).PropertyWordCount(characters, words)
-}
-
-// PropertyWordCount says "{characters, number} 字 · {words, number} 词"
-// in the language of msgs.
-func (msgs Messages) PropertyWordCount(characters int, words int) string {
-	return Catalog.Format(msgs.locale, "propertyWordCount", map[string]any{"characters": characters, "words": words})
+	return Catalog.Format(i18n.Locale(), "propertyWordCount", map[string]any{"characters": characters, "words": words})
 }
 
 // PropertyFileName says "文件名"
 // in the language the app shows.
-func PropertyFileName() string { return In(i18n.Locale()).PropertyFileName() }
-
-// PropertyFileName says "文件名"
-// in the language of msgs.
-func (msgs Messages) PropertyFileName() string {
-	return Catalog.Format(msgs.locale, "propertyFileName", nil)
-}
+func PropertyFileName() string { return Catalog.Format(i18n.Locale(), "propertyFileName", nil) }
 
 // PropertyPath says "路径"
 // in the language the app shows.
-func PropertyPath() string { return In(i18n.Locale()).PropertyPath() }
-
-// PropertyPath says "路径"
-// in the language of msgs.
-func (msgs Messages) PropertyPath() string {
-	return Catalog.Format(msgs.locale, "propertyPath", nil)
-}
+func PropertyPath() string { return Catalog.Format(i18n.Locale(), "propertyPath", nil) }
 
 // PropertyFileSize says "文件大小"
 // in the language the app shows.
-func PropertyFileSize() string { return In(i18n.Locale()).PropertyFileSize() }
-
-// PropertyFileSize says "文件大小"
-// in the language of msgs.
-func (msgs Messages) PropertyFileSize() string {
-	return Catalog.Format(msgs.locale, "propertyFileSize", nil)
-}
+func PropertyFileSize() string { return Catalog.Format(i18n.Locale(), "propertyFileSize", nil) }
 
 // PropertyCreationDate says "创建时间"
 // in the language the app shows.
-func PropertyCreationDate() string { return In(i18n.Locale()).PropertyCreationDate() }
-
-// PropertyCreationDate says "创建时间"
-// in the language of msgs.
-func (msgs Messages) PropertyCreationDate() string {
-	return Catalog.Format(msgs.locale, "propertyCreationDate", nil)
-}
+func PropertyCreationDate() string { return Catalog.Format(i18n.Locale(), "propertyCreationDate", nil) }
 
 // PropertyModifiedDate says "修改时间"
 // in the language the app shows.
-func PropertyModifiedDate() string { return In(i18n.Locale()).PropertyModifiedDate() }
-
-// PropertyModifiedDate says "修改时间"
-// in the language of msgs.
-func (msgs Messages) PropertyModifiedDate() string {
-	return Catalog.Format(msgs.locale, "propertyModifiedDate", nil)
-}
+func PropertyModifiedDate() string { return Catalog.Format(i18n.Locale(), "propertyModifiedDate", nil) }
 
 // PropertyDateTime says "{value, date, medium} {value, time, short}"
 // in the language the app shows.
-func PropertyDateTime(value time.Time) string { return In(i18n.Locale()).PropertyDateTime(value) }
-
-// PropertyDateTime says "{value, date, medium} {value, time, short}"
-// in the language of msgs.
-func (msgs Messages) PropertyDateTime(value time.Time) string {
-	return Catalog.Format(msgs.locale, "propertyDateTime", map[string]any{"value": value})
+func PropertyDateTime(value time.Time) string {
+	return Catalog.Format(i18n.Locale(), "propertyDateTime", map[string]any{"value": value})
 }
 
 // PropertyDate says "{value, date, medium}"
 // in the language the app shows.
-func PropertyDate(value time.Time) string { return In(i18n.Locale()).PropertyDate(value) }
-
-// PropertyDate says "{value, date, medium}"
-// in the language of msgs.
-func (msgs Messages) PropertyDate(value time.Time) string {
-	return Catalog.Format(msgs.locale, "propertyDate", map[string]any{"value": value})
+func PropertyDate(value time.Time) string {
+	return Catalog.Format(i18n.Locale(), "propertyDate", map[string]any{"value": value})
 }
 
 // PropertyBackToProperties says "返回属性"
 // in the language the app shows.
-func PropertyBackToProperties() string { return In(i18n.Locale()).PropertyBackToProperties() }
-
-// PropertyBackToProperties says "返回属性"
-// in the language of msgs.
-func (msgs Messages) PropertyBackToProperties() string {
-	return Catalog.Format(msgs.locale, "propertyBackToProperties", nil)
+func PropertyBackToProperties() string {
+	return Catalog.Format(i18n.Locale(), "propertyBackToProperties", nil)
 }
 
 // PropertyMenu says "属性菜单"
 // in the language the app shows.
-func PropertyMenu() string { return In(i18n.Locale()).PropertyMenu() }
-
-// PropertyMenu says "属性菜单"
-// in the language of msgs.
-func (msgs Messages) PropertyMenu() string {
-	return Catalog.Format(msgs.locale, "propertyMenu", nil)
-}
+func PropertyMenu() string { return Catalog.Format(i18n.Locale(), "propertyMenu", nil) }
 
 // PropertyMigrationPreviewMenu says "预览整个笔记库的核心属性迁移…"
 // in the language the app shows.
-func PropertyMigrationPreviewMenu() string { return In(i18n.Locale()).PropertyMigrationPreviewMenu() }
-
-// PropertyMigrationPreviewMenu says "预览整个笔记库的核心属性迁移…"
-// in the language of msgs.
-func (msgs Messages) PropertyMigrationPreviewMenu() string {
-	return Catalog.Format(msgs.locale, "propertyMigrationPreviewMenu", nil)
+func PropertyMigrationPreviewMenu() string {
+	return Catalog.Format(i18n.Locale(), "propertyMigrationPreviewMenu", nil)
 }
 
 // PropertyCloseSidebar says "关闭属性栏"
 // in the language the app shows.
-func PropertyCloseSidebar() string { return In(i18n.Locale()).PropertyCloseSidebar() }
-
-// PropertyCloseSidebar says "关闭属性栏"
-// in the language of msgs.
-func (msgs Messages) PropertyCloseSidebar() string {
-	return Catalog.Format(msgs.locale, "propertyCloseSidebar", nil)
-}
+func PropertyCloseSidebar() string { return Catalog.Format(i18n.Locale(), "propertyCloseSidebar", nil) }
 
 // PropertyApplySource says "应用源码"
 // in the language the app shows.
-func PropertyApplySource() string { return In(i18n.Locale()).PropertyApplySource() }
-
-// PropertyApplySource says "应用源码"
-// in the language of msgs.
-func (msgs Messages) PropertyApplySource() string {
-	return Catalog.Format(msgs.locale, "propertyApplySource", nil)
-}
+func PropertyApplySource() string { return Catalog.Format(i18n.Locale(), "propertyApplySource", nil) }
 
 // PropertyYAMLEndDelimiterMissing says "frontmatter 缺少结束分隔符；无法安全判断正文边界"
 // in the language the app shows.
 func PropertyYAMLEndDelimiterMissing() string {
-	return In(i18n.Locale()).PropertyYAMLEndDelimiterMissing()
-}
-
-// PropertyYAMLEndDelimiterMissing says "frontmatter 缺少结束分隔符；无法安全判断正文边界"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLEndDelimiterMissing() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLEndDelimiterMissing", nil)
+	return Catalog.Format(i18n.Locale(), "propertyYAMLEndDelimiterMissing", nil)
 }
 
 // PropertyYAMLCompleteRequired says "请输入完整有效的 YAML frontmatter"
 // in the language the app shows.
-func PropertyYAMLCompleteRequired() string { return In(i18n.Locale()).PropertyYAMLCompleteRequired() }
-
-// PropertyYAMLCompleteRequired says "请输入完整有效的 YAML frontmatter"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLCompleteRequired() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLCompleteRequired", nil)
+func PropertyYAMLCompleteRequired() string {
+	return Catalog.Format(i18n.Locale(), "propertyYAMLCompleteRequired", nil)
 }
 
 // PropertyYAMLOnly says "源码框只接受 YAML frontmatter，不接受正文"
 // in the language the app shows.
-func PropertyYAMLOnly() string { return In(i18n.Locale()).PropertyYAMLOnly() }
-
-// PropertyYAMLOnly says "源码框只接受 YAML frontmatter，不接受正文"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLOnly() string {
-	return Catalog.Format(msgs.locale, "propertyYAMLOnly", nil)
-}
+func PropertyYAMLOnly() string { return Catalog.Format(i18n.Locale(), "propertyYAMLOnly", nil) }
 
 // PropertyTypeLabel says "类型：{type}"
 // in the language the app shows.
-func PropertyTypeLabel(type_ string) string { return In(i18n.Locale()).PropertyTypeLabel(type_) }
-
-// PropertyTypeLabel says "类型：{type}"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeLabel(type_ string) string {
-	return Catalog.Format(msgs.locale, "propertyTypeLabel", map[string]any{"type": type_})
+func PropertyTypeLabel(type_ string) string {
+	return Catalog.Format(i18n.Locale(), "propertyTypeLabel", map[string]any{"type": type_})
 }
 
 // PropertyAddFalse says "添加 false"
 // in the language the app shows.
-func PropertyAddFalse() string { return In(i18n.Locale()).PropertyAddFalse() }
-
-// PropertyAddFalse says "添加 false"
-// in the language of msgs.
-func (msgs Messages) PropertyAddFalse() string {
-	return Catalog.Format(msgs.locale, "propertyAddFalse", nil)
-}
+func PropertyAddFalse() string { return Catalog.Format(i18n.Locale(), "propertyAddFalse", nil) }
 
 // PropertyAddTrue says "添加 true"
 // in the language the app shows.
-func PropertyAddTrue() string { return In(i18n.Locale()).PropertyAddTrue() }
-
-// PropertyAddTrue says "添加 true"
-// in the language of msgs.
-func (msgs Messages) PropertyAddTrue() string {
-	return Catalog.Format(msgs.locale, "propertyAddTrue", nil)
-}
+func PropertyAddTrue() string { return Catalog.Format(i18n.Locale(), "propertyAddTrue", nil) }
 
 // PropertyValuePlaceholder says "值"
 // in the language the app shows.
-func PropertyValuePlaceholder() string { return In(i18n.Locale()).PropertyValuePlaceholder() }
-
-// PropertyValuePlaceholder says "值"
-// in the language of msgs.
-func (msgs Messages) PropertyValuePlaceholder() string {
-	return Catalog.Format(msgs.locale, "propertyValuePlaceholder", nil)
+func PropertyValuePlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "propertyValuePlaceholder", nil)
 }
 
 // PropertyListValuePlaceholder says "值，逗号分隔"
 // in the language the app shows.
-func PropertyListValuePlaceholder() string { return In(i18n.Locale()).PropertyListValuePlaceholder() }
-
-// PropertyListValuePlaceholder says "值，逗号分隔"
-// in the language of msgs.
-func (msgs Messages) PropertyListValuePlaceholder() string {
-	return Catalog.Format(msgs.locale, "propertyListValuePlaceholder", nil)
+func PropertyListValuePlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "propertyListValuePlaceholder", nil)
 }
 
 // PropertyDateValuePlaceholder says "日期 YYYY-MM-DD"
 // in the language the app shows.
-func PropertyDateValuePlaceholder() string { return In(i18n.Locale()).PropertyDateValuePlaceholder() }
-
-// PropertyDateValuePlaceholder says "日期 YYYY-MM-DD"
-// in the language of msgs.
-func (msgs Messages) PropertyDateValuePlaceholder() string {
-	return Catalog.Format(msgs.locale, "propertyDateValuePlaceholder", nil)
+func PropertyDateValuePlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "propertyDateValuePlaceholder", nil)
 }
 
 // PropertyTypeList says "列表"
 // in the language the app shows.
-func PropertyTypeList() string { return In(i18n.Locale()).PropertyTypeList() }
-
-// PropertyTypeList says "列表"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeList() string {
-	return Catalog.Format(msgs.locale, "propertyTypeList", nil)
-}
+func PropertyTypeList() string { return Catalog.Format(i18n.Locale(), "propertyTypeList", nil) }
 
 // PropertyTypeBoolean says "布尔"
 // in the language the app shows.
-func PropertyTypeBoolean() string { return In(i18n.Locale()).PropertyTypeBoolean() }
-
-// PropertyTypeBoolean says "布尔"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeBoolean() string {
-	return Catalog.Format(msgs.locale, "propertyTypeBoolean", nil)
-}
+func PropertyTypeBoolean() string { return Catalog.Format(i18n.Locale(), "propertyTypeBoolean", nil) }
 
 // PropertyTypeNumber says "数字"
 // in the language the app shows.
-func PropertyTypeNumber() string { return In(i18n.Locale()).PropertyTypeNumber() }
-
-// PropertyTypeNumber says "数字"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeNumber() string {
-	return Catalog.Format(msgs.locale, "propertyTypeNumber", nil)
-}
+func PropertyTypeNumber() string { return Catalog.Format(i18n.Locale(), "propertyTypeNumber", nil) }
 
 // PropertyTypeDate says "日期"
 // in the language the app shows.
-func PropertyTypeDate() string { return In(i18n.Locale()).PropertyTypeDate() }
-
-// PropertyTypeDate says "日期"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeDate() string {
-	return Catalog.Format(msgs.locale, "propertyTypeDate", nil)
-}
+func PropertyTypeDate() string { return Catalog.Format(i18n.Locale(), "propertyTypeDate", nil) }
 
 // PropertyTypeStructure says "复杂结构"
 // in the language the app shows.
-func PropertyTypeStructure() string { return In(i18n.Locale()).PropertyTypeStructure() }
-
-// PropertyTypeStructure says "复杂结构"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeStructure() string {
-	return Catalog.Format(msgs.locale, "propertyTypeStructure", nil)
+func PropertyTypeStructure() string {
+	return Catalog.Format(i18n.Locale(), "propertyTypeStructure", nil)
 }
 
 // PropertyTypeText says "文本"
 // in the language the app shows.
-func PropertyTypeText() string { return In(i18n.Locale()).PropertyTypeText() }
-
-// PropertyTypeText says "文本"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeText() string {
-	return Catalog.Format(msgs.locale, "propertyTypeText", nil)
-}
+func PropertyTypeText() string { return Catalog.Format(i18n.Locale(), "propertyTypeText", nil) }
 
 // PropertyCoreCannotDelete says "核心属性 {key} 不能删除"
 // in the language the app shows.
 func PropertyCoreCannotDelete(key string) string {
-	return In(i18n.Locale()).PropertyCoreCannotDelete(key)
-}
-
-// PropertyCoreCannotDelete says "核心属性 {key} 不能删除"
-// in the language of msgs.
-func (msgs Messages) PropertyCoreCannotDelete(key string) string {
-	return Catalog.Format(msgs.locale, "propertyCoreCannotDelete", map[string]any{"key": key})
+	return Catalog.Format(i18n.Locale(), "propertyCoreCannotDelete", map[string]any{"key": key})
 }
 
 // PropertyHideFromSummary says "隐藏"
 // in the language the app shows.
-func PropertyHideFromSummary() string { return In(i18n.Locale()).PropertyHideFromSummary() }
-
-// PropertyHideFromSummary says "隐藏"
-// in the language of msgs.
-func (msgs Messages) PropertyHideFromSummary() string {
-	return Catalog.Format(msgs.locale, "propertyHideFromSummary", nil)
+func PropertyHideFromSummary() string {
+	return Catalog.Format(i18n.Locale(), "propertyHideFromSummary", nil)
 }
 
 // PropertyPin says "置顶"
 // in the language the app shows.
-func PropertyPin() string { return In(i18n.Locale()).PropertyPin() }
-
-// PropertyPin says "置顶"
-// in the language of msgs.
-func (msgs Messages) PropertyPin() string {
-	return Catalog.Format(msgs.locale, "propertyPin", nil)
-}
+func PropertyPin() string { return Catalog.Format(i18n.Locale(), "propertyPin", nil) }
 
 // PropertyUnpin says "取消置顶"
 // in the language the app shows.
-func PropertyUnpin() string { return In(i18n.Locale()).PropertyUnpin() }
-
-// PropertyUnpin says "取消置顶"
-// in the language of msgs.
-func (msgs Messages) PropertyUnpin() string {
-	return Catalog.Format(msgs.locale, "propertyUnpin", nil)
-}
+func PropertyUnpin() string { return Catalog.Format(i18n.Locale(), "propertyUnpin", nil) }
 
 // PropertyShow says "显示"
 // in the language the app shows.
-func PropertyShow() string { return In(i18n.Locale()).PropertyShow() }
-
-// PropertyShow says "显示"
-// in the language of msgs.
-func (msgs Messages) PropertyShow() string {
-	return Catalog.Format(msgs.locale, "propertyShow", nil)
-}
+func PropertyShow() string { return Catalog.Format(i18n.Locale(), "propertyShow", nil) }
 
 // PropertyMoveUp says "上移"
 // in the language the app shows.
-func PropertyMoveUp() string { return In(i18n.Locale()).PropertyMoveUp() }
-
-// PropertyMoveUp says "上移"
-// in the language of msgs.
-func (msgs Messages) PropertyMoveUp() string {
-	return Catalog.Format(msgs.locale, "propertyMoveUp", nil)
-}
+func PropertyMoveUp() string { return Catalog.Format(i18n.Locale(), "propertyMoveUp", nil) }
 
 // PropertyMoveDown says "下移"
 // in the language the app shows.
-func PropertyMoveDown() string { return In(i18n.Locale()).PropertyMoveDown() }
-
-// PropertyMoveDown says "下移"
-// in the language of msgs.
-func (msgs Messages) PropertyMoveDown() string {
-	return Catalog.Format(msgs.locale, "propertyMoveDown", nil)
-}
+func PropertyMoveDown() string { return Catalog.Format(i18n.Locale(), "propertyMoveDown", nil) }
 
 // PropertyDelete says "删除属性"
 // in the language the app shows.
-func PropertyDelete() string { return In(i18n.Locale()).PropertyDelete() }
-
-// PropertyDelete says "删除属性"
-// in the language of msgs.
-func (msgs Messages) PropertyDelete() string {
-	return Catalog.Format(msgs.locale, "propertyDelete", nil)
-}
+func PropertyDelete() string { return Catalog.Format(i18n.Locale(), "propertyDelete", nil) }
 
 // LinkPreviewEmptyNote says "（空笔记）"
 // in the language the app shows.
-func LinkPreviewEmptyNote() string { return In(i18n.Locale()).LinkPreviewEmptyNote() }
-
-// LinkPreviewEmptyNote says "（空笔记）"
-// in the language of msgs.
-func (msgs Messages) LinkPreviewEmptyNote() string {
-	return Catalog.Format(msgs.locale, "linkPreviewEmptyNote", nil)
-}
+func LinkPreviewEmptyNote() string { return Catalog.Format(i18n.Locale(), "linkPreviewEmptyNote", nil) }
 
 // LinkPreviewNoBody says "（没有可预览的正文）"
 // in the language the app shows.
-func LinkPreviewNoBody() string { return In(i18n.Locale()).LinkPreviewNoBody() }
-
-// LinkPreviewNoBody says "（没有可预览的正文）"
-// in the language of msgs.
-func (msgs Messages) LinkPreviewNoBody() string {
-	return Catalog.Format(msgs.locale, "linkPreviewNoBody", nil)
-}
+func LinkPreviewNoBody() string { return Catalog.Format(i18n.Locale(), "linkPreviewNoBody", nil) }
 
 // CoreMigrationCompleted says "核心属性迁移完成：已更新 {applied, number} 篇，跳过 {skipped, number} 篇"
 // in the language the app shows.
 func CoreMigrationCompleted(applied int, skipped int) string {
-	return In(i18n.Locale()).CoreMigrationCompleted(applied, skipped)
-}
-
-// CoreMigrationCompleted says "核心属性迁移完成：已更新 {applied, number} 篇，跳过 {skipped, number} 篇"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationCompleted(applied int, skipped int) string {
-	return Catalog.Format(msgs.locale, "coreMigrationCompleted", map[string]any{"applied": applied, "skipped": skipped})
+	return Catalog.Format(i18n.Locale(), "coreMigrationCompleted", map[string]any{"applied": applied, "skipped": skipped})
 }
 
 // CoreMigrationSearchSyncWarning says "；全文索引稍后需重新同步：{error}"
 // in the language the app shows.
 func CoreMigrationSearchSyncWarning(error string) string {
-	return In(i18n.Locale()).CoreMigrationSearchSyncWarning(error)
-}
-
-// CoreMigrationSearchSyncWarning says "；全文索引稍后需重新同步：{error}"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationSearchSyncWarning(error string) string {
-	return Catalog.Format(msgs.locale, "coreMigrationSearchSyncWarning", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "coreMigrationSearchSyncWarning", map[string]any{"error": error})
 }
 
 // CoreMigrationSummary says "将补齐 {count, number} …"
 // in the language the app shows.
-func CoreMigrationSummary(count int) string { return In(i18n.Locale()).CoreMigrationSummary(count) }
-
-// CoreMigrationSummary says "将补齐 {count, number} …"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationSummary(count int) string {
-	return Catalog.Format(msgs.locale, "coreMigrationSummary", map[string]any{"count": count})
+func CoreMigrationSummary(count int) string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationSummary", map[string]any{"count": count})
 }
 
 // CoreMigrationCreationBreakdown says "创建时间可回填：{available, number} 篇；创建时间未知：{unknown, number} 篇；更新时间回填：{…"
 // in the language the app shows.
 func CoreMigrationCreationBreakdown(available int, unknown int, updated int) string {
-	return In(i18n.Locale()).CoreMigrationCreationBreakdown(available, unknown, updated)
-}
-
-// CoreMigrationCreationBreakdown says "创建时间可回填：{available, number} 篇；创建时间未知：{unknown, number} 篇；更新时间回填：{…"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationCreationBreakdown(available int, unknown int, updated int) string {
-	return Catalog.Format(msgs.locale, "coreMigrationCreationBreakdown", map[string]any{"available": available, "unknown": unknown, "updated": updated})
+	return Catalog.Format(i18n.Locale(), "coreMigrationCreationBreakdown", map[string]any{"available": available, "unknown": unknown, "updated": updated})
 }
 
 // CoreMigrationOpenSkipped says "当前打开的笔记已跳过，避免覆盖编辑缓冲区。"
 // in the language the app shows.
-func CoreMigrationOpenSkipped() string { return In(i18n.Locale()).CoreMigrationOpenSkipped() }
-
-// CoreMigrationOpenSkipped says "当前打开的笔记已跳过，避免覆盖编辑缓冲区。"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationOpenSkipped() string {
-	return Catalog.Format(msgs.locale, "coreMigrationOpenSkipped", nil)
+func CoreMigrationOpenSkipped() string {
+	return Catalog.Format(i18n.Locale(), "coreMigrationOpenSkipped", nil)
 }
 
 // CoreMigrationInvalidCount says "无法预览或读取的笔记：{count, number} 篇。"
 // in the language the app shows.
 func CoreMigrationInvalidCount(count int) string {
-	return In(i18n.Locale()).CoreMigrationInvalidCount(count)
-}
-
-// CoreMigrationInvalidCount says "无法预览或读取的笔记：{count, number} 篇。"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationInvalidCount(count int) string {
-	return Catalog.Format(msgs.locale, "coreMigrationInvalidCount", map[string]any{"count": count})
+	return Catalog.Format(i18n.Locale(), "coreMigrationInvalidCount", map[string]any{"count": count})
 }
 
 // CoreMigrationExamples says "示例：{examples}"
 // in the language the app shows.
 func CoreMigrationExamples(examples string) string {
-	return In(i18n.Locale()).CoreMigrationExamples(examples)
-}
-
-// CoreMigrationExamples says "示例：{examples}"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationExamples(examples string) string {
-	return Catalog.Format(msgs.locale, "coreMigrationExamples", map[string]any{"examples": examples})
+	return Catalog.Format(i18n.Locale(), "coreMigrationExamples", map[string]any{"examples": examples})
 }
 
 // CoreMigrationApply says "应用迁移"
 // in the language the app shows.
-func CoreMigrationApply() string { return In(i18n.Locale()).CoreMigrationApply() }
-
-// CoreMigrationApply says "应用迁移"
-// in the language of msgs.
-func (msgs Messages) CoreMigrationApply() string {
-	return Catalog.Format(msgs.locale, "coreMigrationApply", nil)
-}
+func CoreMigrationApply() string { return Catalog.Format(i18n.Locale(), "coreMigrationApply", nil) }
 
 // AiToolDescriptionEdit says "把「{oldText}」改成「{newText}」。"
 // in the language the app shows.
 func AiToolDescriptionEdit(oldText string, newText string) string {
-	return In(i18n.Locale()).AiToolDescriptionEdit(oldText, newText)
-}
-
-// AiToolDescriptionEdit says "把「{oldText}」改成「{newText}」。"
-// in the language of msgs.
-func (msgs Messages) AiToolDescriptionEdit(oldText string, newText string) string {
-	return Catalog.Format(msgs.locale, "aiToolDescriptionEdit", map[string]any{"oldText": oldText, "newText": newText})
+	return Catalog.Format(i18n.Locale(), "aiToolDescriptionEdit", map[string]any{"oldText": oldText, "newText": newText})
 }
 
 // AiToolDescriptionWrite says "写入 {name}（{count, number} 字符）。"
 // in the language the app shows.
 func AiToolDescriptionWrite(name string, count int) string {
-	return In(i18n.Locale()).AiToolDescriptionWrite(name, count)
-}
-
-// AiToolDescriptionWrite says "写入 {name}（{count, number} 字符）。"
-// in the language of msgs.
-func (msgs Messages) AiToolDescriptionWrite(name string, count int) string {
-	return Catalog.Format(msgs.locale, "aiToolDescriptionWrite", map[string]any{"name": name, "count": count})
+	return Catalog.Format(i18n.Locale(), "aiToolDescriptionWrite", map[string]any{"name": name, "count": count})
 }
 
 // AiToolDescriptionInsert says "插入「{text}」。"
 // in the language the app shows.
 func AiToolDescriptionInsert(text string) string {
-	return In(i18n.Locale()).AiToolDescriptionInsert(text)
-}
-
-// AiToolDescriptionInsert says "插入「{text}」。"
-// in the language of msgs.
-func (msgs Messages) AiToolDescriptionInsert(text string) string {
-	return Catalog.Format(msgs.locale, "aiToolDescriptionInsert", map[string]any{"text": text})
+	return Catalog.Format(i18n.Locale(), "aiToolDescriptionInsert", map[string]any{"text": text})
 }
 
 // CommonOpenButton says "打开"
 // in the language the app shows.
-func CommonOpenButton() string { return In(i18n.Locale()).CommonOpenButton() }
-
-// CommonOpenButton says "打开"
-// in the language of msgs.
-func (msgs Messages) CommonOpenButton() string {
-	return Catalog.Format(msgs.locale, "commonOpenButton", nil)
-}
+func CommonOpenButton() string { return Catalog.Format(i18n.Locale(), "commonOpenButton", nil) }
 
 // CommonCutAction says "剪切"
 // in the language the app shows.
-func CommonCutAction() string { return In(i18n.Locale()).CommonCutAction() }
-
-// CommonCutAction says "剪切"
-// in the language of msgs.
-func (msgs Messages) CommonCutAction() string {
-	return Catalog.Format(msgs.locale, "commonCutAction", nil)
-}
+func CommonCutAction() string { return Catalog.Format(i18n.Locale(), "commonCutAction", nil) }
 
 // CommonCopyAction says "复制"
 // in the language the app shows.
-func CommonCopyAction() string { return In(i18n.Locale()).CommonCopyAction() }
-
-// CommonCopyAction says "复制"
-// in the language of msgs.
-func (msgs Messages) CommonCopyAction() string {
-	return Catalog.Format(msgs.locale, "commonCopyAction", nil)
-}
+func CommonCopyAction() string { return Catalog.Format(i18n.Locale(), "commonCopyAction", nil) }
 
 // CommonPasteAction says "粘贴"
 // in the language the app shows.
-func CommonPasteAction() string { return In(i18n.Locale()).CommonPasteAction() }
-
-// CommonPasteAction says "粘贴"
-// in the language of msgs.
-func (msgs Messages) CommonPasteAction() string {
-	return Catalog.Format(msgs.locale, "commonPasteAction", nil)
-}
+func CommonPasteAction() string { return Catalog.Format(i18n.Locale(), "commonPasteAction", nil) }
 
 // CommonPastePlainText says "粘贴为纯文本"
 // in the language the app shows.
-func CommonPastePlainText() string { return In(i18n.Locale()).CommonPastePlainText() }
-
-// CommonPastePlainText says "粘贴为纯文本"
-// in the language of msgs.
-func (msgs Messages) CommonPastePlainText() string {
-	return Catalog.Format(msgs.locale, "commonPastePlainText", nil)
-}
+func CommonPastePlainText() string { return Catalog.Format(i18n.Locale(), "commonPastePlainText", nil) }
 
 // CommonSelectAllAction says "全选"
 // in the language the app shows.
-func CommonSelectAllAction() string { return In(i18n.Locale()).CommonSelectAllAction() }
-
-// CommonSelectAllAction says "全选"
-// in the language of msgs.
-func (msgs Messages) CommonSelectAllAction() string {
-	return Catalog.Format(msgs.locale, "commonSelectAllAction", nil)
+func CommonSelectAllAction() string {
+	return Catalog.Format(i18n.Locale(), "commonSelectAllAction", nil)
 }
 
 // CommonOpenLinkAction says "打开链接"
 // in the language the app shows.
-func CommonOpenLinkAction() string { return In(i18n.Locale()).CommonOpenLinkAction() }
-
-// CommonOpenLinkAction says "打开链接"
-// in the language of msgs.
-func (msgs Messages) CommonOpenLinkAction() string {
-	return Catalog.Format(msgs.locale, "commonOpenLinkAction", nil)
-}
+func CommonOpenLinkAction() string { return Catalog.Format(i18n.Locale(), "commonOpenLinkAction", nil) }
 
 // CommonCopyLinkAddress says "复制链接地址"
 // in the language the app shows.
-func CommonCopyLinkAddress() string { return In(i18n.Locale()).CommonCopyLinkAddress() }
-
-// CommonCopyLinkAddress says "复制链接地址"
-// in the language of msgs.
-func (msgs Messages) CommonCopyLinkAddress() string {
-	return Catalog.Format(msgs.locale, "commonCopyLinkAddress", nil)
+func CommonCopyLinkAddress() string {
+	return Catalog.Format(i18n.Locale(), "commonCopyLinkAddress", nil)
 }
 
 // EditorTableMenu says "表格"
 // in the language the app shows.
-func EditorTableMenu() string { return In(i18n.Locale()).EditorTableMenu() }
-
-// EditorTableMenu says "表格"
-// in the language of msgs.
-func (msgs Messages) EditorTableMenu() string {
-	return Catalog.Format(msgs.locale, "editorTableMenu", nil)
-}
+func EditorTableMenu() string { return Catalog.Format(i18n.Locale(), "editorTableMenu", nil) }
 
 // EditorParagraphMenu says "段落"
 // in the language the app shows.
-func EditorParagraphMenu() string { return In(i18n.Locale()).EditorParagraphMenu() }
-
-// EditorParagraphMenu says "段落"
-// in the language of msgs.
-func (msgs Messages) EditorParagraphMenu() string {
-	return Catalog.Format(msgs.locale, "editorParagraphMenu", nil)
-}
+func EditorParagraphMenu() string { return Catalog.Format(i18n.Locale(), "editorParagraphMenu", nil) }
 
 // EditorFormatMenu says "格式"
 // in the language the app shows.
-func EditorFormatMenu() string { return In(i18n.Locale()).EditorFormatMenu() }
-
-// EditorFormatMenu says "格式"
-// in the language of msgs.
-func (msgs Messages) EditorFormatMenu() string {
-	return Catalog.Format(msgs.locale, "editorFormatMenu", nil)
-}
+func EditorFormatMenu() string { return Catalog.Format(i18n.Locale(), "editorFormatMenu", nil) }
 
 // EditorInsertRowAbove says "在上方插入行"
 // in the language the app shows.
-func EditorInsertRowAbove() string { return In(i18n.Locale()).EditorInsertRowAbove() }
-
-// EditorInsertRowAbove says "在上方插入行"
-// in the language of msgs.
-func (msgs Messages) EditorInsertRowAbove() string {
-	return Catalog.Format(msgs.locale, "editorInsertRowAbove", nil)
-}
+func EditorInsertRowAbove() string { return Catalog.Format(i18n.Locale(), "editorInsertRowAbove", nil) }
 
 // EditorInsertRowBelow says "在下方插入行"
 // in the language the app shows.
-func EditorInsertRowBelow() string { return In(i18n.Locale()).EditorInsertRowBelow() }
-
-// EditorInsertRowBelow says "在下方插入行"
-// in the language of msgs.
-func (msgs Messages) EditorInsertRowBelow() string {
-	return Catalog.Format(msgs.locale, "editorInsertRowBelow", nil)
-}
+func EditorInsertRowBelow() string { return Catalog.Format(i18n.Locale(), "editorInsertRowBelow", nil) }
 
 // EditorDeleteRow says "删除行"
 // in the language the app shows.
-func EditorDeleteRow() string { return In(i18n.Locale()).EditorDeleteRow() }
-
-// EditorDeleteRow says "删除行"
-// in the language of msgs.
-func (msgs Messages) EditorDeleteRow() string {
-	return Catalog.Format(msgs.locale, "editorDeleteRow", nil)
-}
+func EditorDeleteRow() string { return Catalog.Format(i18n.Locale(), "editorDeleteRow", nil) }
 
 // EditorInsertColumnLeft says "在左侧插入列"
 // in the language the app shows.
-func EditorInsertColumnLeft() string { return In(i18n.Locale()).EditorInsertColumnLeft() }
-
-// EditorInsertColumnLeft says "在左侧插入列"
-// in the language of msgs.
-func (msgs Messages) EditorInsertColumnLeft() string {
-	return Catalog.Format(msgs.locale, "editorInsertColumnLeft", nil)
+func EditorInsertColumnLeft() string {
+	return Catalog.Format(i18n.Locale(), "editorInsertColumnLeft", nil)
 }
 
 // EditorInsertColumnRight says "在右侧插入列"
 // in the language the app shows.
-func EditorInsertColumnRight() string { return In(i18n.Locale()).EditorInsertColumnRight() }
-
-// EditorInsertColumnRight says "在右侧插入列"
-// in the language of msgs.
-func (msgs Messages) EditorInsertColumnRight() string {
-	return Catalog.Format(msgs.locale, "editorInsertColumnRight", nil)
+func EditorInsertColumnRight() string {
+	return Catalog.Format(i18n.Locale(), "editorInsertColumnRight", nil)
 }
 
 // EditorDeleteColumn says "删除列"
 // in the language the app shows.
-func EditorDeleteColumn() string { return In(i18n.Locale()).EditorDeleteColumn() }
-
-// EditorDeleteColumn says "删除列"
-// in the language of msgs.
-func (msgs Messages) EditorDeleteColumn() string {
-	return Catalog.Format(msgs.locale, "editorDeleteColumn", nil)
-}
+func EditorDeleteColumn() string { return Catalog.Format(i18n.Locale(), "editorDeleteColumn", nil) }
 
 // EditorAlignLeft says "左对齐"
 // in the language the app shows.
-func EditorAlignLeft() string { return In(i18n.Locale()).EditorAlignLeft() }
-
-// EditorAlignLeft says "左对齐"
-// in the language of msgs.
-func (msgs Messages) EditorAlignLeft() string {
-	return Catalog.Format(msgs.locale, "editorAlignLeft", nil)
-}
+func EditorAlignLeft() string { return Catalog.Format(i18n.Locale(), "editorAlignLeft", nil) }
 
 // EditorAlignCenter says "居中"
 // in the language the app shows.
-func EditorAlignCenter() string { return In(i18n.Locale()).EditorAlignCenter() }
-
-// EditorAlignCenter says "居中"
-// in the language of msgs.
-func (msgs Messages) EditorAlignCenter() string {
-	return Catalog.Format(msgs.locale, "editorAlignCenter", nil)
-}
+func EditorAlignCenter() string { return Catalog.Format(i18n.Locale(), "editorAlignCenter", nil) }
 
 // EditorAlignRight says "右对齐"
 // in the language the app shows.
-func EditorAlignRight() string { return In(i18n.Locale()).EditorAlignRight() }
-
-// EditorAlignRight says "右对齐"
-// in the language of msgs.
-func (msgs Messages) EditorAlignRight() string {
-	return Catalog.Format(msgs.locale, "editorAlignRight", nil)
-}
+func EditorAlignRight() string { return Catalog.Format(i18n.Locale(), "editorAlignRight", nil) }
 
 // EditorDeleteTable says "删除表格"
 // in the language the app shows.
-func EditorDeleteTable() string { return In(i18n.Locale()).EditorDeleteTable() }
-
-// EditorDeleteTable says "删除表格"
-// in the language of msgs.
-func (msgs Messages) EditorDeleteTable() string {
-	return Catalog.Format(msgs.locale, "editorDeleteTable", nil)
-}
+func EditorDeleteTable() string { return Catalog.Format(i18n.Locale(), "editorDeleteTable", nil) }
 
 // EditorAlignLeftColumn says "左对齐（此列）"
 // in the language the app shows.
-func EditorAlignLeftColumn() string { return In(i18n.Locale()).EditorAlignLeftColumn() }
-
-// EditorAlignLeftColumn says "左对齐（此列）"
-// in the language of msgs.
-func (msgs Messages) EditorAlignLeftColumn() string {
-	return Catalog.Format(msgs.locale, "editorAlignLeftColumn", nil)
+func EditorAlignLeftColumn() string {
+	return Catalog.Format(i18n.Locale(), "editorAlignLeftColumn", nil)
 }
 
 // EditorAlignCenterColumn says "居中（此列）"
 // in the language the app shows.
-func EditorAlignCenterColumn() string { return In(i18n.Locale()).EditorAlignCenterColumn() }
-
-// EditorAlignCenterColumn says "居中（此列）"
-// in the language of msgs.
-func (msgs Messages) EditorAlignCenterColumn() string {
-	return Catalog.Format(msgs.locale, "editorAlignCenterColumn", nil)
+func EditorAlignCenterColumn() string {
+	return Catalog.Format(i18n.Locale(), "editorAlignCenterColumn", nil)
 }
 
 // EditorAlignRightColumn says "右对齐（此列）"
 // in the language the app shows.
-func EditorAlignRightColumn() string { return In(i18n.Locale()).EditorAlignRightColumn() }
-
-// EditorAlignRightColumn says "右对齐（此列）"
-// in the language of msgs.
-func (msgs Messages) EditorAlignRightColumn() string {
-	return Catalog.Format(msgs.locale, "editorAlignRightColumn", nil)
+func EditorAlignRightColumn() string {
+	return Catalog.Format(i18n.Locale(), "editorAlignRightColumn", nil)
 }
 
 // EditorSelectRow says "选择第 {index, number} 行"
 // in the language the app shows.
-func EditorSelectRow(index int) string { return In(i18n.Locale()).EditorSelectRow(index) }
-
-// EditorSelectRow says "选择第 {index, number} 行"
-// in the language of msgs.
-func (msgs Messages) EditorSelectRow(index int) string {
-	return Catalog.Format(msgs.locale, "editorSelectRow", map[string]any{"index": index})
+func EditorSelectRow(index int) string {
+	return Catalog.Format(i18n.Locale(), "editorSelectRow", map[string]any{"index": index})
 }
 
 // EditorSelectColumn says "选择第 {index, number} 列"
 // in the language the app shows.
-func EditorSelectColumn(index int) string { return In(i18n.Locale()).EditorSelectColumn(index) }
-
-// EditorSelectColumn says "选择第 {index, number} 列"
-// in the language of msgs.
-func (msgs Messages) EditorSelectColumn(index int) string {
-	return Catalog.Format(msgs.locale, "editorSelectColumn", map[string]any{"index": index})
+func EditorSelectColumn(index int) string {
+	return Catalog.Format(i18n.Locale(), "editorSelectColumn", map[string]any{"index": index})
 }
 
 // EditorAddRowBelow says "在下方新增行"
 // in the language the app shows.
-func EditorAddRowBelow() string { return In(i18n.Locale()).EditorAddRowBelow() }
-
-// EditorAddRowBelow says "在下方新增行"
-// in the language of msgs.
-func (msgs Messages) EditorAddRowBelow() string {
-	return Catalog.Format(msgs.locale, "editorAddRowBelow", nil)
-}
+func EditorAddRowBelow() string { return Catalog.Format(i18n.Locale(), "editorAddRowBelow", nil) }
 
 // EditorAddColumnRight says "在右侧新增列"
 // in the language the app shows.
-func EditorAddColumnRight() string { return In(i18n.Locale()).EditorAddColumnRight() }
-
-// EditorAddColumnRight says "在右侧新增列"
-// in the language of msgs.
-func (msgs Messages) EditorAddColumnRight() string {
-	return Catalog.Format(msgs.locale, "editorAddColumnRight", nil)
-}
+func EditorAddColumnRight() string { return Catalog.Format(i18n.Locale(), "editorAddColumnRight", nil) }
 
 // EditorMathRenderError says "公式尚未完成或无法渲染"
 // in the language the app shows.
-func EditorMathRenderError() string { return In(i18n.Locale()).EditorMathRenderError() }
-
-// EditorMathRenderError says "公式尚未完成或无法渲染"
-// in the language of msgs.
-func (msgs Messages) EditorMathRenderError() string {
-	return Catalog.Format(msgs.locale, "editorMathRenderError", nil)
+func EditorMathRenderError() string {
+	return Catalog.Format(i18n.Locale(), "editorMathRenderError", nil)
 }
 
 // EditorLinkSuggestionLabel says "链接建议：{item}"
 // in the language the app shows.
 func EditorLinkSuggestionLabel(item string) string {
-	return In(i18n.Locale()).EditorLinkSuggestionLabel(item)
-}
-
-// EditorLinkSuggestionLabel says "链接建议：{item}"
-// in the language of msgs.
-func (msgs Messages) EditorLinkSuggestionLabel(item string) string {
-	return Catalog.Format(msgs.locale, "editorLinkSuggestionLabel", map[string]any{"item": item})
+	return Catalog.Format(i18n.Locale(), "editorLinkSuggestionLabel", map[string]any{"item": item})
 }
 
 // EditorSourceAction says "源码"
 // in the language the app shows.
-func EditorSourceAction() string { return In(i18n.Locale()).EditorSourceAction() }
-
-// EditorSourceAction says "源码"
-// in the language of msgs.
-func (msgs Messages) EditorSourceAction() string {
-	return Catalog.Format(msgs.locale, "editorSourceAction", nil)
-}
+func EditorSourceAction() string { return Catalog.Format(i18n.Locale(), "editorSourceAction", nil) }
 
 // EditorChartAction says "图表"
 // in the language the app shows.
-func EditorChartAction() string { return In(i18n.Locale()).EditorChartAction() }
-
-// EditorChartAction says "图表"
-// in the language of msgs.
-func (msgs Messages) EditorChartAction() string {
-	return Catalog.Format(msgs.locale, "editorChartAction", nil)
-}
+func EditorChartAction() string { return Catalog.Format(i18n.Locale(), "editorChartAction", nil) }
 
 // EditorImageLoading says "图片加载中…"
 // in the language the app shows.
-func EditorImageLoading() string { return In(i18n.Locale()).EditorImageLoading() }
-
-// EditorImageLoading says "图片加载中…"
-// in the language of msgs.
-func (msgs Messages) EditorImageLoading() string {
-	return Catalog.Format(msgs.locale, "editorImageLoading", nil)
-}
+func EditorImageLoading() string { return Catalog.Format(i18n.Locale(), "editorImageLoading", nil) }
 
 // EditorCircularEmbedBlocked says "循环嵌入已阻止：{name}"
 // in the language the app shows.
 func EditorCircularEmbedBlocked(name string) string {
-	return In(i18n.Locale()).EditorCircularEmbedBlocked(name)
-}
-
-// EditorCircularEmbedBlocked says "循环嵌入已阻止：{name}"
-// in the language of msgs.
-func (msgs Messages) EditorCircularEmbedBlocked(name string) string {
-	return Catalog.Format(msgs.locale, "editorCircularEmbedBlocked", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "editorCircularEmbedBlocked", map[string]any{"name": name})
 }
 
 // DocumentCopyCode says "复制代码"
 // in the language the app shows.
-func DocumentCopyCode() string { return In(i18n.Locale()).DocumentCopyCode() }
-
-// DocumentCopyCode says "复制代码"
-// in the language of msgs.
-func (msgs Messages) DocumentCopyCode() string {
-	return Catalog.Format(msgs.locale, "documentCopyCode", nil)
-}
+func DocumentCopyCode() string { return Catalog.Format(i18n.Locale(), "documentCopyCode", nil) }
 
 // DocumentMissingImage says "找不到图片。"
 // in the language the app shows.
-func DocumentMissingImage() string { return In(i18n.Locale()).DocumentMissingImage() }
-
-// DocumentMissingImage says "找不到图片。"
-// in the language of msgs.
-func (msgs Messages) DocumentMissingImage() string {
-	return Catalog.Format(msgs.locale, "documentMissingImage", nil)
-}
+func DocumentMissingImage() string { return Catalog.Format(i18n.Locale(), "documentMissingImage", nil) }
 
 // DocumentMissingImageNamed says "找不到“{source}”。"
 // in the language the app shows.
 func DocumentMissingImageNamed(source string) string {
-	return In(i18n.Locale()).DocumentMissingImageNamed(source)
-}
-
-// DocumentMissingImageNamed says "找不到“{source}”。"
-// in the language of msgs.
-func (msgs Messages) DocumentMissingImageNamed(source string) string {
-	return Catalog.Format(msgs.locale, "documentMissingImageNamed", map[string]any{"source": source})
+	return Catalog.Format(i18n.Locale(), "documentMissingImageNamed", map[string]any{"source": source})
 }
 
 // DiagramStart says "开始"
 // in the language the app shows.
-func DiagramStart() string { return In(i18n.Locale()).DiagramStart() }
-
-// DiagramStart says "开始"
-// in the language of msgs.
-func (msgs Messages) DiagramStart() string {
-	return Catalog.Format(msgs.locale, "diagramStart", nil)
-}
+func DiagramStart() string { return Catalog.Format(i18n.Locale(), "diagramStart", nil) }
 
 // DiagramEnd says "结束"
 // in the language the app shows.
-func DiagramEnd() string { return In(i18n.Locale()).DiagramEnd() }
-
-// DiagramEnd says "结束"
-// in the language of msgs.
-func (msgs Messages) DiagramEnd() string {
-	return Catalog.Format(msgs.locale, "diagramEnd", nil)
-}
+func DiagramEnd() string { return Catalog.Format(i18n.Locale(), "diagramEnd", nil) }
 
 // DiagramTask says "任务"
 // in the language the app shows.
-func DiagramTask() string { return In(i18n.Locale()).DiagramTask() }
-
-// DiagramTask says "任务"
-// in the language of msgs.
-func (msgs Messages) DiagramTask() string {
-	return Catalog.Format(msgs.locale, "diagramTask", nil)
-}
+func DiagramTask() string { return Catalog.Format(i18n.Locale(), "diagramTask", nil) }
 
 // FilesUntitled says "未命名"
 // in the language the app shows.
-func FilesUntitled() string { return In(i18n.Locale()).FilesUntitled() }
-
-// FilesUntitled says "未命名"
-// in the language of msgs.
-func (msgs Messages) FilesUntitled() string {
-	return Catalog.Format(msgs.locale, "filesUntitled", nil)
-}
+func FilesUntitled() string { return Catalog.Format(i18n.Locale(), "filesUntitled", nil) }
 
 // FilesNewFolderDefaultName says "新建文件夹"
 // in the language the app shows.
-func FilesNewFolderDefaultName() string { return In(i18n.Locale()).FilesNewFolderDefaultName() }
-
-// FilesNewFolderDefaultName says "新建文件夹"
-// in the language of msgs.
-func (msgs Messages) FilesNewFolderDefaultName() string {
-	return Catalog.Format(msgs.locale, "filesNewFolderDefaultName", nil)
+func FilesNewFolderDefaultName() string {
+	return Catalog.Format(i18n.Locale(), "filesNewFolderDefaultName", nil)
 }
 
 // CommonUnsavedMessage says "要存储对“{name}”的更改吗？"
 // in the language the app shows.
-func CommonUnsavedMessage(name string) string { return In(i18n.Locale()).CommonUnsavedMessage(name) }
-
-// CommonUnsavedMessage says "要存储对“{name}”的更改吗？"
-// in the language of msgs.
-func (msgs Messages) CommonUnsavedMessage(name string) string {
-	return Catalog.Format(msgs.locale, "commonUnsavedMessage", map[string]any{"name": name})
+func CommonUnsavedMessage(name string) string {
+	return Catalog.Format(i18n.Locale(), "commonUnsavedMessage", map[string]any{"name": name})
 }
 
 // CommonUnsavedDetail says "如果不存储，将丢失未保存的更改。"
 // in the language the app shows.
-func CommonUnsavedDetail() string { return In(i18n.Locale()).CommonUnsavedDetail() }
-
-// CommonUnsavedDetail says "如果不存储，将丢失未保存的更改。"
-// in the language of msgs.
-func (msgs Messages) CommonUnsavedDetail() string {
-	return Catalog.Format(msgs.locale, "commonUnsavedDetail", nil)
-}
+func CommonUnsavedDetail() string { return Catalog.Format(i18n.Locale(), "commonUnsavedDetail", nil) }
 
 // CommonSaveUnsaved says "存储"
 // in the language the app shows.
-func CommonSaveUnsaved() string { return In(i18n.Locale()).CommonSaveUnsaved() }
-
-// CommonSaveUnsaved says "存储"
-// in the language of msgs.
-func (msgs Messages) CommonSaveUnsaved() string {
-	return Catalog.Format(msgs.locale, "commonSaveUnsaved", nil)
-}
+func CommonSaveUnsaved() string { return Catalog.Format(i18n.Locale(), "commonSaveUnsaved", nil) }
 
 // CommonDiscardUnsaved says "不存储"
 // in the language the app shows.
-func CommonDiscardUnsaved() string { return In(i18n.Locale()).CommonDiscardUnsaved() }
-
-// CommonDiscardUnsaved says "不存储"
-// in the language of msgs.
-func (msgs Messages) CommonDiscardUnsaved() string {
-	return Catalog.Format(msgs.locale, "commonDiscardUnsaved", nil)
-}
+func CommonDiscardUnsaved() string { return Catalog.Format(i18n.Locale(), "commonDiscardUnsaved", nil) }
 
 // CommonCancelUnsaved says "取消"
 // in the language the app shows.
-func CommonCancelUnsaved() string { return In(i18n.Locale()).CommonCancelUnsaved() }
-
-// CommonCancelUnsaved says "取消"
-// in the language of msgs.
-func (msgs Messages) CommonCancelUnsaved() string {
-	return Catalog.Format(msgs.locale, "commonCancelUnsaved", nil)
-}
+func CommonCancelUnsaved() string { return Catalog.Format(i18n.Locale(), "commonCancelUnsaved", nil) }
 
 // CommonAcknowledge says "知道了"
 // in the language the app shows.
-func CommonAcknowledge() string { return In(i18n.Locale()).CommonAcknowledge() }
-
-// CommonAcknowledge says "知道了"
-// in the language of msgs.
-func (msgs Messages) CommonAcknowledge() string {
-	return Catalog.Format(msgs.locale, "commonAcknowledge", nil)
-}
+func CommonAcknowledge() string { return Catalog.Format(i18n.Locale(), "commonAcknowledge", nil) }
 
 // CommonOpenMarkdown says "打开 Markdown"
 // in the language the app shows.
-func CommonOpenMarkdown() string { return In(i18n.Locale()).CommonOpenMarkdown() }
-
-// CommonOpenMarkdown says "打开 Markdown"
-// in the language of msgs.
-func (msgs Messages) CommonOpenMarkdown() string {
-	return Catalog.Format(msgs.locale, "commonOpenMarkdown", nil)
-}
+func CommonOpenMarkdown() string { return Catalog.Format(i18n.Locale(), "commonOpenMarkdown", nil) }
 
 // CommonOpenUnsupportedFileMessage says "无法打开「{name}」"
 // in the language the app shows.
 func CommonOpenUnsupportedFileMessage(name string) string {
-	return In(i18n.Locale()).CommonOpenUnsupportedFileMessage(name)
-}
-
-// CommonOpenUnsupportedFileMessage says "无法打开「{name}」"
-// in the language of msgs.
-func (msgs Messages) CommonOpenUnsupportedFileMessage(name string) string {
-	return Catalog.Format(msgs.locale, "commonOpenUnsupportedFileMessage", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "commonOpenUnsupportedFileMessage", map[string]any{"name": name})
 }
 
 // CommonOpenUnsupportedFileDetail says "Muse 只能打开文本类文件（Markdown 或 .txt）。请选择 .md / .markdown / .mdx / .txt 文件。"
 // in the language the app shows.
 func CommonOpenUnsupportedFileDetail() string {
-	return In(i18n.Locale()).CommonOpenUnsupportedFileDetail()
-}
-
-// CommonOpenUnsupportedFileDetail says "Muse 只能打开文本类文件（Markdown 或 .txt）。请选择 .md / .markdown / .mdx / .txt 文件。"
-// in the language of msgs.
-func (msgs Messages) CommonOpenUnsupportedFileDetail() string {
-	return Catalog.Format(msgs.locale, "commonOpenUnsupportedFileDetail", nil)
+	return Catalog.Format(i18n.Locale(), "commonOpenUnsupportedFileDetail", nil)
 }
 
 // AiServiceAuthFailure says "认证失败，请检查 API Key"
 // in the language the app shows.
-func AiServiceAuthFailure() string { return In(i18n.Locale()).AiServiceAuthFailure() }
-
-// AiServiceAuthFailure says "认证失败，请检查 API Key"
-// in the language of msgs.
-func (msgs Messages) AiServiceAuthFailure() string {
-	return Catalog.Format(msgs.locale, "aiServiceAuthFailure", nil)
-}
+func AiServiceAuthFailure() string { return Catalog.Format(i18n.Locale(), "aiServiceAuthFailure", nil) }
 
 // AiServiceRequestFailed says "请求失败（HTTP {status, number}）"
 // in the language the app shows.
 func AiServiceRequestFailed(status int) string {
-	return In(i18n.Locale()).AiServiceRequestFailed(status)
-}
-
-// AiServiceRequestFailed says "请求失败（HTTP {status, number}）"
-// in the language of msgs.
-func (msgs Messages) AiServiceRequestFailed(status int) string {
-	return Catalog.Format(msgs.locale, "aiServiceRequestFailed", map[string]any{"status": status})
+	return Catalog.Format(i18n.Locale(), "aiServiceRequestFailed", map[string]any{"status": status})
 }
 
 // AiServiceTimeout says "请求超时（{seconds, number}s）"
 // in the language the app shows.
-func AiServiceTimeout(seconds int) string { return In(i18n.Locale()).AiServiceTimeout(seconds) }
-
-// AiServiceTimeout says "请求超时（{seconds, number}s）"
-// in the language of msgs.
-func (msgs Messages) AiServiceTimeout(seconds int) string {
-	return Catalog.Format(msgs.locale, "aiServiceTimeout", map[string]any{"seconds": seconds})
+func AiServiceTimeout(seconds int) string {
+	return Catalog.Format(i18n.Locale(), "aiServiceTimeout", map[string]any{"seconds": seconds})
 }
 
 // AiServiceUnreachable says "无法连接服务器，请检查 Base URL"
 // in the language the app shows.
-func AiServiceUnreachable() string { return In(i18n.Locale()).AiServiceUnreachable() }
-
-// AiServiceUnreachable says "无法连接服务器，请检查 Base URL"
-// in the language of msgs.
-func (msgs Messages) AiServiceUnreachable() string {
-	return Catalog.Format(msgs.locale, "aiServiceUnreachable", nil)
-}
+func AiServiceUnreachable() string { return Catalog.Format(i18n.Locale(), "aiServiceUnreachable", nil) }
 
 // AiServiceFillBaseURL says "请先填写 Base URL"
 // in the language the app shows.
-func AiServiceFillBaseURL() string { return In(i18n.Locale()).AiServiceFillBaseURL() }
-
-// AiServiceFillBaseURL says "请先填写 Base URL"
-// in the language of msgs.
-func (msgs Messages) AiServiceFillBaseURL() string {
-	return Catalog.Format(msgs.locale, "aiServiceFillBaseURL", nil)
-}
+func AiServiceFillBaseURL() string { return Catalog.Format(i18n.Locale(), "aiServiceFillBaseURL", nil) }
 
 // AiServiceReadModelsFailed says "读取模型列表失败"
 // in the language the app shows.
-func AiServiceReadModelsFailed() string { return In(i18n.Locale()).AiServiceReadModelsFailed() }
-
-// AiServiceReadModelsFailed says "读取模型列表失败"
-// in the language of msgs.
-func (msgs Messages) AiServiceReadModelsFailed() string {
-	return Catalog.Format(msgs.locale, "aiServiceReadModelsFailed", nil)
+func AiServiceReadModelsFailed() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceReadModelsFailed", nil)
 }
 
 // AiServiceInvalidModelList says "模型接口未返回有效的 data 列表，请检查 Base URL（通常以 /v1 结尾）"
 // in the language the app shows.
-func AiServiceInvalidModelList() string { return In(i18n.Locale()).AiServiceInvalidModelList() }
-
-// AiServiceInvalidModelList says "模型接口未返回有效的 data 列表，请检查 Base URL（通常以 /v1 结尾）"
-// in the language of msgs.
-func (msgs Messages) AiServiceInvalidModelList() string {
-	return Catalog.Format(msgs.locale, "aiServiceInvalidModelList", nil)
+func AiServiceInvalidModelList() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceInvalidModelList", nil)
 }
 
 // AiServiceModelsLoaded says "联通成功，获取 {count, number} 个模型"
 // in the language the app shows.
-func AiServiceModelsLoaded(count int) string { return In(i18n.Locale()).AiServiceModelsLoaded(count) }
-
-// AiServiceModelsLoaded says "联通成功，获取 {count, number} 个模型"
-// in the language of msgs.
-func (msgs Messages) AiServiceModelsLoaded(count int) string {
-	return Catalog.Format(msgs.locale, "aiServiceModelsLoaded", map[string]any{"count": count})
+func AiServiceModelsLoaded(count int) string {
+	return Catalog.Format(i18n.Locale(), "aiServiceModelsLoaded", map[string]any{"count": count})
 }
 
 // AiServiceRequestIncomplete says "请求参数不完整"
 // in the language the app shows.
-func AiServiceRequestIncomplete() string { return In(i18n.Locale()).AiServiceRequestIncomplete() }
-
-// AiServiceRequestIncomplete says "请求参数不完整"
-// in the language of msgs.
-func (msgs Messages) AiServiceRequestIncomplete() string {
-	return Catalog.Format(msgs.locale, "aiServiceRequestIncomplete", nil)
+func AiServiceRequestIncomplete() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceRequestIncomplete", nil)
 }
 
 // AiServiceAborted says "已中止"
 // in the language the app shows.
-func AiServiceAborted() string { return In(i18n.Locale()).AiServiceAborted() }
-
-// AiServiceAborted says "已中止"
-// in the language of msgs.
-func (msgs Messages) AiServiceAborted() string {
-	return Catalog.Format(msgs.locale, "aiServiceAborted", nil)
-}
+func AiServiceAborted() string { return Catalog.Format(i18n.Locale(), "aiServiceAborted", nil) }
 
 // AiServiceSearchQueryEmpty says "搜索关键词不能为空"
 // in the language the app shows.
-func AiServiceSearchQueryEmpty() string { return In(i18n.Locale()).AiServiceSearchQueryEmpty() }
-
-// AiServiceSearchQueryEmpty says "搜索关键词不能为空"
-// in the language of msgs.
-func (msgs Messages) AiServiceSearchQueryEmpty() string {
-	return Catalog.Format(msgs.locale, "aiServiceSearchQueryEmpty", nil)
+func AiServiceSearchQueryEmpty() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceSearchQueryEmpty", nil)
 }
 
 // AiServiceSearchKeyMissing says "请先在设置中填写 Brave Search API Key"
 // in the language the app shows.
-func AiServiceSearchKeyMissing() string { return In(i18n.Locale()).AiServiceSearchKeyMissing() }
-
-// AiServiceSearchKeyMissing says "请先在设置中填写 Brave Search API Key"
-// in the language of msgs.
-func (msgs Messages) AiServiceSearchKeyMissing() string {
-	return Catalog.Format(msgs.locale, "aiServiceSearchKeyMissing", nil)
+func AiServiceSearchKeyMissing() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceSearchKeyMissing", nil)
 }
 
 // AiServiceSearchFailed says "搜索失败（HTTP {status, number}）"
 // in the language the app shows.
-func AiServiceSearchFailed(status int) string { return In(i18n.Locale()).AiServiceSearchFailed(status) }
-
-// AiServiceSearchFailed says "搜索失败（HTTP {status, number}）"
-// in the language of msgs.
-func (msgs Messages) AiServiceSearchFailed(status int) string {
-	return Catalog.Format(msgs.locale, "aiServiceSearchFailed", map[string]any{"status": status})
+func AiServiceSearchFailed(status int) string {
+	return Catalog.Format(i18n.Locale(), "aiServiceSearchFailed", map[string]any{"status": status})
 }
 
 // AiServiceSearchKeyInvalid says "搜索 API Key 无效或已过期"
 // in the language the app shows.
-func AiServiceSearchKeyInvalid() string { return In(i18n.Locale()).AiServiceSearchKeyInvalid() }
-
-// AiServiceSearchKeyInvalid says "搜索 API Key 无效或已过期"
-// in the language of msgs.
-func (msgs Messages) AiServiceSearchKeyInvalid() string {
-	return Catalog.Format(msgs.locale, "aiServiceSearchKeyInvalid", nil)
+func AiServiceSearchKeyInvalid() string {
+	return Catalog.Format(i18n.Locale(), "aiServiceSearchKeyInvalid", nil)
 }
 
 // EditorTableCellAlignment says "第 {row, number} 行第 {column, number} 列对齐"
 // in the language the app shows.
 func EditorTableCellAlignment(row int, column int) string {
-	return In(i18n.Locale()).EditorTableCellAlignment(row, column)
-}
-
-// EditorTableCellAlignment says "第 {row, number} 行第 {column, number} 列对齐"
-// in the language of msgs.
-func (msgs Messages) EditorTableCellAlignment(row int, column int) string {
-	return Catalog.Format(msgs.locale, "editorTableCellAlignment", map[string]any{"row": row, "column": column})
+	return Catalog.Format(i18n.Locale(), "editorTableCellAlignment", map[string]any{"row": row, "column": column})
 }
 
 // PropertyWordCountLabel says "字数"
 // in the language the app shows.
-func PropertyWordCountLabel() string { return In(i18n.Locale()).PropertyWordCountLabel() }
-
-// PropertyWordCountLabel says "字数"
-// in the language of msgs.
-func (msgs Messages) PropertyWordCountLabel() string {
-	return Catalog.Format(msgs.locale, "propertyWordCountLabel", nil)
+func PropertyWordCountLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyWordCountLabel", nil)
 }
 
 // DocumentLabel says "文档"
 // in the language the app shows.
-func DocumentLabel() string { return In(i18n.Locale()).DocumentLabel() }
-
-// DocumentLabel says "文档"
-// in the language of msgs.
-func (msgs Messages) DocumentLabel() string {
-	return Catalog.Format(msgs.locale, "documentLabel", nil)
-}
+func DocumentLabel() string { return Catalog.Format(i18n.Locale(), "documentLabel", nil) }
 
 // AiAgentSystemPrompt says "你是 Muse 的写作 Agent。Muse 是一款 Markdown …"
 // in the language the app shows.
-func AiAgentSystemPrompt() string { return In(i18n.Locale()).AiAgentSystemPrompt() }
-
-// AiAgentSystemPrompt says "你是 Muse 的写作 Agent。Muse 是一款 Markdown …"
-// in the language of msgs.
-func (msgs Messages) AiAgentSystemPrompt() string {
-	return Catalog.Format(msgs.locale, "aiAgentSystemPrompt", nil)
-}
+func AiAgentSystemPrompt() string { return Catalog.Format(i18n.Locale(), "aiAgentSystemPrompt", nil) }
 
 // AiAgentCurrentTime says "Current time: {time}"
 // in the language the app shows.
-func AiAgentCurrentTime(time_ string) string { return In(i18n.Locale()).AiAgentCurrentTime(time_) }
-
-// AiAgentCurrentTime says "Current time: {time}"
-// in the language of msgs.
-func (msgs Messages) AiAgentCurrentTime(time_ string) string {
-	return Catalog.Format(msgs.locale, "aiAgentCurrentTime", map[string]any{"time": time_})
+func AiAgentCurrentTime(time_ string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentCurrentTime", map[string]any{"time": time_})
 }
 
 // AiAgentCurrentDocument says "当前文档：{name}"
 // in the language the app shows.
 func AiAgentCurrentDocument(name string) string {
-	return In(i18n.Locale()).AiAgentCurrentDocument(name)
-}
-
-// AiAgentCurrentDocument says "当前文档：{name}"
-// in the language of msgs.
-func (msgs Messages) AiAgentCurrentDocument(name string) string {
-	return Catalog.Format(msgs.locale, "aiAgentCurrentDocument", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "aiAgentCurrentDocument", map[string]any{"name": name})
 }
 
 // AiAgentDocumentPath says "文档路径：{path}"
 // in the language the app shows.
-func AiAgentDocumentPath(path string) string { return In(i18n.Locale()).AiAgentDocumentPath(path) }
-
-// AiAgentDocumentPath says "文档路径：{path}"
-// in the language of msgs.
-func (msgs Messages) AiAgentDocumentPath(path string) string {
-	return Catalog.Format(msgs.locale, "aiAgentDocumentPath", map[string]any{"path": path})
+func AiAgentDocumentPath(path string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentDocumentPath", map[string]any{"path": path})
 }
 
 // AiAgentUntitledDocument says "当前文档：未命名（尚未保存）"
 // in the language the app shows.
-func AiAgentUntitledDocument() string { return In(i18n.Locale()).AiAgentUntitledDocument() }
-
-// AiAgentUntitledDocument says "当前文档：未命名（尚未保存）"
-// in the language of msgs.
-func (msgs Messages) AiAgentUntitledDocument() string {
-	return Catalog.Format(msgs.locale, "aiAgentUntitledDocument", nil)
+func AiAgentUntitledDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentUntitledDocument", nil)
 }
 
 // AiAgentWorkspaceRoot says "工作区根目录：{path}"
 // in the language the app shows.
-func AiAgentWorkspaceRoot(path string) string { return In(i18n.Locale()).AiAgentWorkspaceRoot(path) }
-
-// AiAgentWorkspaceRoot says "工作区根目录：{path}"
-// in the language of msgs.
-func (msgs Messages) AiAgentWorkspaceRoot(path string) string {
-	return Catalog.Format(msgs.locale, "aiAgentWorkspaceRoot", map[string]any{"path": path})
+func AiAgentWorkspaceRoot(path string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentWorkspaceRoot", map[string]any{"path": path})
 }
 
 // AiAgentDirtyDocument says "文档有未保存的修改；read_document/edit_document 读取的是编辑器中的最新内容。"
 // in the language the app shows.
-func AiAgentDirtyDocument() string { return In(i18n.Locale()).AiAgentDirtyDocument() }
-
-// AiAgentDirtyDocument says "文档有未保存的修改；read_document/edit_document 读取的是编辑器中的最新内容。"
-// in the language of msgs.
-func (msgs Messages) AiAgentDirtyDocument() string {
-	return Catalog.Format(msgs.locale, "aiAgentDirtyDocument", nil)
-}
+func AiAgentDirtyDocument() string { return Catalog.Format(i18n.Locale(), "aiAgentDirtyDocument", nil) }
 
 // AiAgentOutline says "文档大纲："
 // in the language the app shows.
-func AiAgentOutline() string { return In(i18n.Locale()).AiAgentOutline() }
-
-// AiAgentOutline says "文档大纲："
-// in the language of msgs.
-func (msgs Messages) AiAgentOutline() string {
-	return Catalog.Format(msgs.locale, "aiAgentOutline", nil)
-}
+func AiAgentOutline() string { return Catalog.Format(i18n.Locale(), "aiAgentOutline", nil) }
 
 // AiAgentDisabledCapabilities says "以下能力未开启，对应工具不可用，不要尝试调用：{capabilities}。"
 // in the language the app shows.
 func AiAgentDisabledCapabilities(capabilities string) string {
-	return In(i18n.Locale()).AiAgentDisabledCapabilities(capabilities)
-}
-
-// AiAgentDisabledCapabilities says "以下能力未开启，对应工具不可用，不要尝试调用：{capabilities}。"
-// in the language of msgs.
-func (msgs Messages) AiAgentDisabledCapabilities(capabilities string) string {
-	return Catalog.Format(msgs.locale, "aiAgentDisabledCapabilities", map[string]any{"capabilities": capabilities})
+	return Catalog.Format(i18n.Locale(), "aiAgentDisabledCapabilities", map[string]any{"capabilities": capabilities})
 }
 
 // AiAgentToolGroupDisabled says "当前设置没有开启「{group}」能力；请告诉用户可以在 设置 → 模型 → Agent 能力 里开启"
 // in the language the app shows.
 func AiAgentToolGroupDisabled(group string) string {
-	return In(i18n.Locale()).AiAgentToolGroupDisabled(group)
-}
-
-// AiAgentToolGroupDisabled says "当前设置没有开启「{group}」能力；请告诉用户可以在 设置 → 模型 → Agent 能力 里开启"
-// in the language of msgs.
-func (msgs Messages) AiAgentToolGroupDisabled(group string) string {
-	return Catalog.Format(msgs.locale, "aiAgentToolGroupDisabled", map[string]any{"group": group})
+	return Catalog.Format(i18n.Locale(), "aiAgentToolGroupDisabled", map[string]any{"group": group})
 }
 
 // AiAgentReadOnlyPermission says "…"
 // in the language the app shows.
-func AiAgentReadOnlyPermission() string { return In(i18n.Locale()).AiAgentReadOnlyPermission() }
-
-// AiAgentReadOnlyPermission says "…"
-// in the language of msgs.
-func (msgs Messages) AiAgentReadOnlyPermission() string {
-	return Catalog.Format(msgs.locale, "aiAgentReadOnlyPermission", nil)
+func AiAgentReadOnlyPermission() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentReadOnlyPermission", nil)
 }
 
 // AiAgentCanceled says "已中止"
 // in the language the app shows.
-func AiAgentCanceled() string { return In(i18n.Locale()).AiAgentCanceled() }
-
-// AiAgentCanceled says "已中止"
-// in the language of msgs.
-func (msgs Messages) AiAgentCanceled() string {
-	return Catalog.Format(msgs.locale, "aiAgentCanceled", nil)
-}
+func AiAgentCanceled() string { return Catalog.Format(i18n.Locale(), "aiAgentCanceled", nil) }
 
 // AiAgentUserDenied says "用户拒绝了这次修改；不要原样重试，先问用户想怎么改"
 // in the language the app shows.
-func AiAgentUserDenied() string { return In(i18n.Locale()).AiAgentUserDenied() }
-
-// AiAgentUserDenied says "用户拒绝了这次修改；不要原样重试，先问用户想怎么改"
-// in the language of msgs.
-func (msgs Messages) AiAgentUserDenied() string {
-	return Catalog.Format(msgs.locale, "aiAgentUserDenied", nil)
-}
+func AiAgentUserDenied() string { return Catalog.Format(i18n.Locale(), "aiAgentUserDenied", nil) }
 
 // AiToolLabelListDocuments says "列出文件"
 // in the language the app shows.
-func AiToolLabelListDocuments() string { return In(i18n.Locale()).AiToolLabelListDocuments() }
-
-// AiToolLabelListDocuments says "列出文件"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelListDocuments() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelListDocuments", nil)
+func AiToolLabelListDocuments() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelListDocuments", nil)
 }
 
 // AiToolLabelReadDocument says "读取文档"
 // in the language the app shows.
-func AiToolLabelReadDocument() string { return In(i18n.Locale()).AiToolLabelReadDocument() }
-
-// AiToolLabelReadDocument says "读取文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelReadDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelReadDocument", nil)
+func AiToolLabelReadDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelReadDocument", nil)
 }
 
 // AiToolLabelSearchDocument says "搜索文档"
 // in the language the app shows.
-func AiToolLabelSearchDocument() string { return In(i18n.Locale()).AiToolLabelSearchDocument() }
-
-// AiToolLabelSearchDocument says "搜索文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelSearchDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelSearchDocument", nil)
+func AiToolLabelSearchDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelSearchDocument", nil)
 }
 
 // AiToolLabelReadOutline says "读取大纲"
 // in the language the app shows.
-func AiToolLabelReadOutline() string { return In(i18n.Locale()).AiToolLabelReadOutline() }
-
-// AiToolLabelReadOutline says "读取大纲"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelReadOutline() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelReadOutline", nil)
+func AiToolLabelReadOutline() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelReadOutline", nil)
 }
 
 // AiToolLabelWorkspaceTree says "目录结构"
 // in the language the app shows.
-func AiToolLabelWorkspaceTree() string { return In(i18n.Locale()).AiToolLabelWorkspaceTree() }
-
-// AiToolLabelWorkspaceTree says "目录结构"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelWorkspaceTree() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelWorkspaceTree", nil)
+func AiToolLabelWorkspaceTree() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelWorkspaceTree", nil)
 }
 
 // AiToolLabelDocumentStats says "文档统计"
 // in the language the app shows.
-func AiToolLabelDocumentStats() string { return In(i18n.Locale()).AiToolLabelDocumentStats() }
-
-// AiToolLabelDocumentStats says "文档统计"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelDocumentStats() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelDocumentStats", nil)
+func AiToolLabelDocumentStats() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelDocumentStats", nil)
 }
 
 // AiToolLabelOpenDocument says "打开文档"
 // in the language the app shows.
-func AiToolLabelOpenDocument() string { return In(i18n.Locale()).AiToolLabelOpenDocument() }
-
-// AiToolLabelOpenDocument says "打开文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelOpenDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelOpenDocument", nil)
+func AiToolLabelOpenDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelOpenDocument", nil)
 }
 
 // AiToolLabelEditDocument says "编辑文档"
 // in the language the app shows.
-func AiToolLabelEditDocument() string { return In(i18n.Locale()).AiToolLabelEditDocument() }
-
-// AiToolLabelEditDocument says "编辑文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelEditDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelEditDocument", nil)
+func AiToolLabelEditDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelEditDocument", nil)
 }
 
 // AiToolLabelWriteDocument says "写入文档"
 // in the language the app shows.
-func AiToolLabelWriteDocument() string { return In(i18n.Locale()).AiToolLabelWriteDocument() }
-
-// AiToolLabelWriteDocument says "写入文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelWriteDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelWriteDocument", nil)
+func AiToolLabelWriteDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelWriteDocument", nil)
 }
 
 // AiToolLabelInsertContent says "插入内容"
 // in the language the app shows.
-func AiToolLabelInsertContent() string { return In(i18n.Locale()).AiToolLabelInsertContent() }
-
-// AiToolLabelInsertContent says "插入内容"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelInsertContent() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelInsertContent", nil)
+func AiToolLabelInsertContent() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelInsertContent", nil)
 }
 
 // AiToolLabelRenameDocument says "重命名文档"
 // in the language the app shows.
-func AiToolLabelRenameDocument() string { return In(i18n.Locale()).AiToolLabelRenameDocument() }
-
-// AiToolLabelRenameDocument says "重命名文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelRenameDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelRenameDocument", nil)
+func AiToolLabelRenameDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelRenameDocument", nil)
 }
 
 // AiToolLabelDeleteDocument says "删除文档"
 // in the language the app shows.
-func AiToolLabelDeleteDocument() string { return In(i18n.Locale()).AiToolLabelDeleteDocument() }
-
-// AiToolLabelDeleteDocument says "删除文档"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelDeleteDocument() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelDeleteDocument", nil)
+func AiToolLabelDeleteDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelDeleteDocument", nil)
 }
 
 // AiToolLabelCreateFolder says "新建文件夹"
 // in the language the app shows.
-func AiToolLabelCreateFolder() string { return In(i18n.Locale()).AiToolLabelCreateFolder() }
-
-// AiToolLabelCreateFolder says "新建文件夹"
-// in the language of msgs.
-func (msgs Messages) AiToolLabelCreateFolder() string {
-	return Catalog.Format(msgs.locale, "aiToolLabelCreateFolder", nil)
+func AiToolLabelCreateFolder() string {
+	return Catalog.Format(i18n.Locale(), "aiToolLabelCreateFolder", nil)
 }
 
 // AiSchemaListDocuments says "列出工作区中的文件和子目录，以查找文档。"
 // in the language the app shows.
-func AiSchemaListDocuments() string { return In(i18n.Locale()).AiSchemaListDocuments() }
-
-// AiSchemaListDocuments says "列出工作区中的文件和子目录，以查找文档。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaListDocuments() string {
-	return Catalog.Format(msgs.locale, "aiSchemaListDocuments", nil)
+func AiSchemaListDocuments() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaListDocuments", nil)
 }
 
 // AiSchemaReadDocument says "读取文档内容并附带行号。不传 path 时读取当前文档。大文件可能会被截断，可用 offset …"
 // in the language the app shows.
-func AiSchemaReadDocument() string { return In(i18n.Locale()).AiSchemaReadDocument() }
-
-// AiSchemaReadDocument says "读取文档内容并附带行号。不传 path 时读取当前文档。大文件可能会被截断，可用 offset …"
-// in the language of msgs.
-func (msgs Messages) AiSchemaReadDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaReadDocument", nil)
-}
+func AiSchemaReadDocument() string { return Catalog.Format(i18n.Locale(), "aiSchemaReadDocument", nil) }
 
 // AiSchemaSearchDocument says "按行搜索文档文本，返回行号和匹配行。"
 // in the language the app shows.
-func AiSchemaSearchDocument() string { return In(i18n.Locale()).AiSchemaSearchDocument() }
-
-// AiSchemaSearchDocument says "按行搜索文档文本，返回行号和匹配行。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaSearchDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaSearchDocument", nil)
+func AiSchemaSearchDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaSearchDocument", nil)
 }
 
 // AiSchemaReadOutline says "读取文档中的标题大纲。"
 // in the language the app shows.
-func AiSchemaReadOutline() string { return In(i18n.Locale()).AiSchemaReadOutline() }
-
-// AiSchemaReadOutline says "读取文档中的标题大纲。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaReadOutline() string {
-	return Catalog.Format(msgs.locale, "aiSchemaReadOutline", nil)
-}
+func AiSchemaReadOutline() string { return Catalog.Format(i18n.Locale(), "aiSchemaReadOutline", nil) }
 
 // AiSchemaWorkspaceTree says "递归列出工作区目录，了解其结构。"
 // in the language the app shows.
-func AiSchemaWorkspaceTree() string { return In(i18n.Locale()).AiSchemaWorkspaceTree() }
-
-// AiSchemaWorkspaceTree says "递归列出工作区目录，了解其结构。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaWorkspaceTree() string {
-	return Catalog.Format(msgs.locale, "aiSchemaWorkspaceTree", nil)
+func AiSchemaWorkspaceTree() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaWorkspaceTree", nil)
 }
 
 // AiSchemaDocumentStats says "统计文档字符数、行数和标题数。"
 // in the language the app shows.
-func AiSchemaDocumentStats() string { return In(i18n.Locale()).AiSchemaDocumentStats() }
-
-// AiSchemaDocumentStats says "统计文档字符数、行数和标题数。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaDocumentStats() string {
-	return Catalog.Format(msgs.locale, "aiSchemaDocumentStats", nil)
+func AiSchemaDocumentStats() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaDocumentStats", nil)
 }
 
 // AiSchemaOpenDocument says "在编辑器中打开文档，供用户查看。"
 // in the language the app shows.
-func AiSchemaOpenDocument() string { return In(i18n.Locale()).AiSchemaOpenDocument() }
-
-// AiSchemaOpenDocument says "在编辑器中打开文档，供用户查看。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaOpenDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaOpenDocument", nil)
-}
+func AiSchemaOpenDocument() string { return Catalog.Format(i18n.Locale(), "aiSchemaOpenDocument", nil) }
 
 // AiSchemaEditDocument says "精确地将 old_text 替换为 new_text。old_text 必须与原文逐字一致且只出现一次；可先调用 read…"
 // in the language the app shows.
-func AiSchemaEditDocument() string { return In(i18n.Locale()).AiSchemaEditDocument() }
-
-// AiSchemaEditDocument says "精确地将 old_text 替换为 new_text。old_text 必须与原文逐字一致且只出现一次；可先调用 read…"
-// in the language of msgs.
-func (msgs Messages) AiSchemaEditDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaEditDocument", nil)
-}
+func AiSchemaEditDocument() string { return Catalog.Format(i18n.Locale(), "aiSchemaEditDocument", nil) }
 
 // AiSchemaInsertDocument says "在当前文档开头或结尾插入 Markdown。"
 // in the language the app shows.
-func AiSchemaInsertDocument() string { return In(i18n.Locale()).AiSchemaInsertDocument() }
-
-// AiSchemaInsertDocument says "在当前文档开头或结尾插入 Markdown。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaInsertDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaInsertDocument", nil)
+func AiSchemaInsertDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaInsertDocument", nil)
 }
 
 // AiSchemaWriteDocument says "在工作区中新建 Markdown 文档或整体改写已有文档。"
 // in the language the app shows.
-func AiSchemaWriteDocument() string { return In(i18n.Locale()).AiSchemaWriteDocument() }
-
-// AiSchemaWriteDocument says "在工作区中新建 Markdown 文档或整体改写已有文档。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaWriteDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaWriteDocument", nil)
+func AiSchemaWriteDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaWriteDocument", nil)
 }
 
 // AiSchemaRenameDocument says "重命名或移动文件，可移动到其他子目录。"
 // in the language the app shows.
-func AiSchemaRenameDocument() string { return In(i18n.Locale()).AiSchemaRenameDocument() }
-
-// AiSchemaRenameDocument says "重命名或移动文件，可移动到其他子目录。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaRenameDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaRenameDocument", nil)
+func AiSchemaRenameDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaRenameDocument", nil)
 }
 
 // AiSchemaDeleteDocument says "将文件移至系统废纸篓，可恢复而非永久删除。"
 // in the language the app shows.
-func AiSchemaDeleteDocument() string { return In(i18n.Locale()).AiSchemaDeleteDocument() }
-
-// AiSchemaDeleteDocument says "将文件移至系统废纸篓，可恢复而非永久删除。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaDeleteDocument() string {
-	return Catalog.Format(msgs.locale, "aiSchemaDeleteDocument", nil)
+func AiSchemaDeleteDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaDeleteDocument", nil)
 }
 
 // AiSchemaCreateFolder says "在工作区中新建文件夹，可包含子目录。"
 // in the language the app shows.
-func AiSchemaCreateFolder() string { return In(i18n.Locale()).AiSchemaCreateFolder() }
-
-// AiSchemaCreateFolder says "在工作区中新建文件夹，可包含子目录。"
-// in the language of msgs.
-func (msgs Messages) AiSchemaCreateFolder() string {
-	return Catalog.Format(msgs.locale, "aiSchemaCreateFolder", nil)
-}
+func AiSchemaCreateFolder() string { return Catalog.Format(i18n.Locale(), "aiSchemaCreateFolder", nil) }
 
 // AiSchemaPathSubdir says "相对于工作区根目录的子目录；省略时为根目录"
 // in the language the app shows.
-func AiSchemaPathSubdir() string { return In(i18n.Locale()).AiSchemaPathSubdir() }
-
-// AiSchemaPathSubdir says "相对于工作区根目录的子目录；省略时为根目录"
-// in the language of msgs.
-func (msgs Messages) AiSchemaPathSubdir() string {
-	return Catalog.Format(msgs.locale, "aiSchemaPathSubdir", nil)
-}
+func AiSchemaPathSubdir() string { return Catalog.Format(i18n.Locale(), "aiSchemaPathSubdir", nil) }
 
 // AiSchemaPathCurrent says "相对于工作区根目录的路径；省略时使用当前文档"
 // in the language the app shows.
-func AiSchemaPathCurrent() string { return In(i18n.Locale()).AiSchemaPathCurrent() }
-
-// AiSchemaPathCurrent says "相对于工作区根目录的路径；省略时使用当前文档"
-// in the language of msgs.
-func (msgs Messages) AiSchemaPathCurrent() string {
-	return Catalog.Format(msgs.locale, "aiSchemaPathCurrent", nil)
-}
+func AiSchemaPathCurrent() string { return Catalog.Format(i18n.Locale(), "aiSchemaPathCurrent", nil) }
 
 // AiSchemaPathRequired says "相对于工作区根目录的路径"
 // in the language the app shows.
-func AiSchemaPathRequired() string { return In(i18n.Locale()).AiSchemaPathRequired() }
-
-// AiSchemaPathRequired says "相对于工作区根目录的路径"
-// in the language of msgs.
-func (msgs Messages) AiSchemaPathRequired() string {
-	return Catalog.Format(msgs.locale, "aiSchemaPathRequired", nil)
-}
+func AiSchemaPathRequired() string { return Catalog.Format(i18n.Locale(), "aiSchemaPathRequired", nil) }
 
 // AiSchemaPathFolder says "相对于工作区根目录的文件夹路径"
 // in the language the app shows.
-func AiSchemaPathFolder() string { return In(i18n.Locale()).AiSchemaPathFolder() }
-
-// AiSchemaPathFolder says "相对于工作区根目录的文件夹路径"
-// in the language of msgs.
-func (msgs Messages) AiSchemaPathFolder() string {
-	return Catalog.Format(msgs.locale, "aiSchemaPathFolder", nil)
-}
+func AiSchemaPathFolder() string { return Catalog.Format(i18n.Locale(), "aiSchemaPathFolder", nil) }
 
 // AiSchemaOffset says "起始行号，从 1 开始"
 // in the language the app shows.
-func AiSchemaOffset() string { return In(i18n.Locale()).AiSchemaOffset() }
-
-// AiSchemaOffset says "起始行号，从 1 开始"
-// in the language of msgs.
-func (msgs Messages) AiSchemaOffset() string {
-	return Catalog.Format(msgs.locale, "aiSchemaOffset", nil)
-}
+func AiSchemaOffset() string { return Catalog.Format(i18n.Locale(), "aiSchemaOffset", nil) }
 
 // AiSchemaLimit says "最多读取的行数，默认 300"
 // in the language the app shows.
-func AiSchemaLimit() string { return In(i18n.Locale()).AiSchemaLimit() }
-
-// AiSchemaLimit says "最多读取的行数，默认 300"
-// in the language of msgs.
-func (msgs Messages) AiSchemaLimit() string {
-	return Catalog.Format(msgs.locale, "aiSchemaLimit", nil)
-}
+func AiSchemaLimit() string { return Catalog.Format(i18n.Locale(), "aiSchemaLimit", nil) }
 
 // AiSchemaQuery says "要搜索的文本"
 // in the language the app shows.
-func AiSchemaQuery() string { return In(i18n.Locale()).AiSchemaQuery() }
-
-// AiSchemaQuery says "要搜索的文本"
-// in the language of msgs.
-func (msgs Messages) AiSchemaQuery() string {
-	return Catalog.Format(msgs.locale, "aiSchemaQuery", nil)
-}
+func AiSchemaQuery() string { return Catalog.Format(i18n.Locale(), "aiSchemaQuery", nil) }
 
 // AiSchemaRegex says "将 query 视为正则表达式；默认忽略大小写并按普通文本搜索"
 // in the language the app shows.
-func AiSchemaRegex() string { return In(i18n.Locale()).AiSchemaRegex() }
-
-// AiSchemaRegex says "将 query 视为正则表达式；默认忽略大小写并按普通文本搜索"
-// in the language of msgs.
-func (msgs Messages) AiSchemaRegex() string {
-	return Catalog.Format(msgs.locale, "aiSchemaRegex", nil)
-}
+func AiSchemaRegex() string { return Catalog.Format(i18n.Locale(), "aiSchemaRegex", nil) }
 
 // AiSchemaDepth says "递归层数，默认 2，最大 4"
 // in the language the app shows.
-func AiSchemaDepth() string { return In(i18n.Locale()).AiSchemaDepth() }
-
-// AiSchemaDepth says "递归层数，默认 2，最大 4"
-// in the language of msgs.
-func (msgs Messages) AiSchemaDepth() string {
-	return Catalog.Format(msgs.locale, "aiSchemaDepth", nil)
-}
+func AiSchemaDepth() string { return Catalog.Format(i18n.Locale(), "aiSchemaDepth", nil) }
 
 // AiSchemaOldText says "要替换的原文，必须逐字一致且只出现一次"
 // in the language the app shows.
-func AiSchemaOldText() string { return In(i18n.Locale()).AiSchemaOldText() }
-
-// AiSchemaOldText says "要替换的原文，必须逐字一致且只出现一次"
-// in the language of msgs.
-func (msgs Messages) AiSchemaOldText() string {
-	return Catalog.Format(msgs.locale, "aiSchemaOldText", nil)
-}
+func AiSchemaOldText() string { return Catalog.Format(i18n.Locale(), "aiSchemaOldText", nil) }
 
 // AiSchemaNewText says "替换后的内容；空字符串表示删除"
 // in the language the app shows.
-func AiSchemaNewText() string { return In(i18n.Locale()).AiSchemaNewText() }
-
-// AiSchemaNewText says "替换后的内容；空字符串表示删除"
-// in the language of msgs.
-func (msgs Messages) AiSchemaNewText() string {
-	return Catalog.Format(msgs.locale, "aiSchemaNewText", nil)
-}
+func AiSchemaNewText() string { return Catalog.Format(i18n.Locale(), "aiSchemaNewText", nil) }
 
 // AiSchemaInsertText says "要插入的 Markdown 内容"
 // in the language the app shows.
-func AiSchemaInsertText() string { return In(i18n.Locale()).AiSchemaInsertText() }
-
-// AiSchemaInsertText says "要插入的 Markdown 内容"
-// in the language of msgs.
-func (msgs Messages) AiSchemaInsertText() string {
-	return Catalog.Format(msgs.locale, "aiSchemaInsertText", nil)
-}
+func AiSchemaInsertText() string { return Catalog.Format(i18n.Locale(), "aiSchemaInsertText", nil) }
 
 // AiSchemaInsertPosition says "插入位置，默认是结尾"
 // in the language the app shows.
-func AiSchemaInsertPosition() string { return In(i18n.Locale()).AiSchemaInsertPosition() }
-
-// AiSchemaInsertPosition says "插入位置，默认是结尾"
-// in the language of msgs.
-func (msgs Messages) AiSchemaInsertPosition() string {
-	return Catalog.Format(msgs.locale, "aiSchemaInsertPosition", nil)
+func AiSchemaInsertPosition() string {
+	return Catalog.Format(i18n.Locale(), "aiSchemaInsertPosition", nil)
 }
 
 // AiSchemaContent says "完整文档内容"
 // in the language the app shows.
-func AiSchemaContent() string { return In(i18n.Locale()).AiSchemaContent() }
-
-// AiSchemaContent says "完整文档内容"
-// in the language of msgs.
-func (msgs Messages) AiSchemaContent() string {
-	return Catalog.Format(msgs.locale, "aiSchemaContent", nil)
-}
+func AiSchemaContent() string { return Catalog.Format(i18n.Locale(), "aiSchemaContent", nil) }
 
 // AiSchemaCurrentPath says "当前相对路径"
 // in the language the app shows.
-func AiSchemaCurrentPath() string { return In(i18n.Locale()).AiSchemaCurrentPath() }
-
-// AiSchemaCurrentPath says "当前相对路径"
-// in the language of msgs.
-func (msgs Messages) AiSchemaCurrentPath() string {
-	return Catalog.Format(msgs.locale, "aiSchemaCurrentPath", nil)
-}
+func AiSchemaCurrentPath() string { return Catalog.Format(i18n.Locale(), "aiSchemaCurrentPath", nil) }
 
 // AiSchemaNewPath says "新的相对路径"
 // in the language the app shows.
-func AiSchemaNewPath() string { return In(i18n.Locale()).AiSchemaNewPath() }
-
-// AiSchemaNewPath says "新的相对路径"
-// in the language of msgs.
-func (msgs Messages) AiSchemaNewPath() string {
-	return Catalog.Format(msgs.locale, "aiSchemaNewPath", nil)
-}
+func AiSchemaNewPath() string { return Catalog.Format(i18n.Locale(), "aiSchemaNewPath", nil) }
 
 // AiAgentInvalidJSON says "参数不是合法 JSON：{error}"
 // in the language the app shows.
-func AiAgentInvalidJSON(error string) string { return In(i18n.Locale()).AiAgentInvalidJSON(error) }
-
-// AiAgentInvalidJSON says "参数不是合法 JSON：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentInvalidJSON(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentInvalidJSON", map[string]any{"error": error})
+func AiAgentInvalidJSON(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentInvalidJSON", map[string]any{"error": error})
 }
 
 // AiAgentUnknownTool says "未知工具：{name}"
 // in the language the app shows.
-func AiAgentUnknownTool(name string) string { return In(i18n.Locale()).AiAgentUnknownTool(name) }
-
-// AiAgentUnknownTool says "未知工具：{name}"
-// in the language of msgs.
-func (msgs Messages) AiAgentUnknownTool(name string) string {
-	return Catalog.Format(msgs.locale, "aiAgentUnknownTool", map[string]any{"name": name})
+func AiAgentUnknownTool(name string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentUnknownTool", map[string]any{"name": name})
 }
 
 // AiAgentPathRequired says "路径不能为空"
 // in the language the app shows.
-func AiAgentPathRequired() string { return In(i18n.Locale()).AiAgentPathRequired() }
-
-// AiAgentPathRequired says "路径不能为空"
-// in the language of msgs.
-func (msgs Messages) AiAgentPathRequired() string {
-	return Catalog.Format(msgs.locale, "aiAgentPathRequired", nil)
-}
+func AiAgentPathRequired() string { return Catalog.Format(i18n.Locale(), "aiAgentPathRequired", nil) }
 
 // AiAgentPathEditableText says "新路径必须是可编辑的文本文件（md / markdown / txt 等）"
 // in the language the app shows.
-func AiAgentPathEditableText() string { return In(i18n.Locale()).AiAgentPathEditableText() }
-
-// AiAgentPathEditableText says "新路径必须是可编辑的文本文件（md / markdown / txt 等）"
-// in the language of msgs.
-func (msgs Messages) AiAgentPathEditableText() string {
-	return Catalog.Format(msgs.locale, "aiAgentPathEditableText", nil)
+func AiAgentPathEditableText() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentPathEditableText", nil)
 }
 
 // AiAgentTargetExists says "目标路径已存在：{path}"
 // in the language the app shows.
-func AiAgentTargetExists(path string) string { return In(i18n.Locale()).AiAgentTargetExists(path) }
-
-// AiAgentTargetExists says "目标路径已存在：{path}"
-// in the language of msgs.
-func (msgs Messages) AiAgentTargetExists(path string) string {
-	return Catalog.Format(msgs.locale, "aiAgentTargetExists", map[string]any{"path": path})
+func AiAgentTargetExists(path string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentTargetExists", map[string]any{"path": path})
 }
 
 // AiAgentRenameFailed says "重命名失败：{error}"
 // in the language the app shows.
-func AiAgentRenameFailed(error string) string { return In(i18n.Locale()).AiAgentRenameFailed(error) }
-
-// AiAgentRenameFailed says "重命名失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentRenameFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentRenameFailed", map[string]any{"error": error})
+func AiAgentRenameFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentRenameFailed", map[string]any{"error": error})
 }
 
 // AiAgentPathNotFound says "路径不存在：{error}"
 // in the language the app shows.
-func AiAgentPathNotFound(error string) string { return In(i18n.Locale()).AiAgentPathNotFound(error) }
-
-// AiAgentPathNotFound says "路径不存在：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentPathNotFound(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentPathNotFound", map[string]any{"error": error})
+func AiAgentPathNotFound(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentPathNotFound", map[string]any{"error": error})
 }
 
 // AiAgentDirtyDelete says "当前文档有未保存的修改；请先保存或放弃，再删除它"
 // in the language the app shows.
-func AiAgentDirtyDelete() string { return In(i18n.Locale()).AiAgentDirtyDelete() }
-
-// AiAgentDirtyDelete says "当前文档有未保存的修改；请先保存或放弃，再删除它"
-// in the language of msgs.
-func (msgs Messages) AiAgentDirtyDelete() string {
-	return Catalog.Format(msgs.locale, "aiAgentDirtyDelete", nil)
-}
+func AiAgentDirtyDelete() string { return Catalog.Format(i18n.Locale(), "aiAgentDirtyDelete", nil) }
 
 // AiAgentDeleteFailed says "删除失败：{error}"
 // in the language the app shows.
-func AiAgentDeleteFailed(error string) string { return In(i18n.Locale()).AiAgentDeleteFailed(error) }
-
-// AiAgentDeleteFailed says "删除失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentDeleteFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentDeleteFailed", map[string]any{"error": error})
+func AiAgentDeleteFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentDeleteFailed", map[string]any{"error": error})
 }
 
 // AiAgentFolderExists says "目录已存在：{path}"
 // in the language the app shows.
-func AiAgentFolderExists(path string) string { return In(i18n.Locale()).AiAgentFolderExists(path) }
-
-// AiAgentFolderExists says "目录已存在：{path}"
-// in the language of msgs.
-func (msgs Messages) AiAgentFolderExists(path string) string {
-	return Catalog.Format(msgs.locale, "aiAgentFolderExists", map[string]any{"path": path})
+func AiAgentFolderExists(path string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentFolderExists", map[string]any{"path": path})
 }
 
 // AiAgentCreateFailed says "创建失败：{error}"
 // in the language the app shows.
-func AiAgentCreateFailed(error string) string { return In(i18n.Locale()).AiAgentCreateFailed(error) }
-
-// AiAgentCreateFailed says "创建失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentCreateFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentCreateFailed", map[string]any{"error": error})
+func AiAgentCreateFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentCreateFailed", map[string]any{"error": error})
 }
 
 // AiAgentNoWorkspace says "没有打开的工作区"
 // in the language the app shows.
-func AiAgentNoWorkspace() string { return In(i18n.Locale()).AiAgentNoWorkspace() }
-
-// AiAgentNoWorkspace says "没有打开的工作区"
-// in the language of msgs.
-func (msgs Messages) AiAgentNoWorkspace() string {
-	return Catalog.Format(msgs.locale, "aiAgentNoWorkspace", nil)
-}
+func AiAgentNoWorkspace() string { return Catalog.Format(i18n.Locale(), "aiAgentNoWorkspace", nil) }
 
 // AiAgentNotEditable says "不是可编辑的文本文件"
 // in the language the app shows.
-func AiAgentNotEditable() string { return In(i18n.Locale()).AiAgentNotEditable() }
-
-// AiAgentNotEditable says "不是可编辑的文本文件"
-// in the language of msgs.
-func (msgs Messages) AiAgentNotEditable() string {
-	return Catalog.Format(msgs.locale, "aiAgentNotEditable", nil)
-}
+func AiAgentNotEditable() string { return Catalog.Format(i18n.Locale(), "aiAgentNotEditable", nil) }
 
 // AiAgentCurrentNotSaved says "当前文档还没保存；请先保存，或给出工作区内的相对路径"
 // in the language the app shows.
-func AiAgentCurrentNotSaved() string { return In(i18n.Locale()).AiAgentCurrentNotSaved() }
-
-// AiAgentCurrentNotSaved says "当前文档还没保存；请先保存，或给出工作区内的相对路径"
-// in the language of msgs.
-func (msgs Messages) AiAgentCurrentNotSaved() string {
-	return Catalog.Format(msgs.locale, "aiAgentCurrentNotSaved", nil)
+func AiAgentCurrentNotSaved() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentCurrentNotSaved", nil)
 }
 
 // AiAgentWorkspaceOnly says "只允许访问工作区内的文件"
 // in the language the app shows.
-func AiAgentWorkspaceOnly() string { return In(i18n.Locale()).AiAgentWorkspaceOnly() }
-
-// AiAgentWorkspaceOnly says "只允许访问工作区内的文件"
-// in the language of msgs.
-func (msgs Messages) AiAgentWorkspaceOnly() string {
-	return Catalog.Format(msgs.locale, "aiAgentWorkspaceOnly", nil)
-}
+func AiAgentWorkspaceOnly() string { return Catalog.Format(i18n.Locale(), "aiAgentWorkspaceOnly", nil) }
 
 // AiAgentNoWorkspaceOrDocument says "没有打开的工作区，也没有已保存的文档"
 // in the language the app shows.
-func AiAgentNoWorkspaceOrDocument() string { return In(i18n.Locale()).AiAgentNoWorkspaceOrDocument() }
-
-// AiAgentNoWorkspaceOrDocument says "没有打开的工作区，也没有已保存的文档"
-// in the language of msgs.
-func (msgs Messages) AiAgentNoWorkspaceOrDocument() string {
-	return Catalog.Format(msgs.locale, "aiAgentNoWorkspaceOrDocument", nil)
+func AiAgentNoWorkspaceOrDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentNoWorkspaceOrDocument", nil)
 }
 
 // AiAgentPathEscapesWorkspace says "路径 {path} 超出了工作区"
 // in the language the app shows.
 func AiAgentPathEscapesWorkspace(path string) string {
-	return In(i18n.Locale()).AiAgentPathEscapesWorkspace(path)
-}
-
-// AiAgentPathEscapesWorkspace says "路径 {path} 超出了工作区"
-// in the language of msgs.
-func (msgs Messages) AiAgentPathEscapesWorkspace(path string) string {
-	return Catalog.Format(msgs.locale, "aiAgentPathEscapesWorkspace", map[string]any{"path": path})
+	return Catalog.Format(i18n.Locale(), "aiAgentPathEscapesWorkspace", map[string]any{"path": path})
 }
 
 // AiAgentCurrentDocumentEmpty says "当前文档是空的；先写点内容，或给出工作区内的路径"
 // in the language the app shows.
-func AiAgentCurrentDocumentEmpty() string { return In(i18n.Locale()).AiAgentCurrentDocumentEmpty() }
-
-// AiAgentCurrentDocumentEmpty says "当前文档是空的；先写点内容，或给出工作区内的路径"
-// in the language of msgs.
-func (msgs Messages) AiAgentCurrentDocumentEmpty() string {
-	return Catalog.Format(msgs.locale, "aiAgentCurrentDocumentEmpty", nil)
+func AiAgentCurrentDocumentEmpty() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentCurrentDocumentEmpty", nil)
 }
 
 // AiAgentUntitled says "(未命名)"
 // in the language the app shows.
-func AiAgentUntitled() string { return In(i18n.Locale()).AiAgentUntitled() }
-
-// AiAgentUntitled says "(未命名)"
-// in the language of msgs.
-func (msgs Messages) AiAgentUntitled() string {
-	return Catalog.Format(msgs.locale, "aiAgentUntitled", nil)
-}
+func AiAgentUntitled() string { return Catalog.Format(i18n.Locale(), "aiAgentUntitled", nil) }
 
 // AiAgentFileTooLarge says "文件超过 2 MB，无法读取"
 // in the language the app shows.
-func AiAgentFileTooLarge() string { return In(i18n.Locale()).AiAgentFileTooLarge() }
-
-// AiAgentFileTooLarge says "文件超过 2 MB，无法读取"
-// in the language of msgs.
-func (msgs Messages) AiAgentFileTooLarge() string {
-	return Catalog.Format(msgs.locale, "aiAgentFileTooLarge", nil)
-}
+func AiAgentFileTooLarge() string { return Catalog.Format(i18n.Locale(), "aiAgentFileTooLarge", nil) }
 
 // AiAgentNotTextFile says "不是文本文件"
 // in the language the app shows.
-func AiAgentNotTextFile() string { return In(i18n.Locale()).AiAgentNotTextFile() }
-
-// AiAgentNotTextFile says "不是文本文件"
-// in the language of msgs.
-func (msgs Messages) AiAgentNotTextFile() string {
-	return Catalog.Format(msgs.locale, "aiAgentNotTextFile", nil)
-}
+func AiAgentNotTextFile() string { return Catalog.Format(i18n.Locale(), "aiAgentNotTextFile", nil) }
 
 // AiAgentReadDirectoryFailed says "读取目录失败：{error}"
 // in the language the app shows.
 func AiAgentReadDirectoryFailed(error string) string {
-	return In(i18n.Locale()).AiAgentReadDirectoryFailed(error)
-}
-
-// AiAgentReadDirectoryFailed says "读取目录失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentReadDirectoryFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentReadDirectoryFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "aiAgentReadDirectoryFailed", map[string]any{"error": error})
 }
 
 // AiAgentOffsetOutOfRange says "offset {offset, number} 超出了总行数 {total, number}"
 // in the language the app shows.
 func AiAgentOffsetOutOfRange(offset int, total int) string {
-	return In(i18n.Locale()).AiAgentOffsetOutOfRange(offset, total)
-}
-
-// AiAgentOffsetOutOfRange says "offset {offset, number} 超出了总行数 {total, number}"
-// in the language of msgs.
-func (msgs Messages) AiAgentOffsetOutOfRange(offset int, total int) string {
-	return Catalog.Format(msgs.locale, "aiAgentOffsetOutOfRange", map[string]any{"offset": offset, "total": total})
+	return Catalog.Format(i18n.Locale(), "aiAgentOffsetOutOfRange", map[string]any{"offset": offset, "total": total})
 }
 
 // AiAgentQueryEmpty says "query 不能为空"
 // in the language the app shows.
-func AiAgentQueryEmpty() string { return In(i18n.Locale()).AiAgentQueryEmpty() }
-
-// AiAgentQueryEmpty says "query 不能为空"
-// in the language of msgs.
-func (msgs Messages) AiAgentQueryEmpty() string {
-	return Catalog.Format(msgs.locale, "aiAgentQueryEmpty", nil)
-}
+func AiAgentQueryEmpty() string { return Catalog.Format(i18n.Locale(), "aiAgentQueryEmpty", nil) }
 
 // AiAgentRegexInvalid says "正则表达式无效：{error}"
 // in the language the app shows.
-func AiAgentRegexInvalid(error string) string { return In(i18n.Locale()).AiAgentRegexInvalid(error) }
-
-// AiAgentRegexInvalid says "正则表达式无效：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentRegexInvalid(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentRegexInvalid", map[string]any{"error": error})
+func AiAgentRegexInvalid(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentRegexInvalid", map[string]any{"error": error})
 }
 
 // AiAgentNoHeadings says "(没有标题)"
 // in the language the app shows.
-func AiAgentNoHeadings() string { return In(i18n.Locale()).AiAgentNoHeadings() }
-
-// AiAgentNoHeadings says "(没有标题)"
-// in the language of msgs.
-func (msgs Messages) AiAgentNoHeadings() string {
-	return Catalog.Format(msgs.locale, "aiAgentNoHeadings", nil)
-}
+func AiAgentNoHeadings() string { return Catalog.Format(i18n.Locale(), "aiAgentNoHeadings", nil) }
 
 // AiAgentOldTextEmpty says "old_text 不能为空；先 read_document 核对原文，再逐字复制要替换的片段"
 // in the language the app shows.
-func AiAgentOldTextEmpty() string { return In(i18n.Locale()).AiAgentOldTextEmpty() }
-
-// AiAgentOldTextEmpty says "old_text 不能为空；先 read_document 核对原文，再逐字复制要替换的片段"
-// in the language of msgs.
-func (msgs Messages) AiAgentOldTextEmpty() string {
-	return Catalog.Format(msgs.locale, "aiAgentOldTextEmpty", nil)
-}
+func AiAgentOldTextEmpty() string { return Catalog.Format(i18n.Locale(), "aiAgentOldTextEmpty", nil) }
 
 // AiAgentOldTextNotFound says "文档中找不到 old_text；请用 read_document 核对原文（包括空格和换行）"
 // in the language the app shows.
-func AiAgentOldTextNotFound() string { return In(i18n.Locale()).AiAgentOldTextNotFound() }
-
-// AiAgentOldTextNotFound says "文档中找不到 old_text；请用 read_document 核对原文（包括空格和换行）"
-// in the language of msgs.
-func (msgs Messages) AiAgentOldTextNotFound() string {
-	return Catalog.Format(msgs.locale, "aiAgentOldTextNotFound", nil)
+func AiAgentOldTextNotFound() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentOldTextNotFound", nil)
 }
 
 // AiAgentOldTextRepeated says "old_text 在文档中出现了 {count, number} 次，请加长片段使其唯一"
 // in the language the app shows.
-func AiAgentOldTextRepeated(count int) string { return In(i18n.Locale()).AiAgentOldTextRepeated(count) }
-
-// AiAgentOldTextRepeated says "old_text 在文档中出现了 {count, number} 次，请加长片段使其唯一"
-// in the language of msgs.
-func (msgs Messages) AiAgentOldTextRepeated(count int) string {
-	return Catalog.Format(msgs.locale, "aiAgentOldTextRepeated", map[string]any{"count": count})
+func AiAgentOldTextRepeated(count int) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentOldTextRepeated", map[string]any{"count": count})
 }
 
 // AiAgentWritePathExample says "路径不能为空；请提供相对于工作区根目录的路径，例如 notes/meeting.md"
 // in the language the app shows.
-func AiAgentWritePathExample() string { return In(i18n.Locale()).AiAgentWritePathExample() }
-
-// AiAgentWritePathExample says "路径不能为空；请提供相对于工作区根目录的路径，例如 notes/meeting.md"
-// in the language of msgs.
-func (msgs Messages) AiAgentWritePathExample() string {
-	return Catalog.Format(msgs.locale, "aiAgentWritePathExample", nil)
+func AiAgentWritePathExample() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentWritePathExample", nil)
 }
 
 // AiAgentSupportedFileTypes says "只支持 .md / .markdown / .txt 文件"
 // in the language the app shows.
-func AiAgentSupportedFileTypes() string { return In(i18n.Locale()).AiAgentSupportedFileTypes() }
-
-// AiAgentSupportedFileTypes says "只支持 .md / .markdown / .txt 文件"
-// in the language of msgs.
-func (msgs Messages) AiAgentSupportedFileTypes() string {
-	return Catalog.Format(msgs.locale, "aiAgentSupportedFileTypes", nil)
+func AiAgentSupportedFileTypes() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentSupportedFileTypes", nil)
 }
 
 // AiAgentCreateDirectoryFailed says "创建目录失败：{error}"
 // in the language the app shows.
 func AiAgentCreateDirectoryFailed(error string) string {
-	return In(i18n.Locale()).AiAgentCreateDirectoryFailed(error)
-}
-
-// AiAgentCreateDirectoryFailed says "创建目录失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentCreateDirectoryFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentCreateDirectoryFailed", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "aiAgentCreateDirectoryFailed", map[string]any{"error": error})
 }
 
 // AiAgentWriteFailed says "写入失败：{error}"
 // in the language the app shows.
-func AiAgentWriteFailed(error string) string { return In(i18n.Locale()).AiAgentWriteFailed(error) }
-
-// AiAgentWriteFailed says "写入失败：{error}"
-// in the language of msgs.
-func (msgs Messages) AiAgentWriteFailed(error string) string {
-	return Catalog.Format(msgs.locale, "aiAgentWriteFailed", map[string]any{"error": error})
+func AiAgentWriteFailed(error string) string {
+	return Catalog.Format(i18n.Locale(), "aiAgentWriteFailed", map[string]any{"error": error})
 }
 
 // AiAgentInsertTextEmpty says "text 不能为空"
 // in the language the app shows.
-func AiAgentInsertTextEmpty() string { return In(i18n.Locale()).AiAgentInsertTextEmpty() }
-
-// AiAgentInsertTextEmpty says "text 不能为空"
-// in the language of msgs.
-func (msgs Messages) AiAgentInsertTextEmpty() string {
-	return Catalog.Format(msgs.locale, "aiAgentInsertTextEmpty", nil)
+func AiAgentInsertTextEmpty() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentInsertTextEmpty", nil)
 }
 
 // AiAgentNoWritableDocument says "没有可写入的文档；先新建或打开一个"
 // in the language the app shows.
-func AiAgentNoWritableDocument() string { return In(i18n.Locale()).AiAgentNoWritableDocument() }
-
-// AiAgentNoWritableDocument says "没有可写入的文档；先新建或打开一个"
-// in the language of msgs.
-func (msgs Messages) AiAgentNoWritableDocument() string {
-	return Catalog.Format(msgs.locale, "aiAgentNoWritableDocument", nil)
+func AiAgentNoWritableDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentNoWritableDocument", nil)
 }
 
 // AiPermissionFull says "完全访问"
 // in the language the app shows.
-func AiPermissionFull() string { return In(i18n.Locale()).AiPermissionFull() }
-
-// AiPermissionFull says "完全访问"
-// in the language of msgs.
-func (msgs Messages) AiPermissionFull() string {
-	return Catalog.Format(msgs.locale, "aiPermissionFull", nil)
-}
+func AiPermissionFull() string { return Catalog.Format(i18n.Locale(), "aiPermissionFull", nil) }
 
 // AiPermissionReadOnly says "只读"
 // in the language the app shows.
-func AiPermissionReadOnly() string { return In(i18n.Locale()).AiPermissionReadOnly() }
-
-// AiPermissionReadOnly says "只读"
-// in the language of msgs.
-func (msgs Messages) AiPermissionReadOnly() string {
-	return Catalog.Format(msgs.locale, "aiPermissionReadOnly", nil)
-}
+func AiPermissionReadOnly() string { return Catalog.Format(i18n.Locale(), "aiPermissionReadOnly", nil) }
 
 // AiPermissionAsk says "每次询问"
 // in the language the app shows.
-func AiPermissionAsk() string { return In(i18n.Locale()).AiPermissionAsk() }
-
-// AiPermissionAsk says "每次询问"
-// in the language of msgs.
-func (msgs Messages) AiPermissionAsk() string {
-	return Catalog.Format(msgs.locale, "aiPermissionAsk", nil)
-}
+func AiPermissionAsk() string { return Catalog.Format(i18n.Locale(), "aiPermissionAsk", nil) }
 
 // AiAgentTurnLimit says "已连续调用多轮工具，先停在这里；需要的话让我继续。"
 // in the language the app shows.
-func AiAgentTurnLimit() string { return In(i18n.Locale()).AiAgentTurnLimit() }
-
-// AiAgentTurnLimit says "已连续调用多轮工具，先停在这里；需要的话让我继续。"
-// in the language of msgs.
-func (msgs Messages) AiAgentTurnLimit() string {
-	return Catalog.Format(msgs.locale, "aiAgentTurnLimit", nil)
-}
+func AiAgentTurnLimit() string { return Catalog.Format(i18n.Locale(), "aiAgentTurnLimit", nil) }
 
 // AiAgentCurrentDocumentLabel says "(当前文档)"
 // in the language the app shows.
-func AiAgentCurrentDocumentLabel() string { return In(i18n.Locale()).AiAgentCurrentDocumentLabel() }
-
-// AiAgentCurrentDocumentLabel says "(当前文档)"
-// in the language of msgs.
-func (msgs Messages) AiAgentCurrentDocumentLabel() string {
-	return Catalog.Format(msgs.locale, "aiAgentCurrentDocumentLabel", nil)
+func AiAgentCurrentDocumentLabel() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentCurrentDocumentLabel", nil)
 }
 
 // AiAgentAlreadyCurrentDocument says "已经是当前文档"
 // in the language the app shows.
-func AiAgentAlreadyCurrentDocument() string { return In(i18n.Locale()).AiAgentAlreadyCurrentDocument() }
-
-// AiAgentAlreadyCurrentDocument says "已经是当前文档"
-// in the language of msgs.
-func (msgs Messages) AiAgentAlreadyCurrentDocument() string {
-	return Catalog.Format(msgs.locale, "aiAgentAlreadyCurrentDocument", nil)
+func AiAgentAlreadyCurrentDocument() string {
+	return Catalog.Format(i18n.Locale(), "aiAgentAlreadyCurrentDocument", nil)
 }
 
 // AiApiKey says "API Key"
 // in the language the app shows.
-func AiApiKey() string { return In(i18n.Locale()).AiApiKey() }
-
-// AiApiKey says "API Key"
-// in the language of msgs.
-func (msgs Messages) AiApiKey() string {
-	return Catalog.Format(msgs.locale, "aiApiKey", nil)
-}
+func AiApiKey() string { return Catalog.Format(i18n.Locale(), "aiApiKey", nil) }
 
 // AiSystemPromptPlaceholder says "你是 Muse…"
 // in the language the app shows.
-func AiSystemPromptPlaceholder() string { return In(i18n.Locale()).AiSystemPromptPlaceholder() }
-
-// AiSystemPromptPlaceholder says "你是 Muse…"
-// in the language of msgs.
-func (msgs Messages) AiSystemPromptPlaceholder() string {
-	return Catalog.Format(msgs.locale, "aiSystemPromptPlaceholder", nil)
+func AiSystemPromptPlaceholder() string {
+	return Catalog.Format(i18n.Locale(), "aiSystemPromptPlaceholder", nil)
 }
 
 // EditorHeadingLevelLabel says "H{level, number} · {heading}"
 // in the language the app shows.
 func EditorHeadingLevelLabel(level int, heading string) string {
-	return In(i18n.Locale()).EditorHeadingLevelLabel(level, heading)
-}
-
-// EditorHeadingLevelLabel says "H{level, number} · {heading}"
-// in the language of msgs.
-func (msgs Messages) EditorHeadingLevelLabel(level int, heading string) string {
-	return Catalog.Format(msgs.locale, "editorHeadingLevelLabel", map[string]any{"level": level, "heading": heading})
+	return Catalog.Format(i18n.Locale(), "editorHeadingLevelLabel", map[string]any{"level": level, "heading": heading})
 }
 
 // SidebarFixedFooter says "侧栏固定底栏"
 // in the language the app shows.
-func SidebarFixedFooter() string { return In(i18n.Locale()).SidebarFixedFooter() }
-
-// SidebarFixedFooter says "侧栏固定底栏"
-// in the language of msgs.
-func (msgs Messages) SidebarFixedFooter() string {
-	return Catalog.Format(msgs.locale, "sidebarFixedFooter", nil)
-}
+func SidebarFixedFooter() string { return Catalog.Format(i18n.Locale(), "sidebarFixedFooter", nil) }
 
 // TreeTrashDropTarget says "文件树废纸篓放置区"
 // in the language the app shows.
-func TreeTrashDropTarget() string { return In(i18n.Locale()).TreeTrashDropTarget() }
-
-// TreeTrashDropTarget says "文件树废纸篓放置区"
-// in the language of msgs.
-func (msgs Messages) TreeTrashDropTarget() string {
-	return Catalog.Format(msgs.locale, "treeTrashDropTarget", nil)
-}
+func TreeTrashDropTarget() string { return Catalog.Format(i18n.Locale(), "treeTrashDropTarget", nil) }
 
 // TreeTrashHintColumn says "废纸篓投放提示"
 // in the language the app shows.
-func TreeTrashHintColumn() string { return In(i18n.Locale()).TreeTrashHintColumn() }
-
-// TreeTrashHintColumn says "废纸篓投放提示"
-// in the language of msgs.
-func (msgs Messages) TreeTrashHintColumn() string {
-	return Catalog.Format(msgs.locale, "treeTrashHintColumn", nil)
-}
+func TreeTrashHintColumn() string { return Catalog.Format(i18n.Locale(), "treeTrashHintColumn", nil) }
 
 // TreeTrashHoverIcon says "废纸篓图标"
 // in the language the app shows.
-func TreeTrashHoverIcon() string { return In(i18n.Locale()).TreeTrashHoverIcon() }
-
-// TreeTrashHoverIcon says "废纸篓图标"
-// in the language of msgs.
-func (msgs Messages) TreeTrashHoverIcon() string {
-	return Catalog.Format(msgs.locale, "treeTrashHoverIcon", nil)
-}
+func TreeTrashHoverIcon() string { return Catalog.Format(i18n.Locale(), "treeTrashHoverIcon", nil) }
 
 // TreeTrashHint says "拖到这里可移到废纸篓"
 // in the language the app shows.
-func TreeTrashHint() string { return In(i18n.Locale()).TreeTrashHint() }
-
-// TreeTrashHint says "拖到这里可移到废纸篓"
-// in the language of msgs.
-func (msgs Messages) TreeTrashHint() string {
-	return Catalog.Format(msgs.locale, "treeTrashHint", nil)
-}
+func TreeTrashHint() string { return Catalog.Format(i18n.Locale(), "treeTrashHint", nil) }
 
 // TreeDragHandleLabel says "拖动项目：{name}"
 // in the language the app shows.
-func TreeDragHandleLabel(name string) string { return In(i18n.Locale()).TreeDragHandleLabel(name) }
-
-// TreeDragHandleLabel says "拖动项目：{name}"
-// in the language of msgs.
-func (msgs Messages) TreeDragHandleLabel(name string) string {
-	return Catalog.Format(msgs.locale, "treeDragHandleLabel", map[string]any{"name": name})
+func TreeDragHandleLabel(name string) string {
+	return Catalog.Format(i18n.Locale(), "treeDragHandleLabel", map[string]any{"name": name})
 }
 
 // TreeDragProjectionLabel says "拖动项目预览：{name}"
 // in the language the app shows.
 func TreeDragProjectionLabel(name string) string {
-	return In(i18n.Locale()).TreeDragProjectionLabel(name)
-}
-
-// TreeDragProjectionLabel says "拖动项目预览：{name}"
-// in the language of msgs.
-func (msgs Messages) TreeDragProjectionLabel(name string) string {
-	return Catalog.Format(msgs.locale, "treeDragProjectionLabel", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "treeDragProjectionLabel", map[string]any{"name": name})
 }
 
 // TreeDragProjectionOperationLabel says "拖动操作：{name}"
 // in the language the app shows.
 func TreeDragProjectionOperationLabel(name string) string {
-	return In(i18n.Locale()).TreeDragProjectionOperationLabel(name)
-}
-
-// TreeDragProjectionOperationLabel says "拖动操作：{name}"
-// in the language of msgs.
-func (msgs Messages) TreeDragProjectionOperationLabel(name string) string {
-	return Catalog.Format(msgs.locale, "treeDragProjectionOperationLabel", map[string]any{"name": name})
+	return Catalog.Format(i18n.Locale(), "treeDragProjectionOperationLabel", map[string]any{"name": name})
 }
 
 // PropertyStructureSourceOnly says "复杂结构 · 请在源码中编辑"
 // in the language the app shows.
-func PropertyStructureSourceOnly() string { return In(i18n.Locale()).PropertyStructureSourceOnly() }
-
-// PropertyStructureSourceOnly says "复杂结构 · 请在源码中编辑"
-// in the language of msgs.
-func (msgs Messages) PropertyStructureSourceOnly() string {
-	return Catalog.Format(msgs.locale, "propertyStructureSourceOnly", nil)
+func PropertyStructureSourceOnly() string {
+	return Catalog.Format(i18n.Locale(), "propertyStructureSourceOnly", nil)
 }
 
 // PropertyYAMLParseError says "YAML 无法解析：{error}"
 // in the language the app shows.
 func PropertyYAMLParseError(error string) string {
-	return In(i18n.Locale()).PropertyYAMLParseError(error)
-}
-
-// PropertyYAMLParseError says "YAML 无法解析：{error}"
-// in the language of msgs.
-func (msgs Messages) PropertyYAMLParseError(error string) string {
-	return Catalog.Format(msgs.locale, "propertyYAMLParseError", map[string]any{"error": error})
+	return Catalog.Format(i18n.Locale(), "propertyYAMLParseError", map[string]any{"error": error})
 }
 
 // FrontmatterDelimiterMissing says "YAML 缺少结束分隔符"
 // in the language the app shows.
-func FrontmatterDelimiterMissing() string { return In(i18n.Locale()).FrontmatterDelimiterMissing() }
-
-// FrontmatterDelimiterMissing says "YAML 缺少结束分隔符"
-// in the language of msgs.
-func (msgs Messages) FrontmatterDelimiterMissing() string {
-	return Catalog.Format(msgs.locale, "frontmatterDelimiterMissing", nil)
+func FrontmatterDelimiterMissing() string {
+	return Catalog.Format(i18n.Locale(), "frontmatterDelimiterMissing", nil)
 }
 
 // FrontmatterMustBeMap says "属性必须是 YAML 映射"
 // in the language the app shows.
-func FrontmatterMustBeMap() string { return In(i18n.Locale()).FrontmatterMustBeMap() }
-
-// FrontmatterMustBeMap says "属性必须是 YAML 映射"
-// in the language of msgs.
-func (msgs Messages) FrontmatterMustBeMap() string {
-	return Catalog.Format(msgs.locale, "frontmatterMustBeMap", nil)
-}
+func FrontmatterMustBeMap() string { return Catalog.Format(i18n.Locale(), "frontmatterMustBeMap", nil) }
 
 // FrontmatterInvalidKey says "属性名无效或重复：{key}"
 // in the language the app shows.
-func FrontmatterInvalidKey(key string) string { return In(i18n.Locale()).FrontmatterInvalidKey(key) }
-
-// FrontmatterInvalidKey says "属性名无效或重复：{key}"
-// in the language of msgs.
-func (msgs Messages) FrontmatterInvalidKey(key string) string {
-	return Catalog.Format(msgs.locale, "frontmatterInvalidKey", map[string]any{"key": key})
+func FrontmatterInvalidKey(key string) string {
+	return Catalog.Format(i18n.Locale(), "frontmatterInvalidKey", map[string]any{"key": key})
 }
 
 // FrontmatterUntitled says "未命名"
 // in the language the app shows.
-func FrontmatterUntitled() string { return In(i18n.Locale()).FrontmatterUntitled() }
-
-// FrontmatterUntitled says "未命名"
-// in the language of msgs.
-func (msgs Messages) FrontmatterUntitled() string {
-	return Catalog.Format(msgs.locale, "frontmatterUntitled", nil)
-}
+func FrontmatterUntitled() string { return Catalog.Format(i18n.Locale(), "frontmatterUntitled", nil) }
 
 // FrontmatterDateInvalid says "无法识别日期；请使用无歧义的常见日期格式"
 // in the language the app shows.
-func FrontmatterDateInvalid() string { return In(i18n.Locale()).FrontmatterDateInvalid() }
-
-// FrontmatterDateInvalid says "无法识别日期；请使用无歧义的常见日期格式"
-// in the language of msgs.
-func (msgs Messages) FrontmatterDateInvalid() string {
-	return Catalog.Format(msgs.locale, "frontmatterDateInvalid", nil)
+func FrontmatterDateInvalid() string {
+	return Catalog.Format(i18n.Locale(), "frontmatterDateInvalid", nil)
 }
 
 // FrontmatterBooleanInvalid says "请输入 true 或 false"
 // in the language the app shows.
-func FrontmatterBooleanInvalid() string { return In(i18n.Locale()).FrontmatterBooleanInvalid() }
-
-// FrontmatterBooleanInvalid says "请输入 true 或 false"
-// in the language of msgs.
-func (msgs Messages) FrontmatterBooleanInvalid() string {
-	return Catalog.Format(msgs.locale, "frontmatterBooleanInvalid", nil)
+func FrontmatterBooleanInvalid() string {
+	return Catalog.Format(i18n.Locale(), "frontmatterBooleanInvalid", nil)
 }
 
 // FrontmatterNumberInvalid says "请输入数字"
 // in the language the app shows.
-func FrontmatterNumberInvalid() string { return In(i18n.Locale()).FrontmatterNumberInvalid() }
-
-// FrontmatterNumberInvalid says "请输入数字"
-// in the language of msgs.
-func (msgs Messages) FrontmatterNumberInvalid() string {
-	return Catalog.Format(msgs.locale, "frontmatterNumberInvalid", nil)
+func FrontmatterNumberInvalid() string {
+	return Catalog.Format(i18n.Locale(), "frontmatterNumberInvalid", nil)
 }
 
 // FrontmatterKeyEmpty says "属性名不能为空"
 // in the language the app shows.
-func FrontmatterKeyEmpty() string { return In(i18n.Locale()).FrontmatterKeyEmpty() }
-
-// FrontmatterKeyEmpty says "属性名不能为空"
-// in the language of msgs.
-func (msgs Messages) FrontmatterKeyEmpty() string {
-	return Catalog.Format(msgs.locale, "frontmatterKeyEmpty", nil)
-}
+func FrontmatterKeyEmpty() string { return Catalog.Format(i18n.Locale(), "frontmatterKeyEmpty", nil) }
 
 // FrontmatterStructureSourceOnly says "此复杂字段请在源码中编辑"
 // in the language the app shows.
 func FrontmatterStructureSourceOnly() string {
-	return In(i18n.Locale()).FrontmatterStructureSourceOnly()
-}
-
-// FrontmatterStructureSourceOnly says "此复杂字段请在源码中编辑"
-// in the language of msgs.
-func (msgs Messages) FrontmatterStructureSourceOnly() string {
-	return Catalog.Format(msgs.locale, "frontmatterStructureSourceOnly", nil)
+	return Catalog.Format(i18n.Locale(), "frontmatterStructureSourceOnly", nil)
 }
 
 // VaultBacklinkCountSuffix says "（{count, plural, other {# 处}}）"
 // in the language the app shows.
 func VaultBacklinkCountSuffix(count int) string {
-	return In(i18n.Locale()).VaultBacklinkCountSuffix(count)
-}
-
-// VaultBacklinkCountSuffix says "（{count, plural, other {# 处}}）"
-// in the language of msgs.
-func (msgs Messages) VaultBacklinkCountSuffix(count int) string {
-	return Catalog.Format(msgs.locale, "vaultBacklinkCountSuffix", map[string]any{"count": count})
+	return Catalog.Format(i18n.Locale(), "vaultBacklinkCountSuffix", map[string]any{"count": count})
 }
 
 // PropertyLastOpenedDate says "最近打开"
 // in the language the app shows.
-func PropertyLastOpenedDate() string { return In(i18n.Locale()).PropertyLastOpenedDate() }
-
-// PropertyLastOpenedDate says "最近打开"
-// in the language of msgs.
-func (msgs Messages) PropertyLastOpenedDate() string {
-	return Catalog.Format(msgs.locale, "propertyLastOpenedDate", nil)
+func PropertyLastOpenedDate() string {
+	return Catalog.Format(i18n.Locale(), "propertyLastOpenedDate", nil)
 }
 
 // PropertyTypeFieldLabel says "类型"
 // in the language the app shows.
-func PropertyTypeFieldLabel() string { return In(i18n.Locale()).PropertyTypeFieldLabel() }
-
-// PropertyTypeFieldLabel says "类型"
-// in the language of msgs.
-func (msgs Messages) PropertyTypeFieldLabel() string {
-	return Catalog.Format(msgs.locale, "propertyTypeFieldLabel", nil)
+func PropertyTypeFieldLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyTypeFieldLabel", nil)
 }
 
 // PropertyTagsFieldLabel says "标签"
 // in the language the app shows.
-func PropertyTagsFieldLabel() string { return In(i18n.Locale()).PropertyTagsFieldLabel() }
-
-// PropertyTagsFieldLabel says "标签"
-// in the language of msgs.
-func (msgs Messages) PropertyTagsFieldLabel() string {
-	return Catalog.Format(msgs.locale, "propertyTagsFieldLabel", nil)
+func PropertyTagsFieldLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyTagsFieldLabel", nil)
 }
 
 // PropertyStatusFieldLabel says "状态"
 // in the language the app shows.
-func PropertyStatusFieldLabel() string { return In(i18n.Locale()).PropertyStatusFieldLabel() }
-
-// PropertyStatusFieldLabel says "状态"
-// in the language of msgs.
-func (msgs Messages) PropertyStatusFieldLabel() string {
-	return Catalog.Format(msgs.locale, "propertyStatusFieldLabel", nil)
+func PropertyStatusFieldLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyStatusFieldLabel", nil)
 }
 
 // PropertyAliasesFieldLabel says "别名"
 // in the language the app shows.
-func PropertyAliasesFieldLabel() string { return In(i18n.Locale()).PropertyAliasesFieldLabel() }
-
-// PropertyAliasesFieldLabel says "别名"
-// in the language of msgs.
-func (msgs Messages) PropertyAliasesFieldLabel() string {
-	return Catalog.Format(msgs.locale, "propertyAliasesFieldLabel", nil)
+func PropertyAliasesFieldLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyAliasesFieldLabel", nil)
 }
 
 // PropertyDateFieldLabel says "日期"
 // in the language the app shows.
-func PropertyDateFieldLabel() string { return In(i18n.Locale()).PropertyDateFieldLabel() }
-
-// PropertyDateFieldLabel says "日期"
-// in the language of msgs.
-func (msgs Messages) PropertyDateFieldLabel() string {
-	return Catalog.Format(msgs.locale, "propertyDateFieldLabel", nil)
+func PropertyDateFieldLabel() string {
+	return Catalog.Format(i18n.Locale(), "propertyDateFieldLabel", nil)
 }
 
 // PropertyDefaultNoteType says "笔记"
 // in the language the app shows.
-func PropertyDefaultNoteType() string { return In(i18n.Locale()).PropertyDefaultNoteType() }
-
-// PropertyDefaultNoteType says "笔记"
-// in the language of msgs.
-func (msgs Messages) PropertyDefaultNoteType() string {
-	return Catalog.Format(msgs.locale, "propertyDefaultNoteType", nil)
+func PropertyDefaultNoteType() string {
+	return Catalog.Format(i18n.Locale(), "propertyDefaultNoteType", nil)
 }

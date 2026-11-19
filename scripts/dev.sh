@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 identity="$(mygo_sign_identity)"
 mkdir -p native/.mygo/dev
-(cd native && go tool mygo generate && go tool mygo i18n check)
+sh scripts/generate.sh
 sh scripts/go.sh build -C native -o .mygo/dev/Muse ./cmd/muse-native
 
 if [ -n "$identity" ] && command -v codesign >/dev/null 2>&1; then
