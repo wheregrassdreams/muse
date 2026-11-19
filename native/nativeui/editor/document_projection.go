@@ -15,9 +15,9 @@ import (
 	"slices"
 	"strings"
 
+	editorprojection "github.com/wheregrassdreams/muse-editor/markdown/render"
 	sourceview "github.com/wheregrassdreams/muse-editor/markdown/source"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	editorprojection "muse/nativeui/editor/projection"
 	"muse/ui/scrollbar"
 )
 
@@ -280,11 +280,25 @@ func lineEndAt(src string, off int) int {
 // frontMatterEnd returns where the YAML front matter at the top of src
 // ends, after its closing line, or 0 when it has none: a first line of
 // ---, up to a line of --- or ....
-func frontMatterEnd(src string) int { return editorprojection.FrontmatterEnd(src) }
-
-func hideFrontMatterEnd(src string) int { return editorprojection.HideFrontmatterEnd(src) }
-
-func maskFrontMatter(src string, end int) string { return editorprojection.MaskFrontmatter(src, end) }
+// hideFrontMatterEnd is a display policy: the editor can hide even an empty
+// frontmatter delimiter pair, while the parser correctly treats it as rules.
+func hideFrontMatterEnd(src string) int {
+	if end := sourceview.FrontmatterEnd(src); end > 0 {
+		return end
+	}
+	if !strings.HasPrefix(src, "---\n") && !strings.HasPrefix(src, "---\r\n") {
+		return 0
+	}
+	off := strings.IndexByte(src, '\n') + 1
+	if off != 4 && off != 5 {
+		return 0
+	}
+	end := lineEndAt(src, off)
+	if line := strings.TrimRight(src[off:end], " \t\r"); line == "---" || line == "..." {
+		return end
+	}
+	return 0
+}
 
 // leafArena reuses the leaves of the last parse. A document of a few
 // thousand blocks would otherwise allocate a leaf, its containers and its
@@ -455,18 +469,18 @@ func sameLeaf(a, b *leaf) bool {
 // buildLeaves adapts detached Markdown projection values into the editor's
 // arena-backed host leaves. The projection package never receives or retains
 // Editor, leaf, layout, or MyGo state.
-func buildLeaves(src string, d sourceview.SyntaxView, fm int, a *leafArena, projector *editorprojection.Projector) []*leaf {
+func buildLeaves(src string, d sourceview.SyntaxView, fm int, a *leafArena, projector *editorprojection.SourceProjector) []*leaf {
 	return adaptDocumentBlocks(projector.Build(src, d, fm), a)
 }
 
-func adaptDocumentBlocks(projected []*editorprojection.Block, a *leafArena) []*leaf {
+func adaptDocumentBlocks(projected []*editorprojection.SourceBlock, a *leafArena) []*leaf {
 	if len(projected) == 0 && projected == nil {
 		return nil
 	}
 	a.reset()
 	out := make([]*leaf, 0, len(projected))
-	var adapt func(*editorprojection.Block, *leaf) *leaf
-	adapt = func(block *editorprojection.Block, tableOwner *leaf) *leaf {
+	var adapt func(*editorprojection.SourceBlock, *leaf) *leaf
+	adapt = func(block *editorprojection.SourceBlock, tableOwner *leaf) *leaf {
 		if block == nil {
 			return nil
 		}
@@ -514,40 +528,40 @@ func adaptDocumentBlocks(projected []*editorprojection.Block, a *leafArena) []*l
 	return out
 }
 
-func hostLeafKind(kind editorprojection.Kind) leafKind {
+func hostLeafKind(kind editorprojection.SourceKind) leafKind {
 	switch kind {
-	case editorprojection.Paragraph:
+	case editorprojection.SourceParagraph:
 		return kPara
-	case editorprojection.Heading:
+	case editorprojection.SourceHeading:
 		return kHeading
-	case editorprojection.Code:
+	case editorprojection.SourceCode:
 		return kCode
-	case editorprojection.Math:
+	case editorprojection.SourceMath:
 		return kMath
-	case editorprojection.HTML:
+	case editorprojection.SourceHTML:
 		return kHTML
-	case editorprojection.Rule:
+	case editorprojection.SourceRule:
 		return kRule
-	case editorprojection.TableBlock:
+	case editorprojection.SourceTableBlock:
 		return kTable
-	case editorprojection.Raw:
+	case editorprojection.SourceRaw:
 		return kRaw
-	case editorprojection.Phantom:
+	case editorprojection.SourcePhantom:
 		return kPhantom
-	case editorprojection.Blank:
+	case editorprojection.SourceBlank:
 		return kBlank
 	default:
 		return kRaw
 	}
 }
 
-func hostContainerKind(kind editorprojection.ContainerKind) contKind {
+func hostContainerKind(kind editorprojection.SourceContainerKind) contKind {
 	switch kind {
-	case editorprojection.Quote:
+	case editorprojection.SourceQuote:
 		return cQuote
-	case editorprojection.Item:
+	case editorprojection.SourceItem:
 		return cItem
-	case editorprojection.Footnote:
+	case editorprojection.SourceFootnote:
 		return cFootnote
 	default:
 		return cQuote

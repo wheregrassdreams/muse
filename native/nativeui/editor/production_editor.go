@@ -12,29 +12,29 @@ import (
 	"github.com/egoist/mygo/ui"
 	uieditor "github.com/egoist/mygo/ui/editor"
 
-	"muse/nativeui/editor/feedback"
-	"muse/nativeui/editor/ime"
-	"muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
-	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 	paragraph "github.com/wheregrassdreams/muse-editor/markdown/paragraph"
-	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	"github.com/wheregrassdreams/muse-editor/text/input"
-	helix "github.com/wheregrassdreams/muse-editor/text/helix"
-	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
+	editorprojection "github.com/wheregrassdreams/muse-editor/markdown/render"
 	"github.com/wheregrassdreams/muse-editor/markdown/source"
+	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
+	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
 	inlineui "muse/nativeui/editor/blocks/inline"
 	media "muse/nativeui/editor/blocks/media"
 	tableui "muse/nativeui/editor/blocks/table"
+	"muse/nativeui/editor/feedback"
+	"muse/nativeui/editor/ime"
 	editornavigation "muse/nativeui/editor/navigation"
 	"muse/nativeui/editor/navigationrail"
-	editorprojection "muse/nativeui/editor/projection"
+	"muse/nativeui/editor/render"
+	"muse/nativeui/editor/textlayout"
 	"muse/ui/scrollbar"
 	vaultlinks "muse/vault/links"
 )
@@ -252,7 +252,7 @@ type Editor struct {
 	// parse before have to stay whole while the next is built.
 	arena              [2]leafArena
 	arenaCur           int
-	documentProjection editorprojection.Projector
+	documentProjection editorprojection.SourceProjector
 	// leafSrc is the source the leaves were built from, which an edit has
 	// usually moved on from by the time they are compared with the next.
 	leafSrc string
@@ -745,7 +745,7 @@ func (e *Editor) sync() {
 	// follow, or the whole source again. The choice is the same for every
 	// field of it, so a fast path cannot leave one of them behind.
 	if e.p.Source() != e.Source() {
-		fm := frontMatterEnd(e.Source())
+		fm := source.FrontmatterEnd(e.Source())
 		if e.pending == nil || e.pendingMulti || fm != e.p.FrontmatterEnd() || !e.p.Edit(e.Source(), e.pending.from, e.pending.to, e.pending.text) {
 			var imageInlines []syntax.IncrementalInline
 			if fm == 0 {

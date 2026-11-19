@@ -2,25 +2,25 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
+	editorprojection "github.com/wheregrassdreams/muse-editor/markdown/render"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	editorprojection "muse/nativeui/editor/projection"
 	render "muse/nativeui/editor/render"
 )
 
 // quoteContainer preserves parser-owned containers and extends alert headers
 // with Obsidian's optional title; source and byte offsets remain untouched.
 func quoteContainer(src string, id int, b syntax.IncrementalBlock) cont {
-	projected := editorprojection.QuoteContainer(src, id, b)
+	projected := editorprojection.SourceQuoteContainer(src, id, b)
 	return cont{kind: hostContainerKind(projected.Kind), alert: projected.Alert, title: projected.Title, id: projected.ID, start: projected.Start}
 }
 func isCalloutContainer(c cont) bool {
-	kind := editorprojection.Quote
+	kind := editorprojection.SourceQuote
 	if c.kind == cItem {
-		kind = editorprojection.Item
+		kind = editorprojection.SourceItem
 	} else if c.kind == cFootnote {
-		kind = editorprojection.Footnote
+		kind = editorprojection.SourceFootnote
 	}
-	return editorprojection.IsCalloutContainer(editorprojection.Container{Kind: kind, Alert: c.alert})
+	return editorprojection.IsSourceCalloutContainer(editorprojection.SourceContainer{Kind: kind, Alert: c.alert})
 }
 
 // paintCallouts must run before quote bars and text. The caller excludes

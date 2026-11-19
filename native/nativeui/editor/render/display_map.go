@@ -1,6 +1,6 @@
 package render
 
-import "muse/nativeui/editor/navigation"
+import coordinates "github.com/wheregrassdreams/muse-editor/text/coordinates"
 
 // MappingKind describes how one rendered piece relates to source positions.
 type MappingKind uint8
@@ -38,29 +38,29 @@ func (p displayProjection) PieceCount() int {
 	return p.mapper.MappedPieceCount()
 }
 
-func (p displayProjection) PieceAt(index int) navigation.Piece {
+func (p displayProjection) PieceAt(index int) coordinates.Piece {
 	piece := p.mapper.MappedPieceAt(index)
-	kind := navigation.Text
+	kind := coordinates.ProjectionText
 	switch piece.Kind {
 	case MappingAtom:
-		kind = navigation.Atom
+		kind = coordinates.ProjectionAtom
 	case MappingDecoration:
-		kind = navigation.Decoration
+		kind = coordinates.ProjectionDecoration
 	}
 	text := ""
 	if piece.Kind == MappingText {
 		text = piece.Text
 	}
-	return navigation.Piece{
+	return coordinates.Piece{
 		Kind:       kind,
-		Source:     navigation.Offset{Start: piece.SourceStart, End: piece.SourceEnd},
-		Visible:    navigation.Offset{Start: piece.DisplayStart, End: piece.DisplayEnd},
+		Source:     coordinates.Offset{Start: piece.SourceStart, End: piece.SourceEnd},
+		Visible:    coordinates.Offset{Start: piece.DisplayStart, End: piece.DisplayEnd},
 		SourceText: text, VisibleText: text,
 	}
 }
 
-func projectionOf(mapper PieceMapper) navigation.Map {
-	return navigation.Map{Provider: displayProjection{mapper: mapper}}
+func projectionOf(mapper PieceMapper) coordinates.Map {
+	return coordinates.Map{Provider: displayProjection{mapper: mapper}}
 }
 
 // SourceToDisplay maps a source byte offset to UTF-16 display units. Text
@@ -73,7 +73,7 @@ func SourceToDisplay(mapper PieceMapper, source int) (int, bool) {
 	if mapper.MappedPieceCount() == 0 && source == 0 {
 		return 0, true
 	}
-	return projectionOf(mapper).VisibleAt(source, navigation.TowardStart)
+	return projectionOf(mapper).VisibleAt(source, coordinates.TowardStart)
 }
 
 // DisplayToSource maps UTF-16 display units to a source byte offset. When
@@ -103,9 +103,9 @@ func CaretStops(mapper PieceMapper) []int {
 	return projectionOf(mapper).CaretStops()
 }
 
-func projectionBias(up bool) navigation.Bias {
+func projectionBias(up bool) coordinates.Bias {
 	if up {
-		return navigation.TowardStart
+		return coordinates.TowardStart
 	}
-	return navigation.TowardEnd
+	return coordinates.TowardEnd
 }

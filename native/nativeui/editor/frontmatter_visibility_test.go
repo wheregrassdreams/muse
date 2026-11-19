@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 	"muse/document/frontmatter"
 )
 
@@ -94,8 +95,8 @@ func TestHideFrontmatterLeavesCaretAtEmptyBody(t *testing.T) {
 func TestHideEmptyFrontmatterKeepsDefaultTwoRulesAndMapsBodyCaret(t *testing.T) {
 	src := "---\n---\n# Body\n"
 	plain := New(src, Options{})
-	if frontMatterEnd(src) != 0 || countRuleLeaves(plain.leaves) != 2 {
-		t.Fatalf("default empty frontmatter changed: fm end = %d, rules = %d", frontMatterEnd(src), countRuleLeaves(plain.leaves))
+	if source.FrontmatterEnd(src) != 0 || countRuleLeaves(plain.leaves) != 2 {
+		t.Fatalf("default empty frontmatter changed: fm end = %d, rules = %d", source.FrontmatterEnd(src), countRuleLeaves(plain.leaves))
 	}
 
 	e := New(src, Options{})
