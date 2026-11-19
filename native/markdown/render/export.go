@@ -1,6 +1,6 @@
 package render
 
-import "muse/markdown/syntax"
+import "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 
 // ExportHTML renders Markdown source to HTML without depending on an editor
 // session or a display backend.

@@ -3,7 +3,7 @@ package render
 import (
 	"testing"
 
-	"muse/markdown/syntax"
+	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 
 func TestProjectSharesInlineDataAndEnrichesNestedBlocks(t *testing.T) {
