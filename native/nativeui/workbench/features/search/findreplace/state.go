@@ -4,7 +4,7 @@ package findreplace
 
 import (
 	"github.com/egoist/mygo/ui"
-	editfind "muse/editor/findreplace"
+	editfind "github.com/wheregrassdreams/muse-editor/text/findreplace"
 	"muse/ui/scrollbar"
 )
 

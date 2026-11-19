@@ -2,7 +2,7 @@ package inlineui
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/editor/input"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 )
 
 const SuggestionLimit = 8

@@ -1,7 +1,7 @@
 package noteeditor
 
 import (
-	layoutindex "muse/editor/layout"
+	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
 	editorui "muse/nativeui/editor"
 	workspaceui "muse/nativeui/workspace"
 )

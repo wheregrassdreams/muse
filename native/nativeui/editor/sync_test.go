@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"muse/editor/source"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

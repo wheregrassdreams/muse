@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -62,7 +62,7 @@ func TestTextVisualHFromBodyLicenseAcrossWrappedTableTracksSelectionState(t *tes
 		table = documentTestTable(t, h.e)
 		_, row, col := cellAt(table, h.e.Caret())
 		if row == 0 && col == 1 {
-			if h.e.tableSelection != nil && h.e.vimController().Mode() == vim.ModeVisual && h.e.vimController().View().VimTextVisualActive {
+			if h.e.tableSelection != nil && h.e.vimController().Mode() == helix.ModeVisual && h.e.vimController().View().VimTextVisualActive {
 				t.Fatalf("mixed active visual+table selection at Source header: selection=%+v bridge=%+v ranges=%+v", h.e.tableSelection, h.e.tableBridge, h.e.SelectionRanges())
 			}
 			return

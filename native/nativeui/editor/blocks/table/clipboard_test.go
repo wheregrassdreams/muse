@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 func TestClipboardHTMLPreservesWhetherSelectedFirstRowWasSourceHeader(t *testing.T) {

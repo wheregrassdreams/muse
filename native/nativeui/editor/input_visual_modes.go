@@ -1,6 +1,6 @@
 package editor
 
-import "muse/editor/input/vim"
+import helix "github.com/wheregrassdreams/muse-editor/text/helix"
 
 func (e *Editor) startTableVisualLine(focus int) bool {
 	e.layoutIfNeeded()
@@ -24,11 +24,11 @@ func (e *Editor) startTableVisualLine(focus int) bool {
 }
 
 func (e *Editor) tableVisualLineActive() bool {
-	return e.vimController().Mode() == vim.ModeVisual && e.vimController().View().Linewise && e.tableSelection != nil && e.tableSelection.axis == tableRows
+	return e.vimController().Mode() == helix.ModeVisual && e.vimController().View().Linewise && e.tableSelection != nil && e.tableSelection.axis == tableRows
 }
 
 func (e *Editor) tableVisualLineMode() bool {
-	return e.vimController().Mode() == vim.ModeVisual && e.vimController().View().Linewise
+	return e.vimController().Mode() == helix.ModeVisual && e.vimController().View().Linewise
 }
 
 func (e *Editor) moveTableVisualLineHorizontal(dir int) {
@@ -163,7 +163,7 @@ func (e *Editor) tableVisualRowAtOffset(t *leaf, off int) int {
 // restoreTableVisualLineFromMixed brings a linewise selection back into its
 // structural table rows when j/k reverses a one-row exit from that table.
 func (e *Editor) restoreTableVisualLineFromMixed(dir int) bool {
-	if e.vimController().Mode() != vim.ModeVisual || !e.vimController().View().Linewise || !e.Session.Selection().Linewise || e.tableSelection != nil || dir == 0 {
+	if e.vimController().Mode() != helix.ModeVisual || !e.vimController().View().Linewise || !e.Session.Selection().Linewise || e.tableSelection != nil || dir == 0 {
 		return false
 	}
 	a, z := e.selection()
@@ -230,7 +230,7 @@ func (e *Editor) nativeStartTableColumnVisual(focus int) bool {
 // preserving the selected column. Leaving the table collapses the structural
 // selection and transfers focus to the adjacent visible document leaf.
 func (e *Editor) moveTableVisualColumn(dir, count int) bool {
-	if e.vimController().Mode() != vim.ModeBlockVisual || e.tableSelection == nil || e.tableSelection.axis != tableColumns || dir == 0 {
+	if e.vimController().Mode() != helix.ModeBlockVisual || e.tableSelection == nil || e.tableSelection.axis != tableColumns || dir == 0 {
 		return false
 	}
 	if count < 1 {
@@ -248,7 +248,7 @@ func (e *Editor) moveTableVisualColumn(dir, count int) bool {
 			e.tableBridge = nil
 			e.resetTableNavigation()
 			e.block = nil
-			e.modalSetMode(vim.ModeNormal)
+			e.modalSetMode(helix.ModeNormal)
 			e.vimController().SetLinewise(false)
 			e.setSessionInclusive(false)
 			e.setSessionLinewise(false)

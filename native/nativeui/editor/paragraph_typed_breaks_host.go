@@ -1,6 +1,6 @@
 package editor
 
-import "muse/editor/blocks/paragraph"
+import "github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 
 // Typed breaks are view-local source anchors, not extra source characters.
 // They preserve a line the user explicitly filled/created while keeping

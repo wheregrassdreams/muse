@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	editormodel "muse/editor"
-	"muse/editor/input/vim"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"muse/nativeui/editor/feedback"
 )
 
@@ -14,7 +14,7 @@ func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 	for _, keymap := range []string{"vim", "helix", "default"} {
 		session := editormodel.NewSession("0123456789")
 		_ = session.SetSelection(editormodel.Selection{Anchor: 4, Head: 4})
-		controller := vim.New()
+		controller := helix.New()
 		controller.SetKeymap(keymap)
 		e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller, smoothCursorNavigation: true}
 		e.beginSmoothCursorMove(4, 8, false)
@@ -25,9 +25,9 @@ func TestSmoothCursorOnlyTracksModalNormalNavigation(t *testing.T) {
 	}
 	session := editormodel.NewSession("0123456789")
 	_ = session.SetSelection(editormodel.Selection{Anchor: 4, Head: 4})
-	controller := vim.New()
+	controller := helix.New()
 	controller.SetKeymap("vim")
-	controller.SetMode(vim.ModeInsert)
+	controller.SetMode(helix.ModeInsert)
 	e := &Editor{Session: session, opts: Options{SmoothCursor: true}, vimState: controller}
 	e.beginSmoothCursorMove(4, 8, false)
 	if e.feedbackState.CursorState().Active {
@@ -128,7 +128,7 @@ func TestSmoothCursorNavigationRebasesFromCurrentVisualPosition(t *testing.T) {
 	start := time.Unix(10, 0)
 	session := editormodel.NewSession("0123456789")
 	_ = session.SetSelection(editormodel.Selection{Anchor: 5, Head: 5})
-	controller := vim.New()
+	controller := helix.New()
 	controller.SetKeymap("vim")
 	e := &Editor{
 		Session:                session,

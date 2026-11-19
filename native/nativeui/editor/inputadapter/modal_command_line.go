@@ -1,7 +1,7 @@
 package inputadapter
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"muse/locales"
 
 	"github.com/egoist/mygo/ui"
@@ -10,7 +10,7 @@ import (
 // CommandLineHost supplies the editor-owned effects needed by the Vim search
 // prompt. The adapter owns only MyGo presentation and text event translation.
 type CommandLineHost interface {
-	VimViewState() vim.ViewState
+	VimViewState() helix.ViewState
 	CommandLineInset() float32
 	SetSearchInputFocused(bool)
 	UpdateSearchQuery(string)

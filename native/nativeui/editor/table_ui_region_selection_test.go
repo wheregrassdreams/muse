@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 func TestTableCellRegionBoundsNormalizeReverseAnchor(t *testing.T) {

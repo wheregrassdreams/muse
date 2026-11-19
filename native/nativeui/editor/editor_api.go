@@ -3,7 +3,7 @@ package editor
 import (
 	"strings"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // The app edits the document through these, as an AI tool or a command

@@ -18,14 +18,14 @@ import (
 	"muse/nativeui/editor/textlayout"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
-	editormodel "muse/editor"
-	inlineblock "muse/editor/blocks/inline"
-	paragraph "muse/editor/blocks/paragraph"
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input"
-	"muse/editor/input/vim"
-	layoutindex "muse/editor/layout"
-	"muse/editor/source"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
+	paragraph "github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
@@ -210,9 +210,9 @@ type Editor struct {
 	pendingChanges  []editormodel.Change
 	editBatch       *editormodel.EditBatch
 	modal           modalState
-	vimState        *vim.Controller
+	vimState        *helix.Controller
 	keymapName      string
-	vimModeOverride vim.Mode
+	vimModeOverride helix.Mode
 	// folded is presentation state keyed by a heading's source line start.
 	// A source edit clears it so offsets can never fold an unrelated section.
 	folded                 map[int]bool
@@ -1245,7 +1245,7 @@ func (e *Editor) setCaret(off int, extend bool) {
 	if state, ok := e.vimImageRowState(); ok && off != state.LineStart {
 		e.clearVimImageRow()
 	}
-	if e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeNormal && !extend {
+	if e.Keymap() == "vim" && e.vimController().Mode() == helix.ModeNormal && !extend {
 		off = e.vimNormalOffset(off)
 	}
 	if e.smoothCursorNavigation {
@@ -1430,7 +1430,7 @@ func (e *Editor) beginSmoothCursorMoveAt(from, to int, extend bool, now time.Tim
 	e.feedbackState.BeginCursorMove(feedback.CursorMove{
 		From: from, To: to, SelectionAnchor: e.Session.Selection().Anchor,
 		Enabled: e.opts.SmoothCursor, Navigation: e.smoothCursorNavigation,
-		Extending: extend, ModalNormal: (e.Keymap() == "vim" || e.Keymap() == "helix") && mode == vim.ModeNormal,
+		Extending: extend, ModalNormal: (e.Keymap() == "vim" || e.Keymap() == "helix") && mode == helix.ModeNormal,
 		Now: now,
 	})
 }

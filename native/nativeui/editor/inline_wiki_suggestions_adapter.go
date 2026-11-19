@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	inlineblock "muse/editor/blocks/inline"
-	"muse/editor/input"
+	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 	inline "muse/nativeui/editor/blocks/inline"
 	"muse/search/quickopen"
 	vaultlinks "muse/vault/links"

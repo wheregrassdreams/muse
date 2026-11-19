@@ -5,7 +5,7 @@ package session
 import (
 	"fmt"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // ApplyTransaction applies edits expressed against one source snapshot as one

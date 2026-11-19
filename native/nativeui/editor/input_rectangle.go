@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 )
 
 const rectangleClipboardFormat transfer.Format = "application/x-muse-rectangle+json"
@@ -156,7 +156,7 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	e.block = nil
 	e.blockInput = nil
 	if s == nil {
-		if e.vimModeOverride == vim.ModeBlockVisual && e.tableSelection == nil && e.tableBridge == nil {
+		if e.vimModeOverride == helix.ModeBlockVisual && e.tableSelection == nil && e.tableBridge == nil {
 			e.vimModeOverride = ""
 		}
 		return
@@ -168,7 +168,7 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	// History callbacks run while Session applies an edit and may hold its
 	// write lock. Keep this UI-only mode override local instead of re-entering
 	// the Session-backed Vim keymap.
-	e.vimModeOverride = vim.ModeBlockVisual
+	e.vimModeOverride = helix.ModeBlockVisual
 	e.invalidate()
 }
 

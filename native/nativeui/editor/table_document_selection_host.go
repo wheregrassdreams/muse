@@ -1,8 +1,8 @@
 package editor
 
 import (
-	editormodel "muse/editor"
-	tablemodel "muse/editor/blocks/table"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 type selectionPart struct {

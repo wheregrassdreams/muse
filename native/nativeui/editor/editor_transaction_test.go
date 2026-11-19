@@ -3,7 +3,7 @@ package editor
 import (
 	"testing"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	sessionadapter "muse/nativeui/editor/session"
 )
 

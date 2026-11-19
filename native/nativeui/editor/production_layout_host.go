@@ -7,10 +7,10 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"muse/editor/blocks/paragraph"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 
-	"muse/editor/layout"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"muse/markdown/diagrams"
 	media "muse/nativeui/editor/blocks/media"
 	render "muse/nativeui/editor/render"

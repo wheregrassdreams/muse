@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	inlineui "muse/nativeui/editor/blocks/inline"
 	markdownui "muse/nativeui/markdown"
 )

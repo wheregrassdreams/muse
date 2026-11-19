@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/input/vim"
-	"muse/editor/layout"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 	media "muse/nativeui/editor/blocks/media"
 )
 
@@ -14,7 +14,7 @@ func (e *Editor) clearVimImageRow() { e.vimImageRows.Clear() }
 func (e *Editor) vimImageRowState() (media.VirtualImageRow, bool) { return e.vimImageRows.State() }
 
 func (e *Editor) vimImageRowsActive() bool {
-	return e.opts.VimVirtualImageRows && e.Keymap() == "vim" && e.vimController().Mode() != vim.ModeInsert
+	return e.opts.VimVirtualImageRows && e.Keymap() == "vim" && e.vimController().Mode() != helix.ModeInsert
 }
 
 // vimImageGeometry returns the painted image rectangle in document

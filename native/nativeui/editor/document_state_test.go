@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/source"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

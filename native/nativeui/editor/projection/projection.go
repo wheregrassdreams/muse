@@ -3,7 +3,7 @@ package projection
 
 import (
 	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
-	sourceview "muse/editor/source"
+	sourceview "github.com/wheregrassdreams/muse-editor/markdown/source"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"strings"
 )

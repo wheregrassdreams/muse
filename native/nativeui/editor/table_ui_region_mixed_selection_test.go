@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -119,7 +119,7 @@ func TestVVisualCrossCellThenLeaveTableKeepsCellProjection(t *testing.T) {
 	h.e.layoutIfNeeded()
 	table := documentTestTable(t, h.e)
 	h.e.setSessionHead(table.tab.rows[0][0].start)
-	h.e.vimController().SetMode(vim.ModeNormal)
+	h.e.vimController().SetMode(helix.ModeNormal)
 	sendVim(h, "v")
 	for i := 0; i < 40 && (h.e.tableSelection == nil || !h.e.tableSelection.cellRegion); i++ {
 		h.e.modalText("l")
@@ -215,7 +215,7 @@ func TestCellRegionAndDormantTextRangeRemainVisuallyExclusive(t *testing.T) {
 	table := documentTestTable(t, h.e)
 	start := table.tab.rows[1][0].start
 	h.e.setSessionHead(start)
-	h.e.vimController().SetMode(vim.ModeNormal)
+	h.e.vimController().SetMode(helix.ModeNormal)
 	sendVim(h, "v")
 	for i := 0; i < 40 && h.e.tableSelection == nil; i++ {
 		h.e.modalText("l")

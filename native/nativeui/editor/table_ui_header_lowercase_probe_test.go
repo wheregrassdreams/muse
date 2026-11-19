@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -58,7 +58,7 @@ func TestLowercaseVHorizontalCellSelectionThemes(t *testing.T) {
 					if s == nil || !s.cellRegion || s.axis != tableRows || s.first != 0 || s.last != 1 || s.anchorRow != 1 || s.anchorCol != 3 || s.focusRow != 0 || s.focusCol != 0 {
 						t.Fatalf("h past first body cell did not extend the rectangle into the header: %+v", s)
 					}
-					if h.e.tableBridge != nil || h.e.vimController().Mode() != vim.ModeVisual || h.e.vimController().View().Linewise || h.e.Session.Selection().Inclusive || h.e.Session.Selection().Linewise {
+					if h.e.tableBridge != nil || h.e.vimController().Mode() != helix.ModeVisual || h.e.vimController().View().Linewise || h.e.Session.Selection().Inclusive || h.e.Session.Selection().Linewise {
 						t.Fatalf("cell region mixed with another active selection: mode=%s line=%v inclusive=%v linewise=%v region=%+v bridge=%+v", h.e.vimController().Mode(), h.e.vimController().View().Linewise, h.e.Session.Selection().Inclusive, h.e.Session.Selection().Linewise, s, h.e.tableBridge)
 					}
 					h.shot("lowercase-v-leftmost-body-cell-" + name)

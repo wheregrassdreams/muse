@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -129,7 +129,7 @@ func TestVimCtrlVColumnKeepsStructureWhileMovingRows(t *testing.T) {
 	if !h.e.nativeStartTableColumnVisual(cell.start) {
 		t.Fatal("table column visual helper rejected a table cell")
 	}
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	sendVim(h, "2j")
 	if s := h.e.tableSelection; s == nil || s.axis != tableColumns || s.first != 1 || s.last != 1 || s.activeRow != 3 {
 		t.Fatalf("2j changed the selected table column or missed focus row: %+v", s)
@@ -240,9 +240,9 @@ func TestVimCtrlVColumnChangeUsesTableMultiInsertPath(t *testing.T) {
 	if !h.e.nativeStartTableColumnVisual(table.tab.rows[1][1].start) {
 		t.Fatal("table column visual helper rejected the current cell")
 	}
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	sendVim(h, "c")
-	if h.e.vimController().Mode() != vim.ModeInsert || h.e.modal.blockInsert == nil || h.e.block != nil {
+	if h.e.vimController().Mode() != helix.ModeInsert || h.e.modal.blockInsert == nil || h.e.block != nil {
 		t.Fatalf("table c did not enter the table-specific multi-insert path: mode=%q blockInsert=%+v block=%+v", h.e.vimController().Mode(), h.e.modal.blockInsert, h.e.block)
 	}
 	h.typ("x")
@@ -263,9 +263,9 @@ func TestVimCtrlVColumnLeavesTableAtVisibleEdge(t *testing.T) {
 	if !h.e.nativeStartTableColumnVisual(cell.start) {
 		t.Fatal("table column visual helper rejected the current cell")
 	}
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	sendVim(h, "j")
-	if h.e.tableSelection != nil || h.e.vimController().Mode() != vim.ModeNormal {
+	if h.e.tableSelection != nil || h.e.vimController().Mode() != helix.ModeNormal {
 		t.Fatalf("column edge did not exit structural mode cleanly: mode=%q selection=%+v", h.e.vimController().Mode(), h.e.tableSelection)
 	}
 	if u := h.e.unitAt(h.e.Caret()); u == nil || u.table != nil {
@@ -299,7 +299,7 @@ func TestVimCtrlVInTableSelectsCurrentCell(t *testing.T) {
 	cell := table.tab.rows[1][1]
 	h.caretAt(cell.start)
 	h.key(ui.Ctrl, ui.KeyV)
-	if h.e.vimController().Mode() != vim.ModeBlockVisual || h.e.tableSelection == nil || h.e.tableSelection.axis != tableCells || h.e.tableSelection.anchorRow != 1 || h.e.tableSelection.anchorCol != 1 || h.e.tableSelection.focusRow != 1 || h.e.tableSelection.focusCol != 1 {
+	if h.e.vimController().Mode() != helix.ModeBlockVisual || h.e.tableSelection == nil || h.e.tableSelection.axis != tableCells || h.e.tableSelection.anchorRow != 1 || h.e.tableSelection.anchorCol != 1 || h.e.tableSelection.focusRow != 1 || h.e.tableSelection.focusCol != 1 {
 		t.Fatalf("Ctrl+V in cell did not start at the current cell: mode=%q selection=%+v", h.e.vimController().Mode(), h.e.tableSelection)
 	}
 }

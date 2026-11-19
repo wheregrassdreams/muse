@@ -2,7 +2,7 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	editorlayout "muse/editor/layout"
+	editorlayout "github.com/wheregrassdreams/muse-editor/text/layout"
 )
 
 func policyRect(rect ui.Rect) editorlayout.Rect {

@@ -3,9 +3,9 @@ package editor
 import (
 	"time"
 
-	editormodel "muse/editor"
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input/vim"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 
@@ -94,9 +94,9 @@ func tableVisualSnapshot(e *Editor) *tablemodel.VisualSelection {
 		return nil
 	}
 	mode := tablemodel.VisualModeNone
-	if s.axis == tableRows && e.vimController().Mode() == vim.ModeVisual && e.vimController().View().Linewise {
+	if s.axis == tableRows && e.vimController().Mode() == helix.ModeVisual && e.vimController().View().Linewise {
 		mode = tablemodel.VisualModeLine
-	} else if s.axis == tableColumns && e.vimController().Mode() == vim.ModeBlockVisual {
+	} else if s.axis == tableColumns && e.vimController().Mode() == helix.ModeBlockVisual {
 		mode = tablemodel.VisualModeColumn
 	}
 	if mode == tablemodel.VisualModeNone {
@@ -125,9 +125,9 @@ func tableSelectionSnapshot(s *tableSelection) *tablemodel.Selection {
 
 func (e *Editor) tableTextOrigin() tablemodel.SelectionOrigin {
 	switch e.vimController().Mode() {
-	case vim.ModeVisual, vim.ModeSelect:
+	case helix.ModeVisual, helix.ModeSelect:
 		return tablemodel.SelectionOriginVisualText
-	case vim.ModeBlockVisual:
+	case helix.ModeBlockVisual:
 		return tablemodel.SelectionOriginTable
 	default:
 		return tablemodel.SelectionOriginText
@@ -179,7 +179,7 @@ func (e *Editor) restoreTableSnapshot(s tablemodel.Snapshot) {
 func sameTableNavigationState(a, b tablemodel.Snapshot) bool { return tablemodel.Equal(a, b) }
 
 func (e *Editor) restoreTableNavigation(s tablemodel.Snapshot) {
-	e.modalSetMode(vim.Mode(s.Mode))
+	e.modalSetMode(helix.Mode(s.Mode))
 	e.setSessionSelection(s.TextSelection.Anchor, s.TextSelection.Head)
 	e.setSessionInclusive(s.TextSelection.Inclusive)
 	e.setSessionLinewise(s.TextSelection.Linewise)

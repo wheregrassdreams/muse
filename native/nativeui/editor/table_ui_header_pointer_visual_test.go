@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -34,7 +34,7 @@ func TestPointerPlacedHeaderCaretVisualRowsIncludeHeader(t *testing.T) {
 			if row != 0 || col != 1 {
 				t.Fatalf("pointer caret landed at row=%d col=%d offset=%d, want header cell (0,1)", row, col, h.e.Caret())
 			}
-			h.e.vimController().SetMode(vim.ModeNormal)
+			h.e.vimController().SetMode(helix.ModeNormal)
 			if mode == "Vj" {
 				sendVim(h, "Vj")
 				s := h.e.tableSelection
@@ -84,7 +84,7 @@ func TestWrappedTableBodyVimSelectionKeepsHeaderAnchor(t *testing.T) {
 		t.Fatalf("wrapped body Vj from header omitted header row: %+v", s)
 	}
 	h.e.tableSelection = nil
-	h.e.vimController().SetMode(vim.ModeNormal)
+	h.e.vimController().SetMode(helix.ModeNormal)
 	h.caretAt(table.tab.rows[0][1].start + 2)
 	h.e.modalKey(ui.KeyV, ui.Ctrl)
 	sendVim(h, "j")

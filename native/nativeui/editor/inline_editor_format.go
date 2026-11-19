@@ -6,8 +6,8 @@ import (
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui/richtext"
-	"muse/editor/blocks/inline"
-	"muse/editor/blocks/paragraph"
+	"github.com/wheregrassdreams/muse-editor/markdown/inline"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tableui "muse/nativeui/editor/blocks/table"
 )

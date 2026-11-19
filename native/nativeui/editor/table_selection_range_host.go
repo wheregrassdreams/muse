@@ -2,8 +2,8 @@ package editor
 
 import (
 	"github.com/egoist/mygo/ui"
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 )
 
 func (e *Editor) tableSelectionSourceRange(t *leaf, s *tableSelection) (int, int, bool) {
@@ -189,7 +189,7 @@ func (e *Editor) structuralSelectionForRange() bool {
 		// Keep a table's projected structural selection alongside the document
 		// envelope when the endpoints extend into surrounding text. The domain
 		// splitter owns the promotion rule; the host only stores its snapshot.
-		if e.block == nil && e.vimController().Mode() != vim.ModeBlockVisual {
+		if e.block == nil && e.vimController().Mode() != helix.ModeBlockVisual {
 			selection := e.Session.Selection()
 			selection.Head = e.Caret()
 			parts := tablemodel.ProjectDocumentSelection(selection, []tablemodel.DocumentView{documentViewForTable(e, t)})
@@ -274,7 +274,7 @@ func (e *Editor) structuralSelectionForRange() bool {
 		}
 		_, ar, ac := cellAt(t, e.Session.Selection().Anchor)
 		_, cr, cc := cellAt(t, e.Caret())
-		if e.vimController().Mode() == vim.ModeBlockVisual && ar >= 0 && cr >= 0 && ar != cr {
+		if e.vimController().Mode() == helix.ModeBlockVisual && ar >= 0 && cr >= 0 && ar != cr {
 			lastRow := len(t.tab.rows) - 1
 			topCol, bottomCol := -1, -1
 			if ar == 0 && e.Session.Selection().Anchor <= t.tab.rows[ar][ac].start && cr == lastRow && e.Caret() >= t.tab.rows[cr][cc].end {

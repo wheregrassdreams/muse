@@ -2,15 +2,15 @@ package editor
 
 import (
 	mygoinputadapter "muse/nativeui/editor/inputadapter"
-	"muse/editor/layout"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	tablemodel "muse/editor/blocks/table"
-	editorinput "muse/editor/input"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	media "muse/nativeui/editor/blocks/media"
 	tableui "muse/nativeui/editor/blocks/table"
 )
@@ -38,7 +38,7 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		if !ok {
 			return false
 		}
-		if e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeInsert {
+		if e.Keymap() == "vim" && e.vimController().Mode() == helix.ModeInsert {
 			intent, handled := e.Session.HandleVimKey(event)
 			if !handled {
 				return false
@@ -286,8 +286,8 @@ func (e *Editor) press(ev ui.InputEvent) bool {
 		}
 		return true
 	}
-	if e.Keymap() == "vim" && e.vimController().Mode() != vim.ModeInsert && ev.Mods&ui.Shift == 0 {
-		e.modalSetMode(vim.ModeNormal)
+	if e.Keymap() == "vim" && e.vimController().Mode() != helix.ModeInsert && ev.Mods&ui.Shift == 0 {
+		e.modalSetMode(helix.ModeNormal)
 		if ev.Clicks <= 1 {
 			if _, _, object := e.objectAt(off); !object {
 				off = e.vimPointerOffset(off, x, y)
@@ -414,9 +414,9 @@ func (e *Editor) dragTo(x, y float32) {
 			}
 		}
 	}
-	if e.Keymap() == "vim" && (e.vimController().Mode() == vim.ModeNormal || e.vimController().Mode() == vim.ModeVisual) && e.dragUnit == 0 {
+	if e.Keymap() == "vim" && (e.vimController().Mode() == helix.ModeNormal || e.vimController().Mode() == helix.ModeVisual) && e.dragUnit == 0 {
 		off = e.vimPointerOffset(off, x, y)
-		e.modalSetMode(vim.ModeVisual)
+		e.modalSetMode(helix.ModeVisual)
 		e.setSessionSelectionMode(true, false)
 	}
 	e.clearTableSelection()

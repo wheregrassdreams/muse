@@ -7,7 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	texmath "muse/markdown/math"
 	media "muse/nativeui/editor/blocks/media"
 	"muse/nativeui/editor/navigationrail"

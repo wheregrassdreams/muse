@@ -2,7 +2,7 @@ package editor
 
 import (
 	"fmt"
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -50,7 +50,7 @@ func TestPointerDragRecomputesTableStructure(t *testing.T) {
 	h := newHarness(t, documentTable)
 	table := documentTestTable(t, h.e)
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 2, 2, false)
 	h.e.dragFrom = [2]int{table.tab.rows[1][0].start, table.tab.rows[1][0].start}
 	h.e.dragTo(table.x+table.geom.w+4, table.y+(table.geom.rowY[1]+table.geom.rowY[2])/2)

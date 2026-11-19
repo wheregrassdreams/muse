@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 
 	"muse/nativeui/editor/feedback"
@@ -172,7 +172,7 @@ func (e *Editor) paintVisibleSpan(top, bottom float32) []*leaf {
 
 func (e *Editor) smoothCursorOverlayEnabled() bool {
 	state := e.VimViewState()
-	return e.opts.SmoothCursor && (state.Keymap == "vim" || state.Keymap == "helix") && state.Mode == vim.ModeNormal
+	return e.opts.SmoothCursor && (state.Keymap == "vim" || state.Keymap == "helix") && state.Mode == helix.ModeNormal
 }
 
 // paintCaretLayer is a separate retained scene element when smooth cursor is

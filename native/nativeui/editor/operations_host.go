@@ -4,10 +4,10 @@ import (
 	"sort"
 
 	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
-	"muse/editor/blocks/paragraph"
-	"muse/editor/input"
-	"muse/editor/input/vim"
-	"muse/editor/layout"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 )
 
 // ApplyOperation executes a keymap-neutral editor intent through the shared
@@ -246,7 +246,7 @@ func (e *Editor) findCharacter(char string, dir int, till bool, count int) bool 
 		e.modalApply(op, a, z)
 	} else {
 		mode := e.vimController().Mode()
-		e.nativeSetCaret(at, mode == vim.ModeVisual || mode == vim.ModeSelect)
+		e.nativeSetCaret(at, mode == helix.ModeVisual || mode == helix.ModeSelect)
 	}
 	return true
 }
@@ -286,7 +286,7 @@ func (e *Editor) repeatCharacterFind(reverse bool, count int) bool {
 		e.modalApply(op, a, z)
 	} else {
 		mode := e.vimController().Mode()
-		e.nativeSetCaret(at, mode == vim.ModeVisual || mode == vim.ModeSelect)
+		e.nativeSetCaret(at, mode == helix.ModeVisual || mode == helix.ModeSelect)
 	}
 	return true
 }

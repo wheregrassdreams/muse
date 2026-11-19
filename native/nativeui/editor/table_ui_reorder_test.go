@@ -2,7 +2,7 @@ package editor
 
 import (
 	"fmt"
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -64,11 +64,11 @@ func TestTableReorderPreservesContentAlignmentAndHistory(t *testing.T) {
 		e := h.e
 		table := documentTestTable(t, e)
 		e.SetKeymap("vim")
-		e.vimController().SetMode(vim.ModeVisual)
+		e.vimController().SetMode(helix.ModeVisual)
 		first, gap := 1, 4
 		if axis == tableColumns {
 			first, gap = 0, 3
-			e.vimController().SetMode(vim.ModeBlockVisual)
+			e.vimController().SetMode(helix.ModeBlockVisual)
 		}
 		e.selectTableAxis(table, axis, first, first, false)
 		e.tableSelection.activeRow = 1
@@ -175,7 +175,7 @@ func TestKeyboardStructureSelectionDoesNotShowMouseHandles(t *testing.T) {
 	h.frame()
 	bg := h.tt.Image().RGBAAt(int(table.x-9), int(table.y+table.h/2))
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 0, 2, false)
 	h.frame()
 	for row := 0; row < len(table.tab.rows); row++ {

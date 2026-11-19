@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	"muse/locales"
 	tabletheme "muse/theme"
 )

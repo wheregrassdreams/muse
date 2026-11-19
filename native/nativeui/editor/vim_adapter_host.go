@@ -8,9 +8,9 @@ import (
 	textengine "github.com/wheregrassdreams/muse-editor/text"
 	"github.com/wheregrassdreams/muse-editor/text/navigation"
 	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	tableui "muse/nativeui/editor/blocks/table"
 	"muse/nativeui/editor/inputadapter"
 )
@@ -20,9 +20,9 @@ import (
 // Helix remains on its current host keymap until it has an independent engine.
 type editorVimController struct{ editor *Editor }
 
-func (e *Editor) legacyVimController() *vim.Controller {
+func (e *Editor) legacyVimController() *helix.Controller {
 	if e.vimState == nil {
-		e.vimState = vim.New()
+		e.vimState = helix.New()
 		e.vimState.SetKeymap(e.keymapName)
 	}
 	return e.vimState
@@ -30,31 +30,31 @@ func (e *Editor) legacyVimController() *vim.Controller {
 
 func (e *Editor) vimController() *editorVimController { return &editorVimController{editor: e} }
 
-func engineMode(mode vim.Mode) textvim.Mode {
+func engineMode(mode helix.Mode) textvim.Mode {
 	switch mode {
-	case vim.ModeInsert:
+	case helix.ModeInsert:
 		return textvim.Insert
-	case vim.ModeVisual, vim.ModeSelect, vim.ModeBlockVisual:
+	case helix.ModeVisual, helix.ModeSelect, helix.ModeBlockVisual:
 		return textvim.Visual
 	default:
 		return textvim.Normal
 	}
 }
 
-func hostMode(mode textvim.Mode) vim.Mode {
+func hostMode(mode textvim.Mode) helix.Mode {
 	switch mode {
 	case textvim.Insert:
-		return vim.ModeInsert
+		return helix.ModeInsert
 	case textvim.Visual:
-		return vim.ModeVisual
+		return helix.ModeVisual
 	case textvim.LineVisual:
-		return vim.ModeVisual
+		return helix.ModeVisual
 	default:
-		return vim.ModeNormal
+		return helix.ModeNormal
 	}
 }
 
-func (c *editorVimController) Mode() vim.Mode {
+func (c *editorVimController) Mode() helix.Mode {
 	e := c.editor
 	if e.keymapName != "vim" {
 		return e.legacyVimController().Mode()
@@ -65,7 +65,7 @@ func (c *editorVimController) Mode() vim.Mode {
 	return hostMode(e.Session.VimKeymap().CurrentMode())
 }
 
-func (c *editorVimController) View() vim.ViewState {
+func (c *editorVimController) View() helix.ViewState {
 	e := c.editor
 	if e.keymapName != "vim" {
 		return e.legacyVimController().View()
@@ -75,16 +75,16 @@ func (c *editorVimController) View() vim.ViewState {
 	if state.Searching {
 		pending = ""
 	}
-	registerKind := vim.RegisterNone
+	registerKind := helix.RegisterNone
 	switch state.RegisterKind {
 	case textvim.RegisterText:
-		registerKind = vim.RegisterText
+		registerKind = helix.RegisterText
 	case textvim.RegisterBlock:
-		registerKind = vim.RegisterBlock
+		registerKind = helix.RegisterBlock
 	case textvim.RegisterTable:
-		registerKind = vim.RegisterTable
+		registerKind = helix.RegisterTable
 	}
-	return vim.ViewState{
+	return helix.ViewState{
 		Keymap: state.Keymap, Mode: c.Mode(), Pending: pending,
 		Count: state.Count, OperatorCount: state.OperatorCount, Linewise: state.Linewise,
 		Searching: state.Searching, SearchDirection: state.SearchDirection, SearchQuery: state.SearchQuery,
@@ -107,14 +107,14 @@ func (c *editorVimController) AcceptsText() bool {
 	}
 	return c.editor.legacyVimController().AcceptsText()
 }
-func (c *editorVimController) SetMode(mode vim.Mode) {
+func (c *editorVimController) SetMode(mode helix.Mode) {
 	e := c.editor
 	if e.keymapName != "vim" {
 		e.legacyVimController().SetMode(mode)
 		return
 	}
 	e.vimModeOverride = ""
-	if mode == vim.ModeSelect || mode == vim.ModeBlockVisual {
+	if mode == helix.ModeSelect || mode == helix.ModeBlockVisual {
 		e.vimModeOverride = mode
 		e.Session.VimKeymap().SetMode(textvim.Normal)
 		return
@@ -156,12 +156,12 @@ func (c *editorVimController) ResetSequence() {
 		c.editor.legacyVimController().ResetSequence()
 	}
 }
-func (c *editorVimController) Sequence() vim.Sequence {
+func (c *editorVimController) Sequence() helix.Sequence {
 	if c.editor.keymapName != "vim" {
 		return c.editor.legacyVimController().Sequence()
 	}
 	s := c.editor.Session.VimKeymap().Sequence()
-	return vim.Sequence{Count: s.Count, OperatorCount: s.OperatorCount, Pending: s.Pending, Linewise: s.Linewise}
+	return helix.Sequence{Count: s.Count, OperatorCount: s.OperatorCount, Pending: s.Pending, Linewise: s.Linewise}
 }
 func (c *editorVimController) SetCount(count int) {
 	if c.editor.keymapName == "vim" {
@@ -273,14 +273,14 @@ func (c *editorVimController) ClearRegister() {
 }
 
 // VimViewState returns a detached snapshot for UI labels and prompts.
-func (e *Editor) VimViewState() vim.ViewState {
+func (e *Editor) VimViewState() helix.ViewState {
 	return e.vimController().View()
 }
 
-func (e *Editor) DispatchVimCommand(command vim.Command) {
-	visual := e.vimController().Mode() == vim.ModeVisual || e.vimController().Mode() == vim.ModeSelect || e.vimController().Mode() == vim.ModeBlockVisual
+func (e *Editor) DispatchVimCommand(command helix.Command) {
+	visual := e.vimController().Mode() == helix.ModeVisual || e.vimController().Mode() == helix.ModeSelect || e.vimController().Mode() == helix.ModeBlockVisual
 	switch command.Kind {
-	case vim.CommandFirstLine:
+	case helix.CommandFirstLine:
 		off := 0
 		for line := 1; line < max(1, command.Count); line++ {
 			_, end := e.modalLine(off)
@@ -290,7 +290,7 @@ func (e *Editor) DispatchVimCommand(command vim.Command) {
 			off = end + 1
 		}
 		e.nativeSetCaret(off, visual)
-	case vim.CommandVertical:
+	case helix.CommandVertical:
 		for range max(1, command.Count) {
 			e.nativeVertical(command.Direction, visual)
 		}
@@ -313,7 +313,7 @@ func (e *Editor) SetKeymap(s string) {
 		e.Session.ResetVim()
 		e.vimState = nil
 	} else {
-		controller := vim.New()
+		controller := helix.New()
 		controller.SetKeymap(s)
 		e.vimState = controller
 	}
@@ -336,7 +336,7 @@ func (e *Editor) ModalAcceptsText() bool { return e.vimController().AcceptsText(
 
 type editorVimCommandLineHost struct{ editor *Editor }
 
-func (h editorVimCommandLineHost) VimViewState() vim.ViewState {
+func (h editorVimCommandLineHost) VimViewState() helix.ViewState {
 	return h.editor.VimViewState()
 }
 
@@ -386,7 +386,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 	}
 	if k == input.KeyR && m == input.ModCtrl {
 		e.Redo()
-		e.modalSetMode(vim.ModeNormal)
+		e.modalSetMode(helix.ModeNormal)
 		e.vimController().SetLinewise(false)
 		e.setSessionInclusive(false)
 		e.setSessionLinewise(false)
@@ -398,7 +398,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		if t, row, col, ok := e.tableRegionAtCaret(); ok {
 			e.tableBridge = nil
 			_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
-			e.modalSetMode(vim.ModeBlockVisual)
+			e.modalSetMode(helix.ModeBlockVisual)
 			e.vimController().SetLinewise(false)
 			e.vimController().ClearPending()
 			e.vimController().SetCount(0)
@@ -415,7 +415,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		}
 		e.tableBridge = nil
 		_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
-		e.modalSetMode(vim.ModeBlockVisual)
+		e.modalSetMode(helix.ModeBlockVisual)
 		e.block = nil
 		e.startBlockSelection()
 		e.vimController().SetLinewise(false)
@@ -429,7 +429,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		return true
 	}
 	if k == input.KeyEscape {
-		wasInsert := e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeInsert
+		wasInsert := e.Keymap() == "vim" && e.vimController().Mode() == helix.ModeInsert
 		if e.Keymap() == "vim" {
 			intent, handled := e.Session.HandleVimKey(textengine.KeyEvent{Key: "Escape"})
 			if handled && intent.Name != "" {
@@ -461,7 +461,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		}
 		_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
 		e.clearComposition()
-		e.modalSetMode(vim.ModeNormal)
+		e.modalSetMode(helix.ModeNormal)
 		e.setSessionInclusive(false)
 		e.setSessionLinewise(false)
 		e.vimController().ClearPending()
@@ -496,7 +496,7 @@ func (e *Editor) modalKeyEvent(event input.KeyEvent) bool {
 		}
 		e.finishBlockInput()
 	}
-	if e.Keymap() == "vim" && e.vimController().Mode() == vim.ModeInsert {
+	if e.Keymap() == "vim" && e.vimController().Mode() == helix.ModeInsert {
 		key := ""
 		switch k {
 		case input.KeyBackspace:
@@ -584,7 +584,7 @@ func (e *Editor) modalApply(op string, a, z int) {
 	e.replace(a, z, "")
 	e.commit(a, a)
 	if op == "c" {
-		e.modalSetMode(vim.ModeInsert)
+		e.modalSetMode(helix.ModeInsert)
 	}
 }
 
@@ -610,7 +610,7 @@ func (e *Editor) setVimTableRegister(reg *tablemodel.Register) {
 func (e *Editor) putRegister(before bool, count int) bool {
 	m := &e.modal
 	register := e.vimController().View()
-	if register.RegisterKind == vim.RegisterBlock && len(register.RegisterBlock) > 0 {
+	if register.RegisterKind == helix.RegisterBlock && len(register.RegisterBlock) > 0 {
 		e.pasteBlockRegister(register.RegisterBlock, before, count)
 		return true
 	}
@@ -657,9 +657,9 @@ func (e *Editor) putRegister(before bool, count int) bool {
 
 func (e *Editor) modalStartSearch(dir int) {
 	e.clearVimSearchHighlights()
-	e.modalSetMode(vim.ModeNormal)
+	e.modalSetMode(helix.ModeNormal)
 	e.vimController().SetSearching(dir, "", e.Caret(), e.Session.Selection().Anchor, e.Session.Selection().Inclusive, e.Session.Selection().Linewise)
-	e.vimController().SetMode(vim.ModeNormal)
+	e.vimController().SetMode(helix.ModeNormal)
 	e.breakCoalescing()
 	e.invalidate()
 }
@@ -667,7 +667,7 @@ func (e *Editor) modalStartSearch(dir int) {
 func (e *Editor) modalCancelSearch() {
 	state := e.vimController().View()
 	e.vimController().EndSearch()
-	e.modalSetMode(vim.ModeNormal)
+	e.modalSetMode(helix.ModeNormal)
 	e.setSessionSelection(state.SearchStartAnchor, state.SearchStartCaret)
 	e.setSessionSelectionMode(state.SearchStartInclusive, state.SearchStartLinewise)
 	e.clearVimSearchHighlights()
@@ -709,7 +709,7 @@ func (e *Editor) modalSubmitSearch() {
 			matchAt, matchFound = at, true
 			e.nativeSetCaret(at, false)
 			e.setSessionSelectionMode(false, false)
-			e.modalSetMode(vim.ModeNormal)
+			e.modalSetMode(helix.ModeNormal)
 		} else {
 			e.setSessionSelection(state.SearchStartAnchor, state.SearchStartCaret)
 			e.setSessionSelectionMode(state.SearchStartInclusive, state.SearchStartLinewise)
@@ -717,7 +717,7 @@ func (e *Editor) modalSubmitSearch() {
 		e.modalApplySearchHighlights(query, matchAt, matchFound)
 	}
 	e.vimController().EndSearch()
-	e.modalSetMode(vim.ModeNormal)
+	e.modalSetMode(helix.ModeNormal)
 	e.Focus()
 	e.invalidate()
 }
@@ -734,8 +734,8 @@ func (e *Editor) modalRepeatSearch(reverse bool, count int) {
 	if at, ok := e.modalSearch(searchState.LastSearch, dir, count, e.Caret()); ok {
 		e.nativeSetCaret(at, false)
 		e.setSessionSelectionMode(false, false)
-		e.modalSetMode(vim.ModeNormal)
-		e.vimController().SetMode(vim.ModeNormal)
+		e.modalSetMode(helix.ModeNormal)
+		e.vimController().SetMode(helix.ModeNormal)
 		e.modalApplySearchHighlights(searchState.LastSearch, at, true)
 	}
 }
@@ -802,7 +802,7 @@ func (e *Editor) modalReplace(count int, replacement string) {
 		return
 	}
 	mode := e.vimController().Mode()
-	visual := mode == vim.ModeVisual || mode == vim.ModeSelect
+	visual := mode == helix.ModeVisual || mode == helix.ModeSelect
 	if visual {
 		start, _ = e.selection()
 		_, lineEnd = e.modalLine(start)
@@ -844,7 +844,7 @@ func (e *Editor) modalReplace(count int, replacement string) {
 	e.begin(stepEdit)
 	e.replace(start, end, value)
 	e.commit(start, start+len(value)-len(replacement))
-	e.modalSetMode(vim.ModeNormal)
+	e.modalSetMode(helix.ModeNormal)
 	e.vimController().SetLinewise(false)
 	e.setSessionInclusive(false)
 	e.setSessionLinewise(false)

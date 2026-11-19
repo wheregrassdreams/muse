@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

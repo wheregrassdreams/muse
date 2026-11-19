@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 func TestApplyTransactionUsesSessionHistoryAtomically(t *testing.T) {

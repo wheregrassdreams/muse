@@ -3,7 +3,7 @@ package editor
 import (
 	"time"
 
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

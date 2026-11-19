@@ -6,7 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	inlineblock "muse/editor/blocks/inline"
+	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 )
 
 func requireMathCodeStyle(t *testing.T, h *harness, start, end int) {

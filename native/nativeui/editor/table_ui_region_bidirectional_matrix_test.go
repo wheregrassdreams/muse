@@ -1,11 +1,11 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 const bidirectionalTableSource = "| Local file | Source page | Creator / source | License |\n| --- | --- | --- | --- |\n| `Attachments/landscape.webp` | [File:Webp (1).webp](https://commons.wikimedia.org/wiki/File:Webp_(1).webp) | Churchill Machine Tool Co. Ltd.; source: picryl.com | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |\n| `Attachments/diagram.png` | [File:A landscape - PNG](https://example.test/a) | Public-domain painting reproduction; National Gallery of Ireland | Public domain artwork |\n| another file | [File:B](https://example.test/b) | Another creator | CC BY |"
@@ -356,7 +356,7 @@ func TestSelectAllEndsSuspendedTableRegionSession(t *testing.T) {
 	table := documentTestTable(t, h.e)
 	h.e.setSessionAnchor(0)
 	h.e.setSessionHead(table.tab.rows[2][0].start + 2)
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.tableDocumentRegion = testTableRegion(table, 1, 0, 2, 0, true)
 	h.e.tableDocumentRegion.origin = tablemodel.SelectionOriginVisualText
 

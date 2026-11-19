@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
@@ -100,7 +100,7 @@ func TestDocumentVerticalSelectionCrossesTableAtomically(t *testing.T) {
 		h := newHarness(t, documentTable)
 		table := documentTestTable(t, h.e)
 		h.e.SetKeymap("vim")
-		h.e.vimController().SetMode(vim.ModeVisual)
+		h.e.vimController().SetMode(helix.ModeVisual)
 		start := 0
 		key, back := "j", "k"
 		if dir < 0 {
@@ -191,7 +191,7 @@ func TestStructuralSelectionBoundaryCanLeaveTable(t *testing.T) {
 			table := documentTestTable(t, h.e)
 			if modal {
 				h.e.SetKeymap("vim")
-				h.e.vimController().SetMode(vim.ModeVisual)
+				h.e.vimController().SetMode(helix.ModeVisual)
 			}
 			anchor, active := 0, len(table.tab.rows)-1
 			if dir < 0 {
@@ -228,7 +228,7 @@ func TestStructuralSelectionCanLeaveDocumentEdge(t *testing.T) {
 		h := newHarness(t, src)
 		table := documentTestTable(t, h.e)
 		h.e.SetKeymap("vim")
-		h.e.vimController().SetMode(vim.ModeVisual)
+		h.e.vimController().SetMode(helix.ModeVisual)
 		first, last := 0, len(table.tab.rows)-1
 		key, back := "j", "k"
 		if dir < 0 {

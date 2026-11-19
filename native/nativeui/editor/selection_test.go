@@ -2,13 +2,13 @@ package editor
 
 import (
 	"fmt"
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	tablemodel "muse/editor/blocks/table"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 func TestTableStructuralRowDelete(t *testing.T) {
@@ -91,7 +91,7 @@ func TestBlockVisualRequiresBothColumnBoundariesAndShrinksBack(t *testing.T) {
 	}
 	first := table.tab.rows[0][1]
 	last := table.tab.rows[len(table.tab.rows)-1][1]
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	h.e.setSessionSelection(first.start, last.end)
 	if !h.e.structuralSelectionForRange() || h.e.tableSelection == nil || h.e.tableSelection.axis != tableColumns || h.e.tableSelection.first != 1 {
 		t.Fatalf("whole column boundaries did not promote: %+v", h.e.tableSelection)
@@ -106,7 +106,7 @@ func TestCtrlVEntersBlockVisual(t *testing.T) {
 	h := newHarness(t, "| a |\n| --- |\n| b |")
 	h.e.SetKeymap("vim")
 	h.key(ui.Ctrl, ui.KeyV)
-	if h.e.vimController().Mode() != vim.ModeBlockVisual {
+	if h.e.vimController().Mode() != helix.ModeBlockVisual {
 		t.Fatalf("mode = %q, want BlockVisual", h.e.vimController().Mode())
 	}
 }
@@ -253,7 +253,7 @@ func TestStructuralRowCaretMovesVertically(t *testing.T) {
 	if h.e.tableSelection == nil || h.e.tableSelection.active != 2 || h.e.tableSelection.first != 2 {
 		t.Fatalf("j did not move structural selection: %+v", h.e.tableSelection)
 	}
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.modalText("k")
 	if h.e.tableSelection == nil || h.e.tableSelection.first != 1 || h.e.tableSelection.last != 2 {
 		t.Fatalf("visual k did not extend structural selection: %+v", h.e.tableSelection)
@@ -266,7 +266,7 @@ func TestVisualStructuralRowMotionUsesTableFocus(t *testing.T) {
 	table := documentTestTable(t, h.e)
 	h.e.SetKeymap("vim")
 	h.e.selectTableAxis(table, tableRows, 2, 2, false)
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 
 	if !h.e.modalText("k") {
 		t.Fatal("visual k was not handled")
@@ -341,7 +341,7 @@ func TestHorizontalMovementFromColumnSelectionReturnsToContent(t *testing.T) {
 	}
 	h.e.selectTableAxis(table, tableColumns, 0, 0, false)
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	before := h.e.selectionFocus()
 	h.e.modalText("h")
 	if h.e.tableSelection != nil || h.e.Caret() >= before || h.e.Session.Selection().Anchor == h.e.Caret() {
@@ -360,7 +360,7 @@ func TestHorizontalStructureTransitionShowsContentBeforeNextStructure(t *testing
 		}
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	h.e.selectTableAxis(table, tableColumns, 0, 0, false)
 	if !h.e.modalText("l") {
 		t.Fatal("first horizontal move was not handled")
@@ -387,7 +387,7 @@ func TestHorizontalMotionFromRowStructureDoesNotPromoteColumn(t *testing.T) {
 		}
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 1, 1, false)
 	if !h.e.modalText("l") {
 		t.Fatal("first horizontal motion was not handled")
@@ -414,7 +414,7 @@ func TestRowStructureLeftMovesToPreviousRowContentThenPromotes(t *testing.T) {
 		}
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 2, 2, false)
 	h.e.tableSelection.right = false
 	a, z, ok := h.e.tableSelectionSourceRange(table, h.e.tableSelection)
@@ -449,9 +449,9 @@ func TestEscapeClearsVisualStructuralSelection(t *testing.T) {
 		}
 	}
 	h.e.selectTableAxis(table, tableRows, 1, 1, false)
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.key(0, ui.KeyEscape)
-	if h.e.vimController().Mode() != vim.ModeNormal || h.e.tableSelection != nil || h.e.Session.Selection().Anchor != h.e.Caret() {
+	if h.e.vimController().Mode() != helix.ModeNormal || h.e.tableSelection != nil || h.e.Session.Selection().Anchor != h.e.Caret() {
 		t.Fatalf("Escape left selection active: mode=%q selection=%+v anchor=%d caret=%d", h.e.vimController().Mode(), h.e.tableSelection, h.e.Session.Selection().Anchor, h.e.Caret())
 	}
 }
@@ -536,7 +536,7 @@ func TestRowVisualSelectionReversesAcrossContentBridge(t *testing.T) {
 		t.Fatal("three body row regression table did not parse")
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 1, 1, false)
 	h.shot("table-row-visual-single-row")
 
@@ -626,7 +626,7 @@ func TestRowRightBoundaryLeftMotionStaysOnCurrentRow(t *testing.T) {
 		t.Fatal("right-boundary regression table did not parse")
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	h.e.selectTableAxis(table, tableRows, 2, 2, false)
 	caretRow := func() int {
 		lines := h.e.tableLines(table)
@@ -679,7 +679,7 @@ func TestBlockVisualColumnSelectionExpandsAndReverses(t *testing.T) {
 	h.e.SetKeymap("vim")
 	h.key(ui.Ctrl, ui.KeyV)
 	h.e.selectTableAxis(table, tableColumns, 1, 1, false)
-	h.e.vimController().SetMode(vim.ModeBlockVisual)
+	h.e.vimController().SetMode(helix.ModeBlockVisual)
 	h.shot("table-column-block-visual-one-column")
 	if !h.e.modalText("l") {
 		t.Fatal("rightward block visual movement was not handled")
@@ -835,7 +835,7 @@ func TestVisualContentSelectionSurvivesStructuralPromotionRoundTrip(t *testing.T
 		t.Fatal("content-selection table did not parse")
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	firstCell := table.tab.rows[1][0]
 	h.e.setSessionAnchor(firstCell.start + 6)
 	h.e.setSessionHead(firstCell.start + 11)
@@ -894,7 +894,7 @@ func TestHorizontalPromotionReversesExactlyOneStep(t *testing.T) {
 				t.Fatal("reversible-selection table did not parse")
 			}
 			h.e.SetKeymap("vim")
-			h.e.vimController().SetMode(vim.ModeVisual)
+			h.e.vimController().SetMode(helix.ModeVisual)
 			h.e.selectTableAxis(table, tableRows, tc.startRow, tc.startRow, false)
 			if tc.forward == "h" {
 				h.e.tableSelection.right = false
@@ -972,11 +972,11 @@ func TestHorizontalColumnPromotionReversesExactlyOneStep(t *testing.T) {
 			}
 			h.e.SetKeymap("vim")
 			h.key(ui.Ctrl, ui.KeyV)
-			if h.e.vimController().Mode() != vim.ModeBlockVisual {
+			if h.e.vimController().Mode() != helix.ModeBlockVisual {
 				t.Fatalf("Ctrl+V mode = %q, want BlockVisual", h.e.vimController().Mode())
 			}
 			h.e.selectTableAxis(table, tableColumns, tc.startCol, tc.startCol, false)
-			h.e.vimController().SetMode(vim.ModeBlockVisual)
+			h.e.vimController().SetMode(helix.ModeBlockVisual)
 			if tc.forward == "h" {
 				h.e.tableSelection.right = false
 				a, z, ok := h.e.tableSelectionSourceRange(table, h.e.tableSelection)
@@ -1041,7 +1041,7 @@ func TestRowStructureLeftFromHeaderAndFirstBodyRowRecordsFocusPath(t *testing.T)
 		t.Fatal("header and body row fixture did not parse")
 	}
 	h.e.SetKeymap("vim")
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	// Approximate the screenshot's header+first-body-row structure with its
 	// focus at the upper/right traversal edge, then move left from there.
 	h.e.selectTableAxis(table, tableRows, 0, 1, false)
@@ -1129,7 +1129,7 @@ func TestVisualMotionOutwardFromBottomRightTableSelectionDoesNotWrap(t *testing.
 				t.Fatal("bottom-right motion fixture did not parse")
 			}
 			h.e.SetKeymap("vim")
-			h.e.vimController().SetMode(vim.ModeVisual)
+			h.e.vimController().SetMode(helix.ModeVisual)
 			row := len(table.tab.rows) - 1
 			cell := table.tab.rows[row][len(table.tab.rows[row])-1]
 			h.e.setSessionAnchor(cell.end - 2)
@@ -1165,7 +1165,7 @@ func TestFourthRowPartialSelectionRoundTrip(t *testing.T) {
 			break
 		}
 	}
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	cell := table.tab.rows[4][0]
 	h.e.setSessionSelection(cell.start+9, cell.start+5)
 	initialAnchor := h.e.Session.Selection().Anchor
@@ -1219,7 +1219,7 @@ func TestThreeRowStructureRetracesEveryStep(t *testing.T) {
 					break
 				}
 			}
-			h.e.vimController().SetMode(vim.ModeVisual)
+			h.e.vimController().SetMode(helix.ModeVisual)
 			h.e.selectTableAxis(table, tableRows, tc.start, tc.start, false)
 			h.e.tableSelection.right = tc.right
 			states := []reversibleSelectionSnapshot{snapshotSelection(h.e, table)}
@@ -1261,7 +1261,7 @@ func TestTableSelectionOwnsRangeAndRestoresOnUndo(t *testing.T) {
 			break
 		}
 	}
-	h.e.vimController().SetMode(vim.ModeVisual)
+	h.e.vimController().SetMode(helix.ModeVisual)
 	// Deliberately unrelated text endpoints cannot determine structure range/focus.
 	h.e.setSessionSelection(len(h.e.Source())-3, len(h.e.Source())-1)
 	textAnchor, textHead := h.e.Session.Selection().Anchor, h.e.Caret()

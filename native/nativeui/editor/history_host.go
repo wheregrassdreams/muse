@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // stepKind classifies transactions at the editor boundary. The actual

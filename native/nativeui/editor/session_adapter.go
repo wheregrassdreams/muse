@@ -1,8 +1,8 @@
 package editor
 
 import (
-	editormodel "muse/editor"
-	"muse/editor/input"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

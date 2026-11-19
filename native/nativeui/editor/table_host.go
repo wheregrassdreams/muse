@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
-	editormodel "muse/editor"
-	tablemodel "muse/editor/blocks/table"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	tableui "muse/nativeui/editor/blocks/table"
 	sessionadapter "muse/nativeui/editor/session"
 )

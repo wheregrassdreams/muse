@@ -7,9 +7,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/editor/blocks/paragraph"
-	"muse/editor/input"
-	"muse/editor/layout"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 )
 
 func TestEditorFoldOperationsAreKeymapNeutral(t *testing.T) {

@@ -3,7 +3,7 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 
-	"muse/editor/blocks/paragraph"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	paragraphui "muse/nativeui/editor/blocks/paragraph"
 )
 

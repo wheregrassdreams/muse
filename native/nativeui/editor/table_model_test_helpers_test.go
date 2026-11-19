@@ -1,6 +1,6 @@
 package editor
 
-import tablemodel "muse/editor/blocks/table"
+import tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 
 // testTableRegion builds a structural selection through the editor domain
 // model, then projects it into the component's private adapter state.

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/source"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 )
 
 // TestCommentLinesAreReachableByClick: the lines of a comment are blank in

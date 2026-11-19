@@ -2,7 +2,7 @@ package findreplace
 
 import (
 	"github.com/egoist/mygo/ui"
-	"muse/editor/findreplace"
+	"github.com/wheregrassdreams/muse-editor/text/findreplace"
 	"muse/locales"
 )
 

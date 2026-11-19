@@ -2,7 +2,7 @@ package editor
 
 import (
 	"fmt"
-	editormodel "muse/editor"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/locales"
 	"path/filepath"
 	"strings"

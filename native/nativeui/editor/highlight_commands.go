@@ -1,6 +1,6 @@
 package editor
 
-import inlineblock "muse/editor/blocks/inline"
+import inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 
 // ToggleHighlight applies the source-level highlight plan selected from the
 // current parser range. Delimiter recognition stays in the inline domain;

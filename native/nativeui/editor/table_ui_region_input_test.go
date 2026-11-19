@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -44,7 +44,7 @@ func TestTableVisualRegionVimMotionAndWholeRow(t *testing.T) {
 	h.e.layoutIfNeeded()
 	table := documentTestTable(t, h.e)
 	h.e.setSessionHead(table.tab.rows[1][1].start)
-	h.e.vimController().SetMode(vim.ModeNormal)
+	h.e.vimController().SetMode(helix.ModeNormal)
 	h.e.modalKey(ui.KeyV, ui.Ctrl)
 	if s := h.e.tableSelection; s == nil || s.axis != tableCells || s.anchorRow != 1 || s.anchorCol != 1 {
 		t.Fatalf("Ctrl+V did not begin at current cell: %+v", s)
@@ -53,7 +53,7 @@ func TestTableVisualRegionVimMotionAndWholeRow(t *testing.T) {
 	if s := h.e.tableSelection; s == nil || s.focusRow != 2 || s.focusCol != 2 {
 		t.Fatalf("h/j/l motion did not expand cell rectangle: %+v", s)
 	}
-	h.e.vimController().SetMode(vim.ModeNormal)
+	h.e.vimController().SetMode(helix.ModeNormal)
 	h.e.tableSelection = nil
 	h.e.setSessionHead(table.tab.rows[1][1].start)
 	sendVim(h, "V")

@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"muse/editor/input/vim"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"github.com/wheregrassdreams/muse-editor/text/navigation"
 )
 
@@ -21,13 +21,13 @@ func (e *Editor) nativeHorizontal(dir int, extend bool) {
 			e.setCaret(off, extend)
 		}
 	}
-	if e.block != nil && e.vimController().Mode() == vim.ModeBlockVisual {
+	if e.block != nil && e.vimController().Mode() == helix.ModeBlockVisual {
 		e.blockChanged()
 	}
 }
 
 func (e *Editor) nativeVertical(dir int, extend bool) {
-	blockSelection := e.block != nil && e.vimController().Mode() == vim.ModeBlockVisual
+	blockSelection := e.block != nil && e.vimController().Mode() == helix.ModeBlockVisual
 	if blockSelection {
 		defer func() {
 			if e.hasGoal {

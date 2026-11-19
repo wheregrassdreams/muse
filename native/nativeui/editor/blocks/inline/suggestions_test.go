@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/input"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 )
 
 func TestPopupEmitsTypedNavigationActionsAndDetachedFrames(t *testing.T) {

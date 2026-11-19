@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	sourceview "muse/editor/source"
+	sourceview "github.com/wheregrassdreams/muse-editor/markdown/source"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	editorprojection "muse/nativeui/editor/projection"
 	"muse/ui/scrollbar"

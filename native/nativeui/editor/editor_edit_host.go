@@ -9,10 +9,9 @@ import (
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	mdtext "github.com/wheregrassdreams/muse-editor/text"
-	editormodel "muse/editor"
-	inlineblock "muse/editor/blocks/inline"
-	"muse/editor/blocks/paragraph"
-	tablemodel "muse/editor/blocks/table"
+	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
+	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 
@@ -1051,7 +1050,7 @@ func (e *Editor) leaveItem(l *leaf) {
 }
 
 func (e *Editor) applyMarkdownPlan(plan mdedit.Plan) {
-	transaction := editormodel.TransactionFromPlan(plan, e.Session.Selection())
+	transaction := tablemodel.TransactionFromPlan(plan, e.Session.Selection())
 	if len(transaction.Edits) == 0 {
 		return
 	}

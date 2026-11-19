@@ -3,8 +3,8 @@ package editor
 import (
 	"unicode/utf8"
 
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 
@@ -40,9 +40,9 @@ func (e *Editor) applyTableSelection(op string) bool {
 			return false
 		}
 		if op == "c" {
-			e.modalSetMode(vim.ModeInsert)
+			e.modalSetMode(helix.ModeInsert)
 		} else {
-			e.modalSetMode(vim.ModeNormal)
+			e.modalSetMode(helix.ModeNormal)
 		}
 		e.tableSelection = nil
 		e.tableBridge = nil
@@ -121,7 +121,7 @@ func (e *Editor) applyTableSelection(op string) bool {
 			}
 		}
 		if op == "c" {
-			e.modalSetMode(vim.ModeInsert)
+			e.modalSetMode(helix.ModeInsert)
 		}
 		e.vimController().SetLinewise(false)
 		e.setSessionInclusive(false)
@@ -159,7 +159,7 @@ func (e *Editor) applyTableSelection(op string) bool {
 			}
 		}
 		if op == "c" {
-			e.modalSetMode(vim.ModeInsert)
+			e.modalSetMode(helix.ModeInsert)
 			e.modal.blockInsert = &tableBlockInsert{lineStart: s.lineStart, firstCol: s.first}
 		}
 		e.vimController().SetLinewise(false)
@@ -180,7 +180,7 @@ func (e *Editor) typeTableColumnSelection(text string) bool {
 	if err != nil || !result.Changed {
 		return false
 	}
-	e.modalSetMode(vim.ModeInsert)
+	e.modalSetMode(helix.ModeInsert)
 	e.modal.blockInsert = &tableBlockInsert{lineStart: s.lineStart, firstCol: s.first, text: text}
 	return true
 }

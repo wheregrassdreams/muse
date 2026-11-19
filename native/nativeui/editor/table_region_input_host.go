@@ -1,6 +1,6 @@
 package editor
 
-import "muse/editor/input/vim"
+import helix "github.com/wheregrassdreams/muse-editor/text/helix"
 
 func (e *Editor) tableRegionAtCaret() (*leaf, int, int, bool) {
 	return e.tableCellAtSourceOffset(e.Caret())
@@ -27,7 +27,7 @@ func (e *Editor) tableCellAtSourceOffset(off int) (*leaf, int, int, bool) {
 func (e *Editor) promoteVisualTextToCellRegion() bool {
 	if !e.vimController().View().VimTextVisualActive ||
 		e.tableSelection != nil && e.tableSelection.cellRegion ||
-		e.tableBridge != nil || e.vimController().Mode() != vim.ModeVisual ||
+		e.tableBridge != nil || e.vimController().Mode() != helix.ModeVisual ||
 		e.vimController().View().Linewise || e.Keymap() != "vim" {
 		return false
 	}

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"muse/editor/layout"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"muse/nativeui/editor/navigationrail"
 )
 

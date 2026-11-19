@@ -12,9 +12,9 @@ import (
 
 	documentapp "muse/application/document"
 	"muse/document"
-	"muse/editor"
-	editorinput "muse/editor/input"
-	editorsource "muse/editor/source"
+	editor "github.com/wheregrassdreams/muse-editor/text/session"
+	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
+	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
 	"muse/events"
 	workspaceui "muse/nativeui/workspace"
 	"muse/workspace"

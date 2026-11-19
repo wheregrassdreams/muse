@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"muse/locales"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tableui "muse/nativeui/editor/blocks/table"
@@ -56,7 +56,7 @@ func TestColumnAlignmentPreservesForeignTableStructureThroughUndoRedo(t *testing
 	if len(tables) != 2 {
 		t.Fatal("fixture must contain two tables")
 	}
-	e.vimController().SetMode(vim.ModeBlockVisual)
+	e.vimController().SetMode(helix.ModeBlockVisual)
 	e.selectTableAxis(tables[1], tableColumns, 1, 1, false)
 	e.tableSelection.activeRow = 1
 	selected := e.SelectedText()
@@ -69,7 +69,7 @@ func TestColumnAlignmentPreservesForeignTableStructureThroughUndoRedo(t *testing
 	updated := e.Source()
 	check := func() {
 		t.Helper()
-		if s := e.tableSelection; s == nil || s.lineStart != strings.Index(e.Source(), "| C |") || s.axis != tableColumns || s.first != 1 || s.last != 1 || s.activeRow != 1 || e.SelectedText() != selected || e.vimController().Mode() != vim.ModeBlockVisual {
+		if s := e.tableSelection; s == nil || s.lineStart != strings.Index(e.Source(), "| C |") || s.axis != tableColumns || s.first != 1 || s.last != 1 || s.activeRow != 1 || e.SelectedText() != selected || e.vimController().Mode() != helix.ModeBlockVisual {
 			t.Fatalf("formatting lost the foreign table's structural focus: %s", tableSelectionState(e))
 		}
 	}

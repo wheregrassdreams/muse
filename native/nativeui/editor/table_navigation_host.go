@@ -3,8 +3,8 @@ package editor
 import (
 	"time"
 
-	tablemodel "muse/editor/blocks/table"
-	"muse/editor/input/vim"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 )
 
 func (e *Editor) tableHorizontalTransition(dir int) bool {
@@ -31,7 +31,7 @@ func (e *Editor) tableHorizontalTransition(dir int) bool {
 				if atEdge {
 					resume, row, axis, index, anchor, origin := b.resume, b.row, b.axis, b.index, b.selectionAnchor, b.origin
 					e.tableBridge = nil
-					e.modalSetMode(vim.Mode(resume))
+					e.modalSetMode(helix.Mode(resume))
 					e.selectTableAxis(t, axis, anchor, index, false)
 					e.tableSelection.activeRow = row
 					e.tableSelection.right = dir > 0
@@ -88,7 +88,7 @@ func (e *Editor) tableHorizontalTransition(dir int) bool {
 	cell := t.tab.rows[row][col]
 	resume := string(e.vimController().Mode())
 	if e.Keymap() != "default" && resume == "BlockVisual" {
-		e.modalSetMode(vim.ModeVisual)
+		e.modalSetMode(helix.ModeVisual)
 	}
 	e.tableHandleDrag = nil
 	e.tableBridge = &tableContentBridge{

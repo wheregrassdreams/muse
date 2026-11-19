@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"muse/document"
-	"muse/editor"
+	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	workspaceui "muse/nativeui/workspace"
 	"muse/platform/filesystem/documentstore"
 	"muse/workspace"

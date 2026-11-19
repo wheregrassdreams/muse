@@ -3,7 +3,7 @@ package projection
 import (
 	"testing"
 
-	"muse/editor/source"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 

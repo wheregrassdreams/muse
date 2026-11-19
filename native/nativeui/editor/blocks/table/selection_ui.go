@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"muse/editor/blocks/table"
+	"github.com/wheregrassdreams/muse-editor/markdown/table"
 	"muse/locales"
 	tabletheme "muse/theme"
 )

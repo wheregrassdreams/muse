@@ -3,7 +3,7 @@ package editor
 import (
 	"testing"
 
-	inlineblock "muse/editor/blocks/inline"
+	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 )
 
 func TestWikiLinkShowsItsLabel(t *testing.T) {
