@@ -240,6 +240,11 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	keymap := e.vimController()
 	visual := keymap.Mode() == helix.ModeVisual || keymap.Mode() == helix.ModeSelect || keymap.Mode() == helix.ModeBlockVisual
+	if e.Keymap() == "vim" && key == "y" && intent.Name == "vim.collapse-selection" {
+		if start, end, ok := e.vimYankFlashRange(keymap.View().Register, keymap.View().RegisterLine); ok {
+			e.startVimYankFlash([]Range{{Start: start, End: end}})
+		}
+	}
 	switch intent.Name {
 	case textvim.IntentMoveDisplayUp, textvim.IntentMoveDisplayDown, "vim.move-vertical":
 		direction := 1
@@ -358,6 +363,31 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 	}
 	// Unsupported host effects are consumed by the active map, while keeping
 	// MyGo's non-text state untouched.
+}
+
+func (e *Editor) vimYankFlashRange(register string, linewise bool) (int, int, bool) {
+	if register == "" {
+		return 0, 0, false
+	}
+	start, end := e.selection()
+	if linewise {
+		start, _ = e.modalLine(e.Caret())
+		_, end = e.modalLine(e.Caret())
+	}
+	if start < 0 || end < start || end > len(e.Source()) {
+		return 0, 0, false
+	}
+	if e.Source()[start:end] == register {
+		return start, end, true
+	}
+	// Vim's visual selection is directional and half-open in the document
+	// model, while the register payload is inclusive. Use its byte length to
+	// recover the exact painted interval without changing the selection model.
+	end = start + len(register)
+	if end <= len(e.Source()) && e.Source()[start:end] == register {
+		return start, end, true
+	}
+	return 0, 0, false
 }
 
 func (e *Editor) vimLineDistance(from, to int) int {
