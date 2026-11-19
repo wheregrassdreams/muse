@@ -12,6 +12,12 @@ import (
 	"github.com/egoist/mygo/ui"
 	uieditor "github.com/egoist/mygo/ui/editor"
 
+	"muse/nativeui/editor/feedback"
+	"muse/nativeui/editor/ime"
+	"muse/nativeui/editor/render"
+	"muse/nativeui/editor/textlayout"
+	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	editormodel "muse/editor"
 	inlineblock "muse/editor/blocks/inline"
 	paragraph "muse/editor/blocks/paragraph"
@@ -19,22 +25,16 @@ import (
 	"muse/editor/input"
 	"muse/editor/input/vim"
 	layoutindex "muse/editor/layout"
-	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	"muse/editor/source"
 	"muse/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
-	"muse/markdown/syntax"
 	inlineui "muse/nativeui/editor/blocks/inline"
 	media "muse/nativeui/editor/blocks/media"
 	tableui "muse/nativeui/editor/blocks/table"
-	"muse/nativeui/editor/feedback"
-	"muse/nativeui/editor/ime"
 	editornavigation "muse/nativeui/editor/navigation"
 	"muse/nativeui/editor/navigationrail"
 	editorprojection "muse/nativeui/editor/projection"
-	"muse/nativeui/editor/render"
-	"muse/nativeui/editor/textlayout"
 	"muse/ui/scrollbar"
 	vaultlinks "muse/vault/links"
 )
@@ -204,13 +204,15 @@ type Editor struct {
 	// paintMu keeps a frame's leaves and parser snapshot together. MyGo calls
 	// Draw after the app's View callback returns, so an app edit can otherwise
 	// replace the parser while paint is still walking the previous leaves.
-	paintMu        paintMutex
-	changePending  atomic.Bool
-	changeMu       sync.Mutex
-	pendingChanges []editormodel.Change
-	editBatch      *editormodel.EditBatch
-	modal          modalState
-	vimState       *vim.Controller
+	paintMu         paintMutex
+	changePending   atomic.Bool
+	changeMu        sync.Mutex
+	pendingChanges  []editormodel.Change
+	editBatch       *editormodel.EditBatch
+	modal           modalState
+	vimState        *vim.Controller
+	keymapName      string
+	vimModeOverride vim.Mode
 	// folded is presentation state keyed by a heading's source line start.
 	// A source edit clears it so offsets can never fold an unrelated section.
 	folded                 map[int]bool
@@ -449,6 +451,17 @@ func (e *Editor) wordsForDisplay(text string) *editornavigation.WordIndex {
 	return e.wordIndexCache.Get(text)
 }
 
+// tableByLineStart resolves a parsed table leaf by its source line. Table
+// behavior lives in the table subsystem; this lookup is an editor-host detail.
+func (e *Editor) tableByLineStart(lineStart int) *leaf {
+	for _, candidate := range e.leaves {
+		if candidate.kind == kTable && candidate.tab != nil && candidate.lineStart == lineStart {
+			return candidate
+		}
+	}
+	return nil
+}
+
 // SetMathRenderer installs the presentation adapter used to paint math
 // rasters. Pass nil when the host releases the editor.
 func (e *Editor) SetMathRenderer(renderer MathRenderer) {
@@ -516,7 +529,7 @@ func NewFromSession(session *editormodel.Session, opts Options) *Editor {
 	if session == nil {
 		session = editormodel.NewSession("")
 	}
-	e := &Editor{Session: session, opts: opts, uiScopeID: nextEditorScopeID.Add(1), views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText,
+	e := &Editor{Session: session, opts: opts, uiScopeID: nextEditorScopeID.Add(1), views: map[viewKey]*leafView{}, current: -1, cursor: ui.CursorText, keymapName: "default",
 		hoverBlock: -1, foldHover: -1, rail: navigationrail.NewHandle()}
 	e.paintMu.owner = e
 	e.imeClient = ime.NewClient(e, e)

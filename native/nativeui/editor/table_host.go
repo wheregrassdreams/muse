@@ -258,4 +258,49 @@ func (h editorTableUIHost) Focus() { h.editor.Focus() }
 
 func (e *Editor) tableUI() tableui.Component { return tableui.New(editorTableUIHost{editor: e}) }
 
+// TableCommand routes the legacy context-menu command names into typed table
+// actions. The controller remains the sole owner of table source edits.
+func (e *Editor) TableCommand(cmd string) {
+	e.layoutIfNeeded()
+	t, row, col := e.cellPos(e.Caret())
+	if t == nil {
+		return
+	}
+	action := tableui.Action{LineStart: t.lineStart, Focus: tablemodel.Cell{Row: row, Col: col}}
+	switch cmd {
+	case "rowAbove":
+		action.Kind, action.First = tableui.InsertRowAfter, max(row-1, 0)
+	case "rowBelow":
+		action.Kind, action.First = tableui.InsertRowAfter, row
+	case "deleteRow":
+		if row == 0 || len(t.tab.rows) <= 1 {
+			return
+		}
+		action.Kind, action.First, action.Last = tableui.DeleteRows, row, row
+	case "colLeft":
+		action.Kind, action.First = tableui.InsertColumnBefore, col
+	case "colRight":
+		action.Kind, action.First = tableui.InsertColumnBefore, col+1
+	case "deleteCol":
+		if t.tab.cols() <= 1 {
+			return
+		}
+		action.Kind, action.First, action.Last = tableui.DeleteColumns, col, col
+	case "alignLeft", "alignCenter", "alignRight":
+		action.Kind = tableui.AlignColumn
+		action.Alignment = tablemodel.AlignmentLeft
+		if cmd == "alignCenter" {
+			action.Alignment = tablemodel.AlignmentCenter
+		}
+		if cmd == "alignRight" {
+			action.Alignment = tablemodel.AlignmentRight
+		}
+	case "deleteTable":
+		action.Kind = tableui.DeleteTable
+	default:
+		return
+	}
+	_, _ = e.tableUI().Dispatch(action)
+}
+
 var _ tableui.Host = editorTableUIHost{}

@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui/richtext"
 	"muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
-	syntax "muse/markdown/syntax"
+	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

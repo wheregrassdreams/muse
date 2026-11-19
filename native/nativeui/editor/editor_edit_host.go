@@ -3,14 +3,16 @@ package editor
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
+	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	mdtext "github.com/wheregrassdreams/muse-editor/text"
 	editormodel "muse/editor"
 	inlineblock "muse/editor/blocks/inline"
 	"muse/editor/blocks/paragraph"
 	tablemodel "muse/editor/blocks/table"
-	syntax "muse/markdown/syntax"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 
@@ -171,6 +173,9 @@ func (e *Editor) typeText(text string) {
 	e.replace(a, z, text)
 	c := a + len(text)
 	e.commit(c, c)
+	if last, _ := utf8.DecodeLastRuneInString(text); unicode.IsSpace(last) {
+		e.breakCoalescing()
+	}
 }
 
 // repairOrphanTable turns a typed or pasted "| " on an empty logical line

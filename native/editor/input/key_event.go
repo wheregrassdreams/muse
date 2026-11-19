@@ -3,7 +3,7 @@ package input
 import text "github.com/wheregrassdreams/muse-editor/text/input"
 
 // Key and KeyEvent use the editor engine's stable logical key contract.
-// Native toolkit normalization lives in muse-editor-mygo/inputadapter.
+// Native toolkit normalization lives in nativeui/editor/inputadapter.
 type Key = string
 type Modifiers = text.Modifiers
 type KeyEvent = text.KeyEvent

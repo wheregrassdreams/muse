@@ -3,7 +3,7 @@ package editor
 import (
 	editormodel "muse/editor"
 	"muse/editor/input"
-	"muse/markdown/syntax"
+	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 )
 
 // bindSessionAdapters connects the production presentation layer to the

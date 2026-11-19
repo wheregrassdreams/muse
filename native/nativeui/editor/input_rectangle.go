@@ -156,8 +156,8 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	e.block = nil
 	e.blockInput = nil
 	if s == nil {
-		if e.vimController().Mode() == vim.ModeBlockVisual && e.tableSelection == nil && e.tableBridge == nil {
-			e.modalSetMode(vim.ModeNormal)
+		if e.vimModeOverride == vim.ModeBlockVisual && e.tableSelection == nil && e.tableBridge == nil {
+			e.vimModeOverride = ""
 		}
 		return
 	}
@@ -165,8 +165,10 @@ func (e *Editor) restoreBlockHistory(s *blockHistoryState) {
 	b.ranges = append([]Range(nil), s.selection.ranges...)
 	e.block = &b
 	e.blockAnchorOffset = s.anchorOffset
-	e.modalSetMode(vim.ModeBlockVisual)
-	e.vimController().SetLinewise(false)
+	// History callbacks run while Session applies an edit and may hold its
+	// write lock. Keep this UI-only mode override local instead of re-entering
+	// the Session-backed Vim keymap.
+	e.vimModeOverride = vim.ModeBlockVisual
 	e.invalidate()
 }
 

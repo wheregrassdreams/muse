@@ -1,0 +1,669 @@
+package editor
+
+import (
+	"strings"
+	"time"
+
+	textengine "github.com/wheregrassdreams/muse-editor/text"
+	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
+	"muse/editor/blocks/paragraph"
+	"muse/editor/input"
+	"muse/editor/input/vim"
+	tableui "muse/nativeui/editor/blocks/table"
+)
+
+// modalText is the UI host for the keymap controller. Vim printable-key
+// grammar lives in muse-editor/text/vim; Helix remains host-owned.
+func (e *Editor) modalText(text string) bool {
+	previousNavigation := e.smoothCursorNavigation
+	controller := e.vimController()
+	mode := controller.Mode()
+	searching := controller.View().Searching
+	// Insert-mode text is delivered through the editor's text-input path, not
+	// interpreted a second time as Vim command text. The key path still handles
+	// non-text keys through modalKey.
+	if e.Keymap() == "vim" && mode == vim.ModeInsert && !searching {
+		return false
+	}
+	// Helix keeps a text selection active while the mode label remains Normal.
+	// Resolve selection operators here, where the editor can see the current
+	// source range, instead of letting the context-free controller start a
+	// pending Vim-style operator sequence.
+	if e.Keymap() == "helix" && mode == vim.ModeNormal && !searching {
+		switch text {
+		case "d", "c", "y":
+			a, z := e.selection()
+			if a != z {
+				e.modalApply(text, a, z)
+				e.invalidate()
+				return true
+			}
+		}
+	}
+	if e.Keymap() == "vim" {
+		// Rectangular text selections are owned by the UI host. The standalone
+		// Vim keymap sees its underlying Normal mode while this host-only mode
+		// override is active, so dispatch block operators and multi-caret insert
+		// commands before the text engine interprets them as ordinary motions.
+		if mode == vim.ModeBlockVisual && e.block != nil {
+			switch text {
+			case "c", "d", "y":
+				e.applyModalOperator(vim.Intent{Operator: text})
+				e.invalidate()
+				return true
+			case "I", "A":
+				e.DispatchVimIntent(vim.Intent{Kind: vim.IntentBlockInsert, InsertAt: text})
+				e.invalidate()
+				return true
+			}
+		}
+		// muse-editor owns text operators, while a table column selection is a
+		// host structural operation. Its block-change path must establish the
+		// table's multi-insert session before the text engine sees printable c.
+		if text == "c" && mode == vim.ModeBlockVisual && e.tableSelection != nil &&
+			!e.tableSelection.cellRegion && e.tableSelection.axis == tableColumns && e.applyTableSelection("c") {
+			e.invalidate()
+			return true
+		}
+		// Structural table selections are owned by the UI host. The text engine
+		// can only yank/delete their source range, which loses row/cell shape and
+		// leaves later table-register paste without a structural destination.
+		if (text == "d" || text == "y") && e.tableSelection != nil && e.tableBridge == nil &&
+			(mode == vim.ModeVisual || mode == vim.ModeBlockVisual) && e.applyTableSelection(text) {
+			e.modalSetMode(vim.ModeNormal)
+			e.vimController().SetLinewise(false)
+			e.setSessionInclusive(false)
+			e.setSessionLinewise(false)
+			e.invalidate()
+			return true
+		}
+		motionCount := controller.Sequence().Count
+		intent, handled := e.Session.HandleVimKey(textengine.KeyEvent{Text: text})
+		if !handled {
+			return false
+		}
+		// The text engine reports source offsets for motions, but a table
+		// selection owns its own focus. Preserve the count before the keymap
+		// consumes it so structural motion never has to infer a count from a
+		// source range that may be unrelated to the active table cell.
+		if intent.Name == "vim.move-horizontal" || intent.Name == "vim.move-vertical" {
+			intent.Count = max(1, motionCount)
+		}
+		e.smoothCursorNavigation = e.opts.SmoothCursor && mode == vim.ModeNormal && !searching &&
+			(strings.HasPrefix(intent.Name, "vim.move-") || intent.Name == textvim.IntentMoveDisplayUp || intent.Name == textvim.IntentMoveDisplayDown)
+		defer func() { e.smoothCursorNavigation = previousNavigation }()
+		if e.dispatchTableVisualRowMotion(text, intent) {
+			e.invalidate()
+			return true
+		}
+		if e.dispatchTableVisualHorizontalMotion(text, intent) {
+			e.invalidate()
+			return true
+		}
+		e.dispatchTextVimIntent(text, intent)
+		e.invalidate()
+		return true
+	}
+	intent, handled := e.legacyVimController().InterpretText(text, time.Now())
+	e.smoothCursorNavigation = e.opts.SmoothCursor && mode == vim.ModeNormal && !searching &&
+		(intent.Motion != 0 || intent.Kind == vim.IntentCommand &&
+			(intent.Command.Kind == vim.CommandVertical || intent.Command.Kind == vim.CommandFirstLine))
+	defer func() { e.smoothCursorNavigation = previousNavigation }()
+	if !handled {
+		return false
+	}
+	e.DispatchVimIntent(intent)
+	defer e.invalidate()
+	return true
+}
+
+// dispatchTableVisualHorizontalMotion routes visual h/l through the host when
+// either end of the selection is in a table. The text engine's extend-caret
+// intent has only a source offset; it cannot promote a cross-cell selection to
+// the table's structural region or preserve that region on the next motion.
+func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengine.Intent) bool {
+	if intent.Name != "vim.extend-caret" || e.vimController().Mode() != vim.ModeVisual {
+		return false
+	}
+	direction := 0
+	switch key {
+	case "h", "ArrowLeft":
+		direction = -1
+	case "l", "ArrowRight":
+		direction = 1
+	default:
+		return false
+	}
+	inTable := func(offset int) bool {
+		_, _, _, ok := e.tableCellAtSourceOffset(offset)
+		return ok
+	}
+	if !inTable(e.Caret()) && !inTable(int(intent.Range.From)) && !inTable(e.Session.Selection().Anchor) {
+		return false
+	}
+	for range max(1, intent.Count) {
+		e.modalHorizontal(direction, true)
+	}
+	return true
+}
+
+// dispatchTableVisualRowMotion maps visual row motions through the table's
+// structural focus. The text session's caret can remain outside that focus,
+// so applying vim.extend-caret's source offset directly would move the wrong
+// selection.
+func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Intent) bool {
+	if intent.Name != "vim.extend-caret" || e.vimController().Mode() != vim.ModeVisual {
+		return false
+	}
+	if e.tableVisualLineMode() {
+		if e.tableSelection == nil {
+			return e.restoreTableVisualLineTarget(int(intent.Range.From))
+		}
+		if e.tableSelection.axis != tableRows {
+			return false
+		}
+		direction := 0
+		switch key {
+		case "j", "ArrowDown":
+			direction = 1
+		case "k", "ArrowUp":
+			direction = -1
+		default:
+			return false
+		}
+		count := e.vimLineDistance(e.Caret(), int(intent.Range.From))
+		for remaining := count; remaining > 0; remaining-- {
+			s := e.tableSelection
+			t := e.tableSelectionLeaf()
+			if s == nil || t == nil {
+				return false
+			}
+			next := s.active + direction
+			if next < 0 || next >= len(t.tab.rows) {
+				target := int(intent.Range.From)
+				if e.tableVisualRowAtOffset(t, target) >= 0 {
+					if direction > 0 {
+						target = min(len(e.Source()), blockEnd(e.Source(), t)+1)
+					} else {
+						target = max(0, t.lineStart-1)
+					}
+				}
+				if !e.moveTableVisualLineCaret(target) {
+					return false
+				}
+				if remaining > 1 {
+					e.nativeMoveLineSelection(direction, remaining-1)
+				}
+				return true
+			}
+			if !e.moveStructuralRow(direction, true) {
+				return false
+			}
+		}
+		return true
+	}
+	if e.tableSelection == nil || e.tableSelection.axis != tableRows {
+		return false
+	}
+	direction := 0
+	switch key {
+	case "j", "ArrowDown":
+		direction = 1
+	case "k", "ArrowUp":
+		direction = -1
+	default:
+		return false
+	}
+	return e.moveStructuralRow(direction, true)
+}
+
+// dispatchTextVimIntent resolves an engine intent against MyGo's document
+// geometry and platform state. Text edits and ordinary source motions execute
+// in the independent text session; visual line geometry and non-text objects
+// remain host operations.
+func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
+	keymap := e.vimController()
+	visual := keymap.Mode() == vim.ModeVisual || keymap.Mode() == vim.ModeSelect || keymap.Mode() == vim.ModeBlockVisual
+	switch intent.Name {
+	case textvim.IntentMoveDisplayUp, textvim.IntentMoveDisplayDown, "vim.move-vertical":
+		direction := 1
+		if intent.Name == textvim.IntentMoveDisplayUp || key == "k" || key == "ArrowUp" ||
+			(intent.Name != "vim.move-vertical" && intent.Range.From < textengine.Offset(e.Caret())) {
+			direction = -1
+		}
+		count := max(1, intent.Count)
+		if intent.Name == "vim.move-vertical" && keymap.Mode() == vim.ModeBlockVisual && e.tableSelection != nil && !e.tableSelection.cellRegion && e.tableSelection.axis == tableColumns {
+			e.moveTableVisualColumn(direction, count)
+			return
+		}
+		if intent.Name == "vim.move-vertical" && (e.tableSelection == nil || !e.tableSelection.cellRegion) {
+			count = e.vimLineDistance(e.Caret(), int(intent.Range.From))
+		}
+		for range count {
+			if !e.moveTableCellRegion(direction, 0) {
+				if !e.moveStructuralRow(direction, visual) {
+					e.nativeVertical(direction, visual)
+				}
+			}
+		}
+		return
+	case "vim.move-horizontal":
+		direction := 1
+		if key == "h" || key == "ArrowLeft" || intent.Range.From < textengine.Offset(e.Caret()) && key == "" {
+			direction = -1
+		}
+		count := e.vimGraphemeDistance(e.Caret(), int(intent.Range.From))
+		if visual || e.tableSelection != nil && e.tableSelection.cellRegion {
+			count = max(1, intent.Count)
+		}
+		for range count {
+			e.modalHorizontal(direction, visual)
+		}
+		return
+	case "vim.start-selection":
+		e.enterModalVisual(vim.Intent{Kind: vim.IntentEnterVisual})
+		return
+	case "vim.start-line-selection":
+		e.enterModalVisual(vim.Intent{Kind: vim.IntentEnterLineVisual, Count: max(1, intent.Count)})
+		e.Session.VimKeymap().SetMode(textvim.LineVisual)
+		return
+	case textvim.IntentPasteBlockBefore, textvim.IntentPasteBlockAfter:
+		before := intent.Name == textvim.IntentPasteBlockBefore
+		e.putRegister(before, max(1, intent.Count))
+		return
+	case textvim.IntentPasteTableBefore, textvim.IntentPasteTableAfter:
+		before := intent.Name == textvim.IntentPasteTableBefore
+		e.putRegister(before, max(1, intent.Count))
+		return
+	case textvim.IntentScrollLineTop:
+		e.ApplyOperation(input.Operation{Kind: input.OperationScrollCaretLine, Placement: input.CaretLineTop})
+		return
+	case textvim.IntentScrollLineCenter:
+		e.ApplyOperation(input.Operation{Kind: input.OperationScrollCaretLine, Placement: input.CaretLineCenter})
+		return
+	case textvim.IntentScrollLineBottom:
+		e.ApplyOperation(input.Operation{Kind: input.OperationScrollCaretLine, Placement: input.CaretLineBottom})
+		return
+	case textvim.IntentFoldClose:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldClose})
+		return
+	case textvim.IntentFoldCloseNested:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldCloseRecursive})
+		return
+	case textvim.IntentFoldOpen:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldOpen})
+		return
+	case textvim.IntentFoldOpenNested:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldOpenRecursive})
+		return
+	case textvim.IntentFoldToggle:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldToggle})
+		return
+	case textvim.IntentFoldToggleNested:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAtCaret, Fold: paragraph.FoldToggleRecursive})
+		return
+	case textvim.IntentFoldCloseAll:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAll, Fold: paragraph.FoldCloseAll})
+		return
+	case textvim.IntentFoldOpenAll:
+		e.ApplyOperation(input.Operation{Kind: input.OperationFoldAll, Fold: paragraph.FoldOpenAll})
+		return
+	case textvim.IntentRevealCaret:
+		e.ApplyOperation(input.Operation{Kind: input.OperationRevealCaret})
+		return
+	}
+	if intent.Name == "vim.move-caret" || intent.Name == "vim.find" {
+		e.nativeSetCaret(int(intent.Range.From), visual)
+		return
+	}
+	if handled, _ := e.Session.ExecuteVimIntent(intent); handled {
+		e.invalidate()
+		return
+	}
+	if keymap.View().Searching {
+		e.modalRefreshSearchPreview()
+	}
+	// Unsupported host effects are consumed by the active map, while keeping
+	// MyGo's non-text state untouched.
+}
+
+func (e *Editor) vimLineDistance(from, to int) int {
+	lineAt := func(offset int) int {
+		line := 0
+		for at := 0; at < offset && at < len(e.Source()); {
+			_, end := e.modalLine(at)
+			if end >= len(e.Source()) || end >= offset {
+				break
+			}
+			at = end + 1
+			line++
+		}
+		return line
+	}
+	distance := lineAt(to) - lineAt(from)
+	if distance < 0 {
+		distance = -distance
+	}
+	return max(1, distance)
+}
+
+func (e *Editor) vimGraphemeDistance(from, to int) int {
+	direction := 1
+	if to < from {
+		direction = -1
+	}
+	count := 0
+	for at := from; at != to && count < 10000; count++ {
+		next := e.step(at, direction, false)
+		if next == at {
+			break
+		}
+		at = next
+	}
+	return max(1, count)
+}
+
+// DispatchVimIntent implements the Vim host boundary. Keymap parsing remains
+// in editor/input/vim; document and selection effects resolve here.
+func (e *Editor) DispatchVimIntent(intent vim.Intent) {
+	switch intent.Kind {
+	case vim.IntentPrefix, vim.IntentConsumed:
+		return
+	case vim.IntentCommand:
+		e.DispatchVimCommand(intent.Command)
+		return
+	case vim.IntentSearchText:
+		e.modalRefreshSearchPreview()
+		return
+	case vim.IntentUndo:
+		e.Undo()
+		e.modalSetMode(vim.ModeNormal)
+		e.vimController().SetLinewise(false)
+		e.setSessionInclusive(false)
+		e.setSessionLinewise(false)
+		e.setSessionAnchor(e.Caret())
+		return
+	case vim.IntentPutRegister:
+		e.putRegister(intent.Before, intent.Count)
+		return
+	case vim.IntentFindCharacter:
+		if intent.Character == "" {
+			e.vimController().SetAwaitingCharacter(intent.Direction, intent.Till, intent.Count)
+		} else {
+			e.findCharacter(intent.Character, intent.Direction, intent.Till, intent.Count)
+		}
+		return
+	case vim.IntentReplaceCharacter:
+		e.modalReplace(intent.Count, intent.Character)
+		return
+	case vim.IntentEnterInsert:
+		focus := e.nativePrepareInsert()
+		switch intent.InsertAt {
+		case "a":
+			if !e.modalEmptyLineAt(focus) {
+				e.setSessionHead(e.step(focus, 1, false))
+			}
+		case "I":
+			e.setSessionHead(e.nativeLineStart(focus, true))
+		case "A":
+			e.setSessionHead(e.nativeLineEndAt(focus))
+		}
+		e.setSessionAnchor(e.Caret())
+		e.modalSetMode(vim.ModeInsert)
+		e.breakCoalescing()
+		return
+	case vim.IntentOpenLine:
+		e.nativePrepareInsert()
+		e.nativeOpenLine(intent.Before)
+		e.modalSetMode(vim.ModeInsert)
+		return
+	case vim.IntentEnterVisual, vim.IntentEnterLineVisual:
+		e.enterModalVisual(intent)
+		return
+	case vim.IntentBlockInsert:
+		points := make([]int, 0)
+		for _, r := range e.SelectionRanges() {
+			if intent.InsertAt == "I" {
+				points = append(points, r.Start)
+			} else {
+				points = append(points, r.End)
+			}
+		}
+		e.blockInput = &blockInput{points: points}
+		e.block = nil
+		e.modalSetMode(vim.ModeInsert)
+		e.setSessionAnchor(e.Caret())
+		return
+	case vim.IntentDeleteCharacter:
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.vimController().SetLinewise(true)
+			e.modalApply("d", a, z)
+		} else if a, z, ok := e.nativeSubstituteRange(intent.Count, intent.Before); ok {
+			e.vimController().SetLinewise(false)
+			e.modalApply("d", a, z)
+		}
+		return
+	case vim.IntentDeleteLineRemainder:
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.vimController().SetLinewise(true)
+			e.modalApply(intent.Operator, a, z)
+		} else if a, z, ok := e.nativeLineRemainder(); ok {
+			e.vimController().SetLinewise(false)
+			e.modalApply(intent.Operator, a, z)
+		}
+		return
+	}
+
+	if intent.Motion != 0 {
+		if intent.Motion != vim.MotionLeft && intent.Motion != vim.MotionRight && intent.Motion != vim.MotionDown && intent.Motion != vim.MotionUp {
+			_, _ = e.tableUI().Dispatch(tableui.Action{Kind: tableui.ResetNavigation})
+		}
+		if intent.Motion != vim.MotionDown && intent.Motion != vim.MotionUp {
+			e.hasGoal = false
+		}
+		start := e.Caret()
+		mode := e.vimController().Mode()
+		extend := intent.Kind == vim.IntentOperator || mode == vim.ModeVisual || mode == vim.ModeSelect || mode == vim.ModeBlockVisual
+		for i := 0; i < max(1, intent.Count); i++ {
+			e.applyVimMotion(intent, i, extend)
+		}
+		if extend {
+			e.promoteVisualTextToCellRegion()
+		}
+		if intent.Kind == vim.IntentOperator {
+			if intent.Linewise {
+				e.vimController().SetLinewise(true)
+			}
+			e.modalApply(intent.Operator, start, e.Caret())
+		} else if e.Keymap() == "helix" && !extend {
+			e.setSessionAnchor(start)
+		}
+		return
+	}
+	if intent.Kind == vim.IntentOperator {
+		e.applyModalOperator(intent)
+		return
+	}
+}
+
+func (e *Editor) modalSetMode(mode vim.Mode) {
+	e.vimController().SetMode(mode)
+}
+
+func (e *Editor) enterModalVisual(intent vim.Intent) {
+	e.vimController().SetTextVisualActive(e.Keymap() == "vim" && intent.Kind == vim.IntentEnterVisual)
+	e.setSessionHead(e.selectionFocus())
+	e.tableSelection, e.tableBridge = nil, nil
+	e.setSessionAnchor(e.Caret())
+	if intent.Kind == vim.IntentEnterLineVisual {
+		e.modalSetMode(vim.ModeVisual)
+		e.vimController().SetLinewise(true)
+		e.setSessionInclusive(false)
+		e.setSessionLinewise(true)
+		e.nativeSelectLine(e.Caret())
+		if intent.Count > 1 {
+			e.nativeMoveLineSelection(1, intent.Count-1)
+		}
+		return
+	}
+	e.vimController().SetLinewise(false)
+	if e.Keymap() == "helix" {
+		e.modalSetMode(vim.ModeSelect)
+		e.setSessionInclusive(false)
+		e.setSessionLinewise(false)
+	} else {
+		e.modalSetMode(vim.ModeVisual)
+		_, virtualImageRow := e.vimImageRowState()
+		e.setSessionInclusive(!virtualImageRow)
+		e.setSessionLinewise(virtualImageRow)
+	}
+}
+
+func (e *Editor) applyVimMotion(intent vim.Intent, iteration int, extend bool) {
+	switch intent.Motion {
+	case vim.MotionLeft:
+		e.modalHorizontal(-1, extend)
+	case vim.MotionRight:
+		e.modalHorizontal(1, extend)
+	case vim.MotionDown:
+		if e.moveTableCellRegion(1, 0) {
+			return
+		}
+		if e.vimController().Sequence().Linewise {
+			e.nativeMoveLineSelection(1, 1)
+			return
+		}
+		if e.vimController().Mode() == vim.ModeBlockVisual && e.moveTableVisualColumn(1, 1) {
+			return
+		}
+		if !e.moveStructuralRow(1, extend) {
+			e.nativeVertical(1, extend)
+		}
+	case vim.MotionUp:
+		if e.moveTableCellRegion(-1, 0) {
+			return
+		}
+		if e.vimController().Sequence().Linewise {
+			e.nativeMoveLineSelection(-1, 1)
+			return
+		}
+		if e.vimController().Mode() == vim.ModeBlockVisual && e.moveTableVisualColumn(-1, 1) {
+			return
+		}
+		if !e.moveStructuralRow(-1, extend) {
+			e.nativeVertical(-1, extend)
+		}
+	case vim.MotionWordForward:
+		e.nativeSetCaret(e.stepWithWordMode(e.Caret(), 1, true, intent.BigWord), extend)
+	case vim.MotionWordBackward:
+		e.nativeSetCaret(e.stepWithWordMode(e.Caret(), -1, true, intent.BigWord), extend)
+	case vim.MotionWordEnd:
+		z := e.wordEndAtMode(e.Caret(), intent.BigWord, false)
+		if iteration > 0 {
+			if next := e.nextWordEndAcrossUnitsMode(e.Caret(), intent.BigWord); next > e.Caret() {
+				z = next
+			}
+		} else if z <= e.Caret() || intent.Kind != vim.IntentOperator && e.previousGraphemeBoundary(z) <= e.Caret() {
+			if next := e.nextWordEndAcrossUnitsMode(e.Caret(), intent.BigWord); next > e.Caret() {
+				z = next
+			}
+		}
+		if intent.Kind != vim.IntentOperator && z > e.Caret() {
+			z = e.previousGraphemeBoundary(z)
+		}
+		e.nativeSetCaret(z, extend)
+	case vim.MotionLineStart:
+		e.nativeSetCaret(e.nativeLineStart(e.Caret(), false), extend)
+	case vim.MotionFirstNonBlank:
+		e.nativeSetCaret(e.nativeLineStart(e.Caret(), true), extend)
+	case vim.MotionLineEnd:
+		_, z := e.modalLine(e.Caret())
+		if intent.Kind != vim.IntentOperator {
+			start, _ := e.modalLine(e.Caret())
+			if z > start {
+				z = e.previousGraphemeBoundary(z)
+			}
+		}
+		e.nativeSetCaret(z, extend)
+	case vim.MotionDocumentEnd:
+		e.nativeSetCaret(len(e.Source()), extend)
+	}
+}
+
+func (e *Editor) applyModalOperator(intent vim.Intent) {
+	if intent.Linewise {
+		if a, z, ok := e.vimVirtualImageLineRange(); ok {
+			e.modalApply(intent.Operator, a, z)
+			return
+		}
+		buffer, err := textengine.NewBuffer(e.Source())
+		if err != nil {
+			return
+		}
+		range_ := textvim.LinewiseOperatorRange(buffer.View(), textengine.Offset(e.Caret()), intent.Count, intent.Operator)
+		e.modalApply(intent.Operator, int(range_.From), int(range_.To))
+		return
+	}
+	if e.vimController().Mode() == vim.ModeBlockVisual && e.block != nil {
+		ranges := e.SelectionRanges()
+		var rows []string
+		for _, r := range ranges {
+			rows = append(rows, e.Source()[r.Start:r.End])
+		}
+		e.setVimBlockRegister(rows)
+		if intent.Operator == "y" {
+			e.Copy()
+			e.startVimYankFlash(ranges)
+			e.modalSetMode(vim.ModeNormal)
+			e.block = nil
+			e.setSessionAnchor(e.Caret())
+			return
+		}
+		at := e.Caret()
+		if intent.Operator == "c" {
+			e.begin(stepEdit)
+			points := make([]int, 0, len(ranges))
+			shift := 0
+			for _, r := range ranges {
+				points = append(points, r.Start-shift)
+				shift += r.End - r.Start
+			}
+			for i := len(ranges) - 1; i >= 0; i-- {
+				e.replace(ranges[i].Start, ranges[i].End, "")
+			}
+			e.blockInput = &blockInput{points: points, started: true}
+			if len(points) > 0 {
+				at = points[0]
+			}
+			e.setSessionSelection(at, at)
+			e.commit(at, at)
+		} else {
+			at = e.deleteBlock()
+		}
+		e.block = nil
+		e.setSessionSelection(at, at)
+		if intent.Operator == "c" {
+			e.modalSetMode(vim.ModeInsert)
+		} else {
+			e.modalSetMode(vim.ModeNormal)
+		}
+		return
+	}
+	if e.tableSelection != nil && e.tableBridge == nil && e.applyTableSelection(intent.Operator) {
+		if intent.Operator != "c" {
+			e.modalSetMode(vim.ModeNormal)
+		}
+		return
+	}
+	mode := e.vimController().Mode()
+	if mode == vim.ModeVisual || mode == vim.ModeSelect || mode == vim.ModeBlockVisual {
+		a, z := e.selection()
+		if a == z {
+			z = e.step(z, 1, false)
+		}
+		e.modalApply(intent.Operator, a, z)
+		if intent.Operator != "c" {
+			e.modalSetMode(vim.ModeNormal)
+		}
+	}
+}
