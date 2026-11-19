@@ -4,10 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	applicationvault "muse/application/vault"
 	doctypes "muse/document/types"
 	"muse/locales"
 	documentdialogs "muse/nativeui/dialogs/document"
@@ -18,6 +20,7 @@ import (
 	"muse/nativeui/shell"
 	"muse/nativeui/shell/windowcontrols"
 	componenticons "muse/nativeui/ui/icons"
+	"muse/nativeui/vaulthome"
 	"muse/nativeui/workbench"
 	workspaceui "muse/nativeui/workspace"
 	"muse/vault/files"
@@ -44,6 +47,7 @@ func (a *App) initializeWorkbench() {
 		RenderCanvas:    a.renderEditorCanvas,
 		RenderInspector: func(c *ui.Context) { a.propertiesPanel.RenderSidebar(c) },
 		RenderOverlays:  a.renderOverlays,
+		PanelWidth:      func(width float32) { a.panelW = width },
 		Actions: workbench.ActionPorts{
 			SelectSurface: func(surface shell.Surface) { a.togglePanel(surface) },
 			TogglePanel: func(open bool, width float32, surface shell.Surface) {
@@ -81,7 +85,11 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render fu
 	}
 	ui.Column(c).Width(a.panelWidth).FillHeight().Children(func() {
 		bar := c.TitleBar()
-		ui.Row(c).Height(max(float32(44), bar.Height)).Shrink(0).Padding(0, 8, 0, max(float32(34), bar.Left+34)).DragWindow()
+		ui.Row(c).Height(max(float32(44), bar.Height)).Shrink(0).Padding(0, 8, 0, max(float32(34), bar.Left+34)).DragWindow().Children(func() {
+			if a.settingsPanel != nil && a.settingsPanel.Runtime().AIEnabled {
+				a.panelIcon(c, componenticons.AI(), locales.AiAssistant(), func() { a.togglePanel(shell.SurfaceAgent) })
+			}
+		})
 		ui.Row(c).Height(44).Shrink(0).Padding(0, 10).Gap(4).AlignItems(ui.Center).Children(func() {
 			space := ui.ButtonBase(c).Height(28).Padding(0, 4).Radius(6).Label(name).Tooltip(locales.WorkspaceLabel())
 			space.Menu(func(menu *ui.Menu) {
@@ -90,6 +98,16 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shell.Surface, render fu
 				}
 				if menu.Item(locales.FilesOpenFileMenu()).Chosen() {
 					a.openFileDialog()
+				}
+				menu.Separator()
+				if menu.Item(locales.MenuOutline()).Chosen() {
+					a.togglePanel(shell.SurfaceOutline)
+				}
+				if menu.Item(locales.MenuSearchWorkspace()).Chosen() {
+					a.openWorkspaceSearch()
+				}
+				if a.settingsPanel != nil && a.settingsPanel.Runtime().AIEnabled && menu.Item(locales.AiAssistant()).Chosen() {
+					a.togglePanel(shell.SurfaceAgent)
 				}
 			})
 			space.Children(func() {
@@ -173,42 +191,155 @@ func (a *App) View(c *ui.Context) {
 	if a == nil || a.workbench == nil {
 		return
 	}
+	a.mainMu.Lock()
+	defer a.mainMu.Unlock()
+	if a.windows != nil && a.windows.HasModal() && c.Shortcut(0, ui.KeyEscape) {
+		if a.windows.HandleEscape() {
+			a.invalidate()
+		}
+	}
+	if a.navIconPicker != nil && a.navIconPicker.IsOpen() && c.Shortcut(0, ui.KeyEscape) {
+		a.navIconPicker.Close()
+	}
+	if a.propertiesPanel != nil && c.Shortcut(0, ui.KeyEscape) {
+		switch {
+		case a.propertiesPanel.EditingKey() != "":
+			a.propertiesPanel.CancelEdit()
+			a.invalidate()
+		case a.propertiesPanel.IsSourceMode():
+			a.propertiesPanel.ReturnToProperties()
+			a.invalidate()
+		}
+	}
+	if !a.hasModalKeyboardOwner() && c.Shortcut(ui.Cmd, ui.KeyO) {
+		a.openWorkspaceSearch()
+	}
+	a.ensureVaultSession()
+	if a.vault != nil {
+		a.vaultSnapshot = a.vault.Snapshot()
+		if !a.vaultSnapshot.Ready {
+			c.After(50 * time.Millisecond)
+		}
+	}
+	a.linkIndexTick(c)
+	root := c.Root()
+	rootBounds := root.Bounds()
+	root.ObserveInput(func(ev ui.InputEvent) {
+		if a.fileTreeState != nil {
+			if ev.Kind == ui.InputPointerDown {
+				a.fileTreeState.SetPointerReleased(false)
+			}
+			if ev.Kind == ui.InputPointerUp && ev.Canceled {
+				a.fileTreeState.SetPointerReleased(false)
+				drag := a.fileTreeState.DragPreview()
+				drag.Pointer = ui.Point{}
+				a.fileTreeState.SetDragPreview(drag)
+				a.fileTreeState.ClearDropHover()
+				a.fileTreeState.ClearDropTargetRange()
+				return
+			}
+			drag := a.fileTreeState.DragPreview()
+			if !drag.StartedAt.IsZero() && (ev.Kind == ui.InputPointerMove || ev.Kind == ui.InputPointerUp) {
+				drag.Pointer = ui.Point{X: rootBounds.X + ev.X, Y: rootBounds.Y + ev.Y}
+				a.fileTreeState.SetDragPreview(drag)
+				if ev.Kind == ui.InputPointerUp {
+					a.fileTreeState.SetPointerReleased(true)
+				}
+			}
+		}
+		if !a.editorOptions().HideMouseCursor {
+			return
+		}
+		editor := a.noteEditor()
+		if editor == nil || editor.FocusCommands() == nil || !editor.FocusCommands().Focused() {
+			return
+		}
+		keymap := ""
+		if modal := editor.ModalCommands(); modal != nil {
+			keymap = modal.Keymap()
+		}
+		if (keymap == "vim" || keymap == "helix") && ev.Kind == ui.InputKeyDown || ev.Kind == ui.InputText || ev.Kind == ui.InputCompose {
+			a.mouseCursorHidden = true
+			a.mouseCursorHiddenUntil = ev.Time.Add(1500 * time.Millisecond)
+		}
+	})
+	if a.mouseCursorHidden && !c.Now().Before(a.mouseCursorHiddenUntil) {
+		a.mouseCursorHidden = false
+	}
 	a.workbench.Render(c)
+}
+
+func (a *App) hasModalKeyboardOwner() bool {
+	return a != nil && ((a.windows != nil && a.windows.HasModal()) ||
+		(a.propertiesPanel != nil && (a.propertiesPanel.EditingKey() != "" || a.propertiesPanel.IsSourceMode())) ||
+		(a.navIconPicker != nil && a.navIconPicker.IsOpen()))
+}
+
+// ensureVaultSession restores the vault catalog and watcher that back the
+// file tree, link navigation, and workspace search. The session owns its own
+// asynchronous startup; View only refreshes its detached snapshot while it
+// becomes ready.
+func (a *App) ensureVaultSession() {
+	if a == nil {
+		return
+	}
+	root := a.root
+	if root == "" {
+		if path := a.documentPath(); path != "" {
+			root = filepath.Dir(path)
+		}
+	}
+	if root == "" || (a.vault != nil && filepath.Clean(a.vaultSnapshot.Root) == filepath.Clean(root)) {
+		return
+	}
+	if a.vault != nil {
+		old := a.vault
+		a.vault = nil
+		go old.Close()
+	}
+	session, err := applicationvault.NewSession(root, applicationvault.SessionDependencies{
+		NewIndex: a.newVaultIndex, NewCatalog: a.newVaultCatalog,
+		NewWatcher: a.newWatcher, SearchReconciler: a.vaultSearchReconciler,
+	})
+	if err != nil {
+		a.notice(err.Error())
+		return
+	}
+	a.vault = session
+	a.vaultSnapshot = session.Snapshot()
+	if a.directoryCatalog != nil {
+		a.directoryCatalog.Invalidate()
+	}
+	if a.quickOpen != nil {
+		a.quickOpen.SetVault(session)
+	}
 }
 
 func (a *App) workbenchFrame() shell.Frame {
 	if a == nil {
 		return shell.Frame{}
 	}
-	mode, accent, aiEnabled := uint8(0), "red", false
+	panelWidth := a.panelWidth
+	if panelWidth <= 0 {
+		panelWidth = 268
+	}
+	mode, accent := uint8(0), "red"
 	if a.settingsPanel != nil {
 		appearance := a.settingsPanel.Runtime().Appearance
-		runtime := a.settingsPanel.Runtime()
-		mode, accent, aiEnabled = uint8(appearance.Theme), appearance.AccentID, runtime.AIEnabled
-	}
-	rail := []shell.RailItem{
-		{Surface: shell.SurfaceFiles, Label: locales.MenuFile(), Icon: componenticons.Files(), Active: a.panelOpen && a.panel == shell.SurfaceFiles},
-		{Surface: shell.SurfaceOutline, Label: locales.MenuOutline(), Icon: componenticons.Outline(), Active: a.panelOpen && a.panel == shell.SurfaceOutline},
-		{Surface: shell.SurfaceSearch, Label: locales.MenuSearchWorkspace(), Icon: componenticons.Search()},
-	}
-	if aiEnabled {
-		rail = append(rail, shell.RailItem{Surface: shell.SurfaceAgent, Label: locales.AiAssistant(), Icon: componenticons.AI(), Active: a.panelOpen && a.panel == shell.SurfaceAgent})
+		mode, accent = uint8(appearance.Theme), appearance.AccentID
 	}
 	toggleIcon, toggleLabel := componenticons.PanelLeftOpen(), locales.AiSidebarShow()
 	if a.panelOpen {
 		toggleIcon, toggleLabel = componenticons.PanelLeftClose(), locales.AiSidebarHide()
 	}
 	return shell.Frame{
-		PanelOpen: a.panelOpen, PanelWidth: a.panelW, PanelMinWidth: 224,
+		PanelOpen: a.panelOpen, PanelWidth: panelWidth, PanelMinWidth: 224,
 		PanelMaxWidth: 440, PanelFoldAt: 200, PanelOpenAt: 36,
-		FlatCanvas: a.flat, Surface: a.shellSurface(), RailWidth: 56,
-		Rail:   rail,
+		FlatCanvas: a.flat, Surface: a.shellSurface(),
 		Window: a.win, HideMouseCursor: a.mouseCursorHidden,
 		CursorUntil:      a.mouseCursorHiddenUntil,
 		PanelToggleLabel: toggleLabel, PanelToggleIcon: toggleIcon,
 		WindowButtonsTop: 18, ThemeMode: mode, AccentID: accent,
-		SettingsLabel: locales.SettingsTitle(), SettingsIcon: componenticons.Settings(),
-		SettingsActive: a.settingsPanel != nil && a.settingsPanel.IsOpen(),
 	}
 }
 
@@ -232,6 +363,17 @@ func (a *App) renderWorkspace(c *ui.Context, _ bool) {
 func (a *App) renderEditorCanvas(c *ui.Context, flat bool) {
 	if a.imageDocumentOpen() {
 		a.renderWorkspace(c, flat)
+		return
+	}
+	if a.root != "" && a.documentPath() == "" && a.documentSource() == "" {
+		vaulthome.Render(c, vaulthome.DefaultViewModel(componenticons.New(), componenticons.OpenFile()), func(action vaulthome.Action) {
+			switch action {
+			case vaulthome.NewDocument:
+				a.newFileIn(a.root)
+			case vaulthome.OpenFile:
+				a.openFileDialog()
+			}
+		})
 		return
 	}
 	if !flat {
@@ -420,7 +562,13 @@ func (a *App) renderFilesSurface(c *ui.Context) {
 		},
 		VisibleFile: doctypes.IsVisibleWorkspacePath,
 		IsDirectory: func(path string) bool { return useCases.IsCatalogDirectory(a.vault, path) },
-	}, OnNewDocument: a.newDoc, OnOpenFile: a.openFileDialog})
+		Icon: func(path string, directory bool) *ui.SVG {
+			if a.navIconPicker != nil {
+				return a.navIconPicker.IconForPath(path, directory)
+			}
+			return nil
+		},
+	}, OnNewDocument: a.newDoc, OnOpenFile: a.openFileDialog, OnOpenFolder: a.openFolderDialog})
 }
 
 func (a *App) renderOverlays(c *ui.Context) {
@@ -437,6 +585,10 @@ func (a *App) renderOverlays(c *ui.Context) {
 		a.settingsPanel.RenderDialog(c)
 	}
 	if a.windows != nil {
+		a.windows.Render(c, workspaceui.MainHost, workspaceui.Overlay)
 		a.windows.Render(c, workspaceui.MainHost, workspaceui.ModalOverlay)
+	}
+	if a.linkPreview != nil {
+		a.linkPreview.Render(c)
 	}
 }

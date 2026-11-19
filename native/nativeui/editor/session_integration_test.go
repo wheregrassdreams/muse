@@ -3,8 +3,8 @@ package editor
 import (
 	"testing"
 
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	"github.com/wheregrassdreams/muse-editor/text/input"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 func TestProductionEditorUsesSessionSourceSelectionAndHistory(t *testing.T) {

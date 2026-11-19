@@ -1,8 +1,8 @@
 package editor
 
 import (
-	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

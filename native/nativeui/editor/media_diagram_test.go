@@ -8,7 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 )
 
 // wideDiagram is a Mermaid graph wider than the editor's column: pele lays a

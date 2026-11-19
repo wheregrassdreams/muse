@@ -5,15 +5,15 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	uieditor "github.com/egoist/mygo/ui/editor"
-	paragraphui "muse/nativeui/editor/blocks/paragraph"
-	"muse/nativeui/editor/render"
-	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 	"github.com/wheregrassdreams/muse-editor/markdown/source"
+	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
 	inlineui "muse/nativeui/editor/blocks/inline"
 	media "muse/nativeui/editor/blocks/media"
+	paragraphui "muse/nativeui/editor/blocks/paragraph"
+	"muse/nativeui/editor/render"
 )
 
 // A leaf shows as display text: the characters drawn, each piece of which

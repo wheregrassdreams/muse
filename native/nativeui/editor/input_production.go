@@ -1,16 +1,16 @@
 package editor
 
 import (
-	mygoinputadapter "muse/nativeui/editor/inputadapter"
 	"github.com/wheregrassdreams/muse-editor/text/layout"
+	mygoinputadapter "muse/nativeui/editor/inputadapter"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
-	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
 	media "muse/nativeui/editor/blocks/media"
 	tableui "muse/nativeui/editor/blocks/table"
 )

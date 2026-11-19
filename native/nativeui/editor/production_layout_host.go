@@ -11,7 +11,7 @@ import (
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 
 	"github.com/wheregrassdreams/muse-editor/text/layout"
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	media "muse/nativeui/editor/blocks/media"
 	render "muse/nativeui/editor/render"
 	"muse/nativeui/editor/textlayout"
@@ -569,8 +569,7 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 		}
 	}
 	e.projectCalloutHeader(b, l, at)
-	b.ensure(l.start)
-	v := &leafView{disp: b.display()}
+	v := &leafView{}
 	shape := ui.TextShape{Width: width}
 	switch align {
 	case syntax.IncrementalAlignCenter:
@@ -594,13 +593,29 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	if smart {
 		cache = &e.typographyCache
 	}
-	v.layout, v.empty = shapeDisplay(&v.disp, f, shape, cache)
-	v.font = f
+	finishLeafView(b, v, f, shape, -1, l.start, 0, width == 0, cache)
+	return v
+}
+
+// finishLeafView turns the builder's source-mapped display into a shaped leaf
+// view. A negative finishEnd leaves composition timing to the caller. Callers
+// keep their source projection, shaping policy and block padding; this owns
+// only common finalization and size writeback.
+func finishLeafView(b *builder, v *leafView, font ui.Font, shape ui.TextShape, finishEnd, ensureAt int, heightExtra float32, naturalWidth bool, cache *textlayout.Cache) {
+	if finishEnd >= 0 {
+		b.finish(finishEnd)
+	}
+	if ensureAt >= 0 {
+		b.ensure(ensureAt)
+	}
+	v.disp = b.display()
+	v.layout, v.empty = shapeDisplay(&v.disp, font, shape, cache)
+	v.font = font
 	_, v.h = v.layout.Size()
-	if width == 0 {
+	v.h += heightExtra
+	if naturalWidth {
 		v.natural, _ = v.layout.Size()
 	}
-	return v
 }
 
 // shapeDisplay lays out a display, or a space for an empty one.
@@ -799,13 +814,7 @@ func (e *Editor) codeView(l *leaf, width float32, at int, withCompose bool) *lea
 			}
 		}
 	}
-	b.finish(l.end)
-	b.ensure(l.start)
-	v.disp = b.display()
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{})
-	v.font = f
-	_, th := v.layout.Size()
-	v.h = th + 2*padY
+	finishLeafView(b, v, f, ui.TextShape{}, l.end, l.start, 2*padY, false, nil)
 	if mermaidModel != nil {
 		v.diagramModel = mermaidModel
 		v.h = mermaidModel.Height(width) + 2*padY
@@ -907,13 +916,9 @@ func (e *Editor) markdownBlockSourceView(l *leaf, width float32) *leafView {
 	b := e.newBuilder(l, -1, false, f.Size, width)
 	end := blockEnd(e.Source(), l)
 	b.spanRun(l.lineStart, end, ui.Span{Color: e.lk.text})
-	b.finish(end)
-	v := &leafView{disp: b.display(), panel: true, tx: e.lk.size * codePadX, ty: e.lk.size * codePadY, reveal: true}
+	v := &leafView{panel: true, tx: e.lk.size * codePadX, ty: e.lk.size * codePadY, reveal: true}
 	inner := max(width-2*v.tx, 40)
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: inner})
-	v.font = f
-	_, h := v.layout.Size()
-	v.h = h + 2*v.ty
+	finishLeafView(b, v, f, ui.TextShape{Width: inner}, end, -1, 2*v.ty, false, nil)
 	return v
 }
 
@@ -960,12 +965,8 @@ func (e *Editor) htmlTextView(l *leaf, width float32) *leafView {
 	if b.text.Len() == 0 {
 		return nil
 	}
-	b.finish(l.end)
-	b.ensure(l.start)
-	v := &leafView{disp: b.display()}
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: width})
-	v.font = f
-	_, v.h = v.layout.Size()
+	v := &leafView{}
+	finishLeafView(b, v, f, ui.TextShape{Width: width}, l.end, l.start, 0, false, nil)
 	return v
 }
 
@@ -995,13 +996,7 @@ func (e *Editor) linesView(l *leaf, width float32, at int, withCompose, panel bo
 			b.codeRun(ln.off, ln.off+len(ln.text), sp)
 		}
 	}
-	b.finish(l.end)
-	b.ensure(l.start)
-	v.disp = b.display()
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: inner})
-	v.font = f
-	_, th := v.layout.Size()
-	v.h = th + 2*v.ty
+	finishLeafView(b, v, f, ui.TextShape{Width: inner}, l.end, l.start, 2*v.ty, false, nil)
 	return v
 }
 
@@ -1014,12 +1009,8 @@ func (e *Editor) ruleView(l *leaf, width float32, at int, withCompose bool) *lea
 	f := ui.Font{Family: e.lk.font, Size: e.lk.size, LineHeight: e.lk.lh}
 	b := e.newBuilder(l, at, withCompose, f.Size, width)
 	b.spanRun(l.start, l.end, ui.Span{Color: e.lk.marker})
-	b.finish(l.end)
-	b.ensure(l.start)
-	v := &leafView{disp: b.display(), reveal: true}
-	v.layout, v.empty = shapeDisplay(&v.disp, f, ui.TextShape{Width: width})
-	v.font = f
-	_, v.h = v.layout.Size()
+	v := &leafView{reveal: true}
+	finishLeafView(b, v, f, ui.TextShape{Width: width}, l.end, l.start, 0, false, nil)
 	return v
 }
 

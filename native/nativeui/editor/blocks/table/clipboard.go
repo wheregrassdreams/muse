@@ -3,8 +3,8 @@ package tableui
 import (
 	"strings"
 
-	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 // ClipboardHTML serializes a detached rectangular table selection as HTML.

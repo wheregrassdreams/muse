@@ -14,9 +14,12 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	editfind "github.com/wheregrassdreams/muse-editor/text/findreplace"
 
-	editorui "muse/nativeui/workbench/features/editor"
-	findreplaceui "muse/nativeui/workbench/features/search/findreplace"
+	editorui "muse/nativeui/editor"
+	noteeditor "muse/nativeui/editor/surface"
+	findreplaceui "muse/nativeui/search/findreplace"
+	shellui "muse/nativeui/shell"
 )
 
 // save() writes asynchronously on the UI queue; tests poll the file like a
@@ -73,7 +76,7 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 	tt.Key(0, ui.KeyEnd)
 	tt.Type(" E2E 追加")
 	tt.Frame()
-	if !a.documentDirty() {
+	if !a.noteEditor().Snapshot().Dirty {
 		t.Fatal("typing did not mark the document dirty")
 	}
 
@@ -86,14 +89,13 @@ func TestE2EOpenEditSaveRoundTrip(t *testing.T) {
 			t.Fatalf("saved markdown missing %q; got:\n%s", want, got)
 		}
 	}
-	if a.documentDirty() {
+	if a.noteEditor().Snapshot().Dirty {
 		t.Fatalf("dirty stayed true after a successful save")
 	}
 }
 
 func TestE2ESaveUntitledViaDialog(t *testing.T) {
-	a := New()
-	withDocumentPorts(t, a)
+	a := newAppWithDocumentPorts(t)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
@@ -152,7 +154,7 @@ func TestE2ESwitchFilesKeepsSavedState(t *testing.T) {
 	tt.Frame()
 	a.save()
 	waitFileContains(t, one, "已保存再切走")
-	if a.documentDirty() {
+	if a.noteEditor().Snapshot().Dirty {
 		t.Fatal("dirty after save")
 	}
 
@@ -234,8 +236,8 @@ func TestE2EWindowsLineEndingsRoundTrip(t *testing.T) {
 
 func TestOutlineClickMovesCaret(t *testing.T) {
 	a := New()
-	a.loadDoc("# 一\n\n正文\n\n## 二\n\n更多\n")
-	a.showPanel(panelOutline)
+	openTestSource(t, a, "# 一\n\n正文\n\n## 二\n\n更多\n")
+	a.togglePanel(shellui.SurfaceOutline)
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if err := tt.Click("二"); err != nil {
@@ -247,20 +249,15 @@ func TestOutlineClickMovesCaret(t *testing.T) {
 	}
 }
 
-func TestSearchSelectsMatch(t *testing.T) {
+func TestFindReplaceSelectsMatch(t *testing.T) {
 	a := New()
-	a.loadDoc("第一段 Muse\n\n第二段 muse 结束\n")
-	a.showPanel(panelSearch)
-	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "muse"})
-	a.refreshSearch()
-	tt := ui.NewTester(a.View, 1200, 800)
-	tt.Frame()
-	tt.Frame()
-	if count := len(a.findReplace.Snapshot().Matches); count != 2 {
+	openTestSource(t, a, "第一段 Muse\n\n第二段 muse 结束\n")
+	find := newTestFindReplaceHost(t, a)
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "muse"})
+	if count := len(find.Snapshot().Matches); count != 2 {
 		t.Fatalf("matches = %d, want 2", count)
 	}
-	a.goToHit(1)
-	tt.Frame()
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.OpenMatch, Index: 1})
 	if got := a.noteEditor().ClipboardCommands().SelectedText(); got != "muse" {
 		t.Fatalf("selected %q", got)
 	}
@@ -268,13 +265,13 @@ func TestSearchSelectsMatch(t *testing.T) {
 
 func TestAIEditIsUndoable(t *testing.T) {
 	a := New()
-	a.loadDoc("原文。\n")
+	openTestSource(t, a, "原文。\n")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	a.noteEditor().ReplaceUser("原文。\n\nAI 新增。\n")
 	tt.Frame()
-	if !a.documentDirty() || a.documentSource() != "原文。\n\nAI 新增。\n" {
-		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.documentDirty(), a.documentSource())
+	if !a.noteEditor().Snapshot().Dirty || a.documentSource() != "原文。\n\nAI 新增。\n" {
+		t.Fatalf("tool edit not applied: dirty=%v source=%q", a.noteEditor().Snapshot().Dirty, a.documentSource())
 	}
 	a.noteEditor().Undo()
 	tt.Frame()
@@ -292,21 +289,57 @@ func TestCodeFilesOpenAsCode(t *testing.T) {
 	}
 }
 
+type testFindReplaceEditorPort struct {
+	t        *testing.T
+	commands noteeditor.Commands
+}
+
+func (p testFindReplaceEditorPort) Source() string { return p.commands.Source() }
+
+func (p testFindReplaceEditorPort) SetHighlights(matches []editfind.Match, selected int) {
+	ranges := make([]noteeditor.TextRange, len(matches))
+	for i, match := range matches {
+		ranges[i] = noteeditor.TextRange{Start: match.Start, End: match.End}
+	}
+	p.commands.SearchCommands().SetHighlights(ranges, selected)
+}
+
+func (p testFindReplaceEditorPort) NavigateToRange(start, end int) {
+	p.commands.NavigationCommands().NavigateToRange(start, end)
+}
+
+func (p testFindReplaceEditorPort) Focus() { p.commands.FocusCommands().Focus() }
+
+func (p testFindReplaceEditorPort) Replace(start, end int, value string) error {
+	return p.commands.Replace(start, end, value)
+}
+
+func (p testFindReplaceEditorPort) ReplaceAll(source string) {
+	if err := p.commands.ReplaceUser(source); err != nil {
+		p.t.Errorf("replace all: %v", err)
+	}
+}
+
+func newTestFindReplaceHost(t *testing.T, a *App) *findreplaceui.Host {
+	t.Helper()
+	return findreplaceui.NewHost(findreplaceui.Options{
+		Handle: findreplaceui.NewHandle(),
+		Ports:  findreplaceui.Ports{Editor: testFindReplaceEditorPort{t: t, commands: a.noteEditor()}},
+	})
+}
+
 func TestSearchReplace(t *testing.T) {
 	a := New()
-	a.loadDoc("cat and cat and Cat\n")
-	a.showPanel(panelSearch)
-	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "cat"})
-	a.findReplace.Apply(findreplaceui.Action{Kind: findreplaceui.ReplacementChanged, Text: "dog"})
-	a.refreshSearch()
-	tt := ui.NewTester(a.View, 1200, 800)
-	tt.Frame()
-	a.goToHit(1)
-	a.replaceHit()
+	openTestSource(t, a, "cat and cat and Cat\n")
+	find := newTestFindReplaceHost(t, a)
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.QueryChanged, Query: "cat"})
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.ReplacementChanged, Text: "dog"})
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.OpenMatch, Index: 1})
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.ReplaceOne})
 	if a.documentSource() != "cat and dog and Cat\n" {
 		t.Fatalf("replace one: %q", a.documentSource())
 	}
-	a.replaceAllHits()
+	find.Apply(findreplaceui.Action{Kind: findreplaceui.ReplaceAll})
 	if a.documentSource() != "dog and dog and dog\n" {
 		t.Fatalf("replace all: %q", a.documentSource())
 	}

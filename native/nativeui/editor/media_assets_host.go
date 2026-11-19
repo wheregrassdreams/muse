@@ -3,7 +3,7 @@ package editor
 import (
 	"strings"
 
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	"muse/markdown/images"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	media "muse/nativeui/editor/blocks/media"

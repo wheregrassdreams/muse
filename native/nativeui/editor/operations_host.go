@@ -3,11 +3,11 @@ package editor
 import (
 	"sort"
 
-	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
-	"github.com/wheregrassdreams/muse-editor/text/input"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	"github.com/wheregrassdreams/muse-editor/text/input"
 	"github.com/wheregrassdreams/muse-editor/text/layout"
+	textvim "github.com/wheregrassdreams/muse-editor/text/vim"
 )
 
 // ApplyOperation executes a keymap-neutral editor intent through the shared

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	textengine "github.com/wheregrassdreams/muse-editor/text"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"github.com/wheregrassdreams/muse-editor/text/input"
@@ -115,6 +116,7 @@ func (e *Editor) modalText(text string) bool {
 		}
 		motionCount := controller.Sequence().Count
 		operatorCount := controller.Sequence().OperatorCount
+		beforeTableMotion := e.tableNavigationState()
 		intent, handled := e.Session.HandleVimKey(textengine.KeyEvent{Text: text})
 		if !handled {
 			return false
@@ -129,21 +131,28 @@ func (e *Editor) modalText(text string) bool {
 		if intent.Name == "vim.delete-range" || intent.Name == "vim.change-range" {
 			intent.Count = max(intent.Count, max(motionCount, operatorCount))
 		}
+		if intent.Name == "vim.extend-caret" && (text == "j" || text == "k" || text == "ArrowDown" || text == "ArrowUp") {
+			intent.Count = max(1, motionCount)
+		}
 		if intent.Name == "vim.start-line-selection" || intent.Name == "vim.start-selection" {
 			intent.Count = max(intent.Count, max(1, motionCount))
 		}
 		e.smoothCursorNavigation = e.opts.SmoothCursor && mode == helix.ModeNormal && !searching &&
 			(strings.HasPrefix(intent.Name, "vim.move-") || intent.Name == textvim.IntentMoveDisplayUp || intent.Name == textvim.IntentMoveDisplayDown)
 		defer func() { e.smoothCursorNavigation = previousNavigation }()
-		if e.dispatchTableVisualRowMotion(text, intent) {
+		if e.dispatchTableVisualRowMotion(text, intent, beforeTableMotion) {
+			e.restoreTextVisualAfterTableMotion(beforeTableMotion)
 			e.invalidate()
 			return true
 		}
-		if e.dispatchTableVisualHorizontalMotion(text, intent) {
+		if e.dispatchTableVisualHorizontalMotion(text, intent, beforeTableMotion) {
+			e.restoreTextVisualAfterTableMotion(beforeTableMotion)
 			e.invalidate()
 			return true
 		}
 		e.dispatchTextVimIntent(text, intent)
+		e.recordVisualTextTablePromotion(beforeTableMotion, text, max(1, intent.Count))
+		e.restoreTextVisualAfterTableMotion(beforeTableMotion)
 		e.invalidate()
 		return true
 	}
@@ -200,8 +209,8 @@ func (e *Editor) applyVimLinewiseOperator(operator string) bool {
 // either end of the selection is in a table. The text engine's extend-caret
 // intent has only a source offset; it cannot promote a cross-cell selection to
 // the table's structural region or preserve that region on the next motion.
-func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengine.Intent) bool {
-	if intent.Name != "vim.extend-caret" || e.vimController().Mode() != helix.ModeVisual {
+func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengine.Intent, before tablemodel.Snapshot) bool {
+	if (intent.Name != "vim.extend-caret" && intent.Name != "vim.move-horizontal") || e.vimController().Mode() != helix.ModeVisual {
 		return false
 	}
 	direction := 0
@@ -211,6 +220,33 @@ func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengi
 	case "l", "ArrowRight":
 		direction = 1
 	default:
+		return false
+	}
+	// Characterwise text selection remains owned by the session until it
+	// crosses a cell boundary. Applying the engine's destination directly
+	// avoids recording the pre-promotion text state as a table navigation step;
+	// the complete post-promotion state is recorded below for exact reversal.
+	if e.Keymap() == "vim" && e.tableSelection == nil && e.tableBridge == nil && e.tableDocumentRegion == nil {
+		inTable := func(offset int) bool {
+			_, _, _, ok := e.tableCellAtSourceOffset(offset)
+			return ok
+		}
+		if !inTable(e.Caret()) && !inTable(int(intent.Range.From)) && !inTable(e.Session.Selection().Anchor) {
+			return false
+		}
+		e.nativeSetCaret(int(intent.Range.From), true)
+		e.promoteVisualTextToCellRegion()
+		e.recordVisualTextTablePromotion(before, key, max(1, intent.Count))
+		if e.tableSelection != nil && e.tableSelection.cellRegion && e.tableSelection.origin == tablemodel.SelectionOriginVisualText {
+			e.vimController().SetTextVisualActive(true)
+		}
+		return true
+	}
+	// The engine's move-horizontal intent is ordinary text navigation. Only
+	// extend-caret represents a table-owned visual extension here; letting a
+	// move-horizontal intent reach dispatchTextVimIntent preserves its own
+	// direction/count semantics.
+	if intent.Name != "vim.extend-caret" {
 		return false
 	}
 	inTable := func(offset int) bool {
@@ -230,9 +266,33 @@ func (e *Editor) dispatchTableVisualHorizontalMotion(key string, intent textengi
 // structural focus. The text session's caret can remain outside that focus,
 // so applying helix.extend-caret's source offset directly would move the wrong
 // selection.
-func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Intent) bool {
-	if intent.Name != "vim.extend-caret" || e.vimController().Mode() != helix.ModeVisual {
+func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Intent, before tablemodel.Snapshot) bool {
+	if (intent.Name != "vim.extend-caret" && intent.Name != "vim.move-vertical") || e.vimController().Mode() != helix.ModeVisual {
 		return false
+	}
+	if e.Keymap() == "vim" && e.tableSelection == nil && e.vimController().View().VimTextVisualActive {
+		direction := 0
+		switch key {
+		case "j", "ArrowDown":
+			direction = 1
+		case "k", "ArrowUp":
+			direction = -1
+		default:
+			return false
+		}
+		anchorTable, anchorRow, anchorCol, anchorOK := e.tableCellAtSourceOffset(e.Session.Selection().Anchor)
+		focusTable, focusRow, focusCol, focusOK := e.tableCellAtSourceOffset(e.Caret())
+		if anchorOK && focusOK && anchorTable.lineStart == focusTable.lineStart {
+			targetRow := focusRow + direction*max(1, intent.Count)
+			if targetRow >= 0 && targetRow < len(focusTable.tab.rows) {
+				target := e.tableVisualCaretAtRow(focusTable, targetRow, e.Caret())
+				e.setSessionHead(target)
+				if e.selectTableCellRegion(anchorTable, anchorRow, anchorCol, targetRow, min(focusCol, len(focusTable.tab.rows[targetRow])-1)) {
+					e.recordVisualTextTablePromotion(before, key, max(1, intent.Count))
+					return true
+				}
+			}
+		}
 	}
 	if e.tableVisualLineMode() {
 		if e.tableSelection == nil {
@@ -250,7 +310,7 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 		default:
 			return false
 		}
-		count := e.vimLineDistance(e.Caret(), int(intent.Range.From))
+		count := max(1, intent.Count)
 		for remaining := count; remaining > 0; remaining-- {
 			s := e.tableSelection
 			t := e.tableSelectionLeaf()
@@ -281,6 +341,32 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 		}
 		return true
 	}
+	if s := e.tableSelection; s != nil && s.cellRegion {
+		direction := 0
+		switch key {
+		case "j", "ArrowDown":
+			direction = 1
+		case "k", "ArrowUp":
+			direction = -1
+		default:
+			return false
+		}
+		t := e.tableSelectionLeaf()
+		if t == nil {
+			return false
+		}
+		row := s.focusRow + direction*max(1, intent.Count)
+		if row < 0 || row >= len(t.tab.rows) {
+			return false
+		}
+		col := min(s.focusCol, len(t.tab.rows[row])-1)
+		caret := e.tableVisualCaretAtRow(t, row, e.Caret())
+		if !e.selectTableCellRegion(t, s.anchorRow, s.anchorCol, row, col) {
+			return false
+		}
+		e.setSessionHead(caret)
+		return true
+	}
 	if e.tableSelection == nil || e.tableSelection.axis != tableRows {
 		return false
 	}
@@ -294,6 +380,47 @@ func (e *Editor) dispatchTableVisualRowMotion(key string, intent textengine.Inte
 		return false
 	}
 	return e.moveStructuralRow(direction, true)
+}
+
+func (e *Editor) recordVisualTextTablePromotion(before tablemodel.Snapshot, key string, count int) {
+	if before.Mode != string(helix.ModeVisual) || before.Selection != nil || before.Bridge != nil || before.DocumentRegion != nil {
+		return
+	}
+	selection := e.tableSelection
+	if selection == nil || !selection.cellRegion || selection.origin != tablemodel.SelectionOriginVisualText {
+		return
+	}
+	rowDelta, colDelta := 0, 0
+	switch key {
+	case "j", "ArrowDown":
+		rowDelta = max(1, count)
+	case "k", "ArrowUp":
+		rowDelta = -max(1, count)
+	case "l", "ArrowRight":
+		colDelta = max(1, count)
+	case "h", "ArrowLeft":
+		colDelta = -max(1, count)
+	default:
+		return
+	}
+	e.recordTableNavigation(before, rowDelta, colDelta)
+}
+
+func (e *Editor) restoreTextVisualAfterTableMotion(before tablemodel.Snapshot) {
+	if e.Keymap() != "vim" || before.Mode != string(helix.ModeVisual) || e.vimController().Mode() != helix.ModeVisual {
+		return
+	}
+	origin := tablemodel.SelectionOriginText
+	if before.Selection != nil {
+		origin = before.Selection.Origin
+	} else if before.Bridge != nil {
+		origin = before.Bridge.Origin
+	} else if before.DocumentRegion != nil {
+		origin = before.DocumentRegion.Origin
+	}
+	if origin == tablemodel.SelectionOriginVisualText {
+		e.vimController().SetTextVisualActive(true)
+	}
 }
 
 // dispatchTextVimIntent resolves an engine intent against MyGo's document
@@ -312,6 +439,19 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 		}
 	}
 	switch intent.Name {
+	case "vim.extend-caret":
+		// Structural and bridge selections own their focus. Applying an engine
+		// source offset here can turn a reversible row/column selection into a
+		// cell rectangle and discard the bridge provenance.
+		if e.tableSelection != nil || e.tableBridge != nil || e.tableDocumentRegion != nil {
+			return
+		}
+		e.nativeSetCaret(int(intent.Range.From), true)
+		e.promoteVisualTextToCellRegion()
+		if e.tableSelection != nil && e.tableSelection.cellRegion && e.tableSelection.origin == tablemodel.SelectionOriginVisualText {
+			e.vimController().SetTextVisualActive(true)
+		}
+		return
 	case textvim.IntentMoveDisplayUp, textvim.IntentMoveDisplayDown, "vim.move-vertical":
 		direction := 1
 		if intent.Name == textvim.IntentMoveDisplayUp || key == "k" || key == "ArrowUp" ||
@@ -332,6 +472,9 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 					e.nativeVertical(direction, visual)
 				}
 			}
+		}
+		if visual {
+			e.promoteVisualTextToCellRegion()
 		}
 		return
 	case "vim.move-horizontal":
@@ -454,6 +597,9 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 func (e *Editor) dispatchVimWordIntent(key string, intent textengine.Intent, visual bool) bool {
 	if e.Keymap() != "vim" {
 		return false
+	}
+	if visual && e.vimController().View().Linewise && e.tableSelection != nil {
+		return true
 	}
 	big := key == "W" || key == "B" || key == "E"
 	direction := 0

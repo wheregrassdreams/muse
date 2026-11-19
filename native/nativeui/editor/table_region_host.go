@@ -1,8 +1,8 @@
 package editor
 
 import (
-	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

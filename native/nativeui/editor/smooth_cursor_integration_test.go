@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/nativeui/editor/feedback"
 )
 

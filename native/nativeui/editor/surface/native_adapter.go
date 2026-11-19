@@ -1,8 +1,8 @@
 package noteeditor
 
 import (
-	"muse/document"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
+	"muse/document"
 	editorui "muse/nativeui/editor"
 	workspaceui "muse/nativeui/workspace"
 	"muse/workspace"

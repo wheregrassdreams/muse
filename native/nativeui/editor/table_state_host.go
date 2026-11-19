@@ -3,9 +3,9 @@ package editor
 import (
 	"time"
 
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

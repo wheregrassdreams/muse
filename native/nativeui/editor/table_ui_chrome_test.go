@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	helix "github.com/wheregrassdreams/muse-editor/text/helix"
 	"muse/locales"
-	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

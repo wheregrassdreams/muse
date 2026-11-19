@@ -1,9 +1,10 @@
 package editor
 
 import (
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	"github.com/wheregrassdreams/muse-editor/text/input"
+	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
 	"github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	"github.com/wheregrassdreams/muse-editor/text/input"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // bindSessionAdapters connects the production presentation layer to the
@@ -92,7 +93,7 @@ func (e *Editor) resetParserForSource(source string) {
 }
 
 func (e *Editor) resetParserForChange(source string, revision uint64) {
-	frontmatterEnd := sourceModelFrontmatterEnd(source)
+	frontmatterEnd := editorsource.FrontmatterEnd(source)
 	var imageInlines []syntax.IncrementalInline
 	if frontmatterEnd == 0 {
 		imageInlines, _ = syntax.LargeDataImageOnlySource(source)
@@ -100,8 +101,4 @@ func (e *Editor) resetParserForChange(source string, revision uint64) {
 	e.p.Set(source, frontmatterEnd, imageInlines)
 	e.pending, e.pendingMulti = nil, false
 	e.parserRevision = revision
-}
-
-func sourceModelFrontmatterEnd(source string) int {
-	return frontMatterEnd(source)
 }

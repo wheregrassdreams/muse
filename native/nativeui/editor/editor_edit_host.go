@@ -7,11 +7,11 @@ import (
 	"unicode/utf8"
 
 	mdedit "github.com/wheregrassdreams/muse-editor/markdown/edit"
-	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
-	mdtext "github.com/wheregrassdreams/muse-editor/text"
 	inlineblock "github.com/wheregrassdreams/muse-editor/markdown/inline"
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
+	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	mdtext "github.com/wheregrassdreams/muse-editor/text"
 	tableui "muse/nativeui/editor/blocks/table"
 )
 

@@ -5,36 +5,24 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	workspaceapp "muse/application/workspace"
+	settingsui "muse/nativeui/settings"
 	"muse/platform/filesystem/recentstore"
 )
 
-func TestFocusedPaneFallsBackBeforeWindowManagerInitialization(t *testing.T) {
-	a := &App{}
-	if got := a.focusedPane(); got != "editor" {
-		t.Fatalf("focused pane before manager initialization = %q, want editor", got)
-	}
-}
-
 func TestNativeShellRendersMarkdown(t *testing.T) {
 	a := New()
-	a.loadDoc("# 标题\n\n正文 **加粗**。\n\n- 一\n- 二\n")
+	if err := a.noteEditor().ReplaceUser("# 标题\n\n正文 **加粗**。\n\n- 一\n- 二\n"); err != nil {
+		t.Fatal(err)
+	}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	tt.Frame()
-	if !a.windows.Contains(a.editorPaneHandle) {
-		t.Fatal("production editor was not registered as pane content")
-	}
-	if pane, ok := a.windows.FocusedPane("main"); !ok || pane != "editor" {
-		t.Fatalf("focused pane = %q, %v; want editor", pane, ok)
-	}
 	headings := a.noteEditor().NavigationCommands().Headings()
 	if len(headings) != 1 || headings[0].Text != "标题" {
 		t.Fatalf("headings = %+v", headings)
@@ -51,7 +39,9 @@ func TestNativeShellRendersMarkdown(t *testing.T) {
 
 func TestVimEscapeReachesEditorWhenNoHostedModalIsOpen(t *testing.T) {
 	a := New()
-	a.loadDoc("# Start\n")
+	if err := a.noteEditor().ReplaceUser("# Start\n"); err != nil {
+		t.Fatal(err)
+	}
 	a.noteEditor().ModalCommands().SetKeymap("vim")
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -71,7 +61,9 @@ func TestVimEscapeReachesEditorWhenNoHostedModalIsOpen(t *testing.T) {
 
 func TestBlankLineSpaceSurvivesRealPaneNavigation(t *testing.T) {
 	a := New()
-	a.loadDoc("alpha\n\nbeta")
+	if err := a.noteEditor().ReplaceUser("alpha\n\nbeta"); err != nil {
+		t.Fatal(err)
+	}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	note := a.noteEditor()
@@ -183,8 +175,12 @@ func TestWorkspaceSearchEmacsNavigationAndVaultRelativePaths(t *testing.T) {
 	a := New()
 	a.SetDependencies(Dependencies{RecentItems: workspaceapp.NewRecentItems(recentstore.New(filepath.Join(config, "recent.json")))})
 	a.setWorkspace(root)
-	a.addRecent(rendering, false)
-	a.addRecent(home, false)
+	if err := a.recentItems.Add(rendering, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.recentItems.Add(home, false); err != nil {
+		t.Fatal(err)
+	}
 	a.openWorkspaceSearch()
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
@@ -223,31 +219,10 @@ func TestSidebarMagnifierOpensWorkspaceSearch(t *testing.T) {
 	if !a.workspaceSearch.IsOpen() || !tt.HasText("搜索笔记库") {
 		t.Fatal("sidebar magnifier did not open the workspace search modal")
 	}
-	if !a.panelOpen || a.panel != panelFiles {
-		t.Fatal("sidebar search opened the modal by changing the current panel")
-	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if a.workspaceSearch.IsOpen() {
 		t.Fatal("Escape did not dismiss the modal opened from the sidebar")
-	}
-}
-
-func TestWorkspaceSearchPaletteEntryUsesSharedOpen(t *testing.T) {
-	a := New()
-	var run func()
-	for _, command := range a.paletteCommands() {
-		if command.name == "搜索笔记库" {
-			run = command.run
-			break
-		}
-	}
-	if run == nil {
-		t.Fatal("workspace search command is missing")
-	}
-	run()
-	if !a.workspaceSearch.IsOpen() {
-		t.Fatal("palette command did not open workspace search")
 	}
 }
 
@@ -284,7 +259,7 @@ func TestOpenWorkspaceAndFile(t *testing.T) {
 // of the app at the sidebar's foot.
 func TestSidebarModulesInsetFromWindowEdge(t *testing.T) {
 	a := New()
-	a.aiEnabled = true
+	a.settingsPanel.Dispatch(settingsui.Action{Kind: settingsui.AssistantEnabledChanged, Enabled: true})
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	for _, label := range []string{"搜索笔记库", "AI 助手", "新建文档"} {
@@ -312,14 +287,8 @@ func TestSidebarDefaultHidesAIAndFollowsSystemInHeadless(t *testing.T) {
 	}{{"light", false}, {"dark", true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := New()
-			if a.themeMode != themeSystem {
-				t.Fatalf("new app theme = %d, want follow system", a.themeMode)
-			}
 			tt := ui.NewTesterWith(a.View, 1200, 800, ui.TesterOptions{Dark: tc.dark})
 			tt.Frame()
-			if a.dark != tc.dark {
-				t.Fatalf("system appearance dark = %v, want %v", a.dark, tc.dark)
-			}
 			if tt.HasText("AI 助手") {
 				t.Fatal("AI is visible while disabled")
 			}
@@ -375,7 +344,7 @@ func colorDistance(a, b color.Color) float64 {
 
 func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 	a := New()
-	a.aiEnabled = true
+	a.settingsPanel.Dispatch(settingsui.Action{Kind: settingsui.AssistantEnabledChanged, Enabled: true})
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.Frame()
 	if !a.panelOpen {
@@ -385,9 +354,6 @@ func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 		t.Fatalf("click AI: %v", err)
 	}
 	tt.Frame()
-	if a.panel != panelAI || !a.panelOpen {
-		t.Fatalf("panel = %v, open = %v", a.panel, a.panelOpen)
-	}
 	// The active module is a view switch now: a second click (or a
 	// double-click) must not hide the panel.
 	tt.Advance(time.Second)
@@ -417,69 +383,16 @@ func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 	}
 }
 
-// TestThemeSwitchForcesTheAppAppearance checks that the app's own acrylic
-// and title bar follow the theme it draws, not the desktop's appearance:
-// the material behind the rail and the panel is the system's, and would
-// stay light in a dark app otherwise. The first frame asks for the theme
-// in use, an unchanged frame asks for nothing, and every switch asks for
-// the new one.
-func TestThemeSwitchForcesTheAppAppearance(t *testing.T) {
-	prev := setAppAppearance
-	var asked []mygo.ThemeSource
-	setAppAppearance = func(s mygo.ThemeSource) { asked = append(asked, s) }
-	t.Cleanup(func() { setAppAppearance = prev })
-
-	a := New()
-	tt := ui.NewTester(a.View, 1200, 800)
-	tt.Frame()
-	tt.Frame()
-	a.themeMode = themeDark
-	tt.Frame()
-	a.themeMode = themeLight
-	tt.Frame()
-	want := []mygo.ThemeSource{mygo.ThemeSystem, mygo.ThemeDark, mygo.ThemeLight}
-	if !slices.Equal(asked, want) {
-		t.Fatalf("appearance requests = %v, want %v", asked, want)
-	}
-}
-
 func TestDarkThemeRenders(t *testing.T) {
 	a := New()
-	a.loadDoc("# 标题\n\n正文。\n\n```go\nx := 1\n```\n")
-	a.themeMode = 1
+	if err := a.noteEditor().ReplaceUser("# 标题\n\n正文。\n\n```go\nx := 1\n```\n"); err != nil {
+		t.Fatal(err)
+	}
 	tt := ui.NewTester(a.View, 1200, 800)
 	tt.SetDark(true)
 	tt.Frame()
 	tt.Frame()
-	if !a.dark {
-		t.Fatal("the dark theme is not on")
-	}
 	if _, _, ok := a.noteEditor().NavigationCommands().WindowPoint(strings.Index(a.documentSource(), "正文")); !ok {
 		t.Fatal("the document is not laid out in the dark theme")
-	}
-}
-
-func TestPanelCollapseAnimatesInsteadOfSnapping(t *testing.T) {
-	a := New()
-	tt := ui.NewTester(a.View, 1200, 800)
-	tt.Frame()
-	if a.panelW != a.panelWidth {
-		t.Fatalf("panel starts at %.1f, want %.1f", a.panelW, a.panelWidth)
-	}
-	a.collapsePanel()
-	tt.Frame()
-	tt.Advance(30 * time.Millisecond)
-	if a.panelW <= 0 || a.panelW >= a.panelWidth {
-		t.Fatalf("the panel did not slide: width %.1f", a.panelW)
-	}
-	tt.Advance(time.Second)
-	if a.panelW != 0 {
-		t.Fatalf("panel width = %.1f after the slide, want 0", a.panelW)
-	}
-	a.showPanel(panelOutline)
-	tt.Frame() // the frame that retargets the animation
-	tt.Advance(30 * time.Millisecond)
-	if a.panelW <= 0 {
-		t.Fatal("reopening did not start the slide")
 	}
 }

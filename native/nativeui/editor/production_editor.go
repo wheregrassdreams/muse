@@ -23,7 +23,7 @@ import (
 	layoutindex "github.com/wheregrassdreams/muse-editor/text/layout"
 	textnav "github.com/wheregrassdreams/muse-editor/text/navigation"
 	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	"muse/markdown/images"
 	texmath "muse/markdown/math"
 	inlineui "muse/nativeui/editor/blocks/inline"

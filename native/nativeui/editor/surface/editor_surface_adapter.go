@@ -14,7 +14,7 @@ type editorSurfaceAdapter struct {
 }
 
 var (
-	_ workspaceui.Content       = (*editorSurfaceAdapter)(nil)
+	_ workspaceui.Content  = (*editorSurfaceAdapter)(nil)
 	_ DocumentOpenCommands = (*editorSurfaceAdapter)(nil)
 	_ FocusCommands        = (*editorSurfaceAdapter)(nil)
 	_ ModalCommands        = (*editorSurfaceAdapter)(nil)

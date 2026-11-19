@@ -1,8 +1,8 @@
 package tableui
 
 import (
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
+	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
 )
 
 // DispatchDocumentAction applies table actions whose behavior is defined by

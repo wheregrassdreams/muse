@@ -10,11 +10,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
+	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
+	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	documentapp "muse/application/document"
 	"muse/document"
-	editor "github.com/wheregrassdreams/muse-editor/text/session"
-	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
-	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
 	"muse/events"
 	workspaceui "muse/nativeui/workspace"
 	"muse/workspace"

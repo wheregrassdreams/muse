@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
+	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
 )
 
 func TestTableCellRegionMatrixAndClear(t *testing.T) {

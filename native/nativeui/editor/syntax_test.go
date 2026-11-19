@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/wheregrassdreams/muse-editor/markdown/source"
 
 	markdownui "muse/nativeui/markdown"
 )
@@ -315,7 +316,7 @@ func TestParserSourceFollowsEdits(t *testing.T) {
 			h.e.Replace(at, at, pieces[rng.IntN(len(pieces))])
 		}
 		h.e.sync()
-		if want := parserText(maskFrontMatter(h.e.Source(), h.e.p.FrontmatterEnd())); h.e.p.Parser().Source() != want {
+		if want := parserText(source.MaskFrontmatter(h.e.Source(), h.e.p.FrontmatterEnd())); h.e.p.Parser().Source() != want {
 			t.Fatalf("after edit %d of %q:\nparsed %q\nwant   %q", i, h.e.Source(), h.e.p.Parser().Source(), want)
 		}
 	}

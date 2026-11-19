@@ -3,7 +3,7 @@ package editor
 import (
 	"github.com/egoist/mygo/ui"
 
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 	media "muse/nativeui/editor/blocks/media"
 	"muse/nativeui/editor/navigationrail"
 	markdownui "muse/nativeui/markdown"

@@ -9,7 +9,6 @@ package nativeui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -22,6 +21,9 @@ import (
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
+	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
+	markdownsyntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	applicationagent "muse/application/agent"
 	applicationconfig "muse/application/config"
 	documentsave "muse/application/document"
@@ -34,27 +36,28 @@ import (
 	"muse/document"
 	"muse/document/frontmatter"
 	doctypes "muse/document/types"
-	editormodel "github.com/wheregrassdreams/muse-editor/text/session"
-	"github.com/wheregrassdreams/muse-editor/text/findreplace"
-	editorsource "github.com/wheregrassdreams/muse-editor/markdown/source"
 	"muse/events"
 	"muse/locales"
 	mdoc "muse/markdown"
-	"muse/markdown/diagrams"
 	"muse/markdown/images"
-	markdownsyntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 	agentui "muse/nativeui/agent"
 	backlinksui "muse/nativeui/backlinks"
 	"muse/nativeui/commandpalette"
+	commands "muse/nativeui/commands"
+	"muse/nativeui/diagnostics"
 	documentdialogs "muse/nativeui/dialogs/document"
 	dialogsui "muse/nativeui/dialogs/export"
+	filedialogs "muse/nativeui/dialogs/files"
+	"muse/nativeui/dragdrop"
 	editorui "muse/nativeui/editor"
 	inlineui "muse/nativeui/editor/blocks/inline"
 	noteeditor "muse/nativeui/editor/surface"
 	explorer "muse/nativeui/explorer"
 	imagedocumentui "muse/nativeui/imagedocument"
 	imagepreviewui "muse/nativeui/imagepreview"
+	keybindings "muse/nativeui/keybindings"
 	linkpreview "muse/nativeui/linkpreview"
+	markdownui "muse/nativeui/markdown"
 	"muse/nativeui/mermaidpreview"
 	naviconpicker "muse/nativeui/naviconpicker"
 	outlineui "muse/nativeui/outline"
@@ -63,16 +66,10 @@ import (
 	findreplaceui "muse/nativeui/search/findreplace"
 	searchui "muse/nativeui/search/workspace"
 	settingsui "muse/nativeui/settings"
-	vaulthome "muse/nativeui/vaulthome"
-	componenticons "muse/nativeui/ui/icons"
-	"muse/nativeui/diagnostics"
-	workspaceui "muse/nativeui/workspace"
-	commands "muse/nativeui/commands"
-	"muse/nativeui/dragdrop"
-	keybindings "muse/nativeui/keybindings"
-	markdownui "muse/nativeui/markdown"
 	shellui "muse/nativeui/shell"
 	windowcontrols "muse/nativeui/shell/windowcontrols"
+	componenticons "muse/nativeui/ui/icons"
+	workbenchui "muse/nativeui/workbench"
 	workspaceui "muse/nativeui/workspace"
 	vaultfiles "muse/vault/files"
 	vaultlinks "muse/vault/links"
@@ -82,58 +79,66 @@ import (
 // saveDialog is the NativeUI platform seam used by export integration tests.
 // Production delegates to MyGo's system save panel.
 var saveDialog = mygo.Dialog.Save
+var openDialog = mygo.Dialog.Open
 
 // App is the window's state: everything the view reads and the actions write.
 type App struct {
-	configRepository          applicationconfig.Repository
-	assistantSettingsLocation string
-	newWatcher                func(root string) (applicationvault.WatcherPort, error)
-	documentRepository        document.Repository
-	documentRecovery          document.RecoveryRepository
-	documentHistory           document.HistoryRepository
-	documentExportWriter      documentsave.ExportWriter
-	metadataReader            documentsave.MetadataReader
-	documentEvents            *events.Dispatcher[document.DocumentSaved]
-	documentSubscription      *events.Subscription
-	vaultSearchReconciler     applicationvault.SearchReconciler
-	newVaultIndex             applicationvault.IndexFactory
-	newVaultCatalog           applicationvault.CatalogFactory
-	fileOperations            vaultfileapp.FileOperationPort
-	imageCacheStore           images.CacheStore
-	imageLocalFiles           images.LocalFiles
-	temporaryImageStore       documentsave.TemporaryImageStore
-	openExternal              func(string) error
-	workspaceEvents           *events.Dispatcher[workspace.WorkspaceRestored]
-	workspaceRestorer         *workspaceapp.Restorer
-	workspaceSubscription     *events.Subscription
-	documents                 *documentdialogs.Handle
-	migrationHost             *documentdialogs.MigrationHost
-	exportMenu                *dialogsui.ExportController
-	exportHost                *dialogsui.ExportHost
-	vault                     *applicationvault.Session
-	vaultSnapshot             applicationvault.Snapshot
-	pendingLinks              bool
-	pendingWiki               string
-	workspaceSearch           *searchui.Handle
-	indexedPath               string
-	indexedOffset             int
-	indexedRevision           string
-	win                       *mygo.Window
-	windows                   *workspaceui.Manager
-	workspaceSession          *workspaceapp.Session
-	workspaceHost             *workspaceui.Host
-	workspaceState            workspace.State
-	activePane                workspace.PaneID
-	imagePreview              imagepreviewui.Host
-	imageDocument             *imagedocumentui.Controller
-	quickOpen                 *quickopenui.Controller
-	mermaidPreviewHandle      workspaceui.Handle
-	backlinksHandle           workspaceui.Handle
-	linkPreview               linkpreview.Host
-	navIconPicker             *naviconpicker.Host
+	configRepository           applicationconfig.Repository
+	assistantSettingsLocation  string
+	newWatcher                 func(root string) (applicationvault.WatcherPort, error)
+	documentRepository         document.Repository
+	documentRecovery           document.RecoveryRepository
+	documentHistory            document.HistoryRepository
+	documentExportWriter       documentsave.ExportWriter
+	metadataReader             documentsave.MetadataReader
+	documentEvents             *events.Dispatcher[document.DocumentSaved]
+	documentSubscription       *events.Subscription
+	agentWorkspaceMutations    *applicationagent.WorkspaceMutationService
+	agentWorkspaceEvents       *events.Dispatcher[applicationagent.WorkspaceMutation]
+	agentWorkspaceSubscription *events.Subscription
+	vaultSearchReconciler      applicationvault.SearchReconciler
+	newVaultIndex              applicationvault.IndexFactory
+	newVaultCatalog            applicationvault.CatalogFactory
+	fileOperations             vaultfileapp.FileOperationPort
+	imageCacheStore            images.CacheStore
+	imageLocalFiles            images.LocalFiles
+	temporaryImageStore        documentsave.TemporaryImageStore
+	openExternal               func(string) error
+	workspaceEvents            *events.Dispatcher[workspace.WorkspaceRestored]
+	workspaceRestorer          *workspaceapp.Restorer
+	workspaceSubscription      *events.Subscription
+	documents                  *documentdialogs.Handle
+	migrationHost              *documentdialogs.MigrationHost
+	exportMenu                 *dialogsui.ExportController
+	exportHost                 *dialogsui.ExportHost
+	vault                      *applicationvault.Session
+	vaultSnapshot              applicationvault.Snapshot
+	pendingLinks               bool
+	pendingWiki                string
+	workspaceSearch            *searchui.Handle
+	indexedPath                string
+	indexedOffset              int
+	indexedRevision            string
+	win                        *mygo.Window
+	windows                    *workspaceui.Manager
+	workspaceSession           *workspaceapp.Session
+	workspaceHost              *workspaceui.Host
+	workbench                  *workbenchui.Host
+	workspaceLifecycle         *shellui.WorkspaceLifecycle
+	workspaceState             workspace.State
+	activePane                 workspace.PaneID
+	imagePreview               imagepreviewui.Host
+	imageDocument              *imagedocumentui.Controller
+	documentSave               *noteeditor.SaveActions
+	quickOpen                  *quickopenui.Controller
+	mermaidPreviewHandle       workspaceui.Handle
+	backlinksHandle            workspaceui.Handle
+	linkPreview                linkpreview.Host
+	navIconPicker              *naviconpicker.Host
 
 	// commandpalette owns its transient query, selection, and open state.
 	commandPalette *commandpalette.Host
+	fileDialogs    *filedialogs.Host
 
 	// appearance
 	navigationHistory *workspaceapp.DocumentHistory
@@ -261,6 +266,7 @@ func NewWithDependencies(deps Dependencies) *App {
 	a := &App{
 		configRepository:          deps.Configuration,
 		assistantSettingsLocation: deps.AssistantSettingsLocation,
+		agentWorkspaceEvents:      events.New[applicationagent.WorkspaceMutation](),
 		newWatcher:                deps.NewWatcher,
 		documentRepository:        deps.Documents,
 		documentRecovery:          deps.Recovery,
@@ -297,6 +303,47 @@ func NewWithDependencies(deps Dependencies) *App {
 		activeLinkIndex:           &vaultlinkapp.ActiveLinkIndex{},
 		documents:                 documentdialogs.NewHandle(),
 	}
+	a.fileDialogs = filedialogs.NewHost(filedialogs.Ports{
+		Busy: func() bool { return a.busy },
+		Choose: func(_ context.Context, request filedialogs.Request) ([]string, error) {
+			options := mygo.OpenDialogOptions{Parent: a.win, Title: request.Title, Directory: request.Kind == filedialogs.SelectFolder}
+			if request.Kind == filedialogs.SelectFile && request.FilterName != "" {
+				options.Filters = []mygo.FileFilter{{Name: request.FilterName, Extensions: append([]string(nil), request.Extensions...)}}
+			}
+			return openDialog(options)
+		},
+		ChooseSave: func(_ context.Context, request filedialogs.Request) (string, error) {
+			options := mygo.SaveDialogOptions{Parent: a.win, Title: request.Title, DefaultPath: request.DefaultPath}
+			if request.FilterName != "" {
+				options.Filters = []mygo.FileFilter{{Name: request.FilterName, Extensions: append([]string(nil), request.Extensions...)}}
+			}
+			return saveDialog(options)
+		},
+		Start: func() { a.onMain(func() { a.busy = true; a.invalidate() }) },
+		Finish: func(callback func()) {
+			a.onMain(func() {
+				a.busy = false
+				if callback != nil {
+					callback()
+				}
+				a.invalidate()
+			})
+		},
+		OnFile:   func(path string) { a.requestOpen(path) },
+		OnFolder: func(path string) { a.setWorkspace(path) },
+		OnSave: func(path string) {
+			if a.documentSave != nil {
+				a.documentSave.CommitSaveAs(path)
+			}
+		},
+	})
+	a.agentWorkspaceMutations = applicationagent.NewWorkspaceMutationService(
+		a.documentRepository, a.documentRecovery, a.documentEvents,
+		func(root string) *vaultfileapp.FileUseCases {
+			return vaultfileapp.NewFileUseCases(root, a.fileOperations, a.catalogIsDirectory)
+		}, a.agentWorkspaceEvents,
+	)
+	a.agentWorkspaceSubscription = a.agentWorkspaceEvents.Subscribe(a.handleAgentWorkspaceMutation)
 	a.assistant = newAssistantHost(a)
 	a.exportHost = dialogsui.NewExportHost(dialogsui.ExportPorts{
 		Busy:              func() bool { return a.busy },
@@ -409,6 +456,19 @@ func NewWithDependencies(deps Dependencies) *App {
 		Configuration: deps.Configuration,
 		Assistant:     a.assistant,
 		SettingsPath:  deps.AssistantSettingsLocation,
+		Keymap: func() string {
+			if commands := a.noteEditor(); commands != nil && commands.ModalCommands() != nil {
+				return commands.ModalCommands().Keymap()
+			}
+			return ""
+		},
+		ApplyEditor: func(settings settingsui.Editor) {
+			if commands := a.noteEditor(); commands != nil && commands.ModalCommands() != nil {
+				commands.ModalCommands().SetKeymap(settings.Keymap)
+			}
+			a.configureActiveNote(0)
+			a.invalidate()
+		},
 		ApplyTheme: func(settingsui.ThemeMode) {
 			a.themeApplied = -1
 			a.invalidate()
@@ -455,6 +515,35 @@ func NewWithDependencies(deps Dependencies) *App {
 	})
 	a.linkPreview = linkpreview.NewController(linkpreview.ControllerOptions{Ports: a.linkPreviewPorts()})
 	a.initializeWorkspace(deps.Workspace)
+	a.documentSave = noteeditor.NewSaveActions(noteeditor.SaveActionPorts{
+		Workflows:    a.documentWorkflows,
+		CurrentPath:  a.documentPath,
+		UntitledName: locales.DocumentUntitled,
+		RequestSaveAs: func(defaultPath string) {
+			if a.fileDialogs == nil {
+				return
+			}
+			a.fileDialogs.SaveFile(filedialogs.Request{
+				Title: locales.CommonSaveFile(), DefaultPath: defaultPath,
+				FilterName: locales.CommonTextFiles(), Extensions: doctypes.EditableExtensions(),
+			})
+		},
+		RecordSavedPath: func(path string) {
+			if a.workspaceSession == nil {
+				return
+			}
+			plan, err := a.workspaceSession.RecordActiveDocument(workspaceapp.ActiveDocumentSnapshot{Path: path, PaneID: a.focusedPane()})
+			if err == nil {
+				a.workspaceState, a.activePane = plan.State, plan.PaneID
+				_ = a.workspaceRestorer.Persist(plan.State)
+			}
+		},
+		SelectPath:  func(path string) { a.selectedPath = path },
+		NotifyError: func(err error) { a.notice(locales.CommonSaveError(err.Error())) },
+		NotifySaved: func() { a.notice(locales.DocumentSaved()) },
+		Invalidate:  a.invalidate,
+	})
+	a.initializeWorkbench()
 	return a
 }
 
@@ -482,8 +571,30 @@ func (a *App) initializeWorkspace(repository workspace.Repository) {
 	}
 	a.workspaceSession = session
 	a.workspaceState = session.Snapshot()
+	if restoredRoot := plan.State.VaultPath; restoredRoot != "" {
+		a.root = restoredRoot
+	}
 	a.workspaceHost = workspaceui.NewHost(workspaceui.Ports{
 		Windows: a.windows, Host: workspaceui.MainHost, OpenPane: a.openWorkspacePane,
+	})
+	a.workspaceLifecycle = shellui.NewWorkspaceLifecycle(shellui.WorkspaceLifecyclePorts{
+		Session: session, Restore: a.workspaceHost, CurrentDocument: a.documentPath,
+		CloseVault: func() {
+			if a.vault == nil {
+				return
+			}
+			old := a.vault
+			a.vault = nil
+			a.vaultSnapshot = applicationvault.Snapshot{}
+			a.directoryCatalog.CloseSession(old)
+			go old.Close()
+		},
+		SetRoot: func(root string) {
+			a.root, a.selectedPath = root, ""
+			a.directoryCatalog.Invalidate()
+			a.panel, a.panelOpen = shellui.SurfaceFiles, true
+		},
+		Persist: a.workspaceRestorer.Persist,
 	})
 	if err := a.workspaceHost.OpenRestorePlan(plan); err != nil {
 		panic(err)
@@ -526,6 +637,9 @@ func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (workspaceui.Ha
 	if err != nil {
 		return workspaceui.Handle{}, err
 	}
+	if modal := content.ModalCommands(); modal != nil && a.settingsPanel != nil {
+		modal.SetKeymap(a.settingsPanel.Runtime().Editor.Keymap)
+	}
 	handle, err := a.windows.Open(content, workspaceui.Placement{
 		Host: workspaceui.MainHost, Pane: workspaceui.PaneID(request.PaneID), Layer: workspaceui.PaneContent,
 	})
@@ -535,6 +649,7 @@ func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (workspaceui.Ha
 	}
 	if request.Focused {
 		a.activePane = request.PaneID
+		a.configureActiveNote(0)
 	}
 	return handle, nil
 }
@@ -551,6 +666,9 @@ func (a *App) editorOptions() editorui.Options {
 		ResolveWikiLink:           a.resolveWikiLinkStyle,
 		OnImagePreview:            a.openImagePreview,
 		OnDiagramPreview:          a.openMermaidPreview,
+	}
+	if a.flat {
+		options.TopInset = editorHeaderH
 	}
 	if a == nil || a.settingsPanel == nil {
 		return options
@@ -573,6 +691,11 @@ func (a *App) editorOptions() editorui.Options {
 		if !doctypes.IsMarkdownPath(path) {
 			options.Code = strings.TrimPrefix(filepath.Ext(path), ".")
 		}
+	}
+	if a.propertiesPanel != nil && a.propertiesPanel.Enabled() {
+		options.Header = func(c *ui.Context) { a.propertiesPanel.RenderSummary(c) }
+		options.HeaderHeight = 160
+		options.HideFrontmatter = a.propertiesPanel.ViewModel().Error == ""
 	}
 	return options
 }
@@ -620,6 +743,178 @@ func (a *App) focusedPane() workspace.PaneID {
 		return a.workspaceHost.FocusedPane(a.activePane)
 	}
 	return a.activePane
+}
+
+func (a *App) openFileDialog() {
+	if a == nil || a.fileDialogs == nil {
+		return
+	}
+	if a.root == "" {
+		a.openWorkspaceSearch()
+		return
+	}
+	a.fileDialogs.OpenFile(filedialogs.Request{
+		Title: locales.CommonDialogFileTitle(), FilterName: locales.CommonDialogOpenFileFilter(),
+		Extensions: append(doctypes.EditableExtensions(), doctypes.ImageExtensions()...),
+	})
+}
+
+func (a *App) openFolderDialog() {
+	if a == nil || a.fileDialogs == nil {
+		return
+	}
+	a.fileDialogs.OpenFolder(filedialogs.Request{Title: locales.CommonDialogFolderTitle()})
+}
+
+func (a *App) setWorkspace(root string) {
+	if a == nil || a.workspaceLifecycle == nil {
+		return
+	}
+	if err := a.workspaceLifecycle.SwitchVault(root); err != nil {
+		a.notice(err.Error())
+		return
+	}
+	a.workspaceState = a.workspaceSession.Snapshot()
+	a.activePane = a.workspaceHost.FocusedPane(a.activePane)
+	a.ensureVaultSession()
+	a.invalidate()
+}
+
+func (a *App) openWorkspaceSearch() {
+	if a == nil || a.workspaceSearch == nil {
+		return
+	}
+	a.closeQuickOpen()
+	if a.commandPalette != nil {
+		a.commandPalette.Close()
+	}
+	if a.root == "" && a.documentPath() != "" {
+		a.root = filepath.Dir(a.documentPath())
+	}
+	a.workspaceSearch.Open()
+	a.invalidate()
+}
+
+func (a *App) togglePanel(surface shellui.Surface) {
+	if a == nil {
+		return
+	}
+	if a.panelOpen && a.panel == surface {
+		a.panelOpen = false
+		a.panelW = 0
+	} else {
+		a.panel, a.panelOpen = surface, true
+		if a.panelWidth <= 0 {
+			a.panelWidth = 268
+		}
+		a.panelW = a.panelWidth
+	}
+	a.invalidate()
+}
+
+func (a *App) navigateIndexed(path string, offset int) {
+	if a == nil || path == "" || a.root == "" {
+		return
+	}
+	full := filepath.Join(a.root, filepath.FromSlash(path))
+	if filepath.Clean(full) == filepath.Clean(a.documentPath()) {
+		if editor := a.noteEditor(); editor != nil {
+			editor.NavigationCommands().ScrollToOffset(editorsource.OffsetInNormalizedSource(a.diskSource(), offset))
+		}
+		return
+	}
+	a.indexedPath, a.indexedOffset = full, offset
+	a.requestOpen(full)
+	if editor := a.noteEditor(); editor != nil && filepath.Clean(editor.Snapshot().Path) == filepath.Clean(full) {
+		editor.NavigationCommands().ScrollToOffset(editorsource.OffsetInNormalizedSource(editor.Snapshot().DiskSource, offset))
+	}
+}
+
+func (a *App) documentWorkflows() documentsave.SessionWorkflows {
+	commands := a.noteEditor()
+	return documentsave.SessionWorkflows{
+		Repository: a.documentRepository, Recovery: a.documentRecovery, History: a.documentHistory,
+		Editing: noteeditor.WorkflowEditingPort(commands),
+		Save: func(path, source string, expected document.Revision) error {
+			if commands == nil {
+				return documentsave.ErrWorkflowUnavailable
+			}
+			_, err := commands.SaveExact(path, source, expected)
+			return err
+		},
+	}
+}
+
+func (a *App) save() {
+	if a != nil && a.documentSave != nil {
+		a.documentSave.Save()
+	}
+}
+
+func (a *App) newDoc() {
+	if a == nil || a.noteEditor() == nil {
+		return
+	}
+	commands := a.noteEditor()
+	if commands.Snapshot().Dirty {
+		if _, err := commands.PreserveDraft(); err != nil {
+			a.notice(err.Error())
+			return
+		}
+	}
+	if err := commands.Open(document.NewNote("", "", document.RevisionOf("")), 0); err != nil {
+		a.notice(err.Error())
+		return
+	}
+	if a.workspaceSession != nil {
+		if plan, err := a.workspaceSession.RecordActiveDocument(workspaceapp.ActiveDocumentSnapshot{PaneID: a.focusedPane()}); err == nil {
+			a.workspaceState, a.activePane = plan.State, plan.PaneID
+			_ = a.workspaceRestorer.Persist(plan.State)
+		}
+	}
+	a.selectedPath = ""
+	a.invalidate()
+}
+
+func (a *App) catalogIsDirectory(path string) bool {
+	return a != nil && a.vault != nil && path != "" &&
+		a.vaultFileUseCases().IsCatalogDirectory(a.vault, path)
+}
+
+func (a *App) newFileIn(directory string) {
+	if a == nil {
+		return
+	}
+	explorer.HandleAction(explorer.Action{Kind: explorer.CreateFile, Directory: directory}, explorer.ActionPorts{
+		CreateNote: func(directory string) (string, error) {
+			source, err := documentsave.NewNoteSource(time.Now())
+			if err != nil {
+				return "", err
+			}
+			return a.vaultFileUseCases().CreateFile(vaultfileapp.CreateFileCommand{
+				Directory: directory, Name: locales.DocumentUntitled(), Extension: ".md", Content: []byte(source),
+			})
+		},
+		Open:       a.requestOpen,
+		OnError:    func(err error) { a.notice(locales.CommonCreateFailed(err.Error())) },
+		Invalidate: a.invalidate,
+	})
+}
+
+func (a *App) newFolderIn(directory string) {
+	if a == nil {
+		return
+	}
+	explorer.HandleAction(explorer.Action{Kind: explorer.CreateFolder, Directory: directory}, explorer.ActionPorts{
+		CreateFolder: func(directory string) error {
+			_, err := a.vaultFileUseCases().CreateFolder(vaultfileapp.CreateFolderCommand{
+				Directory: directory, Name: locales.FilesNewFolderDefault(),
+			})
+			return err
+		},
+		OnError:    func(err error) { a.notice(locales.CommonCreateFailed(err.Error())) },
+		Invalidate: a.invalidate,
+	})
 }
 
 func (a *App) vaultRelativePath(path string) (string, bool) {
@@ -690,12 +985,20 @@ func (a *App) configureActiveNote(_ int) {
 	}
 	settings := a.editorOptions()
 	current := commands.PresentationCommands().Settings()
+	if modal := commands.ModalCommands(); modal != nil {
+		modal.SetKeymap(a.settingsPanel.Runtime().Editor.Keymap)
+	}
 	current.FontSize, current.LineHeight = settings.FontSize, settings.LineHeight
 	current.DisableSmartTypography = settings.DisableSmartTypography
 	current.HeadingMarkerReveal, current.VimVirtualImageRows = settings.HeadingMarkerReveal, settings.VimVirtualImageRows
 	current.CursorFade, current.SmoothCursor, current.HideMouseCursor = settings.CursorFade, settings.SmoothCursor, settings.HideMouseCursor
 	current.SmoothPageJumps, current.SearchMatchPulse, current.VimYankFlash = settings.SmoothPageJumps, settings.SearchMatchPulse, settings.VimYankFlash
 	current.BaseDir, current.AssetRoot, current.CurrentPath, current.Code = settings.BaseDir, settings.AssetRoot, settings.CurrentPath, settings.Code
+	current.Header, current.HeaderHeight, current.HideFrontmatter = settings.Header, settings.HeaderHeight, settings.HideFrontmatter
+	current.TopInset = 0
+	if a.flat {
+		current.TopInset = editorHeaderH
+	}
 	commands.PresentationCommands().Configure(current)
 }
 
@@ -914,7 +1217,9 @@ func (a *App) runPaletteCommand(id commandpalette.CommandID) {
 	case commandpalette.DocumentSave:
 		a.save()
 	case commandpalette.DocumentSaveAs:
-		a.saveAs()
+		if a.documentSave != nil {
+			a.documentSave.RequestSaveAs()
+		}
 	case commandpalette.WorkspaceSearch, commandpalette.WorkspaceSearchAll:
 		a.openWorkspaceSearch()
 	case commandpalette.WorkspaceQuickOpen:
@@ -1051,7 +1356,7 @@ func newAssistantHost(app *App) *agentui.Host {
 	settings := config.DefaultAssistantSettings()
 	session := applicationagent.NewSession(settings, nil, applicationagent.Capabilities{
 		Tools: applicationagent.Executor{Operations: applicationagent.DynamicWorkspaceOperations{
-			Provider: appAssistantWorkspaceProvider{app: app},
+			Provider: assistantWorkspaceAdapter(app),
 		}},
 		Policy: applicationagent.DefaultToolPolicy{},
 	})
@@ -1171,133 +1476,120 @@ func (p appAssistantModelProvider) ListModels(ctx context.Context, credentials a
 	return p.provider.ListModels(ctx, credentials)
 }
 
-type appAssistantWorkspaceProvider struct{ app *App }
-
-func (p appAssistantWorkspaceProvider) Workspace(ctx context.Context) (applicationagent.WorkspaceMutationPort, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if p.app == nil {
-		return nil, applicationagent.ErrUnavailable
-	}
-	var root, path, source string
-	p.app.onMain(func() { root, path, source = p.app.root, p.app.documentPath(), p.app.documentSource() })
-	if root == "" {
-		return nil, errors.New("workspace is unavailable")
-	}
-	if p.app.newAgentWorkspace == nil {
-		return nil, errors.New("assistant workspace adapter is not configured")
-	}
-	workspacePort, err := p.app.newAgentWorkspace(root, func() (string, string) { return path, source })
-	if err != nil {
-		return nil, err
-	}
-	directory, _ := workspacePort.(applicationagent.WorkspaceDirectoryPort)
-	return &appAssistantWorkspace{app: p.app, WorkspacePort: workspacePort, Directory: directory}, nil
-}
-
-type appAssistantWorkspace struct {
-	app *App
-	applicationagent.WorkspacePort
-	Directory applicationagent.WorkspaceDirectoryPort
-}
-
-func (w *appAssistantWorkspace) DestinationRevision(path string) (string, error) {
-	revision, err := w.app.destinationRevision(path)
-	return string(revision), err
-}
-
-func (w *appAssistantWorkspace) CurrentDocumentDirty() bool {
-	var dirty bool
-	w.app.onMain(func() { dirty = w.app.documentDirty() })
-	return dirty
-}
-
-func (w *appAssistantWorkspace) SaveDocument(path, content, expected string) error {
-	return w.app.saveExternalDocument(path, content, document.Revision(expected))
-}
-
-func (w *appAssistantWorkspace) ApplyCurrentDocument(content string) error {
-	var err error
-	w.app.onMain(func() {
-		if w.app.documentPath() == "" && w.app.documentSource() == "" {
-			err = errors.New("current document is empty")
+// assistantWorkspaceAdapter binds the application-owned mutation workflow to
+// the feature-owned typed workspace capability. UI work is limited to editor
+// snapshot/edit access and the marshalled mutation event consumer.
+func assistantWorkspaceAdapter(a *App) *agentui.WorkspaceAdapter {
+	return agentui.NewWorkspaceAdapter(agentui.WorkspaceAdapterPorts{
+		Current: func() (root, path, source string) {
+			if a != nil {
+				a.onMain(func() { root, path, source = a.root, a.documentPath(), a.documentSource() })
+			}
 			return
+		},
+		NewWorkspace: func(root string, current applicationagent.CurrentDocument) (applicationagent.WorkspacePort, error) {
+			if a == nil || a.newAgentWorkspace == nil {
+				return nil, applicationagent.ErrUnavailable
+			}
+			return a.newAgentWorkspace(root, current)
+		},
+		CurrentDocumentDirty: func() bool {
+			dirty := false
+			if a != nil {
+				a.onMain(func() {
+					if editor := a.noteEditor(); editor != nil {
+						dirty = editor.Snapshot().Dirty
+					}
+				})
+			}
+			return dirty
+		},
+		DestinationRevision: a.agentWorkspaceMutations.DestinationRevision,
+		SaveDocument:        a.agentWorkspaceMutations.SaveDocument,
+		MoveDocument:        a.agentWorkspaceMutations.MoveDocument,
+		TrashDocuments:      a.agentWorkspaceMutations.TrashDocuments,
+		CreateFolder: func(root, path string) error {
+			return a.agentWorkspaceMutations.CreateFolder(root, path)
+		},
+		ApplyCurrentDocument: func(source string) error {
+			if a == nil {
+				return applicationagent.ErrUnavailable
+			}
+			var err error
+			a.onMain(func() {
+				if editor := a.noteEditor(); editor == nil || editor.Snapshot().Path == "" && editor.Snapshot().Source == "" {
+					err = errors.New("current document is empty")
+					return
+				} else {
+					err = editor.ReplaceUser(source)
+				}
+			})
+			return err
+		},
+	})
+}
+
+func (a *App) handleAgentWorkspaceMutation(mutation applicationagent.WorkspaceMutation) {
+	if a == nil {
+		return
+	}
+	a.onMain(func() {
+		if a.directoryCatalog != nil {
+			a.directoryCatalog.Invalidate()
 		}
-		w.app.editDoc(content)
-	})
-	return err
-}
-
-func (w *appAssistantWorkspace) MoveDocument(root, source, target string) (string, error) {
-	files := vaultfileapp.NewFileUseCases(root, w.app.fileOperations, w.app.isVaultDirectory)
-	mutation, err := files.MoveFileTo(source, target)
-	if err != nil {
-		return "", err
-	}
-	if len(mutation.Moves) == 0 {
-		return "", vaultfileapp.ErrFileOperationsUnavailable
-	}
-	w.app.onMain(func() {
-		w.app.clearTreeCache()
-		w.app.remapTreePaths(mutation.Moves)
-		w.app.addRecent(target, false)
-		w.app.invalidate()
-	})
-	w.refresh(source, target)
-	return mutation.Moves[0].Target, nil
-}
-
-func (w *appAssistantWorkspace) TrashDocuments(root string, paths []string) error {
-	files := vaultfileapp.NewFileUseCases(root, w.app.fileOperations, w.app.isVaultDirectory)
-	mutation, err := files.TrashFiles(paths)
-	if err != nil {
-		return err
-	}
-	w.app.onMain(func() {
-		for _, path := range mutation.Trashed {
-			w.app.clearTreeCache()
-			if filepath.Clean(path) == filepath.Clean(w.app.documentPath()) {
-				w.app.resetDoc()
+		if a.fileTreeState != nil {
+			a.fileTreeState.InvalidateRows()
+		}
+		switch mutation.Kind {
+		case applicationagent.WorkspaceDocumentMoved:
+			for _, move := range mutation.Moves {
+				if a.fileTreeState != nil {
+					a.fileTreeState.RemapIDs(func(path string) string {
+						if path == move.Source || strings.HasPrefix(path, move.Source+string(filepath.Separator)) {
+							return move.Target + strings.TrimPrefix(path, move.Source)
+						}
+						return path
+					})
+				}
+				if a.recentItems != nil {
+					_ = a.recentItems.Add(move.Target, false)
+				}
+				if filepath.Clean(a.documentPath()) == filepath.Clean(move.Source) && a.documentRepository != nil {
+					if note, err := a.documentRepository.Read(move.Target); err == nil {
+						if editor := a.noteEditor(); editor != nil {
+							_ = editor.Relocate(note)
+						}
+						if a.workspaceSession != nil {
+							if plan, err := a.workspaceSession.RecordActiveDocument(workspaceapp.ActiveDocumentSnapshot{Path: move.Target, PaneID: a.focusedPane()}); err == nil {
+								a.workspaceState = plan.State
+								_ = a.workspaceRestorer.Persist(plan.State)
+							}
+						}
+					}
+				}
+				if a.vault != nil {
+					_ = a.vault.Refresh(move.Source, move.Target)
+				}
+			}
+		case applicationagent.WorkspaceDocumentsTrashed:
+			for _, path := range mutation.Trashed {
+				if filepath.Clean(path) == filepath.Clean(a.documentPath()) {
+					if editor := a.noteEditor(); editor != nil {
+						_ = editor.Open(document.NewNote("", "", document.RevisionOf("")), 0)
+					}
+				}
+			}
+			if a.vault != nil {
+				_ = a.vault.Refresh(mutation.Trashed...)
+			}
+		case applicationagent.WorkspaceFolderCreated:
+			if a.vault != nil {
+				_ = a.vault.Refresh(mutation.Path)
 			}
 		}
-		w.app.invalidate()
+		a.invalidate()
 	})
-	w.refresh(mutation.Trashed...)
-	return nil
 }
-
-func (w *appAssistantWorkspace) CreateFolder(path string) error {
-	if w.app == nil {
-		return vaultfileapp.ErrFileOperationsUnavailable
-	}
-	root := ""
-	w.app.onMain(func() { root = w.app.root })
-	files := vaultfileapp.NewFileUseCases(root, w.app.fileOperations, w.app.isVaultDirectory)
-	if _, err := files.CreateFolderAt(path); err != nil {
-		return err
-	}
-	w.app.onMain(func() { w.app.clearTreeCache(); w.app.invalidate() })
-	w.refresh(path)
-	return nil
-}
-
-func (w *appAssistantWorkspace) Exists(path string) (bool, error) {
-	if w.Directory == nil {
-		return false, errors.New("workspace directory operations are unavailable")
-	}
-	return w.Directory.Exists(path)
-}
-
-func (w *appAssistantWorkspace) refresh(paths ...string) {
-	var vault *applicationvault.Session
-	w.app.onMain(func() { vault = w.app.vault })
-	if vault != nil {
-		_ = vault.Refresh(paths...)
-	}
-}
-
-var _ applicationagent.WorkspaceMutationPort = (*appAssistantWorkspace)(nil)
 
 func (a *App) openQuickOpen() {
 	if a == nil {
@@ -1353,7 +1645,7 @@ func newImageDocumentController(a *App) *imagedocumentui.Controller {
 			}
 			a.selectedPath = path
 		},
-		OnRecordHistory: a.pushNav,
+		OnRecordHistory: a.navigationHistory.Push,
 		OnNotice: func(err error) {
 			if err != nil {
 				a.notice(err.Error())
@@ -1361,7 +1653,6 @@ func newImageDocumentController(a *App) *imagedocumentui.Controller {
 		},
 		OnDecodeError: func(path string) { a.notice(locales.ImageDecodeError(filepath.Base(path))) },
 		OnChanged: func() {
-			a.updateTitle()
 			a.invalidate()
 		},
 	})
@@ -1448,7 +1739,12 @@ func (a *App) routeExplorerAction(action explorer.Action) {
 			a.invalidate()
 		},
 		Invalidate: func() {
-			a.clearTreeCache()
+			if a.directoryCatalog != nil {
+				a.directoryCatalog.Invalidate()
+			}
+			if a.fileTreeState != nil {
+				a.fileTreeState.InvalidateRows()
+			}
 			a.invalidate()
 		},
 	})
@@ -1519,7 +1815,6 @@ func (a *App) openLinks() {
 	if a == nil {
 		return
 	}
-	a.enableDocumentServices()
 	session := a.vault
 	if session == nil || !a.vaultSnapshot.Ready {
 		a.pendingLinks = true

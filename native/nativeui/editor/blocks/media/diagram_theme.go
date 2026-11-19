@@ -4,7 +4,7 @@ import (
 	"image/color"
 
 	"github.com/egoist/mygo/ui"
-	"muse/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
 )
 
 // DiagramTheme projects resolved editor colors into the renderer-neutral

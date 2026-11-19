@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"muse/document"
 	editor "github.com/wheregrassdreams/muse-editor/text/session"
+	"muse/document"
 	workspaceui "muse/nativeui/workspace"
 	"muse/platform/filesystem/documentstore"
 	"muse/workspace"
@@ -25,7 +25,7 @@ type testSurface struct {
 }
 
 var (
-	_ workspaceui.Content           = (*testSurface)(nil)
+	_ workspaceui.Content      = (*testSurface)(nil)
 	_ FocusCommands            = (*testSurface)(nil)
 	_ ModalCommands            = (*testSurface)(nil)
 	_ NavigationCommands       = (*testSurface)(nil)
