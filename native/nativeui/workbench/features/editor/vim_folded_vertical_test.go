@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestVimDownFromFirstTwoCharactersOfFoldedInlineParagraph(t *testing.T) {
@@ -128,6 +130,55 @@ func TestVimVerticalNavigationAcrossStructuralRows(t *testing.T) {
 			t.Fatal("vertical navigation changed source")
 		}
 	})
+}
+
+func TestVimPhysicalArrowUpMovesOneRow(t *testing.T) {
+	const src = "alpha\nbeta\ngamma\ndelta"
+	h := newHarness(t, src)
+	h.e.SetKeymap("vim")
+	start := strings.Index(src, "gamma") + 2
+	h.e.Select(start, start)
+	h.frame()
+	before, ok := h.e.caretRect(h.e.Caret())
+	if !ok {
+		t.Fatal("starting caret has no geometry")
+	}
+	h.key(0, ui.KeyUp)
+	after, ok := h.e.caretRect(h.e.Caret())
+	if !ok || after.Y >= before.Y {
+		t.Fatalf("ArrowUp did not move upward: before=%+v after=%+v", before, after)
+	}
+	if got, want := h.e.Caret(), strings.Index(src, "beta")+2; got != want {
+		t.Fatalf("one physical ArrowUp moved caret to %d, want one row up at %d (%q)", got, want, src[got:])
+	}
+}
+
+func TestVimPhysicalArrowUpAcrossMultipleBlankRows(t *testing.T) {
+	const src = "alpha\n\n\n\nbeta\ngamma"
+	for _, tc := range []struct {
+		name, key string
+		column    int
+		physical  bool
+	}{
+		{name: "arrow at column 2", key: "Up", column: 2, physical: true},
+		{name: "arrow at column 4", key: "Up", column: 4, physical: true},
+		{name: "k at column 2", key: "k", column: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, src)
+			h.e.SetKeymap("vim")
+			h.e.Select(strings.Index(src, "beta")+tc.column, strings.Index(src, "beta")+tc.column)
+			h.frame()
+			if tc.physical {
+				h.key(0, ui.KeyUp)
+			} else {
+				h.e.modalText(tc.key)
+			}
+			if got, want := h.e.Caret(), strings.Index(src, "beta")-1; got != want {
+				t.Fatalf("one %s skipped or missed the adjacent blank row: caret=%d want=%d", tc.key, got, want)
+			}
+		})
+	}
 }
 
 func TestVimRightNavigationCrossesCollapsedInlineSyntax(t *testing.T) {

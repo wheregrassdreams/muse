@@ -497,8 +497,6 @@ func (e *Editor) dispatchTextVimIntent(key string, intent textengine.Intent) {
 			// single key while the caret is inside a tall image. Virtual rows are
 			// visual positions over one source line, so preserve the key count.
 			count = max(1, intent.Count)
-		} else if intent.Name == "vim.move-vertical" && (e.tableSelection == nil || !e.tableSelection.cellRegion) {
-			count = e.vimLineDistance(e.Caret(), int(intent.Range.From))
 		}
 		for range count {
 			if !e.moveTableCellRegion(direction, 0) {
@@ -721,26 +719,6 @@ func (e *Editor) vimYankFlashRange(register string, linewise bool) (int, int, bo
 		return start, end, true
 	}
 	return 0, 0, false
-}
-
-func (e *Editor) vimLineDistance(from, to int) int {
-	lineAt := func(offset int) int {
-		line := 0
-		for at := 0; at < offset && at < len(e.Source()); {
-			_, end := e.modalLine(at)
-			if end >= len(e.Source()) || end >= offset {
-				break
-			}
-			at = end + 1
-			line++
-		}
-		return line
-	}
-	distance := lineAt(to) - lineAt(from)
-	if distance < 0 {
-		distance = -distance
-	}
-	return max(1, distance)
 }
 
 func (e *Editor) vimGraphemeDistance(from, to int) int {
