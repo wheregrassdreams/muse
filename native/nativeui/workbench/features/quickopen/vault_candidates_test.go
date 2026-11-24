@@ -1,7 +1,19 @@
 package quickopen
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	vaultfilessource "muse/platform/filesystem/vaultfilessource"
+	"muse/platform/filesystem/vaultindexsource"
+	"muse/platform/filesystem/vaultsearchstore"
+	"muse/search"
+	vaultfiles "muse/vault/files"
+	vaultindex "muse/vault/index"
+	vaultwatch "muse/vault/watch"
 
 	applicationvault "muse/application/vault"
 )
@@ -10,6 +22,90 @@ type testVaultQuickOpen struct {
 	snapshot applicationvault.Snapshot
 	matches  []applicationvault.QuickOpenMatch
 	queries  []string
+}
+
+type quickOpenTestWatcher struct{ events chan vaultwatch.Event }
+
+func (w *quickOpenTestWatcher) Events() <-chan vaultwatch.Event { return w.events }
+func (*quickOpenTestWatcher) WatchFile(string) error            { return nil }
+func (*quickOpenTestWatcher) Close() error                      { return nil }
+
+type quickOpenTestReconciler struct{ store *vaultsearchstore.Store }
+
+func (r quickOpenTestReconciler) OpenAndReconcile(ctx context.Context, root string, corpus search.Corpus) (*search.Index, error) {
+	index, err := r.store.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := index.ReconcileCorpus(ctx, corpus); err != nil {
+		_ = index.Close()
+		return nil, err
+	}
+	return index, nil
+}
+
+func (r quickOpenTestReconciler) Reconcile(ctx context.Context, root string, current *search.Index, corpus search.Corpus) (*search.Index, error) {
+	if current == nil {
+		return r.OpenAndReconcile(ctx, root, corpus)
+	}
+	return current, current.ReconcileCorpus(ctx, corpus)
+}
+
+func TestVaultCandidatesReturnsFixtureResultsAfterSessionStartup(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Projects", "Atlas", "Overview.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\naliases: [Atlas overview]\n---\n# Atlas Overview\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := vaultsearchstore.New(filepath.Join(t.TempDir(), "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher := &quickOpenTestWatcher{events: make(chan vaultwatch.Event)}
+	started := time.Now()
+	session, err := applicationvault.NewSession(root, applicationvault.SessionDependencies{
+		NewIndex: func(root string) (applicationvault.IndexPort, error) {
+			source, err := vaultindexsource.New(root)
+			if err != nil {
+				return nil, err
+			}
+			return vaultindex.New(source), nil
+		},
+		NewCatalog: func(root string) (applicationvault.CatalogPort, error) {
+			source, err := vaultfilessource.New(root)
+			if err != nil {
+				return nil, err
+			}
+			return vaultfiles.New(source), nil
+		},
+		NewWatcher:       func(string) (applicationvault.WatcherPort, error) { return watcher, nil },
+		SearchReconciler: quickOpenTestReconciler{store: cache},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("NewSession returned in %s", time.Since(started))
+	t.Cleanup(func() { _ = session.Close() })
+	source := NewVaultCandidates(session)
+	deadline := time.Now().Add(5 * time.Second)
+	for !session.Snapshot().Ready && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if snapshot := session.Snapshot(); !snapshot.Ready || !snapshot.SearchAvailable {
+		t.Fatalf("session startup snapshot = %+v", snapshot)
+	}
+	t.Logf("fixture session became Ready in %s", time.Since(started))
+	rows := source.Rows("overview")
+	if rows.Len() != 1 {
+		t.Fatalf("Quick Open rows = %d, want one populated fixture result", rows.Len())
+	}
+	row := rows.At(0)
+	if row.Path != path || row.PathText != "Projects/Atlas/Overview.md" || row.Title != "Atlas Overview" {
+		t.Fatalf("Quick Open fixture row = %+v", row)
+	}
 }
 
 func (v *testVaultQuickOpen) QuickOpen(query string) []applicationvault.QuickOpenMatch {
