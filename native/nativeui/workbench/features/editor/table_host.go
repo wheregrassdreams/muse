@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	tablemodel "github.com/wheregrassdreams/muse-editor/markdown/table"
@@ -37,17 +38,61 @@ func (h editorTableHost) Apply(transaction editormodel.Transaction) error {
 	return err
 }
 
-type editorTableEdgeHost struct{ editorTableHost }
+type editorTableEdgeHost struct {
+	editorTableHost
+	extendFinalLine bool
+}
 
 func (h editorTableEdgeHost) Apply(transaction editormodel.Transaction) error {
 	transaction.After = transaction.MapSelection(transaction.Before)
 	return h.editorTableHost.Apply(transaction)
 }
 
+func (h editorTableEdgeHost) addColumnRight(lineStart int) (bool, error) {
+	e := h.editor
+	t := e.tableByLineStart(lineStart)
+	if t == nil {
+		return false, nil
+	}
+	lines := e.tableLines(t)
+	if len(lines) < 2 {
+		return false, nil
+	}
+	tx := editormodel.Transaction{Before: e.Session.Selection()}
+	for row, line := range lines {
+		pipes := splitRow(e.Source(), line)
+		if len(pipes) == 0 {
+			continue
+		}
+		text := "   |"
+		if row == 1 {
+			text = " --- |"
+		}
+		at := line[1]
+		if strings.TrimSpace(e.Source()[pipes[len(pipes)-1]+1:at]) != "" {
+			text = " |" + text
+		}
+		tx.Edits = append(tx.Edits, editormodel.TextEdit{
+			Range: editormodel.TextRange{Start: at, End: at}, Text: text,
+		})
+	}
+	if len(tx.Edits) == 0 {
+		return false, nil
+	}
+	tx.After = tx.MapSelection(tx.Before)
+	if err := h.Apply(tx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (h editorTableEdgeHost) TableView(lineStart int) (tablemodel.DocumentView, bool) {
 	view, ok := h.editorTableHost.TableView(lineStart)
 	if !ok || len(view.Lines) == 0 {
 		return view, ok
+	}
+	if !h.extendFinalLine {
+		return view, true
 	}
 	last := &view.Lines[len(view.Lines)-1].Range
 	if last.End < len(view.Source) && view.Source[last.End] == '\n' {
@@ -273,8 +318,14 @@ func (h editorTableUIHost) MenuInput(lineStart int, button, viewport ui.Rect, ev
 
 func (h editorTableUIHost) EdgeAction(action tableui.Action) (result tableui.Result, err error) {
 	h.editor.actCaretStill(func() {
-		if action.Kind == tableui.AddRow {
-			result, _, err = tableui.DispatchDocumentAction(&h.editor.tableController, editorTableEdgeHost{editorTableHost{editor: h.editor}}, action)
+		if action.Kind == tableui.AddRow || action.Kind == tableui.AddColumn {
+			edgeHost := editorTableEdgeHost{
+				editorTableHost: editorTableHost{editor: h.editor}, extendFinalLine: action.Kind == tableui.AddRow,
+			}
+			result, _, err = tableui.DispatchDocumentAction(&h.editor.tableController, edgeHost, action)
+			if action.Kind == tableui.AddColumn && !result.Changed && err == nil {
+				result.Changed, err = edgeHost.addColumnRight(action.LineStart)
+			}
 			return
 		}
 		result, err = h.Dispatch(action)

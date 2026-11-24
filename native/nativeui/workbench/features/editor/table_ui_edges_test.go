@@ -124,8 +124,12 @@ func TestTableEdgeWithoutOuterPipes(t *testing.T) {
 	if target == nil {
 		t.Fatal("missing table")
 	}
-	if _, err := (editorTableUIHost{editor: e}).EdgeAction(tableui.Action{Kind: tableui.AddColumn, LineStart: target.lineStart}); err != nil {
+	result, err := (editorTableUIHost{editor: e}).EdgeAction(tableui.Action{Kind: tableui.AddColumn, LineStart: target.lineStart})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !result.Changed {
+		t.Fatal("AddColumn did not change source")
 	}
 	h.frame()
 	for _, l := range e.leaves {

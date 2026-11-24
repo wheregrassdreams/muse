@@ -2,11 +2,12 @@ package quickopen
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	applicationsearch "muse/application/search"
+	workspaceSearch "muse/nativeui/workbench/features/search/workspace"
 	vaultfilessource "muse/platform/filesystem/vaultfilessource"
 	"muse/platform/filesystem/vaultindexsource"
 	"muse/platform/filesystem/vaultsearchstore"
@@ -52,14 +53,11 @@ func (r quickOpenTestReconciler) Reconcile(ctx context.Context, root string, cur
 }
 
 func TestVaultCandidatesReturnsFixtureResultsAfterSessionStartup(t *testing.T) {
-	root := t.TempDir()
+	root, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "testdata", "vault-fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "Projects", "Atlas", "Overview.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("---\naliases: [Atlas overview]\n---\n# Atlas Overview\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	cache, err := vaultsearchstore.New(filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +103,19 @@ func TestVaultCandidatesReturnsFixtureResultsAfterSessionStartup(t *testing.T) {
 	row := rows.At(0)
 	if row.Path != path || row.PathText != "Projects/Atlas/Overview.md" || row.Title != "Atlas Overview" {
 		t.Fatalf("Quick Open fixture row = %+v", row)
+	}
+	searchPort := workspaceSearch.NewVaultSearchPort(session)
+	token, err := searchPort.Query(applicationsearch.QueryInput{Text: "vaultfixturehomeunique"})
+	if err != nil {
+		t.Fatalf("workspace search query: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for searchPort.SearchState().Busy && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	state := searchPort.SearchState()
+	if state.Token != token || len(state.Hits) != 1 || state.Hits[0].Path != "Home.md" {
+		t.Fatalf("workspace search state = %+v", state)
 	}
 }
 
