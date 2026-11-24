@@ -331,7 +331,12 @@ func NewWithDependencies(deps Dependencies) *App {
 			}
 			return saveDialog(options)
 		},
-		Start: func() { a.onMain(func() { a.busy = true; a.invalidate() }) },
+		Start: func() {
+			// Dialog actions already run on the UI callback path; re-entering
+			// onMain here deadlocks headless serialization during App.View.
+			a.busy = true
+			a.invalidate()
+		},
 		Finish: func(callback func()) {
 			a.onMain(func() {
 				a.busy = false
