@@ -47,6 +47,42 @@ func TestPanelResizeHandleDoesNotAddCanvasGap(t *testing.T) {
 	}
 }
 
+func TestCanvasInsetsTitleBarControlsAfterPanelCloses(t *testing.T) {
+	open, width := true, float32(248)
+	layout := NewLayout(LayoutPorts{
+		Frame: func() Frame { return Frame{PanelOpen: open, PanelWidth: width} },
+		RenderCanvas: func(c *ui.Context, _ bool) {
+			ui.Box(c).Key("canvas-marker").Label("canvas-marker").Size(1, 1)
+		},
+	})
+	tester := ui.NewTester(layout.Render, 1000, 700)
+	tester.SetTitleBar(ui.TitleBar{Left: 100})
+	tester.Frame()
+	opened, ok := tester.Find("canvas-marker")
+	if !ok || opened.X != 257 {
+		t.Fatalf("open canvas x = %+v, want 257px", opened)
+	}
+	open = false
+	tester.Frame()
+	tester.Advance(220 * time.Millisecond)
+	closed, ok := tester.Find("canvas-marker")
+	if !ok || closed.X != 53 {
+		t.Fatalf("closed canvas x = %+v, want 53px (8px canvas inset plus title-bar space beyond the 56px control area)", closed)
+	}
+}
+
+func TestCollapsedCardPanelDoesNotLeaveAResizeHandleOnCanvas(t *testing.T) {
+	layout := NewLayout(LayoutPorts{
+		Frame:        func() Frame { return Frame{PanelOpen: false, PanelWidth: 248} },
+		RenderCanvas: func(*ui.Context, bool) {},
+	})
+	tester := ui.NewTester(layout.Render, 1000, 700)
+	tester.Frame()
+	if edge, ok := tester.Find("调整面板宽度"); ok {
+		t.Fatalf("collapsed card panel left a canvas resize target at %+v; main renders this handle only while the panel is present", edge)
+	}
+}
+
 func TestLayoutOmitsVerticalSurfaceRail(t *testing.T) {
 	layout := NewLayout(LayoutPorts{
 		Frame: func() Frame {
@@ -333,6 +369,62 @@ func TestFlatPanelSlowDragAndReverseWaitsForHandle(t *testing.T) {
 	tester.Frame()
 }
 
+func TestCardPanelSlowDragAndReverseWaitsForHandle(t *testing.T) {
+	open, width := true, float32(248)
+	layout := NewLayout(LayoutPorts{
+		Frame: func() Frame {
+			return Frame{PanelOpen: open, PanelWidth: width, PanelMinWidth: 224, PanelFoldAt: 200, PanelOpenAt: 36}
+		},
+		Dispatch: func(action Action) {
+			if action.Kind == PanelGeometryChanged {
+				open, width = action.PanelOpen, action.PanelWidth
+			}
+		},
+	})
+	tester := ui.NewTester(layout.Render, 1200, 800)
+	tester.Frame()
+	edge, ok := tester.Find("调整面板宽度")
+	if !ok {
+		t.Fatal("panel resize edge is missing")
+	}
+	x, y := edge.X+edge.W/2, edge.Y+edge.H/2
+	tester.Press(x, y)
+	tester.Frame()
+	for _, delta := range []float32{-8, -16, -24, -32, -40, -48, -56} {
+		tester.Move(x+delta, y)
+		tester.Frame()
+		if delta > -56 && !open {
+			t.Fatalf("slow drag folded before crossing threshold at delta=%v", delta)
+		}
+	}
+	if open {
+		t.Fatal("slow left drag did not fold at the configured threshold")
+	}
+	tester.Move(x-12, y)
+	tester.Frame()
+	if !open {
+		t.Fatal("reverse drag did not open the panel after crossing its threshold")
+	}
+	openedWidth := width
+	if openedWidth != 224 {
+		t.Fatalf("reverse open width = %v, want clamped width 224", openedWidth)
+	}
+	for _, delta := range []float32{openedWidth - 4, openedWidth + 6} {
+		tester.Move(delta, y)
+		tester.Frame()
+		if width != openedWidth {
+			t.Fatalf("panel resized before its animated edge caught the pointer at x=%v: %v -> %v", delta, openedWidth, width)
+		}
+	}
+	tester.Move(openedWidth+26, y)
+	tester.Frame()
+	if width <= openedWidth {
+		t.Fatalf("resize did not resume after the edge caught the pointer: width=%v start=%v", width, openedWidth)
+	}
+	tester.Release(openedWidth+26, y)
+	tester.Frame()
+}
+
 func TestResizeGripExpandsOnHoverAndHold(t *testing.T) {
 	layout := NewLayout(LayoutPorts{Frame: func() Frame { return Frame{PanelOpen: true, PanelWidth: 248} }})
 	tester := ui.NewTester(layout.Render, 1000, 700)
@@ -353,6 +445,12 @@ func TestResizeGripExpandsOnHoverAndHold(t *testing.T) {
 	}
 	tester.Press(edge.X+edge.W/2, edge.Y+edge.H/2)
 	tester.Frame()
+	tester.Advance(50 * time.Millisecond)
+	grip, _ = tester.Find("侧栏把手")
+	if grip.H <= 40 || grip.H >= 56 {
+		t.Fatalf("held grip spring = %+v, want an intermediate size", grip)
+	}
+	tester.Advance(200 * time.Millisecond)
 	grip, _ = tester.Find("侧栏把手")
 	if grip.H < 55 || grip.H > 57 {
 		t.Fatalf("held grip = %+v, want 56px", grip)

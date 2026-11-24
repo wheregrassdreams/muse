@@ -9,6 +9,8 @@ import (
 	appearance "muse/theme"
 )
 
+const panelWindowControlInset = float32(56)
+
 // Surface identifies the workbench surface currently hosted in the context
 // panel. Feature policy remains with the provider of the surface renderer.
 type Surface uint8
@@ -195,7 +197,7 @@ func (l *Layout) renderCanvas(c *ui.Context, frame Frame, panelWidth float32) {
 	padRight, padBottom := float32(0), float32(0)
 	if !frame.FlatCanvas {
 		left, padRight, padBottom = 8, 8, 8
-		left += max(c.TitleBar().Left, 0) * (1 - clamp(panelWidth/positive(frame.PanelWidth, 268), 0, 1))
+		left += max(c.TitleBar().Left-panelWindowControlInset, 0) * (1 - clamp(panelWidth/positive(frame.PanelWidth, 268), 0, 1))
 	}
 	padded := ui.Row(c).Grow(1).FillHeight().MinWidth(0).Padding(padRight, padBottom, padBottom, left)
 	padded.Children(func() {
@@ -218,9 +220,6 @@ func (l *Layout) renderCanvas(c *ui.Context, frame Frame, panelWidth float32) {
 		}
 		card.Children(func() {
 			l.ports.RenderCanvas(c, false)
-			if !frame.PanelOpen {
-				l.resizeHandle(c, frame, 0)
-			}
 		})
 	})
 }
@@ -388,14 +387,16 @@ func (l *Layout) resizeHandle(c *ui.Context, frame Frame, left float32) {
 		gripHeight, gripWidth, opacity := float32(8), float32(2), float32(0)
 		color := c.Theme().TextMuted
 		if held {
-			gripHeight, gripWidth, opacity, color = 56, 4, 0.85, c.Theme().Text
+			gripHeight, gripWidth, opacity = 56, 4, 0.85
+			color = c.Theme().Text
+			if !l.dragOpen {
+				opacity, color = 0.95, c.Theme().Accent
+			}
 		} else if hovered {
 			gripHeight, gripWidth, opacity = 40, 3, 0.5
 		}
 		grip := ui.Box(c).Key("shell-panel-grip").Label("侧栏把手").Radius(2).Background(color.Alpha(opacity))
-		if held {
-			grip.Width(grip.Jump("width", gripWidth)).Height(grip.Jump("height", gripHeight))
-		} else if l.gripHeld {
+		if held || l.gripHeld {
 			motion := ui.Animation{Spring: ui.SpringOptions{Duration: 220 * time.Millisecond, Bounce: 0.16}}
 			grip.Width(grip.AnimateTo("width", gripWidth, motion)).Height(grip.AnimateTo("height", gripHeight, motion))
 			if grip.Settled("width") && grip.Settled("height") {
