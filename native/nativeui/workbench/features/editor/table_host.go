@@ -37,6 +37,27 @@ func (h editorTableHost) Apply(transaction editormodel.Transaction) error {
 	return err
 }
 
+type editorTableEdgeHost struct{ editorTableHost }
+
+func (h editorTableEdgeHost) Apply(transaction editormodel.Transaction) error {
+	transaction.After = transaction.MapSelection(transaction.Before)
+	return h.editorTableHost.Apply(transaction)
+}
+
+func (h editorTableEdgeHost) TableView(lineStart int) (tablemodel.DocumentView, bool) {
+	view, ok := h.editorTableHost.TableView(lineStart)
+	if !ok || len(view.Lines) == 0 {
+		return view, ok
+	}
+	last := &view.Lines[len(view.Lines)-1].Range
+	if last.End < len(view.Source) && view.Source[last.End] == '\n' {
+		last.End++
+	} else if last.End+1 < len(view.Source) && view.Source[last.End] == '\r' && view.Source[last.End+1] == '\n' {
+		last.End += 2
+	}
+	return view, true
+}
+
 func documentViewForTable(e *Editor, t *leaf) tablemodel.DocumentView {
 	view := tablemodel.DocumentView{
 		LineStart:  t.lineStart,
@@ -252,6 +273,10 @@ func (h editorTableUIHost) MenuInput(lineStart int, button, viewport ui.Rect, ev
 
 func (h editorTableUIHost) EdgeAction(action tableui.Action) (result tableui.Result, err error) {
 	h.editor.actCaretStill(func() {
+		if action.Kind == tableui.AddRow {
+			result, _, err = tableui.DispatchDocumentAction(&h.editor.tableController, editorTableEdgeHost{editorTableHost{editor: h.editor}}, action)
+			return
+		}
 		result, err = h.Dispatch(action)
 	})
 	return result, err

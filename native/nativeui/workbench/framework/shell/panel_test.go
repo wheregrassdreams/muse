@@ -279,6 +279,60 @@ func TestFlatPanelSlowLeftDragTracksBeforeFoldThreshold(t *testing.T) {
 	tester.Frame()
 }
 
+func TestFlatPanelSlowDragAndReverseWaitsForHandle(t *testing.T) {
+	open, width := true, float32(248)
+	layout := NewLayout(LayoutPorts{
+		Frame: func() Frame {
+			return Frame{PanelOpen: open, PanelWidth: width, FlatCanvas: true, PanelMinWidth: 224, PanelFoldAt: 200, PanelOpenAt: 36}
+		},
+		RenderCanvas: func(*ui.Context, bool) {},
+		Dispatch: func(action Action) {
+			if action.Kind == PanelGeometryChanged {
+				open, width = action.PanelOpen, action.PanelWidth
+			}
+		},
+	})
+	tester := ui.NewTester(layout.Render, 1200, 800)
+	tester.Frame()
+	edge, _ := tester.Find("调整面板宽度")
+	x, y := edge.X+edge.W/2, edge.Y+40
+	tester.Press(x, y)
+	tester.Frame()
+	for _, delta := range []float32{-8, -16, -24, -32, -40, -48, -100} {
+		tester.Move(x+delta, y)
+		tester.Frame()
+	}
+	if open {
+		t.Fatal("slow left drag did not fold at the configured threshold")
+	}
+	tester.Move(x-64, y)
+	tester.Frame()
+	if !open {
+		t.Fatal("reverse drag did not open the panel at the configured threshold")
+	}
+	widthAfterOpen := width
+	if widthAfterOpen != 224 {
+		t.Fatalf("reverse open changed the clamped panel width: %v", widthAfterOpen)
+	}
+	tester.Move(widthAfterOpen-4, y)
+	tester.Frame()
+	if width != widthAfterOpen {
+		t.Fatalf("panel resized before the handle caught the pointer: got %v want %v", width, widthAfterOpen)
+	}
+	tester.Move(widthAfterOpen+6, y)
+	tester.Frame()
+	if width != widthAfterOpen {
+		t.Fatalf("catching the handle changed panel width: got %v want %v", width, widthAfterOpen)
+	}
+	tester.Move(widthAfterOpen+26, y)
+	tester.Frame()
+	if width <= widthAfterOpen {
+		t.Fatalf("panel did not resume resizing after handle catch-up: got %v start %v", width, widthAfterOpen)
+	}
+	tester.Release(widthAfterOpen+26, y)
+	tester.Frame()
+}
+
 func TestResizeGripExpandsOnHoverAndHold(t *testing.T) {
 	layout := NewLayout(LayoutPorts{Frame: func() Frame { return Frame{PanelOpen: true, PanelWidth: 248} }})
 	tester := ui.NewTester(layout.Render, 1000, 700)

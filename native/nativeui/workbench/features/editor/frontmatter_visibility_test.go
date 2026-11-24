@@ -31,6 +31,21 @@ func TestHiddenFrontmatterDoesNotAddAClosingDelimiterBlankLine(t *testing.T) {
 	}
 }
 
+func TestVisibleFrontmatterUsesPlainEditorText(t *testing.T) {
+	h := newHarness(t, "---\ntitle: note\n---\nBody\n")
+	for _, l := range h.e.leaves {
+		if !l.frontMatter {
+			continue
+		}
+		view := h.e.view(l, 700, false, 0)
+		if view.panel || view.tx != 0 {
+			t.Fatalf("frontmatter is styled as a code panel: %+v", view)
+		}
+		return
+	}
+	t.Fatal("fixture did not produce a visible frontmatter leaf")
+}
+
 func TestHideFrontmatterKeepsSourceOffsetsAndBodyCaret(t *testing.T) {
 	src := "---\ntitle: note\ntags: [one]\n---\n# Body\nText.\n"
 	e := New(src, Options{})

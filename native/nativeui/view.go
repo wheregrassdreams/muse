@@ -180,6 +180,9 @@ func (a *App) renderWorkspaceSearch(c *ui.Context) {
 		}
 	}
 	view := searchui.View{Availability: availability, CanChangeMode: true, SearchIcon: componenticons.Search(), FileIcon: componenticons.File(), IconTint: c.Theme().TextMuted}
+	if a.vaultSnapshot.Ready {
+		view.Error = a.vaultSnapshot.Search.Error
+	}
 	if a.recentItems != nil {
 		for _, entry := range a.recentItems.LiveNotes(a.root, 8) {
 			view.Recent = append(view.Recent, searchui.RecentItem{
@@ -198,7 +201,7 @@ func (a *App) renderWorkspaceSearch(c *ui.Context) {
 				Title:     strings.TrimSuffix(filepath.Base(hit.Path), filepath.Ext(hit.Path)),
 				PathLabel: a.workspaceSearchPathLabel(fullPath), Snippet: hit.Snippet, Offset: hit.Start, Revision: hit.Revision})
 		}
-		view.Busy, view.Error = a.vaultSnapshot.Search.Busy, a.vaultSnapshot.Search.Error
+		view.Busy = a.vaultSnapshot.Search.Busy
 	}
 	if a.vault != nil && a.workspaceSearch.IsOpen() {
 		wait, _ := a.workspaceSearch.ScheduleQuery(searchui.NewVaultSearchPort(a.vault), a.workspaceSearchInput(), c.Now())

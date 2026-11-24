@@ -383,6 +383,59 @@ func TestRailSelectsModulesAndHeaderCollapses(t *testing.T) {
 	}
 }
 
+func TestSidebarHandleSlowDragAndReverseCatchUp(t *testing.T) {
+	a := New()
+	a.flat = true
+	tt := ui.NewTester(a.View, 1200, 800)
+	tt.Frame()
+	edge, ok := tt.Find("调整面板宽度")
+	if !ok {
+		t.Fatal("sidebar resize handle is missing")
+	}
+	x, y := edge.X+edge.W/2, edge.Y+edge.H/2
+	tt.Press(x, y)
+	tt.Frame()
+	for _, delta := range []float32{-8, -16, -24, -32, -40, -48} {
+		tt.Move(x+delta, y)
+		tt.Frame()
+	}
+	if !a.panelOpen {
+		t.Fatal("slow drag collapsed the sidebar before crossing the fold threshold")
+	}
+	tt.Move(x-100, y)
+	tt.Frame()
+	if a.panelOpen {
+		t.Fatal("slow drag did not collapse the sidebar after crossing the fold threshold")
+	}
+	// Reverse at the fold point; the open threshold is reached before the handle.
+	tt.Move(x-64, y)
+	tt.Frame()
+	if !a.panelOpen {
+		t.Fatal("reverse drag did not reopen the sidebar")
+	}
+	width := a.panelWidth
+	if width != 224 {
+		t.Fatalf("reverse drag changed width before reaching the edge: %v", width)
+	}
+	tt.Move(width-4, y) // pointer is still left of the target edge
+	tt.Frame()
+	if a.panelWidth != width {
+		t.Fatalf("handle catch-up changed width early: width=%v want=%v", a.panelWidth, width)
+	}
+	tt.Move(width+6, y) // pointer reaches the center of the grip
+	tt.Frame()
+	if a.panelWidth != width {
+		t.Fatalf("catching the grip changed width: width=%v want=%v", a.panelWidth, width)
+	}
+	tt.Move(width+26, y)
+	tt.Frame()
+	if a.panelWidth <= width {
+		t.Fatalf("drag did not resume resizing after catch-up: width=%v start=%v", a.panelWidth, width)
+	}
+	tt.Release(width+26, y)
+	tt.Frame()
+}
+
 func TestDarkThemeRenders(t *testing.T) {
 	a := New()
 	if err := a.noteEditor().ReplaceUser("# 标题\n\n正文。\n\n```go\nx := 1\n```\n"); err != nil {

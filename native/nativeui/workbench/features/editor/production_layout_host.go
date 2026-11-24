@@ -411,7 +411,7 @@ func (e *Editor) viewAt(l *leaf, width float32, header bool, align syntax.Increm
 		if _, _, ok := e.calloutHeader(l); ok {
 			v = e.textView(l, width, at, withCompose, header, align)
 		} else {
-			v = e.linesView(l, width, at, withCompose, l.frontMatter)
+			v = e.linesView(l, width, at, withCompose, false)
 		}
 	case kRule:
 		v = e.ruleView(l, width, at, withCompose)

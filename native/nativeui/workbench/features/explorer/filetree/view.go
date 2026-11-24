@@ -348,7 +348,11 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 				dragItems = []string{entry.ID}
 			}
 			payload := drag.Make(entry.ID, dragItems)
-			handle := ui.Box(c).Key("tree-drag-handle-" + entry.ID).Absolute().Left(16 + float32(max(entry.Depth, 0))*14).Top(0).Right(0).Height(28).
+			dragInset := float32(0)
+			if entry.Kind == Directory && entry.CanExpand {
+				dragInset = 16 + float32(max(entry.Depth, 0))*14
+			}
+			handle := ui.Box(c).Key("tree-drag-handle-" + entry.ID).Absolute().Left(dragInset).Top(0).Right(0).Height(28).
 				Cursor(ui.CursorPointer).Opacity(0).Label(locales.TreeDragHandleLabel(entry.Label)).Drag(payload)
 			dropTarget = handle
 			handle.HandleInput(func(ev ui.InputEvent) bool {

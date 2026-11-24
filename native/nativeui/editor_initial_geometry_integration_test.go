@@ -28,6 +28,10 @@ func TestFreshFixtureInitialCaretAlignsWithHeadingInAppView(t *testing.T) {
 	for range 2 {
 		tt.Frame()
 	}
+	if !a.noteEditor().FocusCommands().Focused() {
+		t.Fatal("opened workspace pane did not focus its document editor")
+	}
+	waitDocument(t, tt, func() bool { return a.noteEditor().MemorySnapshot().LoadedImageAssets > 0 })
 
 	commands := a.noteEditor().NavigationCommands()
 	caretOffset := commands.Caret()

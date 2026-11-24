@@ -69,7 +69,11 @@ func TestTableEdgesControls(t *testing.T) {
 					wr, wc = rows, cols+1
 				}
 				if got == nil || len(got.tab.rows) != wr || got.tab.cols() != wc {
-					t.Fatal("parsed table dimensions")
+					gotRows, gotCols := 0, 0
+					if got != nil {
+						gotRows, gotCols = len(got.tab.rows), got.tab.cols()
+					}
+					t.Fatalf("parsed table dimensions: got rows=%d cols=%d want rows=%d cols=%d source=%q", gotRows, gotCols, wr, wc, e.Source())
 				}
 				for i, a := range align {
 					if got.tab.align[i] != a {
@@ -133,6 +137,29 @@ func TestTableEdgeWithoutOuterPipes(t *testing.T) {
 		}
 	}
 	t.Fatal("lost table")
+}
+
+func TestTableEdgeAddRowBeforeBlankLine(t *testing.T) {
+	const src = "| A | B |\n| --- | --- |\n| x | y |\n\nafter"
+	h := newHarness(t, src)
+	var target *leaf
+	for _, l := range h.e.leaves {
+		if l.tab != nil {
+			target = l
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("missing table")
+	}
+	result, err := (editorTableUIHost{editor: h.e}).EdgeAction(tableui.Action{Kind: tableui.AddRow, LineStart: target.lineStart})
+	if err != nil || !result.Changed {
+		t.Fatalf("add row: result=%+v err=%v", result, err)
+	}
+	h.frame()
+	if want := "| A | B |\n| --- | --- |\n| x | y |\n|   |   |\n\nafter"; h.e.Source() != want {
+		t.Fatalf("source after add row = %q, want %q", h.e.Source(), want)
+	}
 }
 
 func TestTableEdgeHoverLeaves(t *testing.T) {

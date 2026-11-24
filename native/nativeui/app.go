@@ -662,6 +662,9 @@ func (a *App) openWorkspacePane(request workspaceui.PaneRequest) (hostingui.Hand
 	if request.Focused {
 		a.activePane = request.PaneID
 		a.configureActiveNote(0)
+		if focus := content.FocusCommands(); focus != nil {
+			focus.Focus()
+		}
 	}
 	return handle, nil
 }
