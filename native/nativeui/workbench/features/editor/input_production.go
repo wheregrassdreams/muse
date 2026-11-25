@@ -13,6 +13,7 @@ import (
 	editorinput "github.com/wheregrassdreams/muse-editor/text/input"
 	media "muse/nativeui/workbench/features/editor/blocks/media"
 	tableui "muse/nativeui/workbench/features/editor/blocks/table"
+	"muse/ui/scrollbar"
 )
 
 // tableCellDragState exists only for the lifetime of a pointer gesture.
@@ -87,6 +88,10 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 				e.acceptWikiSuggestion(i)
 				return true
 			}
+			e.layoutIfNeeded()
+			if e.scrollbarPointerDown(ev) {
+				return true
+			}
 		}
 		// A visible block scrollbar is an overlay interaction, not a text
 		// press. Route it before finishing block input or clearing its state so
@@ -104,10 +109,18 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 		e.updateWikiSuggestions()
 		return handled
 	case ui.InputPointerMove:
+		if e.dragScrollbarThumb(ev) {
+			return true
+		}
 		return e.drag(ev)
 	case ui.InputScroll:
 		return e.scrollBlock(ev)
 	case ui.InputPointerUp:
+		if e.scrollbarThumb.dragging {
+			e.scrollbarThumb.dragging = false
+			e.scrollbarThumb.holdUntil = ev.Time.Add(scrollbar.VisibleFor)
+			return true
+		}
 		if e.horizontalDrag != nil {
 			e.horizontalDrag = nil
 			return true

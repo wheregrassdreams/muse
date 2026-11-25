@@ -335,6 +335,8 @@ type Editor struct {
 
 	scroll          ui.ScrollState
 	scrollIndicator scrollbar.Indicator
+	scrollbarThumb  scrollbarThumbState
+	scrollbarShown  bool
 	scrollHandle    ui.Handle
 	handle          ui.Handle
 	focused         bool

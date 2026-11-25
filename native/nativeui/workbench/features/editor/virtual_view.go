@@ -15,10 +15,10 @@ import (
 	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"muse/locales"
 	"muse/markdown/images"
-	"muse/nativeui/workbench/framework/interactions/dragdrop"
 	media "muse/nativeui/workbench/features/editor/blocks/media"
 	"muse/nativeui/workbench/features/editor/feedback"
 	render "muse/nativeui/workbench/features/editor/render"
+	"muse/nativeui/workbench/framework/interactions/dragdrop"
 )
 
 // dropVaultItem inserts an Obsidian-style wiki link for a vault item dragged
@@ -491,9 +491,14 @@ func (e *Editor) View(c *ui.Context) ui.Element {
 	if showBar {
 		c.After(e.scrollIndicator.Remaining(c.Now()))
 	}
+	var scrollbarAnimating bool
+	e.scrollbarShown, scrollbarAnimating = e.scrollbarThumb.update(c.Now(), e.scroll.Y, e.viewH, h, showBar)
+	if scrollbarAnimating {
+		c.After(16 * time.Millisecond)
+	}
 	root := ui.Column(c).Fill()
 	root.Children(func() {
-		sc := ui.Scroll(c).Grow(1).MinHeight(0).Scrollbars(showBar).TrackScroll(&e.scroll).Bind(&e.scrollHandle)
+		sc := ui.Scroll(c).Grow(1).MinHeight(0).Scrollbars(false).TrackScroll(&e.scroll).Bind(&e.scrollHandle)
 		tablePointer := ui.Point{X: -1, Y: -1}
 		sc.Children(func() {
 			ui.Column(c).FillWidth().Height(h).Shrink(0).Children(func() {

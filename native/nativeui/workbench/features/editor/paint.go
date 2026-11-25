@@ -144,6 +144,9 @@ func (e *Editor) paint(p *ui.Painter, r ui.Rect) {
 	snapshot := scratch.snapshot(e, r, e.renderStyle())
 	frame := e.renderer.Build(snapshot, scratch.resources.ports())
 	render.Paint(p, frame, scratch.resources.ports())
+	if e.scrollbarShown {
+		p.Scrollbar(e.visualScrollbar(ui.Rect{X: r.X, Y: r.Y + e.scroll.Y, W: r.W, H: e.viewH}), ui.ScrollbarState{Dragging: e.scrollbarThumb.dragging})
+	}
 }
 
 // paintVisibleSpan finds the laid out leaves that intersect the painter's
