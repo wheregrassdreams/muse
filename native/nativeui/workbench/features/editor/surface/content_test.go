@@ -10,6 +10,7 @@ import (
 
 	editor "github.com/wheregrassdreams/muse-editor/text/session"
 	"muse/document"
+	editorui "muse/nativeui/workbench/features/editor"
 	hosting "muse/nativeui/workbench/framework/hosting"
 	"muse/platform/filesystem/documentstore"
 	"muse/workspace"
@@ -25,7 +26,7 @@ type testSurface struct {
 }
 
 var (
-	_ hosting.Content      = (*testSurface)(nil)
+	_ hosting.Content          = (*testSurface)(nil)
 	_ FocusCommands            = (*testSurface)(nil)
 	_ ModalCommands            = (*testSurface)(nil)
 	_ NavigationCommands       = (*testSurface)(nil)
@@ -235,6 +236,37 @@ func TestNewContentPlacesCaretAtFirstVisibleLineAfterHiddenFrontmatter(t *testin
 	}
 	if got := content.Snapshot().Source; got != source {
 		t.Fatalf("initial mount changed source: %q", got)
+	}
+}
+
+func TestNewNativeContentPlacesDefaultCaretAtFirstEditableText(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		opts   editorui.Options
+		text   string
+	}{
+		{name: "heading", source: "# Title\n\nBody\n", text: "Title"},
+		{name: "list item", source: "- Item\n", text: "Item"},
+		{
+			name:   "hidden frontmatter heading",
+			source: "---\ntype: note\n---\n\n# Title\nBody\n",
+			opts:   editorui.Options{HideFrontmatter: true},
+			text:   "Title",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content, err := NewNativeContent("pane-initial-caret", document.NewNote("note.md", tc.source, document.RevisionOf(tc.source)), 0,
+				Dependencies{}, NativeEditorOptions{Editor: tc.opts}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer content.Close()
+			want := strings.Index(tc.source, tc.text)
+			if got := content.NavigationCommands().Caret(); got != want {
+				t.Fatalf("initial caret = %d, want first editable text at %d", got, want)
+			}
+		})
 	}
 }
 

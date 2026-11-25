@@ -5,11 +5,13 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	media "muse/nativeui/workbench/features/editor/blocks/media"
@@ -324,4 +326,55 @@ func standaloneImageX(l *leaf) (float32, bool) {
 		return obj.Rect.X, true
 	}
 	return 0, false
+}
+
+func TestStandaloneImageIsCenteredAndHasRoundedCorners(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "corner.png")
+	var encoded bytes.Buffer
+	bitmap := image.NewRGBA(image.Rect(0, 0, 120, 60))
+	for y := 0; y < 60; y++ {
+		for x := 0; x < 120; x++ {
+			bitmap.Set(x, y, color.RGBA{R: 235, G: 40, B: 40, A: 255})
+		}
+	}
+	if err := png.Encode(&encoded, bitmap); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, "![corner](corner.png)")
+	opts := h.e.Options()
+	opts.BaseDir = dir
+	h.e.SetOptions(opts)
+	h.e.SetSource("![corner](corner.png)")
+	h.frame()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.e.imageHits) == 0 || h.e.imageHits[0].obj.asset == nil || !h.e.imageHits[0].obj.asset.Loaded() {
+		if time.Now().After(deadline) {
+			t.Fatal("image did not finish loading")
+		}
+		time.Sleep(5 * time.Millisecond)
+		h.frame()
+	}
+	h.frame()
+	hit := h.e.imageHits[0]
+	wantX := h.e.colX + (h.e.colW-hit.box.W)/2
+	if math.Abs(float64(hit.box.X-wantX)) > 1 {
+		t.Fatalf("standalone image x = %.1f, want centered at %.1f (column %.1f, image %.1f)", hit.box.X, wantX, h.e.colW, hit.box.W)
+	}
+
+	img := h.tt.Image()
+	r, g, b, _ := img.RGBAAt(int(hit.box.X), int(hit.box.Y)).RGBA()
+	plain := color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255}
+	if plain.R > 200 && plain.G < 80 && plain.B < 80 {
+		t.Fatalf("image corner pixel is still the image color %v; corners are not rounded", plain)
+	}
+	r, g, b, _ = img.RGBAAt(int(hit.box.X+hit.box.W/2), int(hit.box.Y+1)).RGBA()
+	top := color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255}
+	if top.R < 180 || top.G > 100 || top.B > 100 {
+		t.Fatalf("image top edge pixel = %v, want the image color", top)
+	}
+	h.shot("standalone-image-rounded")
 }

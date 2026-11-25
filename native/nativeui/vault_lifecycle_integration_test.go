@@ -9,18 +9,21 @@ import (
 	vaultfilesapp "muse/application/vault/files"
 	doctypes "muse/document/types"
 	explorer "muse/nativeui/workbench/features/explorer"
-	shellui "muse/nativeui/workbench/framework/shell"
 	vaultfiles "muse/vault/files"
 )
 
 func vaultRowsForIntegration(a *App, root string) []explorer.Row {
 	files := vaultfilesapp.NewFileUseCases(root, a.fileOperations, nil)
 	return a.fileTreeState.Rows(root, explorer.CatalogPort{
+		Pending:  a.vault == nil || !a.vaultSnapshot.CatalogReady || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(root),
+		Revision: a.vaultSnapshot.FilesRevision,
 		Children: func(directory string) []explorer.CatalogEntry {
-			if a.vault == nil || !a.vaultSnapshot.Ready || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(root) {
+			if a.vault == nil || !a.vaultSnapshot.CatalogReady || filepath.Clean(a.vaultSnapshot.Root) != filepath.Clean(root) {
 				return nil
 			}
-			entries := files.CatalogChildren(a.vault, a.directoryCatalog, directory)
+			entries := files.CatalogChildren(a.vault, a.directoryCatalog, directory, vaultfilesapp.CatalogVersion{
+				Ready: a.vaultSnapshot.CatalogReady, Revision: a.vaultSnapshot.FilesRevision,
+			})
 			children := make([]explorer.CatalogEntry, 0, len(entries))
 			for _, entry := range entries {
 				switch entry.Kind {
@@ -36,7 +39,7 @@ func vaultRowsForIntegration(a *App, root string) []explorer.Row {
 	})
 }
 
-func TestSessionReadyInvalidatesEmptyTreeCachedBeforeVaultStartup(t *testing.T) {
+func TestCatalogVersionRefreshesTreeCachedBeforeVaultStartup(t *testing.T) {
 	root := t.TempDir()
 	note := filepath.Join(root, "first.md")
 	if err := os.WriteFile(note, []byte("# first"), 0o644); err != nil {
@@ -54,13 +57,7 @@ func TestSessionReadyInvalidatesEmptyTreeCachedBeforeVaultStartup(t *testing.T) 
 	}
 
 	a.vault = session
-	pump := shellui.NewResultPump(session.Results())
-	drained, open := pump.Drain(32, func(result applicationvault.Result) {
-		a.handleVaultResult(session, result)
-	})
-	if !open || drained == 0 {
-		t.Fatalf("vault result pump drained %d results, open=%v", drained, open)
-	}
+	a.vaultSnapshot = session.Snapshot()
 	got := vaultRowsForIntegration(a, root)
 	if len(got) != 1 || got[0].Path != note {
 		t.Fatalf("rows after SessionReady = %+v, want [%s]", got, note)

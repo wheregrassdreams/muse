@@ -725,7 +725,7 @@ func (a *App) editorOptions() editorui.Options {
 	}
 	if a.propertiesPanel != nil && a.propertiesPanel.Enabled() {
 		options.Header = func(c *ui.Context) { a.propertiesPanel.RenderSummary(c) }
-		options.HeaderHeight = 160
+		options.HeaderHeight = propertypanel.MetadataHeaderHeight
 		options.HideFrontmatter = !a.propertiesPanel.IsSourceMode() && a.propertiesPanel.FrontmatterValid()
 	}
 	return options

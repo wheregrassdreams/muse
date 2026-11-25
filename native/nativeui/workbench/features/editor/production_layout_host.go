@@ -10,8 +10,8 @@ import (
 	"github.com/wheregrassdreams/muse-editor/markdown/paragraph"
 	syntax "github.com/wheregrassdreams/muse-editor/markdown/syntax"
 
-	"github.com/wheregrassdreams/muse-editor/text/layout"
 	"github.com/wheregrassdreams/muse-editor/markdown/diagrams"
+	"github.com/wheregrassdreams/muse-editor/text/layout"
 	media "muse/nativeui/workbench/features/editor/blocks/media"
 	render "muse/nativeui/workbench/features/editor/render"
 	"muse/nativeui/workbench/features/editor/textlayout"
@@ -93,7 +93,7 @@ func (e *Editor) setLook(t *ui.Theme) {
 	markdownColors := theme.MarkdownColors(t.Dark)
 	lk.text = uiMarkdownColor(markdownColors.Body)
 	lk.heading = uiMarkdownColor(markdownColors.Heading)
-	lk.muted = t.TextMuted
+	lk.muted = uiMarkdownColor(theme.EditorColors(t.Dark).Muted)
 	lk.accent = t.Accent
 	linkPalette := theme.From(t.Accent, t.Dark)
 	lk.link, lk.linkHover = linkPalette.Link, linkPalette.Hover
@@ -579,8 +579,11 @@ func (e *Editor) textView(l *leaf, width float32, at int, withCompose, header bo
 	}
 	if b.alone {
 		shape.Align = ui.Start
-		for _, pc := range v.disp.pieces {
-			if pc.obj != nil && pc.obj.block {
+		// The display is built from b.pieces; v.disp is only filled in by
+		// finishLeafView below. Reading b.pieces here keeps a standalone
+		// image's centered alignment from being lost before shaping.
+		for i := range b.pieces {
+			if pc := &b.pieces[i]; pc.obj != nil && pc.obj.block {
 				if pc.obj.alignCenter {
 					shape.Align = ui.Center
 				}

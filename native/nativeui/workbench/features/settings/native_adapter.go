@@ -104,6 +104,7 @@ func (a *NativeAdapter) Runtime() RuntimeSettings {
 			Theme: themeFromConfig(a.preferences.Theme), Accents: accents(),
 			AccentID:   appearance.Normalize(a.preferences.Accent),
 			HeaderFade: a.headerFade, FontSize: a.fontSize, LineHeight: a.lineHeight,
+			WindowBlur: a.preferences.WindowBlur, WindowOpacity: a.preferences.WindowOpacity,
 			SmartTypography: boolValue(a.editor.SmartTypography),
 			Locale:          a.preferences.Locale, LocaleConfigured: a.preferences.LocaleConfigured,
 			SmoothPageJumps: a.preferences.SmoothPageJumps,
@@ -167,6 +168,12 @@ func (a *NativeAdapter) Dispatch(action Action) {
 		if a.ports.Invalidate != nil {
 			a.ports.Invalidate()
 		}
+	case WindowBlurChanged:
+		a.preferences.WindowBlur = action.Enabled
+		a.persistPreferences()
+	case WindowOpacityChanged:
+		a.preferences.WindowOpacity = config.NormalizePreferences(config.Preferences{WindowOpacity: action.Number}).WindowOpacity
+		a.persistPreferences()
 	case SmartTypographyChanged:
 		a.editor.SmartTypography = boolPtr(action.Enabled)
 		a.persistEditor()

@@ -68,6 +68,7 @@ func (a *NativeAdapter) Project(preferences map[string]FieldPreference) Projecti
 	}
 	input.DocumentType = frontmatter.DocumentType(parsed)
 	input.Projection = frontmatter.ProjectInspector(parsed.Fields, frontmatterPreferences)
+	input.Projection.Summary = metadataHeaderFields(input.Projection.Summary, frontmatterPreferences)
 	input.System = systemProperties(path, snapshot.Facts)
 	if !frontmatter.HasField(parsed, "last_opened") {
 		input.LastOpened = locales.PropertyDateTime(time.Now())
@@ -77,6 +78,16 @@ func (a *NativeAdapter) Project(preferences map[string]FieldPreference) Projecti
 	}
 	projection.Model = ProjectViewModel(input)
 	return projection
+}
+
+func metadataHeaderFields(fields []frontmatter.Field, preferences map[string]frontmatter.FieldPreference) []frontmatter.Field {
+	selected := make([]frontmatter.Field, 0, len(fields))
+	for _, field := range fields {
+		if frontmatter.CanonicalKey(field.Key) == "tags" || preferences[field.Key].Pinned {
+			selected = append(selected, field)
+		}
+	}
+	return selected
 }
 
 func (a *NativeAdapter) Load(path string) (map[string]FieldPreference, error) {

@@ -37,6 +37,8 @@ type Appearance struct {
 	Locale           string
 	LocaleConfigured bool
 	HeaderFade       bool
+	WindowBlur       bool
+	WindowOpacity    float64
 	SmoothPageJumps  bool
 	SmartTypography  bool
 	FontSize         float64
@@ -89,6 +91,8 @@ const (
 	AccentChanged
 	LocaleChanged
 	HeaderFadeChanged
+	WindowBlurChanged
+	WindowOpacityChanged
 	SmoothPageJumpsChanged
 	KeymapChanged
 	SmartTypographyChanged
@@ -236,6 +240,15 @@ func renderAppearance(c *ui.Context, model Appearance, dispatch func(Action)) {
 		toggle(c, locales.MenuHeaderFade(), locales.SettingsHeaderFadeDetail(), model.HeaderFade, func(value bool) {
 			emit(dispatch, Action{Kind: HeaderFadeChanged, Enabled: value})
 		})
+		divider(c)
+		toggle(c, locales.SettingsWindowBlur(), locales.SettingsWindowBlurDetail(), model.WindowBlur, func(value bool) {
+			emit(dispatch, Action{Kind: WindowBlurChanged, Enabled: value})
+		})
+		if model.WindowBlur {
+			sliderRow(c, locales.SettingsWindowOpacity(), locales.SettingsWindowOpacityDetail(), model.WindowOpacity, 0.2, 1, "%.1f", func(value float64) {
+				emit(dispatch, Action{Kind: WindowOpacityChanged, Number: value})
+			})
+		}
 	})
 	group(c, locales.SettingsTypography(), func() {
 		toggle(c, locales.SettingsSmartTypography(), locales.SettingsSmartTypographyDetail(), model.SmartTypography, func(value bool) {

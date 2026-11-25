@@ -74,6 +74,8 @@ type SearchSnapshot struct {
 type Snapshot struct {
 	Root            string
 	Ready           bool
+	CatalogReady    bool
+	CatalogError    string
 	IndexRevision   uint64
 	FilesRevision   uint64
 	SearchAvailable bool

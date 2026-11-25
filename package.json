@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "sh scripts/dev.sh",
     "build": "sh scripts/build.sh",
-    "test": "go test -C native ./...",
+    "test": "sh scripts/test.sh",
     "fmt": "gofmt -w native"
   }
 }

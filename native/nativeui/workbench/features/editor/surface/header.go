@@ -5,8 +5,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
-	"muse/nativeui/workbench/framework/shell/windowcontrols"
 	icons "muse/nativeui/workbench/framework/components/icons"
+	"muse/nativeui/workbench/framework/shell/windowcontrols"
 )
 
 type HeaderActionKind uint8
@@ -66,7 +66,7 @@ func RenderHeader(c *ui.Context, model HeaderModel, dispatch func(HeaderAction))
 	}
 	row := ui.Row(c).Height(height).Shrink(0).Padding(0, right, 0, 6).Gap(2).DragWindow().AlignItems(ui.Center)
 	if model.Flat {
-		row.Absolute().Top(0).Left(0).Right(0)
+		row.Absolute().Top(0).Left(0).Right(0).ZIndex(2)
 	}
 	row.Children(func() {
 		ui.Box(c).Width(max(float32(30), bar.Left+38-model.PanelWidth)).Shrink(0)

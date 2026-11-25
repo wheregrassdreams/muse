@@ -6,6 +6,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// MetadataHeaderHeight reserves the compact property row above the document.
+const MetadataHeaderHeight = 132
+
+const metadataHeaderTopSpacing = 72
+
 var ErrUnavailable = errors.New("properties: host capability is unavailable")
 
 // PreferenceStore persists only per-field presentation preferences. It does
@@ -161,7 +166,7 @@ func (h *Host) RenderSummary(ctx *ui.Context) {
 		return
 	}
 	ui.Column(ctx).FillWidth().Children(func() {
-		ui.Box(ctx).Height(100).Shrink(0)
+		ui.Box(ctx).Height(metadataHeaderTopSpacing).Shrink(0)
 		renderMetadataHeader(ctx, h.state, h.ViewModel(), h.Dispatch)
 	})
 }

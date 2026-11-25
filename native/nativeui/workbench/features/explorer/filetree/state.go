@@ -37,6 +37,7 @@ type state struct {
 	indicator            scrollbar.Indicator
 	rows                 []Row
 	rowsRoot             string
+	rowsRevision         uint64
 	rowsDirty            bool
 }
 

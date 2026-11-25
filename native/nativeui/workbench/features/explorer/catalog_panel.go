@@ -14,6 +14,10 @@ import (
 type CatalogPanelPorts struct {
 	Root        string
 	RootLabel   string
+	ActivePath  string
+	Loading     bool
+	LoadError   string
+	Revision    uint64
 	Children    func(directory string) []CatalogEntry
 	VisibleFile func(path string) bool
 	IsDirectory func(path string) bool
@@ -70,6 +74,7 @@ func RenderCatalogPanel(c *ui.Context, ports CatalogPanelPorts) {
 	}
 	rows := ports.Controller.Rows(ports.Root, CatalogPort{
 		Children: ports.Children, VisibleFile: ports.VisibleFile,
+		Pending: ports.Loading || ports.LoadError != "", Revision: ports.Revision,
 	})
 	entries := make([]EntrySnapshot, 0, len(rows))
 	iconTint := c.Theme().TextMuted
@@ -89,9 +94,15 @@ func RenderCatalogPanel(c *ui.Context, ports CatalogPanelPorts) {
 	if label == "" {
 		label = ports.Root
 	}
+	emptyMessage := "No files"
+	if ports.Loading {
+		emptyMessage = locales.FilesLoading()
+	} else if ports.LoadError != "" {
+		emptyMessage = ports.LoadError
+	}
 	ports.Controller.RenderPanel(c, PanelSnapshot{
-		Entries: entries, RootLabel: label, RootCanDrop: true,
-		EmptyMessage: "No files", Drag: ports.DragPreview,
+		Entries: entries, RootLabel: label, ActivePath: ports.ActivePath, RootCanDrop: true,
+		EmptyMessage: emptyMessage, Drag: ports.DragPreview,
 	}, PanelCapabilities{
 		Focus: ports.Focus, Drag: ports.Drag, IsDirectory: ports.IsDirectory, OnAction: ports.OnAction,
 	})

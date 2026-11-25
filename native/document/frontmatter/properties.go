@@ -120,7 +120,7 @@ func DocumentType(d Document) string {
 	if d.Err == nil {
 		for _, field := range d.Fields {
 			if CanonicalKey(field.Key) == "type" && strings.TrimSpace(field.Value) != "" {
-				return strings.TrimSpace(field.Value)
+				return DisplayValue(field)
 			}
 		}
 	}

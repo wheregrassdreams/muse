@@ -14,8 +14,9 @@ type editorSurfaceAdapter struct {
 }
 
 var (
-	_ hosting.Content  = (*editorSurfaceAdapter)(nil)
+	_ hosting.Content      = (*editorSurfaceAdapter)(nil)
 	_ DocumentOpenCommands = (*editorSurfaceAdapter)(nil)
+	_ InitialCaretCommands = (*editorSurfaceAdapter)(nil)
 	_ FocusCommands        = (*editorSurfaceAdapter)(nil)
 	_ ModalCommands        = (*editorSurfaceAdapter)(nil)
 	_ NavigationCommands   = (*editorSurfaceAdapter)(nil)
@@ -33,6 +34,10 @@ func NewEditorSurface(editor *editorui.Editor) hosting.Content {
 
 func (e *editorSurfaceAdapter) ResetForDocumentOpen() {
 	e.Editor.ResetForDocumentOpen()
+}
+
+func (e *editorSurfaceAdapter) InitialCaretOffsetAt(sourceOffset int) int {
+	return e.Editor.InitialCaretOffsetAt(sourceOffset)
 }
 
 func (e *editorSurfaceAdapter) SelectionRange() TextRange {

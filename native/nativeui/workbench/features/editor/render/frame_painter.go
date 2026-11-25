@@ -179,10 +179,16 @@ func paintCalloutIcon(p *ui.Painter, x, y, size float32, color ui.Color, warning
 	line(.58, .28, .74, .44)
 }
 
+// imageCornerRadius is the small radius that keeps pictures from ending in
+// hard right angles against the page.
+const imageCornerRadius float32 = 4
+
 func paintImage(p *ui.Painter, style Style, block Block, images ImageResources) {
 	if images != nil {
 		if bitmap, ok := images.Image(block.Resource); ok && bitmap != nil {
-			p.Image(bitmap, block.Bounds, ui.Contain)
+			p.Clip(block.Bounds, imageCornerRadius, func() {
+				p.Image(bitmap, block.Bounds, ui.Contain)
+			})
 			return
 		}
 	}

@@ -31,6 +31,20 @@ func TestSettingsEncodeDecodeNormalizeValues(t *testing.T) {
 	}
 }
 
+func TestWindowBackdropPreferencesDefaultAndLegacyDecode(t *testing.T) {
+	defaults := DefaultPreferences()
+	if !defaults.WindowBlur || defaults.WindowOpacity != 0.7 {
+		t.Fatalf("window backdrop defaults = blur %v opacity %.2f", defaults.WindowBlur, defaults.WindowOpacity)
+	}
+	got, err := DecodePreferences([]byte(`{"theme":"dark"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.WindowBlur || got.WindowOpacity != 0.7 {
+		t.Fatalf("legacy preferences did not receive window defaults: %+v", got)
+	}
+}
+
 func TestDocumentPropertyFileRoundTripAndPathNormalization(t *testing.T) {
 	want := DocumentPropertyPreferences{Fields: map[string]FieldDisplayPreference{
 		"tags":   {Pinned: true, Hidden: true},

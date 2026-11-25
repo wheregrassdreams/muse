@@ -14,10 +14,13 @@ type Row struct {
 type CatalogPort struct {
 	Children    func(string) []CatalogEntry
 	VisibleFile func(string) bool
+	Pending     bool
+	Revision    uint64
 }
 
-// BuildRows returns the cached visible tree projection. The catalog port is
-// called only on a cache miss or after explicit invalidation.
+// BuildRows returns the cached visible tree projection. A catalog revision
+// change invalidates the projection automatically; pending catalogs are never
+// cached as empty trees.
 func BuildRows(handle *Handle, root string, catalog CatalogPort) []Row {
 	if handle == nil || handle.state == nil {
 		return nil
@@ -33,7 +36,11 @@ func (s *state) projectRows(root string, catalog CatalogPort) []Row {
 		s.InvalidateRows()
 		return nil
 	}
-	if !s.rowsDirty && s.rowsRoot == root {
+	if catalog.Pending {
+		s.InvalidateRows()
+		return nil
+	}
+	if !s.rowsDirty && s.rowsRoot == root && s.rowsRevision == catalog.Revision {
 		return s.rows
 	}
 	rows := make([]Row, 0)
@@ -60,7 +67,7 @@ func (s *state) projectRows(root string, catalog CatalogPort) []Row {
 		}
 	}
 	walk(root, 0)
-	s.rows, s.rowsRoot, s.rowsDirty = rows, root, false
+	s.rows, s.rowsRoot, s.rowsRevision, s.rowsDirty = rows, root, catalog.Revision, false
 	return s.rows
 }
 
@@ -72,5 +79,6 @@ func (s *state) InvalidateRows() {
 	}
 	s.rows = nil
 	s.rowsRoot = ""
+	s.rowsRevision = 0
 	s.rowsDirty = true
 }

@@ -76,6 +76,7 @@ type NativeDropPort struct {
 // host owns catalog discovery, filtering, operation policy, and file access.
 type ViewModel struct {
 	Entries            []Entry
+	ActiveID           string
 	PopoverAnchorID    string
 	Commands           []Command
 	EmptyMessage       string
@@ -103,6 +104,7 @@ type ModelEntryInput struct {
 // the explorer view. It intentionally has no application object or callbacks.
 type ModelInput struct {
 	Entries          []ModelEntryInput
+	ActiveID         string
 	PopoverAnchorID  string
 	Commands         []Command
 	EmptyMessage     string
@@ -287,16 +289,36 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 	var nativeOffer *transfer.Offer
 	var popoverAnchor ui.Element
 	dropHoverID := ""
+	selectionFill := t.Background.Mix(t.Text, 0.055)
+	if t.Dark {
+		selectionFill = t.Background.Mix(t.Text, 0.09)
+	}
+	// ui.List owns pointer hover on its wrapper. Keep that layer, while the
+	// tree paints selection with an opaque neutral fill over it.
+	listTheme := *t
+	listTheme.Accent = ui.Transparent
+	listTheme.AccentText = t.Text
+	c.SetTheme(&listTheme)
 	list := ui.List(c, listState, len(entries), func(i int) {
 		entry := entries[i]
-		selected, focused := state.owns(entry.ID), state.focusID == entry.ID
+		// Keep these semantic states separate even while they share one visual treatment.
+		selected := state.owns(entry.ID)
+		active := model.ActiveID == entry.ID
+		focused := state.focusID == entry.ID
+		// The tree owns the visual selection while it has focus. Otherwise the
+		// open note owns it. This prevents a focused folder and active note from
+		// looking like two competing active rows.
+		isHighlighted := state.focused && (selected || focused)
+		if !state.focused {
+			isHighlighted = active
+		}
 		row := ui.ButtonBase(c).Label(entry.Label).Height(28).FillWidth().Radius(6).Padding(0, 8, 0, 4+float32(max(entry.Depth, 0))*14).
 			Gap(5).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 		if entry.ID == model.PopoverAnchorID {
 			popoverAnchor = row
 		}
-		if selected || focused || row.Hovered() || entry.DropHint {
-			row.Background(t.SurfaceHover)
+		if isHighlighted || entry.DropHint {
+			row.Background(selectionFill)
 		}
 		dropTarget := row
 		row.Children(func() {
@@ -306,7 +328,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 					chevron = componenticons.ChevronDown()
 				}
 				toggle := ui.ButtonBase(c).Label(entry.Label).Size(12, 20).Disabled(!entry.CanExpand).Padding(0).Children(func() {
-					ui.Icon(c, chevron).Size(12, 12).TextColor(t.TextMuted)
+					ui.Icon(c, chevron).Size(12, 12).TextColor(t.TextMuted.Alpha(0.55))
 				})
 				if toggle.Clicked() && entry.CanExpand {
 					pointerActivated = true
@@ -325,14 +347,13 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 				ui.Icon(c, icon).Size(14, 14).TextColor(t.TextMuted)
 			}
 			ui.Column(c).FillWidth().MinWidth(0).Gap(1).Children(func() {
-				labelColor := t.Text
+				labelColor := t.TextMuted
 				if state.IsCut(entry.ID) {
 					labelColor = t.TextMuted
+				} else if isHighlighted {
+					labelColor = t.Text
 				}
-				label := ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12.5).TextColor(labelColor)
-				if selected || focused {
-					label.FontWeight(600)
-				}
+				ui.Text(c, entry.Label).SingleLine().Ellipsis("…").FontSize(12.5).TextColor(labelColor)
 				if entry.Detail != "" {
 					ui.Text(c, entry.Detail).SingleLine().Ellipsis("…").FontSize(9.5).TextColor(t.TextMuted)
 				}
@@ -414,7 +435,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 				rowDropHandled = true
 				dropHoverID = entry.ID
 				updateDropHover(c, state, entry, i)
-				row.Background(t.SurfaceHover)
+				row.Background(selectionFill)
 			}
 			if model.NativeDrop.Operations != transfer.None && len(model.NativeDrop.Formats) > 0 {
 				opts := transfer.DropOptions{Formats: model.NativeDrop.Formats, Operations: model.NativeDrop.Operations}
@@ -423,7 +444,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 					dropHoverID = entry.ID
 					updateDropHover(c, state, entry, i)
 					nativeOffer = &offer
-					row.Background(t.SurfaceHover)
+					row.Background(selectionFill)
 				}
 				if drop, ok := ui.DropData(dropTarget, opts); ok {
 					rowDropHandled = true
@@ -432,7 +453,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 			}
 			if dropTarget.FileDragOver() {
 				rowDropHandled = true
-				row.Background(t.SurfaceHover)
+				row.Background(selectionFill)
 			}
 			if paths := dropTarget.DroppedFiles(); len(paths) > 0 {
 				rowDropHandled = true
@@ -457,6 +478,7 @@ func Render[T any](c *ui.Context, handle *Handle, model ViewModel, drag DragPort
 			})
 		}
 	})
+	c.SetTheme(t)
 	list.FillWidth().Grow(1).MinHeight(0).Padding(0, 6).Gap(1).TrackScroll(&state.scroll).Scrollbars(showScrollbar).Focusable()
 	attachContextMenu(list, "", model.RootContextActions, dispatchState)
 	if model.RootCanDrop && !rowDropHandled {

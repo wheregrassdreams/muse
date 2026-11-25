@@ -45,7 +45,7 @@ Grab a build from [Releases](https://github.com/CarlOpenLab/muse/releases/latest
 ```bash
 sh scripts/dev.sh             # run (signed, so macOS keeps permission grants)
 sh scripts/build.sh           # build a binary, signed with the same identity
-sh scripts/go.sh -C native test ./... # tests, with native search library
+sh scripts/test.sh            # tests; focused usage is in scripts/README.md
 ```
 
 The scripts sign with the first `Apple Development` identity in your keychain

@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	componenticons "muse/nativeui/workbench/framework/components/icons"
+	appTheme "muse/theme"
 	"muse/ui/scrollbar"
 )
 
@@ -145,7 +146,7 @@ func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatc
 		model = handle.project(model)
 	}
 	t := c.Theme()
-	quiet := t.TextMuted
+	quiet := editorMutedColor(t.Dark)
 	ui.Row(c).Height(36).Shrink(0).FillWidth().Gap(8).AlignItems(ui.Center).ObserveInput(func(event ui.InputEvent) {
 		if model.EditingLocation == "summary" && event.Kind == ui.InputKeyDown && event.Key == ui.KeyEscape {
 			dispatchAction(dispatch, Action{Kind: CancelEdit, FieldKey: model.EditingKey})
@@ -188,10 +189,10 @@ func renderMetadataHeader(c *ui.Context, handle *state, model ViewModel, dispatc
 						b.Background(t.SurfaceHover)
 					}
 					b.OnClick(func() { dispatchAction(dispatch, Action{Kind: BeginEdit, FieldKey: field.Key, Location: "summary"}) })
-					b.Children(func() { renderFieldValue(c, field, true) })
+					b.Children(func() { renderMetadataSummaryValue(c, field) })
 				}
 			} else {
-				renderFieldValue(c, field, true)
+				renderMetadataSummaryValue(c, field)
 			}
 		}
 	})
@@ -383,12 +384,30 @@ func renderFieldActions(c *ui.Context, field Field, dispatch func(Action)) {
 
 func renderFieldValue(c *ui.Context, field Field, compact bool) {
 	t := c.Theme()
+	renderFieldValueColor(c, field, compact, t.Text)
+}
+
+func renderMetadataSummaryValue(c *ui.Context, field Field) {
+	if field.Kind == List {
+		renderFieldValue(c, field, true)
+		return
+	}
+	renderFieldValueColor(c, field, true, editorMutedColor(c.Theme().Dark))
+}
+
+func editorMutedColor(dark bool) ui.Color {
+	muted := appTheme.EditorColors(dark).Muted
+	return ui.RGBA(muted.R, muted.G, muted.B, float32(muted.A)/255)
+}
+
+func renderFieldValueColor(c *ui.Context, field Field, compact bool, valueColor ui.Color) {
+	t := c.Theme()
 	value := fieldDisplay(field)
 	if field.Kind == List && len(field.Tags) > 0 {
 		ui.Row(c).FillWidth().MinWidth(0).Gap(5).Wrap().Children(func() {
 			for _, tag := range field.Tags {
 				ui.Text(c, tag).Key("property-tag-"+field.Key+"-"+tag).MaxWidth(150).
-					FontSize(12).TextColor(t.Text).Padding(5, 9).Radius(16).Background(t.SurfaceHover).SingleLine().Ellipsis("…")
+					FontSize(12).TextColor(valueColor).Padding(5, 9).Radius(16).Background(t.SurfaceHover).SingleLine().Ellipsis("…")
 			}
 		})
 		return
@@ -400,7 +419,7 @@ func renderFieldValue(c *ui.Context, field Field, compact bool) {
 	if compact {
 		fontSize = 12
 	}
-	ui.Text(c, value).FillWidth().FontSize(fontSize).TextColor(t.Text).Wrap()
+	ui.Text(c, value).FillWidth().FontSize(fontSize).TextColor(valueColor).Wrap()
 }
 
 func renderBacklinks(c *ui.Context, backlinks []Backlink, dispatch func(Action)) {

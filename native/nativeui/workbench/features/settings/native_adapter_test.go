@@ -53,10 +53,15 @@ func TestNativeHostOwnsPreferencePersistenceAndRuntimeProjection(t *testing.T) {
 	host.Dispatch(Action{Kind: ThemeChanged, Theme: ThemeDark})
 	host.Dispatch(Action{Kind: AccentChanged, AccentID: "blue"})
 	host.Dispatch(Action{Kind: HideMouseCursorChanged, Enabled: true})
+	host.Dispatch(Action{Kind: WindowBlurChanged, Enabled: false})
+	host.Dispatch(Action{Kind: WindowOpacityChanged, Number: 0.55})
 
 	runtime := host.Runtime()
 	if runtime.Appearance.Theme != ThemeDark || runtime.Appearance.AccentID != "blue" {
 		t.Fatalf("appearance runtime=%+v", runtime.Appearance)
+	}
+	if runtime.Appearance.WindowBlur || runtime.Appearance.WindowOpacity != 0.55 || repository.preferences.WindowBlur || repository.preferences.WindowOpacity != 0.55 {
+		t.Fatalf("window backdrop runtime=%+v preferences=%+v", runtime.Appearance, repository.preferences)
 	}
 	if !runtime.Editor.HideMouseCursor {
 		t.Fatalf("editor runtime=%+v", runtime.Editor)

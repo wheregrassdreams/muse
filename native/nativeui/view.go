@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	applicationvault "muse/application/vault"
+	vaultfileapp "muse/application/vault/files"
 	doctypes "muse/document/types"
 	"muse/locales"
 	documentdialogs "muse/nativeui/workbench/features/dialogs/document"
@@ -148,22 +149,26 @@ func (a *App) renderPanelSurface(c *ui.Context, surface shellui.Surface, render 
 			}
 		})
 		ui.Row(c).Shrink(0).Padding(0, 8, 10, 8).Children(func() {
-			a.panelIcon(c, componenticons.Settings(), locales.SettingsTitle(), a.openSettings)
+			a.panelIconWithColor(c, componenticons.Settings(), locales.SettingsTitle(), a.openSettings, c.Theme().TextMuted)
 		})
 	})
 }
 
 func (a *App) panelIcon(c *ui.Context, icon *ui.SVG, label string, fn func()) {
+	color := c.Theme().TextMuted
+	if c.Theme().Dark {
+		color = ui.RGBA(255, 255, 255, 0.92)
+	}
+	a.panelIconWithColor(c, icon, label, fn, color)
+}
+
+func (a *App) panelIconWithColor(c *ui.Context, icon *ui.SVG, label string, fn func(), color ui.Color) {
 	button := ui.ButtonBase(c).Size(26, 26).Radius(6).Padding(0).Justify(ui.Center).AlignItems(ui.Center).Label(label).Tooltip(label)
 	if button.Hovered() && fn != nil {
 		button.Background(c.Theme().SurfaceHover)
 	}
 	if fn != nil {
 		button.OnClick(fn)
-	}
-	color := c.Theme().TextMuted
-	if c.Theme().Dark {
-		color = ui.RGBA(255, 255, 255, 0.92)
 	}
 	button.Children(func() { ui.Icon(c, icon).Size(16, 16).TextColor(color) })
 }
@@ -221,12 +226,10 @@ func (a *App) renderWorkspaceSearch(c *ui.Context) {
 			} else {
 				a.workspaceSearch.ClosePanel()
 			}
-			a.panelOpen, a.panelW = false, 0
 		case searchui.OpenRecent:
 			if a.vault != nil {
 				_ = a.workspaceSearch.CloseSearch(port, input)
 			}
-			a.panelOpen, a.panelW = false, 0
 			a.requestOpen(action.Recent.Path)
 		case searchui.OpenResult:
 			outcome := a.workspaceSearch.Navigate(port, a.documentRepository, input, searchHit(action.Result), a.documentPath(), a.documentSnapshot().Revision, c.Now())
@@ -234,7 +237,6 @@ func (a *App) renderWorkspaceSearch(c *ui.Context) {
 				a.notice(outcome.Err.Error())
 			} else if outcome.Kind == searchui.OutcomeNavigate {
 				_ = a.workspaceSearch.CloseSearch(port, input)
-				a.panelOpen, a.panelW = false, 0
 				a.navigateIndexed(outcome.Hit.Path, outcome.Hit.Start)
 			}
 		}
@@ -422,9 +424,11 @@ func (a *App) workbenchFrame() shellui.Frame {
 		panelWidth = 268
 	}
 	mode, accent := uint8(0), "red"
+	windowBlur, windowOpacity := false, float32(0.7)
 	if a.settingsPanel != nil {
 		appearance := a.settingsPanel.Runtime().Appearance
 		mode, accent = uint8(appearance.Theme), appearance.AccentID
+		windowBlur, windowOpacity = appearance.WindowBlur, float32(appearance.WindowOpacity)
 	}
 	toggleIcon, toggleLabel := componenticons.PanelLeftOpen(), locales.AiSidebarShow()
 	if a.panelOpen {
@@ -439,6 +443,7 @@ func (a *App) workbenchFrame() shellui.Frame {
 		CursorUntil:      a.mouseCursorHiddenUntil,
 		PanelToggleLabel: toggleLabel, PanelToggleIcon: toggleIcon,
 		WindowButtonsTop: 18, ThemeMode: mode, AccentID: accent,
+		WindowBlur: windowBlur, WindowOpacity: windowOpacity,
 	}
 }
 
@@ -487,8 +492,13 @@ func (a *App) renderEditorCanvas(c *ui.Context, flat bool) {
 		if editor := a.noteEditor(); editor != nil && editor.NavigationCommands() != nil {
 			scrollY = editor.NavigationCommands().ScrollY()
 		}
-		windowcontrols.RenderHeaderFade(c, &a.headerFadeCache, a.headerFadeEnabled(),
-			max(float32(44), c.TitleBar().Height), scrollY, c.Theme().Background)
+		fadeEnabled := a.headerFadeEnabled()
+		tint := c.Theme().Background
+		if !fadeEnabled {
+			tint = a.editorSurfaceTint(c)
+		}
+		windowcontrols.RenderHeaderFade(c, &a.headerFadeCache, fadeEnabled,
+			max(float32(44), c.TitleBar().Height), scrollY, tint)
 		a.renderEditorHeader(c, true)
 	})
 }
@@ -498,6 +508,12 @@ func (a *App) headerFadeEnabled() bool {
 		return false
 	}
 	return a.settingsPanel.Runtime().Appearance.HeaderFade
+}
+
+func (a *App) editorSurfaceTint(c *ui.Context) ui.Color {
+	// The flat editor surface is its own layer above the window material. Its
+	// treatment stays fixed; WindowOpacity belongs to the window backdrop.
+	return shellui.WindowBackground(c.Theme().Dark)
 }
 
 func (a *App) renderEditorHeader(c *ui.Context, flat bool) {
@@ -532,7 +548,8 @@ func (a *App) editorHeaderModel(c *ui.Context, flat bool) noteeditor.HeaderModel
 		items = append(items, locales.DocumentModifiedAt(info.ModTime()))
 	}
 	return noteeditor.HeaderModel{
-		Flat: flat, PanelWidth: a.panelW, HeaderHeight: max(float32(44), c.TitleBar().Height),
+		Flat:       flat,
+		PanelWidth: a.panelW, HeaderHeight: max(float32(44), c.TitleBar().Height),
 		Path: label, HasPrevious: a.navigationHistory != nil && a.navigationHistory.CanMove(-1),
 		HasNext:       a.navigationHistory != nil && a.navigationHistory.CanMove(1),
 		ImageDocument: a.imageDocumentOpen(), Mode: mode, Status: a.status,
@@ -666,7 +683,10 @@ func (a *App) renderFilesSurface(c *ui.Context) {
 		}
 	}
 	explorer.RenderSurface(c, explorer.SurfacePorts{CatalogPanelPorts: explorer.CatalogPanelPorts{
-		Root: a.root, Controller: a.fileTreeState,
+		Root: a.root, ActivePath: a.documentPath(), Controller: a.fileTreeState,
+		Loading:     a.vault == nil || !a.vaultSnapshot.Ready,
+		LoadError:   a.vaultSnapshot.CatalogError,
+		Revision:    a.vaultSnapshot.FilesRevision,
 		DragPreview: dragPreview,
 		Drag: explorer.DragPort{
 			Make: func(path string, selected []string) explorer.DragItem {
@@ -685,7 +705,9 @@ func (a *App) renderFilesSurface(c *ui.Context) {
 		},
 		Focus: &a.treeFocusHandle, OnAction: a.routeExplorerAction,
 		Children: func(directory string) []explorer.CatalogEntry {
-			entries := useCases.CatalogChildren(a.vault, a.directoryCatalog, directory)
+			entries := useCases.CatalogChildren(a.vault, a.directoryCatalog, directory, vaultfileapp.CatalogVersion{
+				Ready: a.vaultSnapshot.CatalogReady, Revision: a.vaultSnapshot.FilesRevision,
+			})
 			result := make([]explorer.CatalogEntry, len(entries))
 			for i, entry := range entries {
 				kind := explorer.CatalogFile

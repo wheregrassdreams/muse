@@ -19,6 +19,8 @@ const (
 type Preferences struct {
 	Theme            ThemeMode `json:"theme,omitempty"`
 	Accent           string    `json:"accent,omitempty"`
+	WindowBlur       bool      `json:"windowBlur"`
+	WindowOpacity    float64   `json:"windowOpacity"`
 	AIEnabled        bool      `json:"aiEnabled,omitempty"`
 	SmoothPageJumps  bool      `json:"smoothPageJumps,omitempty"`
 	Locale           string    `json:"locale,omitempty"`
@@ -70,7 +72,9 @@ func DefaultAssistantTools() AssistantTools {
 
 func (s AssistantSettings) UsesMagpie() bool { return s.Provider == AssistantProviderMagpie }
 
-func DefaultPreferences() Preferences { return Preferences{Theme: ThemeSystem} }
+func DefaultPreferences() Preferences {
+	return Preferences{Theme: ThemeSystem, WindowBlur: true, WindowOpacity: 0.7}
+}
 
 func DefaultEditorSettings() EditorSettings { return EditorSettings{Keymap: "default"} }
 
@@ -81,6 +85,9 @@ func DefaultAssistantSettings() AssistantSettings {
 func NormalizePreferences(p Preferences) Preferences {
 	if p.Theme != ThemeLight && p.Theme != ThemeDark && p.Theme != ThemeSystem {
 		p.Theme = ThemeSystem
+	}
+	if p.WindowOpacity < 0.2 || p.WindowOpacity > 1 {
+		p.WindowOpacity = 0.7
 	}
 	return p
 }

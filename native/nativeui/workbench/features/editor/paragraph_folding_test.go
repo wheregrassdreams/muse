@@ -74,6 +74,25 @@ func TestFoldCanReopenAndAddsEllipsis(t *testing.T) {
 	h.shot("expanded-nested-section")
 }
 
+func TestExpandingHeadingFoldMovesCaretIntoTitleText(t *testing.T) {
+	h := newHarness(t, foldTestSource())
+	top := headingAtSource(t, h.e, "# Top")
+	h.e.toggleFold(top)
+	if !h.e.isFoldedHeading(top) {
+		t.Fatal("heading setup did not fold the section")
+	}
+	other := strings.Index(h.e.Source(), "Visible ending")
+	h.e.setSessionSelection(other, other)
+	top = headingAtSource(t, h.e, "# Top")
+	h.e.toggleFold(top)
+	if h.e.isFoldedHeading(top) {
+		t.Fatal("heading remained folded after expanding")
+	}
+	if got, want := h.e.Caret(), strings.Index(h.e.Source(), "Top"); got != want {
+		t.Fatalf("caret after expanding = %d, want title text at %d", got, want)
+	}
+}
+
 func TestFoldChevronTracksFirstDisplayedTitleLine(t *testing.T) {
 	src := "# H1 title that wraps across multiple lines when the editor is narrow\n\nbody 1\n\n## H2\n\nbody 2\n\n### H3\n\nbody 3\n\n#### H4\n\nbody 4\n\n##### H5\n\nbody 5\n\n###### H6\n\nbody 6\n\nSetext title\n============\n\nbody 7\n\n# Raw source title\n\nbody 8"
 	h := newHarness(t, src)

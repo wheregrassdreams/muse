@@ -9,7 +9,7 @@ import (
 // CatalogChildren returns the cached immediate children for an absolute
 // directory in the active vault. Path containment and conversion to the
 // vault-relative catalog key belong to the vault application boundary.
-func (u *FileUseCases) CatalogChildren(session CatalogSession, catalog *DirectoryCatalog, directory string) []vaultfiles.Entry {
+func (u *FileUseCases) CatalogChildren(session CatalogSession, catalog *DirectoryCatalog, directory string, version CatalogVersion) []vaultfiles.Entry {
 	if u == nil || session == nil || catalog == nil || !u.OwnsPath(directory) {
 		return nil
 	}
@@ -20,7 +20,7 @@ func (u *FileUseCases) CatalogChildren(session CatalogSession, catalog *Director
 	if relative == "." {
 		relative = ""
 	}
-	return catalog.Children(session, filepath.ToSlash(relative))
+	return catalog.Children(session, filepath.ToSlash(relative), version)
 }
 
 // CatalogEntry resolves an absolute vault path through the current session's

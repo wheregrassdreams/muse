@@ -34,6 +34,7 @@ func BuildViewModel(handle *Handle, input ModelInput) ViewModel {
 	}
 
 	model := ViewModel{
+		ActiveID:         input.ActiveID,
 		PopoverAnchorID:  input.PopoverAnchorID,
 		Commands:         append([]Command(nil), input.Commands...),
 		EmptyMessage:     input.EmptyMessage,

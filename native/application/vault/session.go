@@ -64,6 +64,7 @@ type Session struct {
 	snapshot                     Snapshot
 	index                        IndexPort
 	catalog                      CatalogPort
+	catalogReady                 bool
 	watcher                      WatcherPort
 	links                        *LinkGraph
 	linksPath                    string
@@ -416,9 +417,9 @@ func (s *Session) Paths() []string {
 	}
 	defer s.endOperation()
 	s.mu.RLock()
-	catalog, closed := s.catalog, s.closed
+	catalog, closed, ready := s.catalog, s.closed, s.catalogReady
 	s.mu.RUnlock()
-	if closed || catalog == nil {
+	if closed || !ready || catalog == nil {
 		return nil
 	}
 	return append([]string(nil), catalog.Paths()...)
@@ -531,9 +532,9 @@ func (s *Session) Children(directory string) []vaultfiles.Entry {
 	}
 	defer s.endOperation()
 	s.mu.RLock()
-	catalog, closed := s.catalog, s.closed
+	catalog, closed, ready := s.catalog, s.closed, s.catalogReady
 	s.mu.RUnlock()
-	if closed || catalog == nil {
+	if closed || !ready || catalog == nil {
 		return nil
 	}
 	return append([]vaultfiles.Entry(nil), catalog.Children(directory)...)
@@ -546,9 +547,9 @@ func (s *Session) Entry(path string) (vaultfiles.Entry, bool) {
 	}
 	defer s.endOperation()
 	s.mu.RLock()
-	catalog, closed := s.catalog, s.closed
+	catalog, closed, ready := s.catalog, s.closed, s.catalogReady
 	s.mu.RUnlock()
-	if closed || catalog == nil {
+	if closed || !ready || catalog == nil {
 		return vaultfiles.Entry{}, false
 	}
 	return catalog.Entry(path)
@@ -772,9 +773,12 @@ func (s *Session) closeResources() {
 	watcher, searchIndex, graph := s.watcher, s.search, s.links
 	s.watcher, s.search, s.links = nil, nil, nil
 	s.index, s.catalog, s.quickOpen = nil, nil, nil
+	s.catalogReady = false
 	s.wikiSuggestions = nil
 	s.wikiSuggestionsReady = false
 	s.snapshot.Ready = false
+	s.snapshot.CatalogReady = false
+	s.snapshot.CatalogError = ""
 	s.snapshot.SearchAvailable = false
 	s.snapshot.Search.Busy = false
 	s.snapshot.LinksBusy = false
@@ -808,12 +812,16 @@ func (s *Session) closeResources() {
 func (s *Session) startup() {
 	defer s.workers.Done()
 	var errs []error
+	var catalogErr error
 	index, err := s.deps.NewIndex(s.root)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("create index: %w", err))
 	}
 	catalog, catalogErr := s.deps.NewCatalog(s.root)
 	if catalogErr != nil {
+		errs = append(errs, fmt.Errorf("create catalog: %w", catalogErr))
+	} else if catalog == nil {
+		catalogErr = errors.New("catalog factory returned no catalog")
 		errs = append(errs, fmt.Errorf("create catalog: %w", catalogErr))
 	}
 	var watcher WatcherPort
@@ -845,9 +853,13 @@ func (s *Session) startup() {
 			}
 		}
 	}
+	catalogReady := false
 	if catalog != nil {
 		if err := catalog.Rebuild(); err != nil {
+			catalogErr = errors.Join(catalogErr, err)
 			errs = append(errs, fmt.Errorf("rebuild catalog: %w", err))
+		} else {
+			catalogReady = catalogErr == nil
 		}
 	}
 	var searchIndex *search.Index
@@ -870,10 +882,13 @@ func (s *Session) startup() {
 	}
 	s.mu.Lock()
 	s.index, s.catalog, s.watcher, s.search = index, catalog, watcher, searchIndex
+	s.catalogReady = catalogReady
 	if index != nil && catalog != nil {
 		s.quickOpen = NewQuickOpen(s.root, catalog, index)
 	}
 	s.snapshot.Ready = true
+	s.snapshot.CatalogReady = catalogReady
+	s.snapshot.CatalogError = errorString(catalogErr)
 	s.snapshot.IndexRevision = revisionOf(index)
 	s.snapshot.FilesRevision = filesRevisionOf(catalog)
 	s.snapshot.SearchAvailable = searchIndex != nil

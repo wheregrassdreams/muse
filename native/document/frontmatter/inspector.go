@@ -76,7 +76,7 @@ func ProjectInspector(fields []Field, preferences map[string]FieldPreference) In
 		if OmitFromPropertySummary(field.Key) || strings.EqualFold(field.Key, "type") || preferences[field.Key].Hidden {
 			continue
 		}
-		if IsSecondaryProperty(field.Key) {
+		if IsSecondaryProperty(field.Key) && !preferences[field.Key].Pinned {
 			continue
 		}
 		if field.Kind != "structure" && strings.TrimSpace(field.Value) == "" {

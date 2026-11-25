@@ -45,7 +45,7 @@ AI 面板是一位真正的写作 Agent，不是聊天框：
 ```bash
 sh scripts/dev.sh                       # 运行
 sh scripts/build.sh                     # 构建二进制
-sh scripts/go.sh -C native test ./...    # 测试，含原生搜索链接
+sh scripts/test.sh                      # 测试；聚焦用法见 scripts/README.md
 ```
 
 需要 Go 1.27.3+、CGO 和 C 编译器。实验全文搜索使用 Anytype 的 Tantivy 绑定，脚本首次构建时自动下载并校验固定版本静态库。Linux 使用 musl 版本，需设置 `CC=musl-gcc`；Windows 在 Git Bash 中使用 `sh scripts/go.sh -C native run .`。详见[搜索构建与运行说明](docs/tantivy-search.md)。不需要 Node、pnpm、vite，也没有任何前端构建。

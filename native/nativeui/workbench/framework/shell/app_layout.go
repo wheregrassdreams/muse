@@ -31,6 +31,8 @@ type Frame struct {
 	PanelOpenAt      float32
 	PanelResizeTop   float32
 	FlatCanvas       bool
+	WindowBlur       bool
+	WindowOpacity    float32
 	Surface          Surface
 	Background       ui.Color
 	Vibrant          bool
@@ -100,12 +102,19 @@ func (l *Layout) Render(c *ui.Context) {
 	frame := l.ports.Frame()
 	l.applyTheme(c, frame)
 	row := ui.Row(c).Fill()
-	if frame.Vibrant || c.Vibrancy() {
+	if frame.Vibrant || frame.WindowBlur || c.Vibrancy() {
 		c.Root().Background(ui.Transparent)
-	} else if frame.Background != (ui.Color{}) {
+	}
+	switch {
+	case frame.Background != (ui.Color{}):
 		row.Background(frame.Background)
-	} else {
-		row.Background(windowBackground(c.Theme().Dark))
+	case frame.Vibrant:
+		// The caller explicitly requested a fully transparent shell surface.
+	case frame.WindowBlur:
+	// The sidebar shows the window background directly; the editor draws its
+	// own surface above that layer.
+	default:
+		row.Background(WindowBackground(c.Theme().Dark))
 	}
 	if l.ports.ObserveInput != nil {
 		row.ObserveInput(l.ports.ObserveInput)
@@ -137,6 +146,14 @@ func (l *Layout) Render(c *ui.Context) {
 			Minimize: frame.Window.Minimize, Maximize: frame.Window.Maximize,
 			Restore: frame.Window.Unmaximize, Close: frame.Window.Close,
 		})
+	}
+	// Features can call SetTheme while building their content; MyGo then resets
+	// the root background to that theme's opaque background. Reapply the window
+	// material last so transparent sidebars keep the configured backdrop.
+	if frame.WindowBlur {
+		c.Root().Background(WindowBackground(c.Theme().Dark).Alpha(windowOpacity(frame.WindowOpacity)))
+	} else if frame.Vibrant || c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
 	}
 }
 
@@ -172,7 +189,11 @@ func (l *Layout) renderPanel(c *ui.Context, frame Frame) float32 {
 	if l.ports.PanelWidth != nil {
 		l.ports.PanelWidth(visible)
 	}
-	panel.Width(visible).Background(c.Theme().Background.Alpha(0.8))
+	panelBackground := c.Theme().Background
+	if frame.WindowBlur {
+		panelBackground = ui.Transparent
+	}
+	panel.Width(visible).Background(panelBackground)
 	if visible > 0.5 {
 		panel.Children(func() {
 			ui.Column(c).Width(width).FillHeight().Opacity(min(visible/width, 1)).Children(func() {
@@ -202,13 +223,21 @@ func (l *Layout) renderCanvas(c *ui.Context, frame Frame, panelWidth float32) {
 	padded := ui.Row(c).Grow(1).FillHeight().MinWidth(0).Padding(padRight, padBottom, padBottom, left)
 	padded.Children(func() {
 		if frame.FlatCanvas {
-			ui.Column(c).Key("shell-editor-canvas").Fill().Clip().Background(windowBackground(theme.Dark)).Children(func() {
+			editorBackground := theme.Background
+			if frame.WindowBlur {
+				editorBackground = WindowBackground(theme.Dark)
+			}
+			ui.Column(c).Key("shell-editor-canvas").Fill().Clip().Background(editorBackground).Children(func() {
 				l.ports.RenderCanvas(c, true)
 				l.resizeHandle(c, frame, 0)
 			})
 			return
 		}
-		card := ui.Column(c).Key("shell-editor-card").Fill().Radius(14).Clip().Background(theme.Background)
+		cardBackground := theme.Background
+		if frame.WindowBlur {
+			cardBackground = WindowBackground(theme.Dark)
+		}
+		card := ui.Column(c).Key("shell-editor-card").Fill().Radius(14).Clip().Background(cardBackground)
 		if theme.Dark {
 			card.Border(1, ui.RGBA(236, 236, 240, 0.12)).
 				Shadow(0, 1, 1, 0, ui.RGBA(0, 0, 0, 0.2)).
@@ -273,9 +302,9 @@ func (l *Layout) applyTheme(c *ui.Context, frame Frame) {
 	t := *c.Theme()
 	if dark {
 		t.Dark = true
-		t.Background, t.Surface = ui.Hex("#232328"), ui.Hex("#2a2a30")
+		t.Background, t.Surface = ui.Hex("#1f1f1f"), ui.Hex("#252525")
 		t.SurfaceHover, t.SurfacePressed = ui.RGBA(255, 255, 255, 0.07), ui.RGBA(255, 255, 255, 0.12)
-		t.Border, t.Text, t.TextMuted = ui.RGBA(255, 255, 255, 0.07), ui.Hex("#ececf0"), ui.Hex("#a9a9b4")
+		t.Border, t.Text, t.TextMuted = ui.RGBA(255, 255, 255, 0.07), ui.Hex("#ededed"), ui.Hex("#a9a9a9")
 	} else {
 		t.Dark = false
 		t.Background, t.Surface = ui.Hex("#ffffff"), ui.Hex("#f3f3f6")
@@ -289,11 +318,20 @@ func (l *Layout) applyTheme(c *ui.Context, frame Frame) {
 	c.SetTheme(&t)
 }
 
-func windowBackground(dark bool) ui.Color {
+// WindowBackground returns the tint used over the native window material and
+// for the editor surface that sits above it.
+func WindowBackground(dark bool) ui.Color {
 	if dark {
 		return ui.Hex("#1a1a1a")
 	}
 	return ui.Hex("#ffffff")
+}
+
+func windowOpacity(value float32) float32 {
+	if value <= 0 {
+		return 0.7
+	}
+	return clamp(value, 0, 1)
 }
 
 func positive(value, fallback float32) float32 {
@@ -390,7 +428,7 @@ func (l *Layout) resizeHandle(c *ui.Context, frame Frame, left float32) {
 			gripHeight, gripWidth, opacity = 56, 4, 0.85
 			color = c.Theme().Text
 			if !l.dragOpen {
-				opacity, color = 0.95, c.Theme().Accent
+				opacity = 0.95
 			}
 		} else if hovered {
 			gripHeight, gripWidth, opacity = 40, 3, 0.5

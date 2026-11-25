@@ -16,7 +16,7 @@
 # MUSE_MEMORY_PROFILE_PATH to choose another heap profile location.
 set -eu
 cd "$(dirname "$0")/.."
-. scripts/signing.sh
+. scripts/common.sh
 
 out=native/.mygo/play
 diagnostics_abs=$(pwd)/$out/diagnostics
@@ -38,14 +38,8 @@ reset() {
 }
 
 build() {
-  sh scripts/go.sh build -C native -o .mygo/play/Muse ./cmd/muse-native
-  identity="$(mygo_sign_identity)"
-  if [ -n "$identity" ] && command -v codesign >/dev/null 2>&1; then
-    codesign --force --sign "$identity" --timestamp=none "$out/Muse"
-  elif [ "$(uname -s)" = Darwin ]; then
-    echo "warning: no Apple Development identity found; Muse is unsigned," >&2
-    echo "         so macOS asks for permissions again after every rebuild." >&2
-  fi
+  muse_go_build "$muse_root/$out/Muse"
+  muse_sign "$muse_root/$out/Muse"
 }
 
 # The editor resolves its resources from its own directory, so it starts

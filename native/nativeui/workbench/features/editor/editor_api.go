@@ -113,6 +113,26 @@ func (e *Editor) InsertAtCaret(md string) {
 // Caret returns the caret's offset in the source.
 func (e *Editor) Caret() int { return e.Session.Selection().Head }
 
+// InitialCaretOffsetAt returns the first editable source position at or after
+// sourceOffset, respecting hidden content and Markdown syntax.
+func (e *Editor) InitialCaretOffsetAt(sourceOffset int) int {
+	for _, leaf := range e.leaves {
+		if e.foldHidden(leaf) || leaf.end <= sourceOffset {
+			continue
+		}
+		if leaf.lineStart > sourceOffset {
+			if stop, ok := e.edgeStop(leaf, false); ok {
+				return stop
+			}
+		}
+		if stop, ok := e.edgeStop(leaf, false); ok && stop >= sourceOffset {
+			return stop
+		}
+		return sourceOffset
+	}
+	return e.firstStop()
+}
+
 func runeStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // WindowPoint returns where the caret at source offset off shows in the

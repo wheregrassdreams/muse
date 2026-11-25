@@ -22,6 +22,26 @@ func TestThemeChoiceEmitsTypedTheme(t *testing.T) {
 	}
 }
 
+func TestWindowBackdropControlsEmitTypedActions(t *testing.T) {
+	var actions []Action
+	state := newController()
+	tester := ui.NewTester(func(c *ui.Context) {
+		render(c, state, ViewModel{Appearance: Appearance{WindowBlur: true, WindowOpacity: 0.7}}, func(action Action) {
+			actions = append(actions, action)
+		})
+	}, 820, 620)
+	tester.Frame()
+	if !tester.HasText(locales.SettingsWindowOpacity()) {
+		t.Fatal("window opacity slider is missing while window blur is enabled")
+	}
+	if err := tester.Click(locales.SettingsWindowBlur()); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Kind != WindowBlurChanged || actions[0].Enabled {
+		t.Fatalf("actions = %+v, want window-blur toggle", actions)
+	}
+}
+
 func TestPageNavigationEmitsTypedPage(t *testing.T) {
 	var actions []Action
 	state := newController()

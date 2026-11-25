@@ -42,7 +42,7 @@ func TestFileUseCasesOwnCatalogPathResolution(t *testing.T) {
 	}}
 	useCases := NewFileUseCases(root, nil, nil)
 	catalog := NewDirectoryCatalog()
-	children := useCases.CatalogChildren(session, catalog, root)
+	children := useCases.CatalogChildren(session, catalog, root, CatalogVersion{Ready: true, Revision: 1})
 	if len(children) != 1 || children[0].Path != "notes" {
 		t.Fatalf("root catalog children = %+v, want notes", children)
 	}

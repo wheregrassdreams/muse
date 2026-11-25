@@ -559,6 +559,30 @@ func SettingsHeaderFadeDetail() string {
 	return Catalog.Format(i18n.Locale(), "settingsHeaderFadeDetail", nil)
 }
 
+// SettingsWindowBlur says "窗口背景模糊"
+// in the language the app shows.
+func SettingsWindowBlur() string {
+	return Catalog.Format(i18n.Locale(), "settingsWindowBlur", nil)
+}
+
+// SettingsWindowBlurDetail says "显示系统背景的模糊效果，并允许窗口背景透出。"
+// in the language the app shows.
+func SettingsWindowBlurDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsWindowBlurDetail", nil)
+}
+
+// SettingsWindowOpacity says "编辑区底色不透明度"
+// in the language the app shows.
+func SettingsWindowOpacity() string {
+	return Catalog.Format(i18n.Locale(), "settingsWindowOpacity", nil)
+}
+
+// SettingsWindowOpacityDetail says "控制编辑区底色在系统模糊背景上的不透明度；文字和图片保持不透明。默认 0.7。"
+// in the language the app shows.
+func SettingsWindowOpacityDetail() string {
+	return Catalog.Format(i18n.Locale(), "settingsWindowOpacityDetail", nil)
+}
+
 // EditorVimSearch says "Vim 搜索"
 // in the language the app shows.
 func EditorVimSearch() string { return Catalog.Format(i18n.Locale(), "editorVimSearch", nil) }
@@ -684,6 +708,10 @@ func FilesBackToTree() string { return Catalog.Format(i18n.Locale(), "filesBackT
 // FilesNoEditableText says "没有可编辑的文本文件"
 // in the language the app shows.
 func FilesNoEditableText() string { return Catalog.Format(i18n.Locale(), "filesNoEditableText", nil) }
+
+// FilesLoading says "正在加载文件…"
+// in the language the app shows.
+func FilesLoading() string { return Catalog.Format(i18n.Locale(), "filesLoading", nil) }
 
 // FilesEditableTypes says "支持 md / txt / json 等文本类型"
 // in the language the app shows.
@@ -3321,7 +3349,7 @@ func PropertyDateFieldLabel() string {
 	return Catalog.Format(i18n.Locale(), "propertyDateFieldLabel", nil)
 }
 
-// PropertyDefaultNoteType says "笔记"
+// PropertyDefaultNoteType says "Note"
 // in the language the app shows.
 func PropertyDefaultNoteType() string {
 	return Catalog.Format(i18n.Locale(), "propertyDefaultNoteType", nil)

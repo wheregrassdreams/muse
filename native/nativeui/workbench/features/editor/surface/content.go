@@ -170,6 +170,12 @@ type DocumentOpenCommands interface {
 	ResetForDocumentOpen()
 }
 
+// InitialCaretCommands reports the first editable source position for a new
+// document after the surface has applied its presentation settings.
+type InitialCaretCommands interface {
+	InitialCaretOffsetAt(sourceOffset int) int
+}
+
 // SystemEditCommands applies application-owned document changes as a system
 // patch, preserving editor history and selection semantics.
 type SystemEditCommands interface {
@@ -403,7 +409,13 @@ func NewContent(
 	// The surface's presentation settings determine which source ranges are
 	// visible. Apply the same source-to-display start mapping on first mount as
 	// on later document opens, once those settings are available.
+	initial := cursorOffset == 0
 	cursorOffset = initialVisibleOffset(source, cursorOffset, content.surface)
+	if initial {
+		if initial, ok := content.surface.(InitialCaretCommands); ok {
+			cursorOffset = initial.InitialCaretOffsetAt(cursorOffset)
+		}
+	}
 	cursorOffset = clampOffset(source, cursorOffset)
 	if err := session.SetSelection(editor.Selection{Anchor: cursorOffset, Head: cursorOffset}); err != nil {
 		content.Close()

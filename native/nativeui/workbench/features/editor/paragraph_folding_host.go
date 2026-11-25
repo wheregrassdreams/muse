@@ -142,10 +142,18 @@ func (e *Editor) toggleFold(h *leaf) {
 	if !ok {
 		return
 	}
+	wasFolded := e.folded[h.lineStart]
+	caret := 0
+	if wasFolded {
+		caret, _ = e.edgeStop(h, false)
+	}
 	sections, folded := e.foldModels()
 	result := paragraph.ApplyFold(sections, folded, paragraph.FoldToggle, h.lineStart, e.selectionFocus())
 	e.applyFoldResult(result)
 	if result.Changed {
+		if wasFolded {
+			e.setCaret(caret, false)
+		}
 		for _, start := range result.Folded {
 			if start == h.lineStart {
 				e.clearTableSelection()

@@ -13,11 +13,11 @@ import (
 	"github.com/egoist/mygo/ui"
 	"muse/locales"
 	"muse/markdown/images"
+	"muse/nativeui/workbench/features/explorer/filetree"
+	componenticons "muse/nativeui/workbench/framework/components/icons"
 	"muse/nativeui/workbench/framework/interactions/commands"
 	"muse/nativeui/workbench/framework/interactions/dragdrop"
-	"muse/nativeui/workbench/features/explorer/filetree"
 	"muse/nativeui/workbench/framework/interactions/keybindings"
-	componenticons "muse/nativeui/workbench/framework/components/icons"
 )
 
 // Controller owns Explorer's per-window transient presentation state. It is
@@ -284,6 +284,7 @@ const (
 // They describe rendering abilities; they do not expose an application object.
 type PanelSnapshot struct {
 	Entries              []EntrySnapshot
+	ActivePath           string
 	PopoverAnchorID      string
 	EmptyMessage         string
 	EmptyActionLabel     string
@@ -340,7 +341,7 @@ func (controller *Controller) RenderPanel(c *ui.Context, snapshot PanelSnapshot,
 		entries[i] = filetree.ModelEntryInput{Row: entry.Row, Icon: entry.Icon, IconTint: entry.IconTint, Previewable: entry.Previewable}
 	}
 	model := filetree.ModelInput{
-		Entries: entries, PopoverAnchorID: snapshot.PopoverAnchorID,
+		Entries: entries, ActiveID: snapshot.ActivePath, PopoverAnchorID: snapshot.PopoverAnchorID,
 		EmptyMessage: snapshot.EmptyMessage, EmptyActionLabel: snapshot.EmptyActionLabel,
 		EmptyActions: append([]Command(nil), snapshot.EmptyActions...),
 		Recent:       append([]RecentItem(nil), snapshot.Recent...), RootLabel: snapshot.RootLabel,

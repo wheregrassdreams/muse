@@ -121,6 +121,10 @@
   "settingsSearchMatchPulse": "搜索命中轻微动效",
   "settingsSearchMatchPulseDetail": "定位到新的当前匹配时，短暂显示轻微弹跳。",
   "settingsHeaderFadeDetail": "扁平风格下，头部浮在文档上：页面滚到它下面时模糊、淡出。关掉只有一块不透明的头部底色。",
+  "settingsWindowBlur": "窗口背景模糊",
+  "settingsWindowBlurDetail": "显示系统背景的模糊效果，并允许窗口背景透出。",
+  "settingsWindowOpacity": "窗口背景不透明度",
+  "settingsWindowOpacityDetail": "调整侧边栏透出的系统模糊背景上窗口底色的浓度；编辑区使用完全不透明的独立底色。默认 0.7。",
   "editorVimSearch": "Vim 搜索",
   "editorHeadingNavigation": "标题导航",
   "editorTableColumnAlignment": "列对齐",
@@ -150,6 +154,7 @@
   "documentNewMenu": "新建菜单",
   "filesBackToTree": "返回文件树",
   "filesNoEditableText": "没有可编辑的文本文件",
+  "filesLoading": "正在加载文件…",
   "filesEditableTypes": "支持 md / txt / json 等文本类型",
   "filesTreeLabel": "文件树",
   "filesCutHint": "剪切项目提示",
@@ -680,5 +685,5 @@
   "propertyStatusFieldLabel": "状态",
   "propertyAliasesFieldLabel": "别名",
   "propertyDateFieldLabel": "日期",
-  "propertyDefaultNoteType": "笔记"
+  "propertyDefaultNoteType": "Note"
 }
